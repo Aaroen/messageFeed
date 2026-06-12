@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"messagefeed/internal/config"
+	appRuntime "messagefeed/internal/runtime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -45,12 +46,25 @@ func main() {
 		"deployment_mode", cfg.Runtime.DeploymentMode,
 	)
 
+	// 节点信息在启动时构建为快照。
+	// 后续 /api/runtime/node 直接返回该快照，避免每次请求重新读取环境变量。
+	nodeInfo := appRuntime.NewNodeInfo(appRuntime.NodeOptions{
+		NodeID:            cfg.Runtime.AppNodeID,
+		DeploymentMode:    cfg.Runtime.DeploymentMode,
+		PublicBaseURL:     cfg.Runtime.PublicBaseURL,
+		BindAddr:          cfg.HTTP.BindAddr,
+		TrustedProxyCIDRs: cfg.Runtime.TrustedProxyCIDRs,
+		StartedAt:         time.Now().UTC(),
+	})
+
 	// 第一版路由保持最小集合：
 	// "/" 用于人工确认 API 进程可达；
-	// "/healthz" 作为阶段一要求的存活检查端点。
+	// "/healthz" 作为阶段一要求的存活检查端点；
+	// "/api/runtime/node" 返回当前节点的运行时身份与访问配置。
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", rootHandler)
 	mux.HandleFunc("/healthz", healthzHandler)
+	mux.HandleFunc("/api/runtime/node", runtimeNodeHandler(nodeInfo))
 
 	// ReadHeaderTimeout 用于限制客户端长期占用连接但不完整发送请求头的情况。
 	// 请求日志中间件包裹整个路由树，使当前和后续新增端点都具备基础访问日志。
@@ -111,6 +125,14 @@ func healthzHandler(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",
 	})
+}
+
+// runtimeNodeHandler 返回当前节点的运行时信息。
+// 该端点用于验证部署模式、节点标识、公开访问基址和实际监听地址是否符合预期。
+func runtimeNodeHandler(nodeInfo appRuntime.NodeInfo) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, nodeInfo)
+	}
 }
 
 // logRequests 在每个请求结束后记录基础访问日志。
