@@ -9,6 +9,40 @@ import (
 	"time"
 )
 
+// TestReadyzHandler 验证 /readyz 返回进程级 ready 报告。
+// 当前阶段尚未接入数据库，因此该端点只反映 API 进程是否可响应。
+func TestReadyzHandler(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 13, 9, 0, 0, 0, time.UTC)
+	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	recorder := httptest.NewRecorder()
+
+	readyzHandler(func() time.Time {
+		return checkedAt
+	}).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	var response appRuntime.ReadinessReport
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if response.Status != appRuntime.ReadinessReady {
+		t.Fatalf("Status = %q, want %q", response.Status, appRuntime.ReadinessReady)
+	}
+	if got, want := len(response.Checks), 1; got != want {
+		t.Fatalf("Checks length = %d, want %d", got, want)
+	}
+	if response.Checks[0].Name != "process" {
+		t.Fatalf("process check name = %q", response.Checks[0].Name)
+	}
+	if !response.CheckedAt.Equal(checkedAt) {
+		t.Fatalf("CheckedAt = %s, want %s", response.CheckedAt, checkedAt)
+	}
+}
+
 // TestRuntimeNodeHandler 验证 /api/runtime/node 使用传入的节点快照返回 JSON。
 // 该测试只覆盖 handler 行为，不启动真实端口，避免测试依赖本机网络状态。
 func TestRuntimeNodeHandler(t *testing.T) {

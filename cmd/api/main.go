@@ -60,10 +60,12 @@ func main() {
 	// 第一版路由保持最小集合：
 	// "/" 用于人工确认 API 进程可达；
 	// "/healthz" 作为阶段一要求的存活检查端点；
+	// "/readyz" 返回当前进程是否具备接收流量的条件；
 	// "/api/runtime/node" 返回当前节点的运行时身份与访问配置。
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", rootHandler)
 	mux.HandleFunc("/healthz", healthzHandler)
+	mux.HandleFunc("/readyz", readyzHandler(time.Now))
 	mux.HandleFunc("/api/runtime/node", runtimeNodeHandler(nodeInfo))
 
 	// ReadHeaderTimeout 用于限制客户端长期占用连接但不完整发送请求头的情况。
@@ -125,6 +127,19 @@ func healthzHandler(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",
 	})
+}
+
+// readyzHandler 返回服务就绪状态。
+// 第一阶段只包含进程级检查；数据库连接和迁移状态会在 repository 接入后追加。
+func readyzHandler(now func() time.Time) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		report := appRuntime.NewProcessReadinessReport(now().UTC())
+		statusCode := http.StatusOK
+		if !report.Ready() {
+			statusCode = http.StatusServiceUnavailable
+		}
+		writeJSON(w, statusCode, report)
+	}
 }
 
 // runtimeNodeHandler 返回当前节点的运行时信息。
