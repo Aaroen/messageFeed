@@ -1,5 +1,25 @@
 # messageFeed 实施文档
 
+**最后更新**：2026-06-13
+
+---
+
+## 📊 实施进度总览
+
+| 阶段 | 名称 | 状态 | 完成度 | 开始日期 | 完成日期 |
+|------|------|------|--------|----------|----------|
+| 阶段一 | 基础设施搭建 | ✅ 完成 | 100% | 2026-06-12 | 2026-06-13 |
+| 阶段二 | 订阅源与 Feed 闭环 | 🚧 进行中 | 0% | 2026-06-13 | - |
+| 阶段三 | 源目录与导入 | ⏸️ 未开始 | 0% | - | - |
+| 阶段四 | 自动化与推荐 | ⏸️ 未开始 | 0% | - | - |
+| 阶段五 | AI 摘要与通知 | ⏸️ 未开始 | 0% | - | - |
+| 阶段六 | 自然语言控制 | ⏸️ 未开始 | 0% | - | - |
+| 阶段七 | 金融监控 | ⏸️ 未开始 | 0% | - | - |
+
+**图例**：✅ 已完成 | 🚧 进行中 | ⏸️ 未开始 | ❌ 已取消 | ⚠️ 有问题
+
+---
+
 ## 1. 实施目标
 
 以 `messageFeed` 作为 `Go_Pro` 首个完整项目，先完成本地单节点可运行、可部署、可观测、可验收的最小闭环，并通过 Tailscale 提供简单远程访问，再逐步扩展 AI 摘要、微信通知、自然语言设置控制、金融市场监控、多来源采集和分布式部署能力。
@@ -158,7 +178,67 @@ adapter modules -> domain
 
 ## 4. 详细实施过程
 
-### <a id="phase-1"></a>阶段一：本地工程基线与 Tailscale 访问
+### <a id="phase-1"></a>阶段一：基础设施搭建 ✅
+
+**状态**：✅ 已完成 | **完成时间**：2026-06-13 | **完成度**：100%
+
+#### 实施进度清单
+
+**项目骨架** ✅
+- [x] 初始化 Go 模块
+- [x] 创建目录结构
+- [x] 配置 .gitignore
+
+**配置系统** ✅
+- [x] 实现 internal/config 模块
+- [x] 环境变量解析
+- [x] 配置校验和默认值
+- [x] 单元测试
+
+**HTTP 服务** ✅
+- [x] 基础 HTTP 服务器
+- [x] GET / (服务信息)
+- [x] GET /healthz (存活检查)
+- [x] GET /readyz (就绪检查，含数据库)
+- [x] GET /metrics (Prometheus 指标)
+- [x] GET /api/runtime/node (节点信息)
+- [x] 请求日志中间件
+
+**数据库集成** ✅
+- [x] internal/db 模块
+- [x] 连接池配置
+- [x] 健康检查
+- [x] migrations/000001_init_schema.up.sql
+- [x] migrations/000001_init_schema.down.sql
+- [x] Docker Compose 自动迁移
+
+**可观测性** ✅
+- [x] log/slog 结构化日志
+- [x] internal/metrics 模块
+- [x] HTTP 请求指标
+- [x] 数据库连接池指标
+
+**构建与部署** ✅
+- [x] Makefile (fmt, vet, test, build, verify)
+- [x] Dockerfile (多阶段构建)
+- [x] docker-compose.yml
+- [x] .env.example
+
+**文档** ✅
+- [x] docs/requirements.md
+- [x] docs/architecture.md
+- [x] docs/implementation.md
+- [x] 前后端架构章节
+
+#### 验收结果 ✅
+- [x] docker-compose up -d 一键启动
+- [x] /healthz 返回成功
+- [x] /readyz 包含数据库检查
+- [x] /metrics 暴露指标
+- [x] make verify 全部通过
+- [x] 数据库自动迁移成功
+
+---
 
 实施范围：
 
@@ -197,7 +277,86 @@ adapter modules -> domain
 - `/readyz` 不检查非关键外部服务，避免微信、AI 或行情源短暂不可用导致服务被错误摘除。
 - Redis 不作为主存储或审计存储；业务幂等、持久状态和可追溯记录必须落入 PostgreSQL。
 
-### <a id="phase-2"></a>阶段二：订阅源与 Feed 闭环
+### <a id="phase-2"></a>阶段二：订阅源与 Feed 闭环 🚧
+
+**状态**：🚧 进行中 | **开始时间**：2026-06-13 | **完成度**：0%
+
+#### 实施进度清单
+
+**数据库设计** ⏸️
+- [ ] 创建 migrations/000002_add_sources_items.up.sql
+- [ ] 定义 sources 表
+- [ ] 定义 items 表
+- [ ] 定义 user_item_states 表
+- [ ] 添加索引和约束
+- [ ] 执行迁移验证
+
+**领域模型** ⏸️
+- [ ] internal/domain/source.go
+- [ ] internal/domain/item.go
+- [ ] internal/domain/user_item_state.go
+- [ ] 枚举和错误定义
+
+**Repository 层** ⏸️
+- [ ] internal/repository/source_repository.go (Create, Get, List, Update, Delete)
+- [ ] internal/repository/item_repository.go (Create, BatchCreate, List)
+- [ ] internal/repository/user_item_state_repository.go (MarkRead, Favorite, Hide)
+
+**Fetcher 模块** ⏸️
+- [ ] internal/fetcher/fetcher.go
+- [ ] 集成 gofeed
+- [ ] HTTP 抓取（超时、重定向、大小限制）
+- [ ] URL 规范化
+- [ ] 去重逻辑
+- [ ] 错误处理
+
+**Service 层** ⏸️
+- [ ] internal/service/source_service.go (CRUD + TriggerFetch)
+- [ ] internal/service/feed_service.go (FetchAndStore)
+- [ ] internal/service/timeline_service.go (GetTimeline)
+- [ ] internal/service/item_service.go (MarkRead, Favorite, Hide)
+
+**Handler 层** ⏸️
+- [ ] internal/handler/source_handler.go (POST, GET, PATCH, DELETE /api/v1/sources)
+- [ ] internal/handler/item_handler.go (GET /api/v1/items, 标记操作)
+- [ ] internal/handler/feed_handler.go (GET /api/v1/feed/timeline)
+- [ ] 统一响应格式
+
+**OpenAPI 文档** ⏸️
+- [ ] 安装 swaggo/swag
+- [ ] 添加 OpenAPI 注解
+- [ ] 生成文档
+- [ ] 配置 Swagger UI
+
+**前端初始化** ⏸️
+- [ ] 初始化 Vue 3 + Vite 项目 (web/)
+- [ ] 安装 Arco Design Vue
+- [ ] 配置 Vue Router, Pinia, Axios
+- [ ] 配置 TypeScript
+
+**前端页面** ⏸️
+- [ ] 订阅源管理页 (/sources)
+- [ ] 时间线页面 (/timeline)
+- [ ] 条目详情页 (/items/:id)
+
+**前端组件** ⏸️
+- [ ] SourceList, SourceForm
+- [ ] FeedTimeline, ItemCard
+- [ ] ActionBar
+
+**集成测试** ⏸️
+- [ ] 前后端联调
+- [ ] 端到端测试
+
+#### 验收标准
+- [ ] 可以通过 Web 界面管理订阅源
+- [ ] 可以手动触发抓取
+- [ ] 重复抓取不会重复入库
+- [ ] Web 界面显示时间线模式
+- [ ] 可以标记已读、收藏、隐藏
+- [ ] API 文档可在 Swagger UI 访问
+
+---
 
 实施范围：
 
