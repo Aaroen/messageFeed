@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -25,20 +26,30 @@ const (
 	DefaultAppNodeID = "local-dev"
 
 	// DefaultDeploymentMode 表示第一阶段默认采用单节点部署拓扑。
-	// 该值不应被用于推导监听范围，监听范围始终由 BIND_ADDR 决定。
+	// 该值不应被用于推导监听范围,监听范围始终由 BIND_ADDR 决定。
 	DefaultDeploymentMode = "single_node"
 
 	// DefaultLogLevel 是默认日志级别。
 	// 第一阶段使用 info 级别，便于在本地运行时观察启动、请求和关闭行为。
 	DefaultLogLevel = "info"
+
+	// DefaultDatabaseMaxOpenConns 是数据库连接池最大连接数。
+	DefaultDatabaseMaxOpenConns = 25
+
+	// DefaultDatabaseMaxIdleConns 是数据库连接池最大空闲连接数。
+	DefaultDatabaseMaxIdleConns = 5
+
+	// DefaultDatabaseConnMaxLifetime 是单个数据库连接的最大生命周期（秒）。
+	DefaultDatabaseConnMaxLifetime = 3600
 )
 
 // Config 汇总应用启动所需的基础配置。
 // 第一阶段只从环境变量读取配置，后续可以在该结构上扩展配置文件加载与合并逻辑。
 type Config struct {
-	HTTP    HTTPConfig
-	Runtime RuntimeConfig
-	Log     LogConfig
+	HTTP     HTTPConfig
+	Runtime  RuntimeConfig
+	Log      LogConfig
+	Database DatabaseConfig
 }
 
 // HTTPConfig 保存 HTTP 服务相关配置。
@@ -72,6 +83,23 @@ type LogConfig struct {
 	Level string
 }
 
+// DatabaseConfig 保存数据库连接配置。
+type DatabaseConfig struct {
+	// DSN 是 PostgreSQL 数据源名称，对应 DATABASE_URL。
+	// 格式：postgres://用户名:密码@主机:端口/数据库名?参数
+	// 示例：postgres://messagefeed:password@localhost:5432/messagefeed?sslmode=disable
+	DSN string
+
+	// MaxOpenConns 是连接池最大连接数，对应 DATABASE_MAX_OPEN_CONNS。
+	MaxOpenConns int
+
+	// MaxIdleConns 是连接池最大空闲连接数，对应 DATABASE_MAX_IDLE_CONNS。
+	MaxIdleConns int
+
+	// ConnMaxLifetime 是单个连接的最大生命周期，对应 DATABASE_CONN_MAX_LIFETIME。
+	ConnMaxLifetime time.Duration
+}
+
 // Load 从环境变量加载配置，并在返回前执行基础校验。
 // 当前不读取 YAML、TOML 或 JSON 配置文件，避免第一阶段引入路径、挂载和敏感信息落盘问题。
 // 后续如需配置文件，可在 Defaults 和环境变量覆盖之间增加文件配置合并层。
@@ -84,6 +112,11 @@ func Load() (Config, error) {
 	cfg.Runtime.DeploymentMode = envString("DEPLOYMENT_MODE", cfg.Runtime.DeploymentMode)
 	cfg.Runtime.TrustedProxyCIDRs = envStringList("TRUSTED_PROXY_CIDRS", cfg.Runtime.TrustedProxyCIDRs)
 	cfg.Log.Level = strings.ToLower(envString("LOG_LEVEL", cfg.Log.Level))
+
+	cfg.Database.DSN = envString("DATABASE_URL", cfg.Database.DSN)
+	cfg.Database.MaxOpenConns = envInt("DATABASE_MAX_OPEN_CONNS", cfg.Database.MaxOpenConns)
+	cfg.Database.MaxIdleConns = envInt("DATABASE_MAX_IDLE_CONNS", cfg.Database.MaxIdleConns)
+	cfg.Database.ConnMaxLifetime = envDuration("DATABASE_CONN_MAX_LIFETIME", cfg.Database.ConnMaxLifetime)
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -106,6 +139,12 @@ func Defaults() Config {
 		},
 		Log: LogConfig{
 			Level: DefaultLogLevel,
+		},
+		Database: DatabaseConfig{
+			DSN:             "", // 数据库 DSN 必须通过环境变量提供
+			MaxOpenConns:    DefaultDatabaseMaxOpenConns,
+			MaxIdleConns:    DefaultDatabaseMaxIdleConns,
+			ConnMaxLifetime: DefaultDatabaseConnMaxLifetime * time.Second,
 		},
 	}
 }
@@ -142,6 +181,20 @@ func (cfg Config) Validate() error {
 	for _, cidr := range cfg.Runtime.TrustedProxyCIDRs {
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
 			return fmt.Errorf("invalid TRUSTED_PROXY_CIDRS entry %q: %w", cidr, err)
+		}
+	}
+
+	// 数据库配置校验：DSN 为空时不报错，允许无数据库模式启动（仅用于测试）
+	// 生产环境应始终提供 DATABASE_URL
+	if cfg.Database.DSN != "" {
+		if cfg.Database.MaxOpenConns < 1 {
+			return fmt.Errorf("DATABASE_MAX_OPEN_CONNS must be at least 1")
+		}
+		if cfg.Database.MaxIdleConns < 0 || cfg.Database.MaxIdleConns > cfg.Database.MaxOpenConns {
+			return fmt.Errorf("DATABASE_MAX_IDLE_CONNS must be between 0 and DATABASE_MAX_OPEN_CONNS")
+		}
+		if cfg.Database.ConnMaxLifetime < 0 {
+			return fmt.Errorf("DATABASE_CONN_MAX_LIFETIME must be non-negative")
 		}
 	}
 
@@ -185,6 +238,34 @@ func envStringList(key string, fallback []string) []string {
 		}
 	}
 	return values
+}
+
+// envInt 读取整数环境变量，并在变量为空或解析失败时返回默认值。
+func envInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+// envDuration 读取时长环境变量（秒），并在变量为空或解析失败时返回默认值。
+func envDuration(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	seconds, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // validateBindAddr 校验监听地址必须符合 host:port 形式，并显式限制端口范围。

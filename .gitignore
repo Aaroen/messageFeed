@@ -1,0 +1,125 @@
+# messageFeed .gitignore
+# 本文件列出不应纳入版本控制的临时文件、构建产物、敏感配置和环境相关文件。
+
+# ==================== Go 构建产物 ====================
+# 编译生成的二进制文件
+/api
+/messagefeed
+/cmd/api/api
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 测试覆盖率报告
+*.out
+coverage.txt
+coverage.html
+
+# Go 工具链生成的临时文件
+*.test
+*.prof
+
+# ==================== 依赖与缓存 ====================
+# Go module 缓存目录（通常不在项目内，但防止意外创建）
+/vendor/
+
+# ==================== IDE 与编辑器 ====================
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs (GoLand, IntelliJ IDEA)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*~
+.*.sw[a-z]
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ==================== 操作系统 ====================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.directory
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ==================== 环境配置与敏感信息 ====================
+# 本地环境变量文件（真实配置不应提交）
+.env
+.env.local
+.env.production
+.env.*
+!.env.example
+
+# 敏感配置文件
+config.local.yaml
+config.local.toml
+secrets/
+
+# ==================== 数据库与存储 ====================
+# PostgreSQL 本地数据目录（如果挂载在项目内）
+/data/postgres/
+*.db
+*.sqlite
+*.sqlite3
+
+# ==================== Docker ====================
+# Docker Compose 覆盖文件（本地开发定制）
+docker-compose.override.yml
+
+# ==================== 日志与调试 ====================
+# 本地日志文件
+*.log
+logs/
+/tmp/
+
+# 性能分析文件
+cpu.prof
+mem.prof
+trace.out
+
+# ==================== 临时文件与调试资产 ====================
+# 临时测试文件和调试脚本
+/scratch/
+/debug/
+/tmp_*
+test_*.go.bak
+
+# ==================== 构建与部署产物 ====================
+# Docker 构建上下文中的临时文件
+.dockerignore.tmp
+
+# Kubernetes 生成的临时清单
+deploy/*.generated.yaml
+
+# Helm charts 打包产物
+*.tgz
+
+# ==================== 其他 ====================
+# 备份文件
+*.bak
+*.backup
+*.orig
+
+# 参考项目（位于上级目录，本项目不包含）
+# 已在上级 Go_Pro/.gitignore 处理

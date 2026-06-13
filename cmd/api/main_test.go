@@ -2,21 +2,28 @@ package main
 
 import (
 	"encoding/json"
+	"log/slog"
 	appRuntime "messagefeed/internal/runtime"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 )
 
 // TestReadyzHandler 验证 /readyz 返回进程级 ready 报告。
-// 当前阶段尚未接入数据库，因此该端点只反映 API 进程是否可响应。
+// 当前阶段数据库为可选配置，因此测试时传入 nil 表示无数据库模式。
 func TestReadyzHandler(t *testing.T) {
 	checkedAt := time.Date(2026, 6, 13, 9, 0, 0, 0, time.UTC)
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
 	request := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	recorder := httptest.NewRecorder()
 
-	readyzHandler(func() time.Time {
+	// 无数据库模式测试
+	readyzHandler(nil, logger, func() time.Time {
 		return checkedAt
 	}).ServeHTTP(recorder, request)
 
@@ -32,6 +39,7 @@ func TestReadyzHandler(t *testing.T) {
 	if response.Status != appRuntime.ReadinessReady {
 		t.Fatalf("Status = %q, want %q", response.Status, appRuntime.ReadinessReady)
 	}
+	// 无数据库模式只有 process 检查
 	if got, want := len(response.Checks), 1; got != want {
 		t.Fatalf("Checks length = %d, want %d", got, want)
 	}
