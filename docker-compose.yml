@@ -31,8 +31,8 @@ services:
     # 持久化数据库数据，避免容器重启后数据丢失
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # 可选：挂载初始化脚本目录
-      # - ./migrations:/docker-entrypoint-initdb.d:ro
+      # 挂载初始化脚本目录，容器首次启动时自动执行
+      - ./migrations:/docker-entrypoint-initdb.d:ro
 
     # 健康检查
     # 确保数据库完全启动后再启动依赖服务
@@ -72,8 +72,8 @@ services:
       DEPLOYMENT_MODE: single_node
       LOG_LEVEL: info
 
-      # 数据库配置（阶段一后期接入）
-      # DATABASE_URL: postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable
+      # 数据库配置
+      DATABASE_URL: postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable
 
       # 时区设置
       TZ: UTC
