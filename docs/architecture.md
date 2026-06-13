@@ -17,7 +17,7 @@
 | Redis | 第一阶段不引入；后续作为缓存、任务队列、限流、短期状态或分布式锁的可选实现 |
 | ORM | GORM |
 | 迁移 | 正式 SQL 迁移文件，后续可接入 `golang-migrate/migrate` |
-| Web 界面 | 第一阶段可使用轻量服务端页面或静态前端资源，后续再评估独立前端工程 |
+| Web 界面 | 采用前后端分离架构：Go 提供 RESTful API（含 OpenAPI 文档），Vue 3 + Vite 独立前端工程，支持后续扩展移动端 |
 | RSS 解析 | gofeed |
 | 定时任务 | gocron |
 | 金融行情 | 自定义 `MarketDataProvider` 接口，按市场接入 Yahoo Finance、Finnhub、Polygon、Tushare、AkShare 等 |

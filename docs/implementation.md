@@ -51,7 +51,7 @@ messageFeed/
 | `cmd/api` | HTTP 服务入口、依赖装配、进程生命周期管理 | 一个可执行程序对应一个 `cmd/<name>`；不得在 `main.go` 写业务逻辑 |
 | `internal` | 只供本项目使用的业务代码 | 所有业务实现默认进入 `internal`，不得为尚未复用的代码创建 `pkg` |
 | `api` | OpenAPI、proto 或外部契约文件 | 只存契约和生成入口，不存 handler 实现 |
-| `web` | Web 页面、静态资源、前端入口或服务端模板 | 只放展示层资源，不放业务规则和数据库访问 |
+| `web` | Vue 3 前端工程（独立仓库或子目录） | 完整前端项目，包含 src/、public/、vite.config.ts 等，通过 API 与后端通信 |
 | `migrations` | PostgreSQL 正式迁移文件 | 迁移文件必须可重复应用校验，不维护第二套测试 schema |
 | `deploy` | Dockerfile、docker-compose、Cloudflare、Prometheus、Grafana 等部署材料 | 路径配置使用相对路径；本地部署和后续分布式部署配置分层放置 |
 | `test` | 集成测试、E2E 测试和测试夹具 | 只放正式测试资产，不放一次性调试脚本 |
@@ -217,13 +217,36 @@ adapter modules -> domain
 8. 在 `web` 中提供时间线模式入口，支持分页、来源过滤、已读、收藏和隐藏操作。
 9. 抓取结果需要记录状态、耗时、条目数量、失败原因和最近抓取时间。
 
+实施细节：
+
+**后端 API（Go）**：
+- `POST /api/v1/sources` - 创建订阅源
+- `GET /api/v1/sources` - 获取订阅源列表
+- `POST /api/v1/sources/{id}/fetch` - 手动触发抓取
+- `GET /api/v1/items` - 获取 Feed 条目（支持分页、排序、过滤）
+- `POST /api/v1/items/{id}/mark-read` - 标记已读
+- `POST /api/v1/items/{id}/favorite` - 收藏
+- `POST /api/v1/items/{id}/hide` - 隐藏
+- 集成 `gofeed` 解析 RSS/Atom/JSON Feed
+- 基于 `source_id + normalized_url` 去重
+
+**Web 前端（Vue 3）**：
+- 路由：`/sources` 订阅源管理，`/timeline` 时间线模式
+- 组件：SourceList, SourceForm, FeedTimeline, ItemCard
+- 状态：Pinia store 管理订阅源和条目数据
+- 交互：实时刷新、下拉加载、标记操作
+
+**技术栈**：
+- 后端：Go + gofeed + OpenAPI 注解
+- 前端：Vue 3 + Vite + Arco Design Vue + Pinia + Vue Router + Axios
+
 验收标准：
 
-- 可以新增 RSS 源并手动触发抓取。
-- 重复抓取不会重复入库。
-- 可以按时间倒序查询 Feed 列表和条目详情。
-- Web 界面可以进入时间线模式，并从最新条目向较早条目浏览。
-- 可以标记已读、收藏和隐藏。
+- ✅ 可以通过 Web 界面新增 RSS 源并手动触发抓取
+- ✅ 重复抓取不会重复入库（后端去重逻辑验证）
+- ✅ Web 界面显示时间线模式，按时间倒序展示条目
+- ✅ 可以在 Web 界面标记已读、收藏和隐藏
+- ✅ API 提供 OpenAPI 文档，可在 Swagger UI 中测试
 
 风险控制：
 
