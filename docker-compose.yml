@@ -1,7 +1,5 @@
 # messageFeed docker-compose 配置
-# 本文件定义阶段一本地开发和部署所需的服务。
-
-version: '3.9'
+# 本文件定义本地开发和验证所需的服务。
 
 services:
   # ==================== PostgreSQL 数据库 ====================
@@ -31,8 +29,6 @@ services:
     # 持久化数据库数据，避免容器重启后数据丢失
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # 挂载初始化脚本目录，容器首次启动时自动执行
-      - ./migrations:/docker-entrypoint-initdb.d:ro
 
     # 健康检查
     # 确保数据库完全启动后再启动依赖服务
@@ -47,6 +43,30 @@ services:
     networks:
       - messagefeed-network
 
+  # ==================== 数据库迁移服务 ====================
+  migrate:
+    image: migrate/migrate:v4.19.1
+    restart: "no"
+
+    # 迁移只在 PostgreSQL 健康后执行一次，API 依赖迁移成功完成后启动
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # 只读挂载正式迁移文件；down 迁移不会被自动执行
+    volumes:
+      - ./migrations:/migrations:ro
+
+    command:
+      - "-path"
+      - "/migrations"
+      - "-database"
+      - "postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable"
+      - "up"
+
+    networks:
+      - messagefeed-network
+
   # ==================== messageFeed API 服务 ====================
   api:
     build:
@@ -56,10 +76,12 @@ services:
     container_name: messagefeed-api
     restart: unless-stopped
 
-    # 依赖关系：等待 PostgreSQL 健康检查通过后再启动
+    # 依赖关系：等待 PostgreSQL 健康且数据库迁移完成后再启动
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
     # 环境变量配置
     environment:

@@ -9,6 +9,7 @@ GO := go
 GOFMT := gofmt
 GOVET := $(GO) vet
 GOTEST := $(GO) test
+DOCKER_COMPOSE ?= docker compose
 
 # 项目二进制名称
 BINARY_NAME := messagefeed
@@ -23,6 +24,10 @@ COVERAGE_FILE := coverage.out
 # Docker 镜像名称和标签
 DOCKER_IMAGE := messagefeed
 DOCKER_TAG := latest
+
+# 数据库迁移配置
+# 该连接串在 docker compose 网络内使用，供 migrate 服务连接 PostgreSQL。
+MIGRATE_DATABASE_URL ?= postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable
 
 # ==================== 默认目标 ====================
 
@@ -126,9 +131,11 @@ docker-run: ## 运行 Docker 容器（需要先构建镜像）
 		$(DOCKER_IMAGE):$(DOCKER_TAG)
 
 .PHONY: compose-up
-compose-up: ## 启动 docker-compose 服务
-	@echo "启动 docker-compose 服务..."
-	@docker-compose up -d
+compose-up: ## 启动 Docker Compose 服务
+	@echo "启动 Docker Compose 服务..."
+	@$(DOCKER_COMPOSE) up -d postgres
+	@$(DOCKER_COMPOSE) run --rm migrate -path /migrations -database "$(MIGRATE_DATABASE_URL)" up
+	@$(DOCKER_COMPOSE) up -d --build --no-deps api
 	@echo "✅ 服务已启动"
 	@echo ""
 	@echo "服务地址："
@@ -137,18 +144,18 @@ compose-up: ## 启动 docker-compose 服务
 	@echo ""
 
 .PHONY: compose-down
-compose-down: ## 停止 docker-compose 服务
-	@echo "停止 docker-compose 服务..."
-	@docker-compose down
+compose-down: ## 停止 Docker Compose 服务
+	@echo "停止 Docker Compose 服务..."
+	@$(DOCKER_COMPOSE) down
 	@echo "✅ 服务已停止"
 
 .PHONY: compose-logs
-compose-logs: ## 查看 docker-compose 日志
-	@docker-compose logs -f
+compose-logs: ## 查看 Docker Compose 日志
+	@$(DOCKER_COMPOSE) logs -f
 
 .PHONY: compose-ps
-compose-ps: ## 查看 docker-compose 服务状态
-	@docker-compose ps
+compose-ps: ## 查看 Docker Compose 服务状态
+	@$(DOCKER_COMPOSE) ps
 
 # ==================== 依赖管理 ====================
 
@@ -170,13 +177,18 @@ deps-verify: ## 验证依赖完整性
 .PHONY: migrate-up
 migrate-up: ## 执行数据库迁移（需要先启动 PostgreSQL）
 	@echo "执行数据库迁移..."
-	@echo "⚠️  迁移工具将在后续阶段实现"
-	@echo "当前阶段手动执行 migrations/ 下的 SQL 文件"
+	@$(DOCKER_COMPOSE) run --rm migrate -path /migrations -database "$(MIGRATE_DATABASE_URL)" up
+	@echo "✅ 数据库迁移完成"
 
 .PHONY: migrate-down
-migrate-down: ## 回滚数据库迁移
+migrate-down: ## 回滚 1 个数据库迁移版本
 	@echo "回滚数据库迁移..."
-	@echo "⚠️  迁移工具将在后续阶段实现"
+	@$(DOCKER_COMPOSE) run --rm migrate -path /migrations -database "$(MIGRATE_DATABASE_URL)" down 1
+	@echo "✅ 数据库迁移已回滚 1 个版本"
+
+.PHONY: migrate-version
+migrate-version: ## 显示当前数据库迁移版本
+	@$(DOCKER_COMPOSE) run --rm migrate -path /migrations -database "$(MIGRATE_DATABASE_URL)" version
 
 # ==================== 代码生成 ====================
 

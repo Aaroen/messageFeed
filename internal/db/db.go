@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -122,6 +124,12 @@ type Stats struct {
 	MaxLifetimeClosed int64         // 因达到 ConnMaxLifetime 而关闭的连接数
 }
 
+// MigrationStatus 表示 golang-migrate 在 schema_migrations 中记录的当前迁移状态。
+type MigrationStatus struct {
+	Version int64
+	Dirty   bool
+}
+
 // GetStats 获取数据库连接池统计信息。
 func GetStats(db *gorm.DB) (Stats, error) {
 	sqlDB, err := db.DB()
@@ -166,4 +174,20 @@ func CheckHealth(ctx context.Context, db *gorm.DB, logger *slog.Logger) error {
 	}
 
 	return nil
+}
+
+// CheckMigrationStatus 检查 golang-migrate 版本表是否存在且未处于 dirty 状态。
+func CheckMigrationStatus(ctx context.Context, db *gorm.DB) (MigrationStatus, error) {
+	var status MigrationStatus
+	row := db.WithContext(ctx).Raw("SELECT version, dirty FROM schema_migrations LIMIT 1").Row()
+	if err := row.Scan(&status.Version, &status.Dirty); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return MigrationStatus{}, fmt.Errorf("schema_migrations has no applied version")
+		}
+		return MigrationStatus{}, fmt.Errorf("query schema_migrations: %w", err)
+	}
+	if status.Dirty {
+		return status, fmt.Errorf("schema_migrations is dirty at version %d", status.Version)
+	}
+	return status, nil
 }

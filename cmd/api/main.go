@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"messagefeed/internal/config"
 	"messagefeed/internal/db"
+	"messagefeed/internal/handler"
 	"messagefeed/internal/metrics"
 	appRuntime "messagefeed/internal/runtime"
 	"net/http"
@@ -15,13 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
-)
-
-const (
-	// serviceName 用于根路径响应，便于在浏览器或 curl 中确认当前响应服务。
-	serviceName = "messageFeed"
 )
 
 func main() {
@@ -100,24 +94,18 @@ func main() {
 		StartedAt:         time.Now().UTC(),
 	})
 
-	// 路由注册
-	// "/" 用于人工确认 API 进程可达；
-	// "/healthz" 作为阶段一要求的存活检查端点；
-	// "/readyz" 返回当前进程是否具备接收流量的条件；
-	// "/metrics" 暴露 Prometheus 指标；
-	// "/api/runtime/node" 返回当前节点的运行时身份与访问配置。
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", rootHandler)
-	mux.HandleFunc("/healthz", healthzHandler)
-	mux.HandleFunc("/readyz", readyzHandler(database, logger, time.Now))
-	mux.Handle("/metrics", promhttp.HandlerFor(metrics.Gatherer, promhttp.HandlerOpts{}))
-	mux.HandleFunc("/api/runtime/node", runtimeNodeHandler(nodeInfo))
+	router := handler.NewRouter(handler.RouterOptions{
+		Logger:   logger,
+		Database: database,
+		NodeInfo: nodeInfo,
+		Now:      time.Now,
+	})
 
 	// ReadHeaderTimeout 用于限制客户端长期占用连接但不完整发送请求头的情况。
-	// 请求日志中间件包裹整个路由树，使当前和后续新增端点都具备基础访问日志。
+	// Gin 路由树内部已经装配 request id、访问日志、错误恢复和指标中间件。
 	server := &http.Server{
 		Addr:              cfg.HTTP.BindAddr,
-		Handler:           logRequests(logger, mux),
+		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -152,128 +140,6 @@ func main() {
 			}
 			os.Exit(1)
 		}
-	}
-}
-
-// rootHandler 提供一个浏览器可见的最小响应。
-// 在真实 API 路由尚未加入前，该端点用于人工验证服务是否已经启动。
-func rootHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{
-		"service": serviceName,
-		"status":  "ok",
-	})
-}
-
-// healthzHandler 是存活检查端点。
-// 它只证明 HTTP 进程可以响应请求；数据库连接和迁移状态后续由 /readyz 承担。
-func healthzHandler(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status": "ok",
-	})
-}
-
-// readyzHandler 返回服务就绪状态。
-// 第一阶段包含进程级检查和可选的数据库连接检查。
-func readyzHandler(database *gorm.DB, logger *slog.Logger, now func() time.Time) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		checks := []appRuntime.ReadinessCheck{
-			{
-				Name:    "process",
-				Status:  appRuntime.ReadinessReady,
-				Message: "api process is running",
-			},
-		}
-
-		// 数据库健康检查（仅当数据库已配置时）
-		if database != nil {
-			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-			defer cancel()
-
-			if err := db.CheckHealth(ctx, database, logger); err != nil {
-				checks = append(checks, appRuntime.ReadinessCheck{
-					Name:    "database",
-					Status:  appRuntime.ReadinessNotReady,
-					Message: "database connection failed",
-				})
-			} else {
-				checks = append(checks, appRuntime.ReadinessCheck{
-					Name:    "database",
-					Status:  appRuntime.ReadinessReady,
-					Message: "database connection ok",
-				})
-			}
-		}
-
-		report := appRuntime.NewReadinessReport(checks, now().UTC())
-		statusCode := http.StatusOK
-		if !report.Ready() {
-			statusCode = http.StatusServiceUnavailable
-		}
-		writeJSON(w, statusCode, report)
-	}
-}
-
-// runtimeNodeHandler 返回当前节点的运行时信息。
-// 该端点用于验证部署模式、节点标识、公开访问基址和实际监听地址是否符合预期。
-func runtimeNodeHandler(nodeInfo appRuntime.NodeInfo) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, nodeInfo)
-	}
-}
-
-// logRequests 在每个请求结束后记录基础访问日志并更新 Prometheus 指标。
-func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		// 包装 ResponseWriter 以捕获状态码
-		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-		next.ServeHTTP(wrapped, r)
-
-		duration := time.Since(start)
-		method := r.Method
-		path := r.URL.Path
-		status := wrapped.statusCode
-
-		// 记录日志
-		logger.Info(
-			"http request",
-			"method", method,
-			"path", path,
-			"status", status,
-			"duration_ms", duration.Milliseconds(),
-		)
-
-		// 更新 Prometheus 指标
-		metrics.HTTPRequestsTotal.WithLabelValues(method, path, http.StatusText(status)).Inc()
-		metrics.HTTPRequestDuration.WithLabelValues(method, path).Observe(duration.Seconds())
-	})
-}
-
-// responseWriter 包装 http.ResponseWriter 以捕获响应状态码。
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (rw *responseWriter) WriteHeader(statusCode int) {
-	rw.statusCode = statusCode
-	rw.ResponseWriter.WriteHeader(statusCode)
-}
-
-// writeJSON 统一当前最小端点的 JSON 响应写法。
-// 在正式 handler 响应辅助函数引入前，该函数负责集中设置响应头和编码行为。
-func writeJSON(w http.ResponseWriter, statusCode int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(statusCode)
-	if err := json.NewEncoder(w).Encode(value); err != nil {
-		slog.Error("write response failed", "error", err)
 	}
 }
 

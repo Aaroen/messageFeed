@@ -33,6 +33,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- 为 users 表创建触发器
+-- 兼容旧版 Docker initdb 自动初始化过的本地数据库；正式迁移执行后由 schema_migrations 记录版本。
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
+
 CREATE TRIGGER update_users_updated_at
     BEFORE UPDATE ON users
     FOR EACH ROW
@@ -43,6 +46,7 @@ CREATE TRIGGER update_users_updated_at
 -- - sources: 订阅源表
 -- - items: 内容条目表
 -- - user_item_states: 阅读状态表
+-- - feed_view_preferences: Web 阅读模式偏好表
 -- - summaries: AI 摘要表
 -- - notifications: 通知记录表
 -- - market_instruments: 金融标的表

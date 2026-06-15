@@ -1,6 +1,6 @@
 # messageFeed 实施文档
 
-**最后更新**：2026-06-13
+**最后更新**：2026-06-14
 
 ---
 
@@ -9,7 +9,7 @@
 | 阶段 | 名称 | 状态 | 完成度 | 开始日期 | 完成日期 |
 |------|------|------|--------|----------|----------|
 | 阶段一 | 基础设施搭建 | ✅ 完成 | 100% | 2026-06-12 | 2026-06-13 |
-| 阶段二 | 订阅源与 Feed 闭环 | 🚧 进行中 | 0% | 2026-06-13 | - |
+| 阶段二 | 订阅源与 Feed 闭环 | 🚧 进行中 | 10% | 2026-06-13 | - |
 | 阶段三 | 源目录与导入 | ⏸️ 未开始 | 0% | - | - |
 | 阶段四 | 自动化与推荐 | ⏸️ 未开始 | 0% | - | - |
 | 阶段五 | AI 摘要与通知 | ⏸️ 未开始 | 0% | - | - |
@@ -72,8 +72,8 @@ messageFeed/
 | `internal` | 只供本项目使用的业务代码 | 所有业务实现默认进入 `internal`，不得为尚未复用的代码创建 `pkg` |
 | `api` | OpenAPI、proto 或外部契约文件 | 只存契约和生成入口，不存 handler 实现 |
 | `web` | Vue 3 前端工程（独立仓库或子目录） | 完整前端项目，包含 src/、public/、vite.config.ts 等，通过 API 与后端通信 |
-| `migrations` | PostgreSQL 正式迁移文件 | 迁移文件必须可重复应用校验，不维护第二套测试 schema |
-| `deploy` | Dockerfile、docker-compose、Cloudflare、Prometheus、Grafana 等部署材料 | 路径配置使用相对路径；本地部署和后续分布式部署配置分层放置 |
+| `migrations` | PostgreSQL 正式迁移文件 | 使用 `golang-migrate/migrate` 执行；`up` 用于升级，`down` 仅用于显式回滚；不维护第二套测试 schema |
+| `deploy` | Dockerfile、Docker Compose、Cloudflare、Prometheus、Grafana 等部署材料 | 路径配置使用相对路径；本地部署和后续分布式部署配置分层放置 |
 | `test` | 集成测试、E2E 测试和测试夹具 | 只放正式测试资产，不放一次性调试脚本 |
 | `docs` | 需求、架构、实施等少量长期文档 | 不新增单点说明文档；新增文档前优先合并到现有三类文档 |
 
@@ -159,7 +159,7 @@ adapter modules -> domain
 - 业务文件按职责命名，例如 `source_service.go`、`source_repository.go`、`daily_summary_service.go`。
 - 接口文件优先放在调用方所在模块，避免为了接口创建抽象目录。
 - 测试文件与被测文件同目录，集成测试或 E2E 测试进入 `test`。
-- 迁移文件使用递增版本号和语义名称，例如 `000001_create_sources.sql`。
+- 迁移文件使用递增版本号、语义名称和 `up/down` 后缀，例如 `000002_add_sources_items.up.sql` 与 `000002_add_sources_items.down.sql`。
 - 配置示例可以使用 `.env.example`，不得提交真实密钥。
 
 ## 3. 阶段路线
@@ -210,7 +210,8 @@ adapter modules -> domain
 - [x] 健康检查
 - [x] migrations/000001_init_schema.up.sql
 - [x] migrations/000001_init_schema.down.sql
-- [x] Docker Compose 自动迁移
+- [x] `golang-migrate/migrate` 版本化迁移
+- [x] Docker Compose 独立迁移服务
 
 **可观测性** ✅
 - [x] log/slog 结构化日志
@@ -231,7 +232,7 @@ adapter modules -> domain
 - [x] 前后端架构章节
 
 #### 验收结果 ✅
-- [x] docker-compose up -d 一键启动
+- [x] make compose-up 一键启动
 - [x] /healthz 返回成功
 - [x] /readyz 包含数据库检查
 - [x] /metrics 暴露指标
@@ -243,28 +244,28 @@ adapter modules -> domain
 实施范围：
 
 - 建立 Go 服务骨架、配置加载、结构化日志、统一错误、基础路由。
-- 接入 PostgreSQL、GORM 和正式 SQL 迁移文件。
+- 接入 PostgreSQL、GORM 和 `golang-migrate/migrate` 正式 SQL 迁移文件。
 - 暴露 `/healthz`、`/readyz`、`/metrics` 和 `/api/runtime/node`。
-- 提供 `docker-compose`、`Makefile` 和最小 `make verify`。
+- 提供 Docker Compose、`Makefile` 和最小 `make verify`。
 - 支持 `BIND_ADDR`、`PUBLIC_BASE_URL`、`APP_NODE_ID`、`DEPLOYMENT_MODE`、`TRUSTED_PROXY_CIDRS`。
 - 本地默认使用 `DEPLOYMENT_MODE=single_node`，远程访问通过 `BIND_ADDR` 暴露到局域网、Tailscale IP 或 MagicDNS 完成。
-- PostgreSQL 作为第一阶段唯一主存储；Redis 不进入第一阶段 `docker-compose` 必需组件，但预留后续缓存、队列、限流和任务锁接口。
+- PostgreSQL 作为第一阶段唯一主存储；Redis 不进入第一阶段 Docker Compose 必需组件，但预留后续缓存、队列、限流和任务锁接口。
 
 实施步骤：
 
 1. 创建 `cmd/api`、`internal/config`、`internal/handler`、`internal/runtime`、`internal/repository`、`deploy`、`api` 等基础目录。
 2. 在配置层定义数据库、HTTP、运行时、日志和后续外部服务的配置结构；密钥只从环境变量或外部配置注入。
-3. 建立 Gin 路由，统一错误响应结构和 request id 日志字段。
-4. 建立数据库连接、迁移执行入口和 `/readyz` 依赖检查。
+3. 建立基础 HTTP 路由，统一错误响应结构和 request id 日志字段；Gin 路由迁移进入第二阶段执行。
+4. 建立数据库连接、版本化迁移执行入口和 `/readyz` 依赖检查；迁移由 Compose/Makefile 显式执行，API 启动时只检查迁移状态，不自行修改 schema。
 5. 增加 Prometheus 指标注册，至少覆盖请求量、请求耗时、健康状态和数据库连接状态。
-6. 在 `docker-compose` 中只纳入服务本体和 PostgreSQL，不在第一阶段引入 Redis；与缓存、队列、限流和任务锁相关的能力通过接口预留。
+6. 在 Docker Compose 中纳入服务本体、PostgreSQL 和一次性迁移服务，不在第一阶段引入 Redis；与缓存、队列、限流和任务锁相关的能力通过接口预留。
 7. 在 Tailscale 场景下将 `BIND_ADDR` 配置为 `0.0.0.0:8080` 或 Tailscale IP，并将 `PUBLIC_BASE_URL` 配置为 Tailscale IP 或 MagicDNS 访问地址。
 
 验收标准：
 
-- `docker-compose up` 可以启动服务和 PostgreSQL。
+- `make compose-up` 可以启动 PostgreSQL、完成 pending `up` 迁移并启动服务；空卷首次初始化时直接 `docker compose up -d --build` 也应成立。
 - `/healthz` 返回成功。
-- `/readyz` 能检查数据库连接和迁移状态。
+- `/readyz` 能检查数据库连接和 `schema_migrations` 迁移状态。
 - `/metrics` 可以被 Prometheus 格式读取。
 - Tailscale 网络内设备可以访问 API。
 - `make verify` 可以执行格式检查、构建和基础测试。
@@ -276,18 +277,29 @@ adapter modules -> domain
 - 第一阶段任务锁可以是单节点或 PostgreSQL 实现，但接口必须保留，后续允许替换为 PostgreSQL advisory lock、任务表锁或 Redis 锁。
 - `/readyz` 不检查非关键外部服务，避免微信、AI 或行情源短暂不可用导致服务被错误摘除。
 - Redis 不作为主存储或审计存储；业务幂等、持久状态和可追溯记录必须落入 PostgreSQL。
+- PostgreSQL 官方镜像的 `/docker-entrypoint-initdb.d` 只用于空库初始化，不承载项目迁移；不得将包含 `.down.sql` 的完整 `migrations` 目录挂载到该路径。
+- 共享环境中已经执行过的迁移文件不得修改，只能追加更高版本迁移；生产回滚优先采用备份恢复或前向修复，`down` 仅用于明确授权的受控回滚。
 
 ### <a id="phase-2"></a>阶段二：订阅源与 Feed 闭环 🚧
 
-**状态**：🚧 进行中 | **开始时间**：2026-06-13 | **完成度**：0%
+**状态**：🚧 进行中 | **开始时间**：2026-06-13 | **完成度**：10%
 
 #### 实施进度清单
+
+**路由层迁移** ✅
+- [x] 引入 Gin 依赖
+- [x] 将现有 `net/http` 路由迁移到 Gin
+- [x] 保留 `/`、`/healthz`、`/readyz`、`/metrics` 和 `/api/runtime/node` 的既有行为
+- [x] 建立 `/api/v1` 业务路由组
+- [x] 建立 request id、访问日志、统一响应和错误映射中间件
+- [x] 迁移现有 handler 测试
 
 **数据库设计** ⏸️
 - [ ] 创建 migrations/000002_add_sources_items.up.sql
 - [ ] 定义 sources 表
 - [ ] 定义 items 表
 - [ ] 定义 user_item_states 表
+- [ ] 定义 feed_view_preferences 表
 - [ ] 添加索引和约束
 - [ ] 执行迁移验证
 
@@ -298,9 +310,10 @@ adapter modules -> domain
 - [ ] 枚举和错误定义
 
 **Repository 层** ⏸️
-- [ ] internal/repository/source_repository.go (Create, Get, List, Update, Delete)
+- [ ] internal/repository/source_repository.go (Create, Get, List, Update, SetStatus)
 - [ ] internal/repository/item_repository.go (Create, BatchCreate, List)
 - [ ] internal/repository/user_item_state_repository.go (MarkRead, Favorite, Hide)
+- [ ] internal/repository/feed_view_preference_repository.go (Get, Upsert)
 
 **Fetcher 模块** ⏸️
 - [ ] internal/fetcher/fetcher.go
@@ -315,15 +328,19 @@ adapter modules -> domain
 - [ ] internal/service/feed_service.go (FetchAndStore)
 - [ ] internal/service/timeline_service.go (GetTimeline)
 - [ ] internal/service/item_service.go (MarkRead, Favorite, Hide)
+- [ ] internal/service/feed_view_service.go (GetMode, SaveMode)
 
 **Handler 层** ⏸️
-- [ ] internal/handler/source_handler.go (POST, GET, PATCH, DELETE /api/v1/sources)
+- [ ] internal/handler/router.go (Gin 路由注册和中间件装配)
+- [ ] internal/handler/response.go (统一响应格式和错误映射)
+- [ ] internal/handler/source_handler.go (POST, GET, PATCH /api/v1/sources)
 - [ ] internal/handler/item_handler.go (GET /api/v1/items, 标记操作)
 - [ ] internal/handler/feed_handler.go (GET /api/v1/feed/timeline)
+- [ ] internal/handler/feed_view_handler.go (PUT /api/v1/feed/view-mode)
 - [ ] 统一响应格式
 
 **OpenAPI 文档** ⏸️
-- [ ] 安装 swaggo/swag
+- [ ] 后端接口稳定后安装 swaggo/swag
 - [ ] 添加 OpenAPI 注解
 - [ ] 生成文档
 - [ ] 配置 Swagger UI
@@ -360,32 +377,55 @@ adapter modules -> domain
 
 实施范围：
 
+- 将阶段一现有 `net/http` 路由迁移到 Gin，并保持健康检查、指标和运行时节点端点兼容。
 - 实现订阅源 CRUD、RSS 手动抓取、条目去重入库、Feed 查询和阅读状态。
+- 实现 Web 阅读模式偏好保存，阶段二只要求时间线模式可用。
 - 建立 Web 阅读入口，先支持时间线模式。
 - 第一版来源只要求标准 RSS、Atom、JSON Feed，使用 `gofeed` 解析。
+- 阶段二不实现源目录、OPML 导入、推荐 Feed、周期调度、AI 摘要、通知和金融监控。
 
 实施步骤：
 
-1. 建立 `sources`、`items`、`user_item_states` 的迁移文件和仓储接口。
-2. 在 `fetcher` 中封装 HTTP 抓取、超时、重定向、内容大小限制和 `gofeed` 解析。
-3. 规范化 URL，建立 `sources(user_id, normalized_url)`、`items(source_id, normalized_url)` 和可选 `items(source_id, raw_guid)` 唯一约束。
-4. 实现 `POST /api/sources`、`GET /api/sources`、`PATCH /api/sources/{id}`、`POST /api/sources/{id}/fetch`。
-5. 实现 `GET /api/items`、`GET /api/items/{id}`、`POST /api/items/{id}/read`、`POST /api/items/{id}/favorite`。
-6. 实现 `GET /api/feed/timeline`，按 `published_at desc` 查询已订阅来源条目；缺失发布时间时使用 `fetched_at desc` 兜底。
-7. 实现 `PUT /api/feed/view-mode`，保存用户最近选择的 Web 阅读模式。
-8. 在 `web` 中提供时间线模式入口，支持分页、来源过滤、已读、收藏和隐藏操作。
-9. 抓取结果需要记录状态、耗时、条目数量、失败原因和最近抓取时间。
+1. 引入 Gin，将 `cmd/api` 中的 `http.NewServeMux` 路由迁移为 Gin engine；保留现有根路径、健康检查、就绪检查、指标和运行时节点端点的响应语义。
+2. 在 `internal/handler` 建立路由注册入口、request id、访问日志、统一响应和错误映射；业务路由统一挂载在 `/api/v1`。
+3. 建立 `sources`、`items`、`user_item_states`、`feed_view_preferences` 的迁移文件和仓储接口。
+4. 在 `fetcher` 中封装 HTTP 抓取、超时、重定向、内容大小限制和 `gofeed` 解析。
+5. 规范化 URL，建立 `sources(user_id, normalized_url)`、`items(source_id, normalized_url)` 和可选 `items(source_id, raw_guid)` 唯一约束；`raw_guid` 唯一约束只对非空值生效。
+6. 实现 `POST /api/v1/sources`、`GET /api/v1/sources`、`PATCH /api/v1/sources/{id}`、`POST /api/v1/sources/{id}/fetch`。
+7. 实现 `GET /api/v1/items`、`GET /api/v1/items/{id}`、`POST /api/v1/items/{id}/read`、`POST /api/v1/items/{id}/favorite`、`POST /api/v1/items/{id}/hide`。
+8. 实现 `GET /api/v1/feed/timeline`，按 `published_at desc nulls last, fetched_at desc` 查询已订阅来源条目。
+9. 实现 `PUT /api/v1/feed/view-mode`，保存用户最近选择的 Web 阅读模式。
+10. 在 `web` 中提供时间线模式入口，支持分页、来源过滤、已读、收藏和隐藏操作。
+11. 抓取结果需要记录状态、耗时、条目数量、失败原因和最近抓取时间。
+12. 后端接口稳定后补充 OpenAPI 注解和 Swagger UI，避免接口仍在变动时反复维护契约。
 
 实施细节：
+
+**Gin 路由迁移（Go）**：
+- `cmd/api` 只负责配置加载、依赖装配、Gin engine 创建、HTTP server 生命周期和优雅关闭。
+- `internal/handler` 负责 Gin 路由注册、中间件、请求绑定、响应渲染和错误映射。
+- `*gin.Context` 不进入 `service`、`repository`、`fetcher` 和 `domain`；业务层统一使用 `context.Context`。
+- `/healthz`、`/readyz`、`/metrics` 和 `/api/runtime/node` 保持未版本化路径，便于监控和部署系统继续使用。
+- 阶段二新增业务 API 统一使用 `/api/v1` 前缀。
+
+**数据库模型（PostgreSQL）**：
+- `sources`：记录 `user_id`、`name`、`type`、`url`、`normalized_url`、`status`、`fetch_interval_seconds`、`tags`、`weight`、最近抓取时间、最近抓取状态、最近错误、最近耗时和最近条目数量。
+- `items`：记录 `source_id`、`title`、`url`、`normalized_url`、`raw_guid`、`content_hash`、`summary`、`content_snippet`、`author`、`published_at` 和 `fetched_at`。
+- `user_item_states`：记录 `user_id`、`item_id`、`is_read`、`is_favorite`、`is_hidden` 及对应时间。
+- `feed_view_preferences`：记录 `user_id`、最近阅读模式和更新时间，阶段二只允许 `timeline`，后续阶段扩展 `recommendations`。
 
 **后端 API（Go）**：
 - `POST /api/v1/sources` - 创建订阅源
 - `GET /api/v1/sources` - 获取订阅源列表
+- `PATCH /api/v1/sources/{id}` - 更新订阅源或调整启用状态
 - `POST /api/v1/sources/{id}/fetch` - 手动触发抓取
 - `GET /api/v1/items` - 获取 Feed 条目（支持分页、排序、过滤）
-- `POST /api/v1/items/{id}/mark-read` - 标记已读
+- `GET /api/v1/items/{id}` - 获取条目详情
+- `POST /api/v1/items/{id}/read` - 标记已读
 - `POST /api/v1/items/{id}/favorite` - 收藏
 - `POST /api/v1/items/{id}/hide` - 隐藏
+- `GET /api/v1/feed/timeline` - 查询时间线
+- `PUT /api/v1/feed/view-mode` - 保存阅读模式偏好
 - 集成 `gofeed` 解析 RSS/Atom/JSON Feed
 - 基于 `source_id + normalized_url` 去重
 
@@ -396,7 +436,7 @@ adapter modules -> domain
 - 交互：实时刷新、下拉加载、标记操作
 
 **技术栈**：
-- 后端：Go + gofeed + OpenAPI 注解
+- 后端：Go + Gin + gofeed + OpenAPI 注解
 - 前端：Vue 3 + Vite + Arco Design Vue + Pinia + Vue Router + Axios
 
 验收标准：
@@ -406,11 +446,15 @@ adapter modules -> domain
 - ✅ Web 界面显示时间线模式，按时间倒序展示条目
 - ✅ 可以在 Web 界面标记已读、收藏和隐藏
 - ✅ API 提供 OpenAPI 文档，可在 Swagger UI 中测试
+- ✅ 阶段一已有健康检查、就绪检查、指标和运行时节点端点在迁移到 Gin 后保持兼容
 
 风险控制：
 
+- Gin 迁移不得改变已有基础端点的响应语义，避免破坏 Docker healthcheck、Prometheus 抓取和 Tailscale 访问验证。
+- Gin 中间件只承载横切关注点，不在中间件中写订阅、抓取和阅读状态业务规则。
 - 抓取任务必须设置超时，避免阻塞请求或调度器。
 - 外部源返回异常编码、异常 MIME、空 feed 或重复 GUID 时必须有可诊断错误。
+- 抓取器只允许 `http` 和 `https` URL，并限制重定向次数和响应体大小，避免外部输入长期占用资源。
 
 ### <a id="phase-3"></a>阶段三：源目录与导入
 
@@ -457,7 +501,7 @@ adapter modules -> domain
 5. 建立 `feed_view_preferences`、`feed_recommendations`、`recommendation_feedback`。
 6. 增加 `recommender`，候选池包含已订阅来源条目、推荐源目录条目、健康候选源条目和经过标注的桥接来源条目。
 7. 推荐排序至少使用兴趣规则、阅读反馈、来源权重、内容新鲜度、来源健康状态和重大事件上下文。
-8. 实现 `GET /api/feed/recommendations` 和 `POST /api/feed/recommendations/{id}/feedback`。
+8. 实现 `GET /api/v1/feed/recommendations` 和 `POST /api/v1/feed/recommendations/{id}/feedback`。
 9. Web 界面支持推荐 Feed 模式切换，并对未订阅来源展示来源名称、未订阅标记、推荐原因和一键订阅入口。
 10. 调度执行前调用 `TaskLocker` 接口，第一阶段可用单节点实现，后续切换共享数据库锁。
 
@@ -590,7 +634,7 @@ adapter modules -> domain
 
 1. 将当前 API 固化为 OpenAPI 文档，并在 `make verify` 中增加契约检查。
 2. 增加基于真实 PostgreSQL 的集成测试，优先覆盖源导入、抓取去重、摘要记录、通知记录、自然语言设置控制和金融告警。
-3. 完善 `docker-compose`，纳入可选 ntfy、Prometheus、Grafana 和 Redis。Redis 只在缓存、队列、限流或任务锁实现已经接入时启用。
+3. 完善 Docker Compose，纳入可选 ntfy、Prometheus、Grafana 和 Redis。Redis 只在缓存、队列、限流或任务锁实现已经接入时启用。
 4. 增加核心指标：抓取次数、抓取失败、抓取耗时、摘要耗时、控制计划成功率、通知成功率、行情拉取成功率、告警触发次数。
 5. 增加 Grafana Dashboard 草案，按采集、摘要、设置控制、通知、行情和告警分类展示。
 
@@ -598,7 +642,7 @@ adapter modules -> domain
 
 - `make verify` 覆盖格式检查、单元测试、集成测试、构建和契约检查。
 - 指标能展示抓取次数、抓取失败、摘要耗时、控制计划成功率、行情拉取成功率、告警触发次数和通知成功率。
-- `docker-compose up` 后可访问服务、数据库和可选观测组件。
+- `make compose-up` 后可访问服务、数据库和可选观测组件。
 
 风险控制：
 
@@ -680,7 +724,7 @@ adapter modules -> domain
 ## 7. 最小验收命令
 
 ```bash
-docker-compose up
+make compose-up
 make verify
 ```
 
