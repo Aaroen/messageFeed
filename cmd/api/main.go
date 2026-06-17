@@ -6,9 +6,13 @@ import (
 	"log/slog"
 	"messagefeed/internal/config"
 	"messagefeed/internal/db"
+	"messagefeed/internal/fetcher"
 	"messagefeed/internal/handler"
 	"messagefeed/internal/metrics"
+	"messagefeed/internal/observability"
+	"messagefeed/internal/repository"
 	appRuntime "messagefeed/internal/runtime"
+	"messagefeed/internal/service"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,9 +24,7 @@ import (
 
 func main() {
 	// 启动初期先使用 info 级别日志，以便在配置加载失败时仍能输出结构化错误。
-	bootstrapLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	bootstrapLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	// 配置模块统一负责默认值、环境变量覆盖和基础校验。
 	// 入口层只使用已经校验过的配置，避免各处重复读取环境变量。
@@ -32,11 +34,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 正式 logger 使用配置中的 LOG_LEVEL。
-	// 从这里开始，后续 handler、service 和 repository 应沿用该 logger。
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: cfg.Log.SlogLevel(),
-	}))
+	logger := observability.NewLogger(os.Stdout, cfg.Log.SlogLevel(), cfg)
+
+	observabilityShutdown, err := observability.InitTracing(context.Background(), cfg.Observability, cfg.Runtime.AppNodeID)
+	if err != nil {
+		logger.Error("initialize tracing failed", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := observability.ShutdownWithTimeout(context.Background(), observabilityShutdown, 5*time.Second); err != nil {
+			logger.Error("shutdown tracing failed", "error", err)
+		}
+	}()
+
 	logger.Info(
 		"configuration loaded",
 		"bind_addr", cfg.HTTP.BindAddr,
@@ -44,17 +54,24 @@ func main() {
 		"app_node_id", cfg.Runtime.AppNodeID,
 		"deployment_mode", cfg.Runtime.DeploymentMode,
 		"database_configured", cfg.Database.DSN != "",
+		"tracing_enabled", cfg.Observability.TraceEnabled,
+		"otel_endpoint", cfg.Observability.OTLPEndpoint,
 	)
 
 	// 数据库连接（可选）
 	// 当 DATABASE_URL 未配置时，database 为 nil，服务仍可启动但 /readyz 不检查数据库。
 	var database *gorm.DB
+	var sourceService *service.SourceService
+	var timelineService *service.TimelineService
+	var itemService *service.ItemService
+	var feedViewService *service.FeedViewService
 	if cfg.Database.DSN != "" {
 		dbCfg := db.Config{
 			DSN:             cfg.Database.DSN,
 			MaxOpenConns:    cfg.Database.MaxOpenConns,
 			MaxIdleConns:    cfg.Database.MaxIdleConns,
 			ConnMaxLifetime: cfg.Database.ConnMaxLifetime,
+			Logger:          logger,
 		}
 
 		database, err = db.Open(dbCfg)
@@ -77,6 +94,20 @@ func main() {
 			"max_idle_conns", cfg.Database.MaxIdleConns,
 		)
 
+		sourceRepository := repository.NewSourceRepository(database)
+		itemRepository := repository.NewItemRepository(database)
+		userItemStateRepository := repository.NewUserItemStateRepository(database)
+		feedViewPreferenceRepository := repository.NewFeedViewPreferenceRepository(database)
+		feedFetcher := fetcher.NewClient()
+		sourceService = service.NewSourceService(
+			sourceRepository,
+			service.WithItemRepository(itemRepository),
+			service.WithFeedFetcher(feedFetcher),
+		)
+		timelineService = service.NewTimelineService(itemRepository)
+		itemService = service.NewItemService(userItemStateRepository)
+		feedViewService = service.NewFeedViewService(feedViewPreferenceRepository)
+
 		// 启动数据库连接池指标采集器
 		go collectDatabaseMetrics(database, logger)
 	} else {
@@ -95,10 +126,15 @@ func main() {
 	})
 
 	router := handler.NewRouter(handler.RouterOptions{
-		Logger:   logger,
-		Database: database,
-		NodeInfo: nodeInfo,
-		Now:      time.Now,
+		Logger:          logger,
+		Database:        database,
+		NodeInfo:        nodeInfo,
+		Now:             time.Now,
+		SourceService:   sourceService,
+		TimelineService: timelineService,
+		ItemService:     itemService,
+		FeedViewService: feedViewService,
+		ServiceName:     cfg.Observability.ServiceName,
 	})
 
 	// ReadHeaderTimeout 用于限制客户端长期占用连接但不完整发送请求头的情况。
@@ -178,5 +214,7 @@ func collectDatabaseMetrics(database *gorm.DB, logger *slog.Logger) {
 		metrics.DatabaseConnections.WithLabelValues("open").Set(float64(stats.OpenConns))
 		metrics.DatabaseConnections.WithLabelValues("in_use").Set(float64(stats.InUse))
 		metrics.DatabaseConnections.WithLabelValues("idle").Set(float64(stats.Idle))
+		metrics.DatabaseWaitCount.Set(float64(stats.WaitCount))
+		metrics.DatabaseWaitDurationSeconds.Set(stats.WaitDuration.Seconds())
 	}
 }

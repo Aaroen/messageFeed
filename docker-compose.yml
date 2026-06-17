@@ -1,12 +1,19 @@
 # messageFeed docker-compose 配置
 # 本文件定义本地开发和验证所需的服务。
 
+x-default-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   # ==================== PostgreSQL 数据库 ====================
   postgres:
     image: postgres:15-alpine
     container_name: messagefeed-postgres
     restart: unless-stopped
+    logging: *default-logging
 
     # 环境变量配置
     environment:
@@ -47,6 +54,7 @@ services:
   migrate:
     image: migrate/migrate:v4.19.1
     restart: "no"
+    logging: *default-logging
 
     # 迁移只在 PostgreSQL 健康后执行一次，API 依赖迁移成功完成后启动
     depends_on:
@@ -82,6 +90,8 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
 
     # 环境变量配置
     environment:
@@ -92,7 +102,16 @@ services:
       # 运行时配置
       APP_NODE_ID: docker-api-1
       DEPLOYMENT_MODE: single_node
+      ENVIRONMENT: development
       LOG_LEVEL: info
+
+      # 观测配置
+      OTEL_SERVICE_NAME: messagefeed-api
+      OTEL_SERVICE_VERSION: 0.2.0
+      OBSERVABILITY_TRACE_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
+      OTEL_EXPORTER_OTLP_INSECURE: "true"
+      OTEL_TRACES_SAMPLER_ARG: "1.0"
 
       # 数据库配置
       DATABASE_URL: postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable
@@ -117,11 +136,120 @@ services:
       - messagefeed-network
 
     # 日志配置
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *default-logging
+
+  # ==================== Prometheus 指标存储 ====================
+  prometheus:
+    image: prom/prometheus:v3.8.1
+    container_name: messagefeed-prometheus
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./ops/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - messagefeed-network
+
+  # ==================== Loki 日志存储 ====================
+  loki:
+    image: grafana/loki:3.5.8
+    container_name: messagefeed-loki
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "-config.file=/etc/loki/loki.yml"
+    volumes:
+      - ./ops/observability/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - messagefeed-network
+
+  # ==================== Promtail 日志采集 ====================
+  promtail:
+    image: grafana/promtail:3.5.8
+    container_name: messagefeed-promtail
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "-config.file=/etc/promtail/promtail.yml"
+    volumes:
+      - ./ops/observability/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    networks:
+      - messagefeed-network
+
+  # ==================== Tempo 链路追踪存储 ====================
+  tempo:
+    image: grafana/tempo:2.9.0
+    container_name: messagefeed-tempo
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "-config.file=/etc/tempo/tempo.yml"
+    volumes:
+      - ./ops/observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+      - "4319:4317"
+    networks:
+      - messagefeed-network
+
+  # ==================== OpenTelemetry Collector ====================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.142.0
+    container_name: messagefeed-otel-collector
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - "--config=/etc/otel-collector.yml"
+    volumes:
+      - ./ops/observability/otel-collector/otel-collector.yml:/etc/otel-collector.yml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+    depends_on:
+      - tempo
+    networks:
+      - messagefeed-network
+
+  # ==================== Grafana 统一观测界面 ====================
+  grafana:
+    image: grafana/grafana:12.3.0
+    container_name: messagefeed-grafana
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./ops/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - messagefeed-network
 
 # ==================== 网络定义 ====================
 networks:
@@ -135,3 +263,15 @@ volumes:
   postgres_data:
     driver: local
     name: messagefeed-postgres-data
+  prometheus_data:
+    driver: local
+    name: messagefeed-prometheus-data
+  loki_data:
+    driver: local
+    name: messagefeed-loki-data
+  tempo_data:
+    driver: local
+    name: messagefeed-tempo-data
+  grafana_data:
+    driver: local
+    name: messagefeed-grafana-data

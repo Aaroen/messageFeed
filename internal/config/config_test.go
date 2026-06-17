@@ -23,6 +23,15 @@ func TestDefaults(t *testing.T) {
 	if cfg.Log.SlogLevel() != slog.LevelInfo {
 		t.Fatalf("SlogLevel = %v, want %v", cfg.Log.SlogLevel(), slog.LevelInfo)
 	}
+	if cfg.Observability.Environment != DefaultEnvironment {
+		t.Fatalf("Environment = %q, want %q", cfg.Observability.Environment, DefaultEnvironment)
+	}
+	if cfg.Observability.ServiceName != DefaultObservabilityService {
+		t.Fatalf("ServiceName = %q, want %q", cfg.Observability.ServiceName, DefaultObservabilityService)
+	}
+	if cfg.Observability.TraceEnabled {
+		t.Fatal("TraceEnabled = true, want false")
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -32,6 +41,13 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("DEPLOYMENT_MODE", "cluster")
 	t.Setenv("TRUSTED_PROXY_CIDRS", "100.64.0.0/10, 192.168.0.0/16")
 	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("ENVIRONMENT", "test")
+	t.Setenv("OTEL_SERVICE_NAME", "messagefeed-test")
+	t.Setenv("OTEL_SERVICE_VERSION", "0.2.1")
+	t.Setenv("OBSERVABILITY_TRACE_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
+	t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
+	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0.5")
 
 	cfg, err := Load()
 	if err != nil {
@@ -56,6 +72,24 @@ func TestLoadFromEnv(t *testing.T) {
 	if cfg.Log.SlogLevel() != slog.LevelDebug {
 		t.Fatalf("SlogLevel = %v, want %v", cfg.Log.SlogLevel(), slog.LevelDebug)
 	}
+	if cfg.Observability.Environment != "test" {
+		t.Fatalf("Environment = %q", cfg.Observability.Environment)
+	}
+	if cfg.Observability.ServiceName != "messagefeed-test" {
+		t.Fatalf("ServiceName = %q", cfg.Observability.ServiceName)
+	}
+	if cfg.Observability.ServiceVersion != "0.2.1" {
+		t.Fatalf("ServiceVersion = %q", cfg.Observability.ServiceVersion)
+	}
+	if !cfg.Observability.TraceEnabled {
+		t.Fatal("TraceEnabled = false, want true")
+	}
+	if cfg.Observability.OTLPEndpoint != "localhost:4317" {
+		t.Fatalf("OTLPEndpoint = %q", cfg.Observability.OTLPEndpoint)
+	}
+	if cfg.Observability.TraceSampleRatio != 0.5 {
+		t.Fatalf("TraceSampleRatio = %f, want 0.5", cfg.Observability.TraceSampleRatio)
+	}
 }
 
 func TestLoadRejectsInvalidBindAddr(t *testing.T) {
@@ -79,5 +113,21 @@ func TestLoadRejectsInvalidTrustedProxyCIDR(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want invalid TRUSTED_PROXY_CIDRS error")
+	}
+}
+
+func TestLoadRejectsEnabledTraceWithoutEndpoint(t *testing.T) {
+	t.Setenv("OBSERVABILITY_TRACE_ENABLED", "true")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want missing OTLP endpoint error")
+	}
+}
+
+func TestLoadRejectsInvalidTraceSampleRatio(t *testing.T) {
+	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "1.1")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want invalid trace sampler error")
 	}
 }

@@ -4,6 +4,8 @@
 # ==================== Go 构建产物 ====================
 # 编译生成的二进制文件
 /api
+!/api/
+!/api/openapi.yaml
 /messagefeed
 /cmd/api/api
 *.exe

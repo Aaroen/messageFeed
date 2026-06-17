@@ -41,15 +41,21 @@ const (
 
 	// DefaultDatabaseConnMaxLifetime 是单个数据库连接的最大生命周期（秒）。
 	DefaultDatabaseConnMaxLifetime = 3600
+
+	DefaultEnvironment          = "development"
+	DefaultObservabilityService = "messagefeed-api"
+	DefaultServiceVersion       = "0.2.0"
+	DefaultTraceSampleRatio     = 1.0
 )
 
 // Config 汇总应用启动所需的基础配置。
 // 第一阶段只从环境变量读取配置，后续可以在该结构上扩展配置文件加载与合并逻辑。
 type Config struct {
-	HTTP     HTTPConfig
-	Runtime  RuntimeConfig
-	Log      LogConfig
-	Database DatabaseConfig
+	HTTP          HTTPConfig
+	Runtime       RuntimeConfig
+	Log           LogConfig
+	Database      DatabaseConfig
+	Observability ObservabilityConfig
 }
 
 // HTTPConfig 保存 HTTP 服务相关配置。
@@ -100,6 +106,17 @@ type DatabaseConfig struct {
 	ConnMaxLifetime time.Duration
 }
 
+// ObservabilityConfig 保存日志、指标和链路追踪所需的运行时配置。
+type ObservabilityConfig struct {
+	Environment      string
+	ServiceName      string
+	ServiceVersion   string
+	TraceEnabled     bool
+	OTLPEndpoint     string
+	OTLPInsecure     bool
+	TraceSampleRatio float64
+}
+
 // Load 从环境变量加载配置，并在返回前执行基础校验。
 // 当前不读取 YAML、TOML 或 JSON 配置文件，避免第一阶段引入路径、挂载和敏感信息落盘问题。
 // 后续如需配置文件，可在 Defaults 和环境变量覆盖之间增加文件配置合并层。
@@ -117,6 +134,14 @@ func Load() (Config, error) {
 	cfg.Database.MaxOpenConns = envInt("DATABASE_MAX_OPEN_CONNS", cfg.Database.MaxOpenConns)
 	cfg.Database.MaxIdleConns = envInt("DATABASE_MAX_IDLE_CONNS", cfg.Database.MaxIdleConns)
 	cfg.Database.ConnMaxLifetime = envDuration("DATABASE_CONN_MAX_LIFETIME", cfg.Database.ConnMaxLifetime)
+
+	cfg.Observability.Environment = envString("ENVIRONMENT", cfg.Observability.Environment)
+	cfg.Observability.ServiceName = envString("OTEL_SERVICE_NAME", cfg.Observability.ServiceName)
+	cfg.Observability.ServiceVersion = envString("OTEL_SERVICE_VERSION", cfg.Observability.ServiceVersion)
+	cfg.Observability.TraceEnabled = envBool("OBSERVABILITY_TRACE_ENABLED", cfg.Observability.TraceEnabled)
+	cfg.Observability.OTLPEndpoint = envString("OTEL_EXPORTER_OTLP_ENDPOINT", cfg.Observability.OTLPEndpoint)
+	cfg.Observability.OTLPInsecure = envBool("OTEL_EXPORTER_OTLP_INSECURE", cfg.Observability.OTLPInsecure)
+	cfg.Observability.TraceSampleRatio = envFloat("OTEL_TRACES_SAMPLER_ARG", cfg.Observability.TraceSampleRatio)
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -145,6 +170,15 @@ func Defaults() Config {
 			MaxOpenConns:    DefaultDatabaseMaxOpenConns,
 			MaxIdleConns:    DefaultDatabaseMaxIdleConns,
 			ConnMaxLifetime: DefaultDatabaseConnMaxLifetime * time.Second,
+		},
+		Observability: ObservabilityConfig{
+			Environment:      DefaultEnvironment,
+			ServiceName:      DefaultObservabilityService,
+			ServiceVersion:   DefaultServiceVersion,
+			TraceEnabled:     false,
+			OTLPEndpoint:     "",
+			OTLPInsecure:     true,
+			TraceSampleRatio: DefaultTraceSampleRatio,
 		},
 	}
 }
@@ -198,6 +232,22 @@ func (cfg Config) Validate() error {
 		}
 	}
 
+	if strings.TrimSpace(cfg.Observability.Environment) == "" {
+		return fmt.Errorf("ENVIRONMENT must not be empty")
+	}
+	if strings.TrimSpace(cfg.Observability.ServiceName) == "" {
+		return fmt.Errorf("OTEL_SERVICE_NAME must not be empty")
+	}
+	if strings.TrimSpace(cfg.Observability.ServiceVersion) == "" {
+		return fmt.Errorf("OTEL_SERVICE_VERSION must not be empty")
+	}
+	if cfg.Observability.TraceSampleRatio < 0 || cfg.Observability.TraceSampleRatio > 1 {
+		return fmt.Errorf("OTEL_TRACES_SAMPLER_ARG must be between 0 and 1")
+	}
+	if cfg.Observability.TraceEnabled && strings.TrimSpace(cfg.Observability.OTLPEndpoint) == "" {
+		return fmt.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT must not be empty when tracing is enabled")
+	}
+
 	return nil
 }
 
@@ -248,6 +298,32 @@ func envInt(key string, fallback int) int {
 	}
 
 	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func envBool(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func envFloat(key string, fallback float64) float64 {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	value, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
 		return fallback
 	}

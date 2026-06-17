@@ -1,6 +1,6 @@
 # messageFeed 实施文档
 
-**最后更新**：2026-06-14
+**最后更新**：2026-06-17
 
 ---
 
@@ -9,12 +9,15 @@
 | 阶段 | 名称 | 状态 | 完成度 | 开始日期 | 完成日期 |
 |------|------|------|--------|----------|----------|
 | 阶段一 | 基础设施搭建 | ✅ 完成 | 100% | 2026-06-12 | 2026-06-13 |
-| 阶段二 | 订阅源与 Feed 闭环 | 🚧 进行中 | 10% | 2026-06-13 | - |
-| 阶段三 | 源目录与导入 | ⏸️ 未开始 | 0% | - | - |
-| 阶段四 | 自动化与推荐 | ⏸️ 未开始 | 0% | - | - |
-| 阶段五 | AI 摘要与通知 | ⏸️ 未开始 | 0% | - | - |
-| 阶段六 | 自然语言控制 | ⏸️ 未开始 | 0% | - | - |
-| 阶段七 | 金融监控 | ⏸️ 未开始 | 0% | - | - |
+| 阶段二 | 订阅源与 Feed 闭环 | 🚧 进行中 | 75% | 2026-06-13 | - |
+| 阶段三 | 日志、错误追踪与链路观测 | 🚧 进行中 | 85% | 2026-06-17 | - |
+| 阶段四 | 源目录与导入 | ⏸️ 未开始 | 0% | - | - |
+| 阶段五 | 自动化与推荐 | ⏸️ 未开始 | 0% | - | - |
+| 阶段六 | AI 摘要与通知 | ⏸️ 未开始 | 0% | - | - |
+| 阶段七 | 自然语言控制 | ⏸️ 未开始 | 0% | - | - |
+| 阶段八 | 金融监控 | ⏸️ 未开始 | 0% | - | - |
+| 阶段九 | 工程化增强 | ⏸️ 未开始 | 0% | - | - |
+| 阶段十 | 来源扩展与分布式升级验证 | ⏸️ 未开始 | 0% | - | - |
 
 **图例**：✅ 已完成 | 🚧 进行中 | ⏸️ 未开始 | ❌ 已取消 | ⚠️ 有问题
 
@@ -168,13 +171,14 @@ adapter modules -> domain
 | --- | --- | --- |
 | 阶段一 | 本地工程基线与 Tailscale 访问 | [查看细节](#phase-1) |
 | 阶段二 | 订阅源与 Feed 闭环 | [查看细节](#phase-2) |
-| 阶段三 | 源目录与导入 | [查看细节](#phase-3) |
-| 阶段四 | 自动化、兴趣规则与推荐 Feed | [查看细节](#phase-4) |
-| 阶段五 | AI 摘要与通知 | [查看细节](#phase-5) |
-| 阶段六 | 自然语言设置控制 | [查看细节](#phase-6) |
-| 阶段七 | 金融市场监控与 AI 告警 | [查看细节](#phase-7) |
-| 阶段八 | 工程化增强 | [查看细节](#phase-8) |
-| 阶段九 | 来源扩展与分布式升级验证 | [查看细节](#phase-9) |
+| 阶段三 | 日志、错误追踪与链路观测 | [查看细节](#phase-3) |
+| 阶段四 | 源目录与导入 | [查看细节](#phase-4) |
+| 阶段五 | 自动化、兴趣规则与推荐 Feed | [查看细节](#phase-5) |
+| 阶段六 | AI 摘要与通知 | [查看细节](#phase-6) |
+| 阶段七 | 自然语言设置控制 | [查看细节](#phase-7) |
+| 阶段八 | 金融市场监控与 AI 告警 | [查看细节](#phase-8) |
+| 阶段九 | 工程化增强 | [查看细节](#phase-9) |
+| 阶段十 | 来源扩展与分布式升级验证 | [查看细节](#phase-10) |
 
 ## 4. 详细实施过程
 
@@ -282,7 +286,7 @@ adapter modules -> domain
 
 ### <a id="phase-2"></a>阶段二：订阅源与 Feed 闭环 🚧
 
-**状态**：🚧 进行中 | **开始时间**：2026-06-13 | **完成度**：10%
+**状态**：🚧 进行中 | **开始时间**：2026-06-13 | **完成度**：75%
 
 #### 实施进度清单
 
@@ -294,55 +298,62 @@ adapter modules -> domain
 - [x] 建立 request id、访问日志、统一响应和错误映射中间件
 - [x] 迁移现有 handler 测试
 
-**数据库设计** ⏸️
-- [ ] 创建 migrations/000002_add_sources_items.up.sql
-- [ ] 定义 sources 表
-- [ ] 定义 items 表
-- [ ] 定义 user_item_states 表
-- [ ] 定义 feed_view_preferences 表
-- [ ] 添加索引和约束
-- [ ] 执行迁移验证
+**数据库设计** ✅
+- [x] 创建 `migrations/000002_add_sources_items.up.sql`
+- [x] 创建 `migrations/000002_add_sources_items.down.sql`
+- [x] 定义 `sources` 表
+- [x] 定义 `items` 表
+- [x] 定义 `user_item_states` 表
+- [x] 定义 `feed_view_preferences` 表
+- [x] 添加索引、唯一约束、检查约束和更新时间触发器
+- [x] 通过 Docker Compose 在空数据库上执行 `000001 -> 000002` 迁移验证
 
-**领域模型** ⏸️
-- [ ] internal/domain/source.go
-- [ ] internal/domain/item.go
-- [ ] internal/domain/user_item_state.go
-- [ ] 枚举和错误定义
+**领域模型** ✅
+- [x] `internal/domain/source.go`
+- [x] `internal/domain/item.go`
+- [x] `internal/domain/user_item_state.go`
+- [x] `internal/domain/feed_view_preference.go`
+- [x] 枚举和领域错误定义
 
-**Repository 层** ⏸️
-- [ ] internal/repository/source_repository.go (Create, Get, List, Update, SetStatus)
-- [ ] internal/repository/item_repository.go (Create, BatchCreate, List)
-- [ ] internal/repository/user_item_state_repository.go (MarkRead, Favorite, Hide)
-- [ ] internal/repository/feed_view_preference_repository.go (Get, Upsert)
+**Repository 层** ✅
+- [x] `internal/repository/source_repository.go` (Create, Get, List, Update, UpdateFetchResult)
+- [x] `internal/repository/source_repository_test.go`
+- [x] `internal/repository/item_repository.go` (UpsertMany, ListByUser, GetByIDForUser；列表和详情联表返回来源名称与阅读状态)
+- [x] `internal/repository/item_repository_test.go`
+- [x] `internal/repository/user_item_state_repository.go` (MarkRead, Favorite, Hide；使用 `ON CONFLICT(user_id,item_id)` 原子 upsert，避免并发首次写入触发唯一约束冲突)
+- [x] `internal/repository/feed_view_preference_repository.go` (Get, Upsert)
 
-**Fetcher 模块** ⏸️
-- [ ] internal/fetcher/fetcher.go
-- [ ] 集成 gofeed
-- [ ] HTTP 抓取（超时、重定向、大小限制）
-- [ ] URL 规范化
-- [ ] 去重逻辑
-- [ ] 错误处理
+**Fetcher 模块** ✅
+- [x] `internal/fetcher/feed_fetcher.go`
+- [x] 集成 `gofeed`
+- [x] HTTP 抓取（超时、重定向、大小限制）
+- [x] URL 规范化
+- [x] 条目字段映射和内容 hash
+- [x] 错误处理
+- [x] `internal/fetcher/feed_fetcher_test.go`
 
-**Service 层** ⏸️
-- [ ] internal/service/source_service.go (CRUD + TriggerFetch)
-- [ ] internal/service/feed_service.go (FetchAndStore)
-- [ ] internal/service/timeline_service.go (GetTimeline)
-- [ ] internal/service/item_service.go (MarkRead, Favorite, Hide)
-- [ ] internal/service/feed_view_service.go (GetMode, SaveMode)
+**Service 层** ✅
+- [x] `internal/service/source_service.go` (Create, List, Update, TriggerFetch)
+- [x] `internal/service/source_service_test.go`
+- [x] `internal/service/timeline_service.go` (ListItems, GetItem；支持已读、收藏、隐藏和来源过滤参数)
+- [x] `internal/service/timeline_service_test.go`
+- [x] `internal/service/item_service.go` (MarkRead, Favorite, Hide)
+- [x] `internal/service/feed_view_service.go` (GetMode, SaveMode；不存在用户偏好时返回默认 `timeline`)
 
-**Handler 层** ⏸️
-- [ ] internal/handler/router.go (Gin 路由注册和中间件装配)
-- [ ] internal/handler/response.go (统一响应格式和错误映射)
-- [ ] internal/handler/source_handler.go (POST, GET, PATCH /api/v1/sources)
-- [ ] internal/handler/item_handler.go (GET /api/v1/items, 标记操作)
-- [ ] internal/handler/feed_handler.go (GET /api/v1/feed/timeline)
-- [ ] internal/handler/feed_view_handler.go (PUT /api/v1/feed/view-mode)
-- [ ] 统一响应格式
+**Handler 层** 🚧
+- [x] `internal/handler/router.go` (Gin 路由注册和中间件装配)
+- [x] `internal/handler/response.go` (统一响应格式和错误映射)
+- [x] `internal/handler/source_handler.go` (POST, GET, PATCH /api/v1/sources, POST /api/v1/sources/:id/fetch)
+- [x] `internal/handler/item_handler.go` (GET /api/v1/items, GET /api/v1/items/:id, GET /api/v1/feed/timeline)
+- [x] `internal/handler/item_handler.go` 标记操作 (POST /api/v1/items/:id/read, /favorite, /hide；空请求体默认置为 true，请求体可显式传 false 取消状态)
+- [x] `internal/handler/feed_view_handler.go` (GET, PUT /api/v1/feed/view-mode)
+- [x] `internal/handler/middleware.go` CORS 中间件，允许本地 Vite 开发源跨域调用 API
+- [x] 统一响应格式
 
-**OpenAPI 文档** ⏸️
-- [ ] 后端接口稳定后安装 swaggo/swag
-- [ ] 添加 OpenAPI 注解
-- [ ] 生成文档
+**OpenAPI 文档** 🚧
+- [x] `api/openapi.yaml` 最小前端契约：条目列表、条目详情、订阅源列表、阅读模式偏好
+- [ ] 后端接口稳定后安装 swaggo/swag 或接入契约生成/校验流程
+- [ ] 添加完整 OpenAPI 注解或补齐完整手写契约
 - [ ] 配置 Swagger UI
 
 **前端初始化** ⏸️
@@ -365,12 +376,35 @@ adapter modules -> domain
 - [ ] 前后端联调
 - [ ] 端到端测试
 
+**后端验证** ✅
+- [x] `make verify`
+- [x] `go test ./...`
+- [x] `go vet ./...`
+- [x] Docker Compose 空库迁移验证
+- [x] Docker Compose API 容器健康检查
+- [x] 真实 PostgreSQL 下验证 `POST /api/v1/sources`、`GET /api/v1/sources`、`PATCH /api/v1/sources/{id}`
+- [x] 真实 PostgreSQL 下验证 `POST /api/v1/sources/{id}/fetch`
+- [x] 重复抓取验证 `created_count=0`、`updated_count>0`，确认不会重复入库
+- [x] 真实 PostgreSQL 下验证 `GET /api/v1/items`
+- [x] 真实 PostgreSQL 下验证 `GET /api/v1/feed/timeline`
+- [x] 真实 PostgreSQL 下验证 `POST /api/v1/items/{id}/read`、`POST /api/v1/items/{id}/favorite`、`POST /api/v1/items/{id}/hide`
+- [x] 验证阅读状态首次并发写入、取消状态和不存在条目的 404 错误映射
+- [x] 本地单元测试覆盖条目详情、列表状态过滤、阅读模式偏好默认值和保存行为
+- [x] 真实 PostgreSQL 下验证 `GET /api/v1/items/{id}` 返回来源名称与阅读状态
+- [x] 真实 PostgreSQL 下验证 `GET /api/v1/items` 的已读、隐藏和 `include_hidden` 过滤
+- [x] 真实 PostgreSQL 下验证 `GET /api/v1/feed/view-mode`、`PUT /api/v1/feed/view-mode` 与非法模式 400 错误映射
+- [x] 条目响应增加 `content_text`，前端可默认按纯文本展示；`content_snippet` 不作为直接 `v-html` 渲染来源
+
 #### 验收标准
 - [ ] 可以通过 Web 界面管理订阅源
-- [ ] 可以手动触发抓取
-- [ ] 重复抓取不会重复入库
+- [x] 可以通过 API 手动触发抓取
+- [x] 重复抓取不会重复入库
+- [x] API 可以返回时间线模式条目，并在列表和详情中包含来源名称与阅读状态
 - [ ] Web 界面显示时间线模式
-- [ ] 可以标记已读、收藏、隐藏
+- [x] API 可以标记已读、收藏、隐藏，并支持取消状态
+- [x] API 可以保存和读取 Web 阅读模式偏好
+- [x] API 已提供阶段二前端最小 OpenAPI 契约
+- [ ] Web 界面可以标记已读、收藏、隐藏
 - [ ] API 文档可在 Swagger UI 访问
 
 ---
@@ -393,11 +427,11 @@ adapter modules -> domain
 5. 规范化 URL，建立 `sources(user_id, normalized_url)`、`items(source_id, normalized_url)` 和可选 `items(source_id, raw_guid)` 唯一约束；`raw_guid` 唯一约束只对非空值生效。
 6. 实现 `POST /api/v1/sources`、`GET /api/v1/sources`、`PATCH /api/v1/sources/{id}`、`POST /api/v1/sources/{id}/fetch`。
 7. 实现 `GET /api/v1/items`、`GET /api/v1/items/{id}`、`POST /api/v1/items/{id}/read`、`POST /api/v1/items/{id}/favorite`、`POST /api/v1/items/{id}/hide`。
-8. 实现 `GET /api/v1/feed/timeline`，按 `published_at desc nulls last, fetched_at desc` 查询已订阅来源条目。
-9. 实现 `PUT /api/v1/feed/view-mode`，保存用户最近选择的 Web 阅读模式。
+8. 实现 `GET /api/v1/feed/timeline`，按 `published_at desc nulls last, fetched_at desc` 查询已订阅来源条目；条目响应直接包含 `source_name`、`is_read`、`is_favorite`、`is_hidden`、`content_text` 和对应时间戳，供前端直接渲染。
+9. 实现 `GET /api/v1/feed/view-mode` 与 `PUT /api/v1/feed/view-mode`，读取并保存用户最近选择的 Web 阅读模式。
 10. 在 `web` 中提供时间线模式入口，支持分页、来源过滤、已读、收藏和隐藏操作。
 11. 抓取结果需要记录状态、耗时、条目数量、失败原因和最近抓取时间。
-12. 后端接口稳定后补充 OpenAPI 注解和 Swagger UI，避免接口仍在变动时反复维护契约。
+12. 先维护 `api/openapi.yaml` 中的前端最小契约；后端接口进一步稳定后，再补齐完整 OpenAPI 契约、契约校验和 Swagger UI。
 
 实施细节：
 
@@ -419,15 +453,17 @@ adapter modules -> domain
 - `GET /api/v1/sources` - 获取订阅源列表
 - `PATCH /api/v1/sources/{id}` - 更新订阅源或调整启用状态
 - `POST /api/v1/sources/{id}/fetch` - 手动触发抓取
-- `GET /api/v1/items` - 获取 Feed 条目（支持分页、排序、过滤）
+- `GET /api/v1/items` - 获取 Feed 条目（支持分页、排序、来源过滤、已读过滤、收藏过滤、隐藏过滤）
 - `GET /api/v1/items/{id}` - 获取条目详情
 - `POST /api/v1/items/{id}/read` - 标记已读
 - `POST /api/v1/items/{id}/favorite` - 收藏
 - `POST /api/v1/items/{id}/hide` - 隐藏
 - `GET /api/v1/feed/timeline` - 查询时间线
+- `GET /api/v1/feed/view-mode` - 获取阅读模式偏好
 - `PUT /api/v1/feed/view-mode` - 保存阅读模式偏好
 - 集成 `gofeed` 解析 RSS/Atom/JSON Feed
 - 基于 `source_id + normalized_url` 去重
+- 条目响应提供 `content_text` 纯文本字段；`content_snippet` 可能包含外部来源 HTML，前端不得未经净化直接渲染
 
 **Web 前端（Vue 3）**：
 - 路由：`/sources` 订阅源管理，`/timeline` 时间线模式
@@ -436,16 +472,19 @@ adapter modules -> domain
 - 交互：实时刷新、下拉加载、标记操作
 
 **技术栈**：
-- 后端：Go + Gin + gofeed + OpenAPI 注解
+- 后端：Go + Gin + gofeed + OpenAPI YAML 契约
 - 前端：Vue 3 + Vite + Arco Design Vue + Pinia + Vue Router + Axios
 
 验收标准：
 
-- ✅ 可以通过 Web 界面新增 RSS 源并手动触发抓取
+- ✅ 可以通过 API 新增 RSS 源并手动触发抓取
 - ✅ 重复抓取不会重复入库（后端去重逻辑验证）
-- ✅ Web 界面显示时间线模式，按时间倒序展示条目
-- ✅ 可以在 Web 界面标记已读、收藏和隐藏
-- ✅ API 提供 OpenAPI 文档，可在 Swagger UI 中测试
+- ✅ API 可以返回时间线模式条目，按时间倒序展示
+- ✅ API 条目列表和详情已包含来源名称与用户阅读状态
+- ✅ API 可以标记已读、收藏和隐藏，并支持取消状态
+- ✅ API 可以读取和保存阅读模式偏好
+- ⏳ Web 界面新增 RSS 源、手动抓取、时间线展示和标记操作仍待实现
+- ✅ API 已提供阶段二前端最小 OpenAPI 契约；完整契约、契约校验和 Swagger UI 后置补充
 - ✅ 阶段一已有健康检查、就绪检查、指标和运行时节点端点在迁移到 Gin 后保持兼容
 
 风险控制：
@@ -456,7 +495,56 @@ adapter modules -> domain
 - 外部源返回异常编码、异常 MIME、空 feed 或重复 GUID 时必须有可诊断错误。
 - 抓取器只允许 `http` 和 `https` URL，并限制重定向次数和响应体大小，避免外部输入长期占用资源。
 
-### <a id="phase-3"></a>阶段三：源目录与导入
+### <a id="phase-3"></a>阶段三：日志、错误追踪与链路观测
+
+**触发条件**：阶段二完成“订阅源 -> 手动抓取 -> 去重入库 -> 时间线展示 -> 阅读状态”最小业务闭环后立即启动。该阶段完成前，不进入源目录、推荐 Feed、AI 摘要、通知或金融监控的主体开发。
+
+实施范围：
+
+- 将当前基础 `log/slog` 日志升级为结构化 JSON 日志。
+- 将 request id 从 Gin 上下文打通到标准 `context.Context`。
+- 接入 OpenTelemetry，建立 HTTP 入口 trace，并为 service、repository、fetcher、notifier、llm、scheduler 预留 span 模式。
+- 建立统一错误模型和 handler 层错误映射。
+- 完善 panic recovery，确保 panic 与 request id、trace id、method、path 关联。
+- 将日志存储、指标、trace 和 Dashboard 纳入 Docker Compose 可选观测组件。
+
+实施步骤：
+
+1. [x] 新增 `internal/observability` 模块，统一初始化 logger、request id、trace id、span id、tracer provider 和 shutdown 钩子。
+2. [x] 将 `slog` 输出从 text handler 调整为 JSON handler，固定字段包括 `service`、`environment`、`node_id`、`request_id`、`trace_id`、`span_id` 和 `error`。
+3. [x] 保持应用日志输出到 stdout/stderr，不让业务进程直接写日志文件；本地继续使用 Docker `json-file` 轮转，完整观测环境使用 Loki 查询日志。
+4. [x] 修改 request id 中间件，将 `X-Request-ID` 写入响应头、Gin 上下文和 `context.Context`，并提供从 context 读取 request id 的辅助函数。
+5. [x] 接入 OpenTelemetry Gin 中间件，新增 `OBSERVABILITY_TRACE_ENABLED`、`OTEL_SERVICE_NAME`、`OTEL_EXPORTER_OTLP_ENDPOINT`、`ENVIRONMENT` 和采样配置。
+6. [x] 在 `cmd/api` 中初始化 tracer provider，并在优雅关闭时 flush exporter。
+7. [x] 为当前已实现业务的 HTTP、service、repository 和 fetcher 定义 span 命名规则，例如 `service.source.trigger_fetch`、`repository.source.create`、`fetcher.feed.fetch`。
+8. 建立统一错误类型，包含业务错误码、HTTP 状态码、用户可读消息、内部错误链、操作名和是否可重试。
+9. [x] handler 层统一渲染错误响应，响应中包含 `code`、`message`、`request_id` 和 `trace_id`。
+10. [x] Recovery 中间件捕获 panic 后记录 request id、trace id、span id、method、path 和 panic 摘要，并返回统一 500 响应。
+11. [x] 完善 Prometheus 指标，增加 Feed 抓取失败、抓取耗时、外部调用耗时、数据库查询耗时和数据库连接池等待指标。
+12. [x] Docker Compose 增加 `prometheus`、`grafana`、`loki`、`promtail`、`tempo`、`otel-collector` 配置。
+13. [x] 建立 Grafana Dashboard 草案，展示请求量、HTTP P95 耗时、HTTP 状态、数据库连接池、抓取次数、外部调用耗时和 API 日志。
+14. [x] 补充磁盘保护策略：所有 Compose 服务统一 Docker `json-file` 日志轮转，Prometheus 本地保留 7 天，Loki 保留 168 小时并启用 compactor retention 删除，Tempo trace 保留 24 小时。
+15. [x] 将 `/healthz` 和 `/metrics` 的成功访问日志降为 debug，避免健康检查和 Prometheus 抓取在 info 级别持续写入 Loki；失败请求仍保留可追踪日志。
+
+验收标准：
+
+- 用户或前端拿到 `request_id` 后，可以在日志系统中查询该请求的入口日志、错误日志和关键下游操作。
+- 一次 API 请求可以在 trace 系统中看到 HTTP 入口、handler、service、repository 或外部调用 span。
+- panic、业务错误、数据库错误和外部依赖错误都有统一响应结构和服务端结构化日志。
+- `/metrics` 能展示请求量、错误率、耗时和数据库连接池状态。
+- 完整观测 Docker Compose 启动后，可以通过 Grafana 查询日志、指标和 trace。
+- API 容器、观测组件和数据库容器均有 Docker 日志轮转；Loki、Prometheus 和 Tempo 均有本地保留窗口，避免本地验证环境无界增长。
+- `make verify` 继续通过，新增观测相关单元测试覆盖 request id 上下文传播、错误映射和 recovery。
+
+风险控制：
+
+- 日志不得输出密钥、token、Webhook URL、数据库 DSN、AI API key 或用户敏感正文。
+- 观测系统自身也会产生日志和指标，必须保留轮转和保留期；后续生产环境上线前需要根据磁盘容量、采样率、日志量和查询窗口重新评估保留策略。
+- trace attribute 不得写入大正文、完整文章内容、模型提示词全文或敏感配置。
+- 指标 label 不得使用高基数字段，例如原始 URL、用户输入文本、完整错误消息或 request id。
+- Sentry 或其他错误聚合平台只作为后续增强，不替代日志、指标和 trace 的基础链路。
+
+### <a id="phase-4"></a>阶段四：源目录与导入
 
 实施范围：
 
@@ -484,7 +572,7 @@ adapter modules -> domain
 - 不直接复制第三方源数据为正式内置数据，先作为候选来源并核查许可。
 - 目录源需要定期健康检查，避免大量不可用源影响用户体验。
 
-### <a id="phase-4"></a>阶段四：自动化、兴趣规则与推荐 Feed
+### <a id="phase-5"></a>阶段五：自动化、兴趣规则与推荐 Feed
 
 实施范围：
 
@@ -522,7 +610,7 @@ adapter modules -> domain
 - 推荐 Feed 不得将用户阅读未订阅内容解释为自动订阅。
 - 未订阅来源必须展示来源出处、健康状态和桥接风险，不得与已订阅来源混同。
 
-### <a id="phase-5"></a>阶段五：AI 摘要与通知
+### <a id="phase-6"></a>阶段六：AI 摘要与通知
 
 实施范围：
 
@@ -552,7 +640,7 @@ adapter modules -> domain
 - 个人微信桥接仅作实验，不进入第一版验收。
 - 摘要任务必须记录 token、耗时和错误，便于成本分析。
 
-### <a id="phase-6"></a>阶段六：自然语言设置控制
+### <a id="phase-7"></a>阶段七：自然语言设置控制
 
 实施范围：
 
@@ -589,7 +677,7 @@ adapter modules -> domain
 - 通知接收目标、金融告警和成本增加类操作默认需要用户确认。
 - 该阶段不实现通用无限工具执行、浏览器自动化或任意系统命令能力。
 
-### <a id="phase-7"></a>阶段七：金融市场监控与 AI 告警
+### <a id="phase-8"></a>阶段八：金融市场监控与 AI 告警
 
 实施范围：
 
@@ -624,24 +712,24 @@ adapter modules -> domain
 - AI 金融解读不得输出确定性买卖建议。
 - 本项目不接入自动交易、券商账户和高频行情。
 
-### <a id="phase-8"></a>阶段八：工程化增强
+### <a id="phase-9"></a>阶段九：工程化增强
 
 实施范围：
 
-- 增加 OpenAPI 契约、集成测试、关键指标、Dashboard 和更完整的部署配置。
+- 在阶段三完整观测系统的基础上，增加 OpenAPI 契约、集成测试、业务指标扩展、Dashboard 迭代和更完整的部署配置。
 
 实施步骤：
 
 1. 将当前 API 固化为 OpenAPI 文档，并在 `make verify` 中增加契约检查。
 2. 增加基于真实 PostgreSQL 的集成测试，优先覆盖源导入、抓取去重、摘要记录、通知记录、自然语言设置控制和金融告警。
-3. 完善 Docker Compose，纳入可选 ntfy、Prometheus、Grafana 和 Redis。Redis 只在缓存、队列、限流或任务锁实现已经接入时启用。
-4. 增加核心指标：抓取次数、抓取失败、抓取耗时、摘要耗时、控制计划成功率、通知成功率、行情拉取成功率、告警触发次数。
-5. 增加 Grafana Dashboard 草案，按采集、摘要、设置控制、通知、行情和告警分类展示。
+3. 完善 Docker Compose，纳入可选 ntfy 和 Redis；Prometheus、Grafana、Loki、Tempo、OpenTelemetry Collector 沿用阶段三观测 profile 并按业务需要扩展。
+4. 扩展核心业务指标：摘要耗时、控制计划成功率、通知成功率、行情拉取成功率、告警触发次数。
+5. 迭代 Grafana Dashboard，按采集、摘要、设置控制、通知、行情和告警分类展示。
 
 验收标准：
 
 - `make verify` 覆盖格式检查、单元测试、集成测试、构建和契约检查。
-- 指标能展示抓取次数、抓取失败、摘要耗时、控制计划成功率、行情拉取成功率、告警触发次数和通知成功率。
+- 指标能在阶段三基础上继续展示摘要耗时、控制计划成功率、行情拉取成功率、告警触发次数和通知成功率。
 - `make compose-up` 后可访问服务、数据库和可选观测组件。
 
 风险控制：
@@ -649,7 +737,7 @@ adapter modules -> domain
 - 测试应复用正式迁移文件，不维护第二套测试 schema。
 - Dashboard 不应依赖固定本机绝对路径。
 
-### <a id="phase-9"></a>阶段九：来源扩展与分布式升级验证
+### <a id="phase-10"></a>阶段十：来源扩展与分布式升级验证
 
 实施范围：
 
@@ -692,6 +780,7 @@ adapter modules -> domain
 - 去重入库。
 - Feed 查询。
 - Web 时间线模式。
+- 日志、错误追踪和链路观测系统。
 - 推荐 Feed 模式。
 - OPML 导入。
 - 日报摘要。

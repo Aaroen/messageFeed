@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"messagefeed/internal/observability"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -32,6 +33,9 @@ type Config struct {
 	// ConnMaxLifetime 是单个连接的最大生命周期。
 	// 避免连接长期占用，默认 1 小时。
 	ConnMaxLifetime time.Duration
+
+	// Logger 将 GORM 查询日志接入应用结构化日志。
+	Logger *slog.Logger
 }
 
 // DefaultConfig 返回数据库连接的默认配置。
@@ -42,6 +46,7 @@ func DefaultConfig() Config {
 		MaxOpenConns:    25,
 		MaxIdleConns:    5,
 		ConnMaxLifetime: time.Hour,
+		Logger:          slog.Default(),
 	}
 }
 
@@ -52,9 +57,7 @@ func Open(cfg Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("database DSN is empty")
 	}
 
-	// GORM 日志配置：将 GORM 日志桥接到 slog。
-	// 第一阶段使用默认日志级别，后续可根据环境变量调整。
-	gormLogger := logger.Default.LogMode(logger.Info)
+	gormLogger := newSlogGORMLogger(cfg.Logger).LogMode(logger.Warn)
 
 	// 打开数据库连接
 	db, err := gorm.Open(postgres.Open(cfg.DSN), &gorm.Config{
@@ -79,6 +82,75 @@ func Open(cfg Config) (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 
 	return db, nil
+}
+
+type slogGORMLogger struct {
+	logger        *slog.Logger
+	level         logger.LogLevel
+	slowThreshold time.Duration
+}
+
+func newSlogGORMLogger(base *slog.Logger) slogGORMLogger {
+	if base == nil {
+		base = slog.Default()
+	}
+	return slogGORMLogger{
+		logger:        base,
+		level:         logger.Warn,
+		slowThreshold: 200 * time.Millisecond,
+	}
+}
+
+func (l slogGORMLogger) LogMode(level logger.LogLevel) logger.Interface {
+	l.level = level
+	return l
+}
+
+func (l slogGORMLogger) Info(ctx context.Context, msg string, args ...interface{}) {
+	if l.level >= logger.Info {
+		l.logger.DebugContext(ctx, msg, args...)
+	}
+}
+
+func (l slogGORMLogger) Warn(ctx context.Context, msg string, args ...interface{}) {
+	if l.level >= logger.Warn {
+		l.logger.WarnContext(ctx, msg, args...)
+	}
+}
+
+func (l slogGORMLogger) Error(ctx context.Context, msg string, args ...interface{}) {
+	if l.level >= logger.Error {
+		l.logger.ErrorContext(ctx, msg, args...)
+	}
+}
+
+func (l slogGORMLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	if l.level == logger.Silent {
+		return
+	}
+
+	duration := time.Since(begin)
+	if err == nil && duration < l.slowThreshold && l.level < logger.Info {
+		return
+	}
+
+	sql, rows := fc()
+	attrs := []any{
+		"trace_id", observability.TraceID(ctx),
+		"span_id", observability.SpanID(ctx),
+		"duration_ms", duration.Milliseconds(),
+		"rows", rows,
+		"sql", sql,
+	}
+
+	switch {
+	case err != nil && !errors.Is(err, gorm.ErrRecordNotFound) && l.level >= logger.Error:
+		l.logger.ErrorContext(ctx, "database query failed", append(attrs, "error", err)...)
+	case duration >= l.slowThreshold && l.level >= logger.Warn:
+		l.logger.WarnContext(ctx, "database slow query", attrs...)
+	case l.level >= logger.Info:
+		l.logger.DebugContext(ctx, "database query", attrs...)
+	}
 }
 
 // Ping 执行数据库连接测试。

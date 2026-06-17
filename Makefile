@@ -133,14 +133,14 @@ docker-run: ## 运行 Docker 容器（需要先构建镜像）
 .PHONY: compose-up
 compose-up: ## 启动 Docker Compose 服务
 	@echo "启动 Docker Compose 服务..."
-	@$(DOCKER_COMPOSE) up -d postgres
-	@$(DOCKER_COMPOSE) run --rm migrate -path /migrations -database "$(MIGRATE_DATABASE_URL)" up
-	@$(DOCKER_COMPOSE) up -d --build --no-deps api
+	@$(DOCKER_COMPOSE) up -d --build
 	@echo "✅ 服务已启动"
 	@echo ""
 	@echo "服务地址："
 	@echo "  API: http://localhost:60001"
 	@echo "  健康检查: http://localhost:60001/healthz"
+	@echo "  Grafana: http://localhost:3000"
+	@echo "  Prometheus: http://localhost:9090"
 	@echo ""
 
 .PHONY: compose-down

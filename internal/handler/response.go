@@ -3,10 +3,14 @@ package handler
 import (
 	"net/http"
 
+	"messagefeed/internal/observability"
+
 	"github.com/gin-gonic/gin"
 )
 
 const requestIDKey = "request_id"
+const errorCodeKey = "error_code"
+const errorMessageKey = "error_message"
 
 // APIResponse 是业务 API 的统一响应结构。
 // 健康检查、指标和运行时节点端点保持原有响应形态，业务端点后续统一使用该结构。
@@ -15,6 +19,7 @@ type APIResponse struct {
 	Message   string `json:"message"`
 	Data      any    `json:"data,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
+	TraceID   string `json:"trace_id,omitempty"`
 }
 
 // Success 返回业务成功响应。
@@ -24,15 +29,30 @@ func Success(c *gin.Context, data any) {
 		Message:   "success",
 		Data:      data,
 		RequestID: requestID(c),
+		TraceID:   observability.TraceID(c.Request.Context()),
+	})
+}
+
+// Created 返回业务创建成功响应。
+func Created(c *gin.Context, data any) {
+	c.JSON(http.StatusCreated, APIResponse{
+		Code:      0,
+		Message:   "success",
+		Data:      data,
+		RequestID: requestID(c),
+		TraceID:   observability.TraceID(c.Request.Context()),
 	})
 }
 
 // Error 返回业务错误响应。
 func Error(c *gin.Context, statusCode int, code int, message string) {
+	c.Set(errorCodeKey, code)
+	c.Set(errorMessageKey, message)
 	c.JSON(statusCode, APIResponse{
 		Code:      code,
 		Message:   message,
 		RequestID: requestID(c),
+		TraceID:   observability.TraceID(c.Request.Context()),
 	})
 }
 

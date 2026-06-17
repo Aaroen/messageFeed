@@ -65,6 +65,22 @@ var DatabaseConnections = promauto.NewGaugeVec(
 	[]string{"state"},
 )
 
+// DatabaseWaitCount 记录数据库连接池等待连接累计次数。
+var DatabaseWaitCount = promauto.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "messagefeed_database_wait_count",
+		Help: "数据库连接池等待连接累计次数",
+	},
+)
+
+// DatabaseWaitDurationSeconds 记录数据库连接池等待连接累计耗时。
+var DatabaseWaitDurationSeconds = promauto.NewGauge(
+	prometheus.GaugeOpts{
+		Name: "messagefeed_database_wait_duration_seconds",
+		Help: "数据库连接池等待连接累计耗时（秒）",
+	},
+)
+
 // DatabaseQueriesTotal 记录数据库查询总数，按操作类型和表名分类。
 var DatabaseQueriesTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
@@ -102,6 +118,34 @@ var FeedFetchDuration = promauto.NewHistogram(
 		Help:    "RSS Feed 抓取耗时分布（秒）",
 		Buckets: []float64{0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0},
 	},
+)
+
+// FeedFetchItemsTotal 记录抓取后解析出的条目总数，按来源和写入结果分类。
+var FeedFetchItemsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_feed_fetch_items_total",
+		Help: "抓取后解析出的条目总数，按来源和写入结果分类",
+	},
+	[]string{"source", "result"},
+)
+
+// ExternalHTTPRequestsTotal 记录外部 HTTP 调用次数。
+var ExternalHTTPRequestsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_external_http_requests_total",
+		Help: "外部 HTTP 调用次数，按操作、主机和状态分类",
+	},
+	[]string{"operation", "host", "status"},
+)
+
+// ExternalHTTPRequestDuration 记录外部 HTTP 调用耗时。
+var ExternalHTTPRequestDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_external_http_request_duration_seconds",
+		Help:    "外部 HTTP 调用耗时分布（秒）",
+		Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0},
+	},
+	[]string{"operation", "host"},
 )
 
 // NotificationsTotal 记录通知发送总数，按通道和状态分类。

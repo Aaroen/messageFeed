@@ -9,10 +9,12 @@ import (
 
 	"messagefeed/internal/db"
 	"messagefeed/internal/metrics"
+	"messagefeed/internal/observability"
 	appRuntime "messagefeed/internal/runtime"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	otelgin "go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 	"gorm.io/gorm"
 )
 
@@ -21,10 +23,15 @@ const serviceName = "messageFeed"
 // RouterOptions 汇总路由层需要的只读依赖。
 // 业务 service 接入后应继续通过该结构注入，不在 handler 内部直接构建依赖。
 type RouterOptions struct {
-	Logger   *slog.Logger
-	Database *gorm.DB
-	NodeInfo appRuntime.NodeInfo
-	Now      func() time.Time
+	Logger          *slog.Logger
+	Database        *gorm.DB
+	NodeInfo        appRuntime.NodeInfo
+	Now             func() time.Time
+	SourceService   sourceService
+	TimelineService timelineService
+	ItemService     itemStateService
+	FeedViewService feedViewService
+	ServiceName     string
 }
 
 // NewRouter 创建 Gin 路由树。
@@ -39,9 +46,12 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	if options.Now == nil {
 		options.Now = time.Now
 	}
+	if options.ServiceName == "" {
+		options.ServiceName = serviceName
+	}
 
 	router := gin.New()
-	router.Use(RequestID(), Recovery(options.Logger), AccessLog(options.Logger))
+	router.Use(RequestID(), otelgin.Middleware(options.ServiceName), CORS(), Recovery(options.Logger), AccessLog(options.Logger))
 
 	router.GET("/", rootHandler)
 	router.GET("/healthz", healthzHandler)
@@ -50,7 +60,9 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(metrics.Gatherer, promhttp.HandlerOpts{})))
 
 	apiV1 := router.Group("/api/v1")
-	_ = apiV1
+	registerSourceRoutes(apiV1, options.SourceService)
+	registerItemRoutes(apiV1, options.TimelineService, options.ItemService)
+	registerFeedViewRoutes(apiV1, options.FeedViewService)
 
 	router.NoRoute(func(c *gin.Context) {
 		Error(c, http.StatusNotFound, http.StatusNotFound, "not found")
@@ -74,6 +86,10 @@ func healthzHandler(c *gin.Context) {
 
 func readyzHandler(database *gorm.DB, logger *slog.Logger, now func() time.Time) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		ctx, span := observability.StartSpan(c.Request.Context(), "handler.readyz")
+		defer observability.EndSpan(span, nil)
+		c.Request = c.Request.WithContext(ctx)
+
 		checks := []appRuntime.ReadinessCheck{
 			{
 				Name:    "process",
