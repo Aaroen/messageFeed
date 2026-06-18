@@ -278,28 +278,33 @@ const sourceReaderUnderDetail = computed(
 const sourceReaderRevealProgress = computed(() =>
   clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
 )
-const sourceReaderStyle = computed(() => ({
-  zIndex: sourceReaderCovering.value ? 120 : sourceReaderUnderDetail.value ? 96 : sourceReaderVisible.value ? 110 : 90,
-  opacity: !sourceReaderVisible.value
-    ? '0'
-    : sourceReaderUnderDetail.value
-      ? (0.34 + sourceReaderRevealProgress.value * 0.66).toFixed(3)
-      : '1',
-  pointerEvents:
-    !sourceReaderVisible.value || detailBlocksGestures() ? ('none' as const) : ('auto' as const),
-  '--source-underlay-blur': `${((1 - sourceReaderRevealProgress.value) * 8).toFixed(2)}px`,
-  '--source-underlay-opacity': (0.54 + sourceReaderRevealProgress.value * 0.46).toFixed(3),
-  transform:
-    !sourceReaderVisible.value
-      ? `translate3d(${Math.round(windowWidth.value)}px, 0, 0)`
+const sourceReaderStyle = computed(() => {
+  const underlayBaseOpacity = darkTheme.value ? 0.74 : 0.54
+  const overlayBaseOpacity = darkTheme.value ? 0.48 : 0.34
+  return {
+    '--feed-header-height': `${feedHeaderHeight.value}px`,
+    zIndex: sourceReaderCovering.value ? 120 : sourceReaderUnderDetail.value ? 96 : sourceReaderVisible.value ? 110 : 90,
+    opacity: !sourceReaderVisible.value
+      ? '0'
       : sourceReaderUnderDetail.value
-        ? 'translate3d(0, 0, 0)'
-        : `translate3d(${Math.round(sourceReaderTouchOffset.value)}px, 0, 0) scaleX(${(1 + sourceReaderStretch.value).toFixed(4)})`,
-  transition: readerBackDragging.value
-    ? 'none'
-    : 'opacity 320ms ease, transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1)',
-  transformOrigin: sourceReaderStretch.value > 0 ? 'left center' : undefined,
-}))
+        ? (overlayBaseOpacity + sourceReaderRevealProgress.value * (1 - overlayBaseOpacity)).toFixed(3)
+        : '1',
+    pointerEvents:
+      !sourceReaderVisible.value || detailBlocksGestures() ? ('none' as const) : ('auto' as const),
+    '--source-underlay-blur': `${((1 - sourceReaderRevealProgress.value) * (darkTheme.value ? 5 : 8)).toFixed(2)}px`,
+    '--source-underlay-opacity': (underlayBaseOpacity + sourceReaderRevealProgress.value * (1 - underlayBaseOpacity)).toFixed(3),
+    transform:
+      !sourceReaderVisible.value
+        ? `translate3d(${Math.round(windowWidth.value)}px, 0, 0)`
+        : sourceReaderUnderDetail.value
+          ? 'translate3d(0, 0, 0)'
+          : `translate3d(${Math.round(sourceReaderTouchOffset.value)}px, 0, 0) scaleX(${(1 + sourceReaderStretch.value).toFixed(4)})`,
+    transition: readerBackDragging.value
+      ? 'none'
+      : 'opacity 320ms ease, transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+    transformOrigin: sourceReaderStretch.value > 0 ? 'left center' : undefined,
+  }
+})
 const detailReaderStyle = computed(() => ({
   transform: `translate3d(0, 0, 0) scaleX(${(1 + detailReaderStretch.value).toFixed(4)})`,
   transition: readerBackDragging.value ? 'none' : undefined,
@@ -381,12 +386,13 @@ const detailTransitionSurfaceStyle = computed(() => {
   const x = collapsedTarget.left + (expandedLeft - collapsedTarget.left) * progress
   const y = collapsedTarget.top + (targetTop - collapsedTarget.top) * progress
   const radius = Math.round(12 + 4 * progress)
+  const minimumSurfaceOpacity = darkTheme.value ? 0.64 : 0.36
   const opacity =
     draggingToList
       ? 1
       : committedListReturn || detailReturningToFeed.value
         ? progress
-        : 0.36 + progress * 0.64
+        : minimumSurfaceOpacity + progress * (1 - minimumSurfaceOpacity)
 
   return {
     width: `${Math.round(width)}px`,
@@ -450,6 +456,9 @@ const detailMorphSourceLabelStyle = computed(() => ({
 const sourceNameMorphProgress = computed(() =>
   clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
 )
+const sourceTitleProgress = computed(() =>
+  detailReaderOpen.value && sourceReaderVisible.value ? sourceNameMorphProgress.value : 1,
+)
 const sourceNameMorphVisible = computed(
   () => false,
 )
@@ -481,16 +490,13 @@ const sourceNameMorphStyle = computed(() => {
       : 'left 360ms cubic-bezier(0.2, 0.8, 0.2, 1), top 360ms cubic-bezier(0.2, 0.8, 0.2, 1), width 360ms cubic-bezier(0.2, 0.8, 0.2, 1), font-size 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease',
   }
 })
-const sourceTitleTextStyle = computed(() => ({
-  opacity:
-    detailReaderOpen.value && sourceReaderVisible.value
-      ? sourceNameMorphProgress.value.toFixed(3)
-      : '1',
-  transform:
-    detailReaderOpen.value && sourceReaderVisible.value
-      ? `translate3d(0, ${Math.round((1 - sourceNameMorphProgress.value) * 6)}px, 0)`
-      : 'translate3d(0, 0, 0)',
+const sourceTitleLayerStyle = computed(() => ({
+  opacity: sourceTitleProgress.value.toFixed(3),
+  transform: `translate3d(0, ${Math.round((1 - sourceTitleProgress.value) * 6)}px, 0)`,
   transition: readerBackDragging.value ? 'none' : 'opacity 360ms ease, transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+}))
+const sourceTitleTextStyle = computed(() => ({
+  display: 'inline-block',
 }))
 const mainStyle = computed(() => {
   const baseStyle = {
@@ -517,6 +523,23 @@ const headerStyle = computed(() => {
     opacity: progress.toFixed(3),
     pointerEvents: progress > 0.86 ? ('auto' as const) : ('none' as const),
     transform: `translate3d(0, ${Math.round((progress - 1) * feedHeaderHeight.value)}px, 0)`,
+  }
+})
+const navOpenButtonStyle = computed(() => {
+  const progress = feedCornerHidden.value ? 0 : feedHeaderProgress.value
+  const settling = feedChromeSettling.value || feedRefreshSettling.value
+  return {
+    top: `${Math.round((feedHeaderHeight.value - 44) / 2)}px`,
+    opacity: progress.toFixed(3),
+    pointerEvents: progress > 0.86 && !feedCornerHidden.value ? ('auto' as const) : ('none' as const),
+    transform: `translate3d(0, ${Math.round((progress - 1) * feedHeaderHeight.value)}px, 0) scale(${(
+      0.92 +
+      progress * 0.08
+    ).toFixed(3)})`,
+    transition: settling
+      ? 'transform 800ms cubic-bezier(0.16, 1, 0.3, 1), opacity 800ms ease, visibility 800ms ease, border-color 160ms ease, background 160ms ease'
+      : undefined,
+    visibility: progress > 0.01 && !feedCornerHidden.value ? ('visible' as const) : ('hidden' as const),
   }
 })
 const pageContentInnerStyle = computed(() => ({
@@ -2621,6 +2644,7 @@ onUnmounted(() => {
       v-if="!navigationVisible"
       class="nav-open-button"
       :class="{ 'nav-open-button--hidden': feedCornerHidden, 'nav-open-button--detail': detailChromeVisible }"
+      :style="navOpenButtonStyle"
       type="button"
       :aria-label="cornerButtonLabel"
       @pointerdown.stop
@@ -2863,7 +2887,7 @@ onUnmounted(() => {
         </button>
         <div class="reader-overlay__source-stack">
           <div class="reader-source-layer" :class="{ 'reader-source-layer--hidden': sourcePullActive }">
-            <div class="reader-overlay__title">
+            <div class="reader-overlay__title" :style="sourceTitleLayerStyle">
               <span ref="sourceTitleTextRef" :style="sourceTitleTextStyle">{{ readerSource.name }}</span>
               <small>{{ sourceToggleActive ? '已订阅' : '未订阅' }}</small>
             </div>
