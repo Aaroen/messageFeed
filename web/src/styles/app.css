@@ -970,8 +970,10 @@ body[arco-theme='dark'] .app-main--refreshing .app-header {
 .feed-item--morphing .feed-item__meta,
 .feed-item--morphing .feed-item__read-target,
 .feed-item--morphing .feed-item__actions {
-  opacity: 0;
+  opacity: var(--feed-morph-preview-opacity, 0);
   pointer-events: none;
+  transform: translate3d(0, var(--feed-morph-preview-shift, 0), 0);
+  will-change: opacity, transform;
 }
 
 .feed-item__text-placeholder {
@@ -1402,7 +1404,8 @@ body[arco-theme='dark'] .reader-back-button {
   opacity: var(--morph-text-opacity, 1);
 }
 
-.reader-morph-text__source {
+.reader-morph-text__source,
+.reader-morph-text__source-label {
   min-height: 24px;
   padding: 0;
   border: 0;
@@ -1412,6 +1415,12 @@ body[arco-theme='dark'] .reader-back-button {
   font: inherit;
   font-weight: 760;
   pointer-events: var(--morph-source-pointer-events, auto);
+}
+
+.reader-morph-text__source-label {
+  display: inline-flex;
+  align-items: center;
+  cursor: default;
 }
 
 .reader-morph-text h2 {
@@ -1457,6 +1466,16 @@ body[arco-theme='dark'] .reader-back-button {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.reader-detail__inline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  color: var(--mf-text-muted);
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .reader-detail__inline-source {

@@ -167,6 +167,21 @@ const feedTopChromeIsVisiblyOpen = computed(
 )
 const feedTabsVisible = computed(() => isFeedRoute.value && topChromeProgress.value > 0.04)
 const feedChromeHidden = computed(() => isFeedRoute.value && feedHeaderProgress.value <= 0.01 && !feedPullActive.value)
+const feedHeaderReturnProgress = computed(() => {
+  if (!detailReaderOpen.value || !isFeedRoute.value || detailOpenedFromSourceReader.value) {
+    return 0
+  }
+  return clamp(Math.max(detailBackExitProgress.value, detailListReturnCommitted.value ? 1 : 0))
+})
+const feedTabsLayerHidden = computed(() => {
+  if (!isFeedRoute.value || feedPullActive.value) {
+    return true
+  }
+  if (detailReaderOpen.value) {
+    return feedHeaderReturnProgress.value <= 0.001
+  }
+  return !feedTabsVisible.value
+})
 const feedCornerHidden = computed(
   () =>
     (sourceReaderOpen.value && (!detailChromeVisible.value || sourceReaderCovering.value)) ||
@@ -180,6 +195,9 @@ const detailChromeVisible = computed(
     (!sourceReaderOpen.value || (sourceReaderVisible.value && !sourceReaderCovering.value)),
 )
 const detailHeaderVisible = computed(() => detailChromeVisible.value && topChromeProgress.value > 0.04)
+const headerDetailLayoutActive = computed(
+  () => detailChromeVisible.value || (detailReaderOpen.value && isFeedRoute.value && feedHeaderReturnProgress.value > 0.001),
+)
 const pullStatusText = computed(() => feedInteraction.statusText)
 const pullStatusMeta = computed(() => feedInteraction.statusMeta)
 const pullStatusStyle = computed(() => ({
@@ -189,6 +207,19 @@ const pullStatusStyle = computed(() => ({
 const pullIconStyle = computed(() => ({
   transform: feedInteraction.pullRefreshing ? 'none' : `rotate(${Math.round(pullProgress.value * 300)}deg)`,
 }))
+const feedTabsLayerStyle = computed(() => {
+  if (!detailReaderOpen.value) {
+    return undefined
+  }
+
+  const progress = feedHeaderReturnProgress.value
+  return {
+    opacity: progress.toFixed(3),
+    pointerEvents: progress > 0.96 && !detailBlocksGestures() ? ('auto' as const) : ('none' as const),
+    transform: `translate3d(0, ${Math.round((1 - progress) * 7)}px, 0) scale(${(0.98 + progress * 0.02).toFixed(3)})`,
+    transition: readerBackDragging.value ? 'none' : undefined,
+  }
+})
 const sourcePullStatusStyle = computed(() => ({
   opacity: sourcePullActive.value ? '1' : '0',
   transform: `translate3d(0, ${Math.round((1 - sourcePullProgress.value) * -10)}px, 0) scale(${(0.96 + sourcePullProgress.value * 0.04).toFixed(3)})`,
@@ -276,6 +307,9 @@ const detailReaderStyle = computed(() => ({
 }))
 const detailSurfaceProgress = computed(() =>
   clamp(detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value))),
+)
+const feedItemPreviewProgress = computed(() =>
+  clamp(Math.max(detailBackExitProgress.value, detailSourceExitProgress.value, detailListReturnCommitted.value ? 1 : 0)),
 )
 const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
   const side = windowWidth.value <= 720 ? 24 : 46
@@ -372,7 +406,7 @@ const detailMorphTextStyle = computed(() => {
 })
 const detailHeaderTitleStyle = computed(() => {
   const progress = detailSurfaceProgress.value
-  const opacity = clamp((progress - 0.58) / 0.22)
+  const opacity = clamp((progress - 0.58) / 0.22) * (1 - feedHeaderReturnProgress.value)
   return {
     opacity: opacity.toFixed(3),
     transform: `translate3d(0, ${Math.round((1 - opacity) * 8)}px, 0)`,
@@ -444,7 +478,7 @@ const mainStyle = computed(() => {
 const headerClass = computed(() => ({
   'app-header--feed-inactive':
     feedHeaderProgress.value <= 0.01 && !feedChromeSettling.value && !feedTopPulling.value,
-  'app-header--detail': detailChromeVisible.value,
+  'app-header--detail': headerDetailLayoutActive.value,
 }))
 const headerStyle = computed(() => {
   const progress = feedHeaderProgress.value
@@ -463,6 +497,7 @@ const detailText = computed(() => detailItem.value?.content_text || detailItem.v
 const detailPreviewSummary = computed(
   () => detailItem.value?.summary || detailItem.value?.content_snippet || detailItem.value?.content_text || '暂无摘要。',
 )
+const detailDisplayDate = computed(() => formatItemDate(detailItem.value?.published_at || detailItem.value?.fetched_at))
 const detailMorphSummaryVisible = computed(() => detailSurfaceProgress.value < 0.54)
 const detailSrcdoc = computed(() => {
   const body = detailHTML.value || `<p>${escapeHTML(detailText.value || '暂无正文。')}</p>`
@@ -726,6 +761,19 @@ function escapeHTML(value: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+function formatItemDate(value?: string) {
+  if (!value) {
+    return '时间未知'
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value))
 }
 
 function showSourceNotice(type: 'success' | 'warning', message: string) {
@@ -1142,7 +1190,6 @@ function collapseItemReader(duration = 360) {
   detailSourceExitProgress.value = 0
   detailReturningToFeed.value = !detailOpenedFromSourceReader.value
   detailListReturnCommitted.value = true
-  restoreMorphingItemContent(duration + 180)
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
     closeItemReader()
@@ -1204,7 +1251,6 @@ function completeDetailToSourceReader(duration = 360) {
   detailSourceExitProgress.value = 1
   detailReturningToFeed.value = false
   detailListReturnCommitted.value = true
-  restoreMorphingItemContent(duration + 180)
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
     closeItemReader()
@@ -2470,8 +2516,9 @@ onUnmounted(() => {
     <main class="app-main" :class="mainClass" :style="mainStyle">
       <header class="app-header" :class="headerClass" :style="headerStyle">
         <div class="app-header-slot" :class="{ 'app-header-slot--feed': isFeedRoute || detailChromeVisible }">
-          <div v-if="detailChromeVisible" class="app-header-feed-stack">
+          <div v-if="isFeedRoute || detailChromeVisible" class="app-header-feed-stack">
             <div
+              v-if="detailReaderOpen"
               class="feed-header-layer feed-header-layer--detail"
               :class="{ 'feed-header-layer--hidden': !detailHeaderVisible }"
             >
@@ -2479,11 +2526,11 @@ onUnmounted(() => {
                 <span>{{ detailItem.title }}</span>
               </div>
             </div>
-          </div>
-          <div v-else-if="isFeedRoute" class="app-header-feed-stack">
             <div
+              v-if="isFeedRoute"
               class="feed-header-layer feed-header-layer--tabs"
-              :class="{ 'feed-header-layer--hidden': feedPullActive || !feedTabsVisible }"
+              :class="{ 'feed-header-layer--hidden': feedTabsLayerHidden }"
+              :style="feedTabsLayerStyle"
             >
               <div class="feed-tabs" role="tablist" aria-label="阅读视图">
                 <button
@@ -2503,8 +2550,9 @@ onUnmounted(() => {
               </div>
             </div>
             <div
+              v-if="isFeedRoute"
               class="feed-header-layer feed-header-layer--refresh"
-              :class="{ 'feed-header-layer--hidden': !feedPullActive }"
+              :class="{ 'feed-header-layer--hidden': detailReaderOpen || !feedPullActive }"
               :style="pullStatusStyle"
               aria-live="polite"
             >
@@ -2554,6 +2602,7 @@ onUnmounted(() => {
                 :morphing-item-id="morphingItemId"
                 :morphing-height-lock-item-id="morphingHeightLockItemId"
                 :morphing-item-height="morphingItemHeight"
+                :morphing-preview-progress="feedItemPreviewProgress"
                 @top-pull-start="handleFeedTopPullStart"
                 @top-pull-move="handleFeedTopPullMove"
                 @top-pull-end="handleFeedTopPullEnd"
@@ -2572,6 +2621,7 @@ onUnmounted(() => {
                 :morphing-item-id="morphingItemId"
                 :morphing-height-lock-item-id="morphingHeightLockItemId"
                 :morphing-item-height="morphingItemHeight"
+                :morphing-preview-progress="feedItemPreviewProgress"
                 @top-pull-start="handleFeedTopPullStart"
                 @top-pull-move="handleFeedTopPullMove"
                 @top-pull-end="handleFeedTopPullEnd"
@@ -2674,6 +2724,7 @@ onUnmounted(() => {
           :morphing-item-id="morphingItemId"
           :morphing-height-lock-item-id="morphingHeightLockItemId"
           :morphing-item-height="morphingItemHeight"
+          :morphing-preview-progress="feedItemPreviewProgress"
           @top-pull-start="noopTopPullStart"
           @top-pull-move="noopTopPullMove"
           @top-pull-end="noopTopPullEnd"
@@ -2706,7 +2757,11 @@ onUnmounted(() => {
         :style="detailTransitionSurfaceStyle"
       >
         <article v-if="detailItem" class="reader-morph-text" :style="detailMorphTextStyle">
-          <div v-if="detailItem.author" class="reader-morph-text__meta">{{ detailItem.author }}</div>
+          <div class="reader-morph-text__meta">
+            <span class="reader-morph-text__source-label">{{ detailItem.source_name || '未知来源' }}</span>
+            <span>{{ detailDisplayDate }}</span>
+            <span v-if="detailItem.author">{{ detailItem.author }}</span>
+          </div>
           <h2>{{ detailItem.title }}</h2>
           <p v-if="detailMorphSummaryVisible">{{ detailPreviewSummary }}</p>
         </article>
@@ -2718,15 +2773,18 @@ onUnmounted(() => {
         >
           <a-alert v-if="detailError" type="warning" show-icon :content="detailError" />
           <section v-if="detailItem" class="reader-detail__surface">
-            <button
-              ref="detailInlineSourceRef"
-              class="reader-detail__inline-source"
-              type="button"
-              :style="detailInlineSourceStyle"
-              @click="openDetailSourceReader"
-            >
-              {{ detailItem.source_name || '未知来源' }}
-            </button>
+            <div class="reader-detail__inline-meta">
+              <button
+                ref="detailInlineSourceRef"
+                class="reader-detail__inline-source"
+                type="button"
+                :style="detailInlineSourceStyle"
+                @click="openDetailSourceReader"
+              >
+                {{ detailItem.source_name || '未知来源' }}
+              </button>
+              <span>{{ detailDisplayDate }}</span>
+            </div>
             <iframe
               class="reader-detail__frame"
               title="条目正文"

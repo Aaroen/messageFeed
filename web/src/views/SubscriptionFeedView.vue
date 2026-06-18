@@ -22,6 +22,7 @@ const props = withDefaults(
     morphingItemId?: number | null
     morphingHeightLockItemId?: number | null
     morphingItemHeight?: number | null
+    morphingPreviewProgress?: number
   }>(),
   {
     mode: 'subscriptions',
@@ -35,6 +36,7 @@ const props = withDefaults(
     morphingItemId: null,
     morphingHeightLockItemId: null,
     morphingItemHeight: null,
+    morphingPreviewProgress: 0,
   },
 )
 
@@ -116,6 +118,7 @@ const feedBodyStyle = computed(() => ({
     ? 'translate3d(0, 0, 0)'
     : `translate3d(0, ${Math.min(Math.round(pullOffset.value * 0.34), 38)}px, 0)`,
 }))
+const safeMorphingPreviewProgress = computed(() => Math.min(Math.max(props.morphingPreviewProgress, 0), 1))
 
 function canWritePullState(force = false) {
   if (!usesGlobalPullState.value) {
@@ -172,6 +175,24 @@ function formatDate(value?: string) {
 
 function itemSummary(item: FeedItem) {
   return item.content_text || item.content_snippet || '暂无摘要。'
+}
+
+function feedItemStyle(item: FeedItem) {
+  const style: Record<string, string> = {}
+  const locksHeight =
+    (props.morphingItemId === item.id || props.morphingHeightLockItemId === item.id) && props.morphingItemHeight
+
+  if (locksHeight && props.morphingItemHeight) {
+    style.height = `${Math.round(props.morphingItemHeight)}px`
+  }
+
+  if (props.morphingItemId === item.id) {
+    const progress = safeMorphingPreviewProgress.value
+    style['--feed-morph-preview-opacity'] = progress.toFixed(3)
+    style['--feed-morph-preview-shift'] = `${Math.round((1 - progress) * 6)}px`
+  }
+
+  return Object.keys(style).length > 0 ? style : undefined
 }
 
 async function loadItems(options: { refresh?: boolean } = {}) {
@@ -461,29 +482,17 @@ watch(
           class="feed-item"
           :class="{ 'feed-item--morphing': morphingItemId === item.id }"
           :data-feed-item-id="item.id"
-          :style="(morphingItemId === item.id || morphingHeightLockItemId === item.id) && morphingItemHeight ? { height: `${Math.round(morphingItemHeight)}px` } : undefined"
+          :style="feedItemStyle(item)"
         >
           <div class="feed-item__meta">
-            <template v-if="morphingItemId !== item.id">
-              <button class="feed-item__source" type="button" @click.stop="openSource(item)">
-                {{ item.source_name || '未知来源' }}
-              </button>
-              <span>{{ formatDate(item.published_at || item.fetched_at) }}</span>
-            </template>
-            <template v-else>
-              <span class="feed-item__text-placeholder feed-item__source-placeholder" />
-              <span class="feed-item__text-placeholder feed-item__date-placeholder" />
-            </template>
+            <button class="feed-item__source" type="button" @click.stop="openSource(item)">
+              {{ item.source_name || '未知来源' }}
+            </button>
+            <span>{{ formatDate(item.published_at || item.fetched_at) }}</span>
           </div>
           <button class="feed-item__read-target" type="button" @click="openItem(item, $event)">
-            <template v-if="morphingItemId !== item.id">
-              <h2>{{ item.title }}</h2>
-              <p>{{ itemSummary(item) }}</p>
-            </template>
-            <template v-else>
-              <span class="feed-item__text-placeholder feed-item__title-placeholder" />
-              <span class="feed-item__text-placeholder feed-item__summary-placeholder" />
-            </template>
+            <h2>{{ item.title }}</h2>
+            <p>{{ itemSummary(item) }}</p>
           </button>
           <div class="feed-item__actions">
             <a :href="item.url" target="_blank" rel="noreferrer">阅读原文</a>
