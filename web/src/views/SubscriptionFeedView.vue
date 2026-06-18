@@ -45,7 +45,6 @@ const emit = defineEmits<{
   topPullMove: [distance: number]
   topPullEnd: [shouldRefresh: boolean]
   openItem: [item: FeedItem, sourceKind: SourceKind, originRect?: DOMRect]
-  openSource: [source: { id: number; name: string; kind: SourceKind }]
 }>()
 
 const feedInteraction = useFeedInteractionStore()
@@ -269,17 +268,6 @@ function openItem(item: FeedItem, event: MouseEvent) {
   emit('openItem', item, effectiveSourceKind.value, originRect)
 }
 
-function openSource(item: FeedItem) {
-  if (!item.source_id) {
-    return
-  }
-  emit('openSource', {
-    id: item.source_id,
-    name: item.source_name || '未知来源',
-    kind: effectiveSourceKind.value,
-  })
-}
-
 function isInteractiveTarget(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, [role="button"]'))
 }
@@ -500,9 +488,9 @@ watch(
           :style="feedItemStyle(item)"
         >
           <div class="feed-item__meta">
-            <button class="feed-item__source" type="button" @click.stop="openSource(item)">
+            <span class="feed-item__source">
               {{ item.source_name || '未知来源' }}
-            </button>
+            </span>
             <span>{{ formatDate(item.published_at || item.fetched_at) }}</span>
           </div>
           <button class="feed-item__read-target" type="button" @click="openItem(item, $event)">

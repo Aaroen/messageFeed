@@ -1016,15 +1016,9 @@ body[arco-theme='dark'] .app-main--refreshing .app-header {
 .feed-item__source {
   display: inline-flex;
   max-width: 100%;
-  min-height: 24px;
   align-items: center;
-  padding: 0;
   overflow: hidden;
-  border: 0;
-  background: transparent;
   color: var(--mf-primary-strong);
-  cursor: pointer;
-  font: inherit;
   font-weight: 760;
   text-align: left;
   text-overflow: ellipsis;
@@ -1476,20 +1470,16 @@ body[arco-theme='dark'] .reader-back-button {
   color: var(--mf-text-muted);
   font-size: 13px;
   line-height: 1.35;
+  opacity: var(--detail-inline-meta-opacity, 1);
+  transition: opacity 140ms linear;
 }
 
 .reader-detail__inline-source {
   justify-self: start;
   min-width: 0;
   max-width: 100%;
-  min-height: 24px;
-  padding: 0;
   overflow: hidden;
-  border: 0;
-  background: transparent;
   color: var(--mf-primary-strong);
-  cursor: pointer;
-  font: inherit;
   font-size: 13px;
   font-weight: 780;
   line-height: 1.35;

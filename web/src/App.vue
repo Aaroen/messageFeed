@@ -198,12 +198,7 @@ const detailChromeVisible = computed(
 const detailHeaderVisible = computed(() => detailChromeVisible.value && topChromeProgress.value > 0.04)
 const detailParkedBehindSource = computed(
   () =>
-    detailReaderOpen.value &&
-    sourceReaderVisible.value &&
-    detailListReturnCommitted.value &&
-    !detailReturningToFeed.value &&
-    !readerBackDragging.value &&
-    detailSourceExitProgress.value >= 0.99,
+    hasDetailParkedBehindSource() && !readerBackDragging.value,
 )
 const headerDetailLayoutActive = computed(
   () => detailChromeVisible.value || (detailReaderOpen.value && isFeedRoute.value && feedHeaderReturnProgress.value > 0.001),
@@ -404,9 +399,11 @@ const detailContentStyle = computed(() => {
   const committedListReturn = detailCommittedListReturn()
   const opacity = sourceExitProgress > 0 ? 1 : clamp((progress - 0.56) / 0.22)
   const bodyOpacity = sourceExitProgress > 0 ? clamp((0.72 - sourceExitProgress) / 0.32) : 1
+  const inlineMetaOpacity = sourceExitProgress > 0 ? clamp((0.24 - sourceExitProgress) / 0.18) : 1
   return {
     opacity: committedListReturn ? '0' : opacity.toFixed(3),
     '--detail-body-opacity': bodyOpacity.toFixed(3),
+    '--detail-inline-meta-opacity': inlineMetaOpacity.toFixed(3),
     transform:
       sourceExitProgress > 0 ? 'translate3d(0, 0, 0)' : `translate3d(0, ${Math.round((1 - progress) * 8)}px, 0)`,
     visibility: !committedListReturn && opacity > 0.01 ? ('visible' as const) : ('hidden' as const),
@@ -438,29 +435,19 @@ const detailHeaderTitleStyle = computed(() => {
   }
 })
 const detailInlineSourceStyle = computed(() => ({
-  opacity: sourceNameMorphVisible.value ? '0' : (1 - detailSourceExitProgress.value * 0.12).toFixed(3),
-  transform: `translate3d(0, ${Math.round(detailSourceExitProgress.value * -8)}px, 0) scale(${(
-    1 -
-    detailSourceExitProgress.value * 0.06
-  ).toFixed(3)})`,
-  transition: readerBackDragging.value ? 'none' : undefined,
+  opacity: (1 - sourceNameMorphProgress.value).toFixed(3),
+  transform: 'translate3d(0, 0, 0)',
+  transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease',
 }))
 const detailMorphSourceLabelStyle = computed(() => ({
-  opacity: sourceNameMorphVisible.value ? '0' : '1',
+  opacity: (1 - sourceNameMorphProgress.value).toFixed(3),
+  transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease',
 }))
 const sourceNameMorphProgress = computed(() =>
   clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
 )
 const sourceNameMorphVisible = computed(
-  () =>
-    Boolean(detailItem.value) &&
-    sourceReaderUnderDetail.value &&
-    Boolean(detailSourceNameOriginRect.value) &&
-    Boolean(detailSourceNameTargetRect.value) &&
-    (readerBackDragging.value ||
-      detailEntrySettling.value ||
-      detailParkedBehindSource.value ||
-      sourceNameMorphProgress.value > 0.001),
+  () => false,
 )
 const sourceNameMorphStyle = computed(() => {
   const origin = detailSourceNameOriginRect.value
@@ -491,7 +478,11 @@ const sourceNameMorphStyle = computed(() => {
   }
 })
 const sourceTitleTextStyle = computed(() => ({
-  opacity: sourceNameMorphVisible.value ? '0' : '1',
+  opacity:
+    detailReaderOpen.value && sourceReaderVisible.value
+      ? sourceNameMorphProgress.value.toFixed(3)
+      : '1',
+  transition: readerBackDragging.value ? 'none' : 'opacity 240ms ease',
 }))
 const mainStyle = computed(() => {
   const baseStyle = {
@@ -1015,6 +1006,16 @@ function detailCommittedListReturn() {
   return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
 }
 
+function hasDetailParkedBehindSource() {
+  return (
+    detailReaderOpen.value &&
+    sourceReaderVisible.value &&
+    detailListReturnCommitted.value &&
+    !detailReturningToFeed.value &&
+    detailSourceExitProgress.value >= 0.99
+  )
+}
+
 function detailBlocksGestures() {
   return detailReaderOpen.value && !detailCommittedListReturn()
 }
@@ -1172,20 +1173,8 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   }
 }
 
-function openDetailSourceReader() {
-  if (!detailItem.value?.source_id) {
-    return
-  }
-  const source = {
-    id: detailItem.value.source_id,
-    name: detailItem.value.source_name || '未知来源',
-    kind: detailSourceKind.value,
-  }
-  openSourceReader(source, { visible: true })
-}
-
 function closeSourceReader() {
-  if (detailParkedBehindSource.value) {
+  if (hasDetailParkedBehindSource()) {
     restoreDetailFromParkedSource()
     return
   }
@@ -1626,7 +1615,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
     return
   }
   if (intent === 'back' && target === 'source') {
-    if (detailParkedBehindSource.value) {
+    if (hasDetailParkedBehindSource()) {
       restoreDetailFromParkedSource()
       return
     }
@@ -2709,7 +2698,6 @@ onUnmounted(() => {
                 @top-pull-move="handleFeedTopPullMove"
                 @top-pull-end="handleFeedTopPullEnd"
                 @open-item="openItemReader"
-                @open-source="openSourceReader"
               />
             </section>
             <section class="feed-pane">
@@ -2728,7 +2716,6 @@ onUnmounted(() => {
                 @top-pull-move="handleFeedTopPullMove"
                 @top-pull-end="handleFeedTopPullEnd"
                 @open-item="openItemReader"
-                @open-source="openSourceReader"
               />
             </section>
           </div>
@@ -2831,7 +2818,6 @@ onUnmounted(() => {
           @top-pull-move="noopTopPullMove"
           @top-pull-end="noopTopPullEnd"
           @open-item="openItemReader"
-          @open-source="openSourceReader"
         />
       </div>
     </section>
@@ -2878,15 +2864,13 @@ onUnmounted(() => {
           <a-alert v-if="detailError" type="warning" show-icon :content="detailError" />
           <section v-if="detailItem" class="reader-detail__surface">
             <div class="reader-detail__inline-meta">
-              <button
+              <span
                 ref="detailInlineSourceRef"
                 class="reader-detail__inline-source"
-                type="button"
                 :style="detailInlineSourceStyle"
-                @click="openDetailSourceReader"
               >
                 {{ detailItem.source_name || '未知来源' }}
-              </button>
+              </span>
               <span>{{ detailDisplayDate }}</span>
             </div>
             <iframe
