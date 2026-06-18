@@ -191,10 +191,20 @@ const feedCornerHidden = computed(
 const detailChromeVisible = computed(
   () =>
     detailReaderOpen.value &&
+    !detailParkedBehindSource.value &&
     (!detailReturningToFeed.value || readerBackDragging.value) &&
     (!sourceReaderOpen.value || (sourceReaderVisible.value && !sourceReaderCovering.value)),
 )
 const detailHeaderVisible = computed(() => detailChromeVisible.value && topChromeProgress.value > 0.04)
+const detailParkedBehindSource = computed(
+  () =>
+    detailReaderOpen.value &&
+    sourceReaderVisible.value &&
+    detailListReturnCommitted.value &&
+    !detailReturningToFeed.value &&
+    !readerBackDragging.value &&
+    detailSourceExitProgress.value >= 0.99,
+)
 const headerDetailLayoutActive = computed(
   () => detailChromeVisible.value || (detailReaderOpen.value && isFeedRoute.value && feedHeaderReturnProgress.value > 0.001),
 )
@@ -308,9 +318,23 @@ const detailReaderStyle = computed(() => ({
 const detailSurfaceProgress = computed(() =>
   clamp(detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value))),
 )
-const feedItemPreviewProgress = computed(() =>
-  clamp(Math.max(detailBackExitProgress.value, detailSourceExitProgress.value, detailListReturnCommitted.value ? 1 : 0)),
-)
+const feedItemPreviewProgress = computed(() => {
+  const movingToSourceList =
+    sourceReaderVisible.value &&
+    detailReaderOpen.value &&
+    (detailSourceExitProgress.value > 0 ||
+      (detailOpenedFromSourceReader.value && detailBackExitProgress.value > 0))
+
+  if (movingToSourceList && !detailParkedBehindSource.value) {
+    return 0
+  }
+
+  if (detailParkedBehindSource.value) {
+    return 1
+  }
+
+  return clamp(Math.max(detailBackExitProgress.value, detailListReturnCommitted.value ? 1 : 0))
+})
 const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
   const side = windowWidth.value <= 720 ? 24 : 46
   const top = feedHeaderHeight.value + 24
@@ -421,6 +445,9 @@ const detailInlineSourceStyle = computed(() => ({
   ).toFixed(3)})`,
   transition: readerBackDragging.value ? 'none' : undefined,
 }))
+const detailMorphSourceLabelStyle = computed(() => ({
+  opacity: sourceNameMorphVisible.value ? '0' : '1',
+}))
 const sourceNameMorphProgress = computed(() =>
   clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
 )
@@ -430,7 +457,10 @@ const sourceNameMorphVisible = computed(
     sourceReaderUnderDetail.value &&
     Boolean(detailSourceNameOriginRect.value) &&
     Boolean(detailSourceNameTargetRect.value) &&
-    (readerBackDragging.value || sourceNameMorphProgress.value > 0.001),
+    (readerBackDragging.value ||
+      detailEntrySettling.value ||
+      detailParkedBehindSource.value ||
+      sourceNameMorphProgress.value > 0.001),
 )
 const sourceNameMorphStyle = computed(() => {
   const origin = detailSourceNameOriginRect.value
@@ -455,11 +485,13 @@ const sourceNameMorphStyle = computed(() => {
     opacity: '1',
     fontSize: `${size.toFixed(2)}px`,
     transform: 'translate3d(0, 0, 0)',
-    transition: readerBackDragging.value ? 'none' : undefined,
+    transition: readerBackDragging.value
+      ? 'none'
+      : 'left 360ms cubic-bezier(0.2, 0.8, 0.2, 1), top 360ms cubic-bezier(0.2, 0.8, 0.2, 1), width 360ms cubic-bezier(0.2, 0.8, 0.2, 1), font-size 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease',
   }
 })
 const sourceTitleTextStyle = computed(() => ({
-  opacity: sourceNameMorphVisible.value && sourceNameMorphProgress.value < 0.98 ? '0' : '1',
+  opacity: sourceNameMorphVisible.value ? '0' : '1',
 }))
 const mainStyle = computed(() => {
   const baseStyle = {
@@ -1153,6 +1185,11 @@ function openDetailSourceReader() {
 }
 
 function closeSourceReader() {
+  if (detailParkedBehindSource.value) {
+    restoreDetailFromParkedSource()
+    return
+  }
+
   if (sourceReaderOpen.value) {
     sourceReaderTouchOffset.value = windowWidth.value
     settleReaderMotion(240, () => {
@@ -1174,6 +1211,44 @@ function closeSourceReader() {
   sourceCatalogEntry.value = null
   sourceSubscription.value = null
   sourceNotice.value = null
+}
+
+function restoreDetailFromParkedSource(duration = 360) {
+  if (!detailReaderOpen.value) {
+    closeSourceReader()
+    return
+  }
+
+  suppressFollowingClick()
+  window.clearTimeout(detailEntryTimer)
+  window.clearTimeout(morphingHeightUnlockTimer)
+  if (detailItem.value?.id) {
+    morphingItemId.value = detailItem.value.id
+    morphingHeightLockItemId.value = detailItem.value.id
+    morphingItemHeight.value = detailSourceItemTargetRect.value?.height ?? morphingItemHeight.value
+  }
+
+  readerBackDragging.value = false
+  detailEntrySettling.value = true
+  detailBackExitProgress.value = 0
+  detailSourceExitProgress.value = 0
+  detailReturningToFeed.value = false
+  detailListReturnCommitted.value = false
+  sourceReaderCovering.value = false
+  sourceReaderTouchOffset.value = 0
+  sourceReaderStretch.value = 0
+
+  detailEntryTimer = window.setTimeout(() => {
+    detailEntrySettling.value = false
+    sourceReaderVisible.value = false
+    sourceReaderCovering.value = false
+    sourceReaderTouchOffset.value = 0
+    detailSourceItemTargetRect.value = null
+    detailSourceNameOriginRect.value = null
+    detailSourceNameTargetRect.value = null
+    restoreMorphingItemContent()
+    scheduleHiddenSourceReaderCleanup()
+  }, duration)
 }
 
 function closeItemReader() {
@@ -1274,7 +1349,8 @@ function completeDetailToSourceReader(duration = 360) {
   detailListReturnCommitted.value = true
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
-    closeItemReader()
+    detailEntrySettling.value = false
+    restoreMorphingItemContent()
   }, duration)
 }
 
@@ -1550,6 +1626,11 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
     return
   }
   if (intent === 'back' && target === 'source') {
+    if (detailParkedBehindSource.value) {
+      restoreDetailFromParkedSource()
+      return
+    }
+
     sourceReaderTouchOffset.value = windowWidth.value
     settleReaderMotion(240, () => {
       readerSource.value = detailReaderOpen.value ? readerSource.value : null
@@ -2779,7 +2860,9 @@ onUnmounted(() => {
       >
         <article v-if="detailItem" class="reader-morph-text" :style="detailMorphTextStyle">
           <div class="reader-morph-text__meta">
-            <span class="reader-morph-text__source-label">{{ detailItem.source_name || '未知来源' }}</span>
+            <span class="reader-morph-text__source-label" :style="detailMorphSourceLabelStyle">
+              {{ detailItem.source_name || '未知来源' }}
+            </span>
             <span>{{ detailDisplayDate }}</span>
             <span v-if="detailItem.author">{{ detailItem.author }}</span>
           </div>
