@@ -97,6 +97,7 @@ const detailEntrySettling = ref(false)
 const detailBackExitProgress = ref(0)
 const detailSourceExitProgress = ref(0)
 const detailReturningToFeed = ref(false)
+const detailListReturnCommitted = ref(false)
 const detailScrollTop = ref(0)
 const sourceCatalogEntry = ref<SourceCatalogEntry | null>(null)
 const sourceSubscription = ref<Source | null>(null)
@@ -248,7 +249,7 @@ const sourceReaderStyle = computed(() => ({
       ? (0.34 + sourceReaderRevealProgress.value * 0.66).toFixed(3)
       : '1',
   pointerEvents:
-    !sourceReaderVisible.value || detailReaderOpen.value ? ('none' as const) : ('auto' as const),
+    !sourceReaderVisible.value || detailBlocksGestures() ? ('none' as const) : ('auto' as const),
   '--source-underlay-blur': `${((1 - sourceReaderRevealProgress.value) * 8).toFixed(2)}px`,
   '--source-underlay-opacity': (0.54 + sourceReaderRevealProgress.value * 0.46).toFixed(3),
   transform:
@@ -266,8 +267,8 @@ const detailReaderStyle = computed(() => ({
   transform: `translate3d(0, 0, 0) scaleX(${(1 + detailReaderStretch.value).toFixed(4)})`,
   transition: readerBackDragging.value ? 'none' : undefined,
   transformOrigin: detailReaderStretch.value > 0 ? 'left center' : undefined,
-  pointerEvents: detailReturningToFeed.value && !readerBackDragging.value ? ('none' as const) : ('auto' as const),
-  '--detail-overlay-opacity': detailReturningToFeed.value
+  pointerEvents: detailCommittedListReturn() ? ('none' as const) : ('auto' as const),
+  '--detail-overlay-opacity': detailCommittedListReturn() || detailReturningToFeed.value
     ? '0'
     : clamp(
         detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value)),
@@ -297,9 +298,17 @@ const detailTransitionSurfaceStyle = computed(() => {
   const targetTop = Math.round((feedHeaderHeight.value + 10) * topChromeProgress.value)
   const expandedWidth = Math.max(1, origin?.width ?? windowWidth.value - fallbackLeft * 2)
   const targetHeight = Math.max(1, windowHeight.value - targetTop)
+  const draggingToList =
+    readerBackDragging.value && (detailBackExitProgress.value > 0 || detailSourceExitProgress.value > 0)
+  const committedListReturn = detailCommittedListReturn()
 
   if (!collapsedTarget) {
-    const opacity = detailReturningToFeed.value ? progress : 1 - exitProgress * 0.28
+    const opacity =
+      draggingToList
+        ? 1
+        : committedListReturn || detailReturningToFeed.value
+          ? progress
+          : 1 - exitProgress * 0.28
     return {
       width: `${expandedWidth}px`,
       height: `${targetHeight}px`,
@@ -315,7 +324,12 @@ const detailTransitionSurfaceStyle = computed(() => {
   const x = collapsedTarget.left + (expandedLeft - collapsedTarget.left) * progress
   const y = collapsedTarget.top + (targetTop - collapsedTarget.top) * progress
   const radius = Math.round(12 + 4 * progress)
-  const opacity = detailReturningToFeed.value ? progress : 0.36 + progress * 0.64
+  const opacity =
+    draggingToList
+      ? 1
+      : committedListReturn || detailReturningToFeed.value
+        ? progress
+        : 0.36 + progress * 0.64
 
   return {
     width: `${Math.round(width)}px`,
@@ -329,31 +343,31 @@ const detailTransitionSurfaceStyle = computed(() => {
 const detailContentStyle = computed(() => {
   const progress = detailSurfaceProgress.value
   const sourceExitProgress = detailSourceExitProgress.value
-  const committedFeedReturn = detailReturningToFeed.value && !readerBackDragging.value
+  const committedListReturn = detailCommittedListReturn()
   const opacity = sourceExitProgress > 0 ? 1 : clamp((progress - 0.56) / 0.22)
   const bodyOpacity = sourceExitProgress > 0 ? clamp((0.72 - sourceExitProgress) / 0.32) : 1
   return {
-    opacity: committedFeedReturn ? '0' : opacity.toFixed(3),
+    opacity: committedListReturn ? '0' : opacity.toFixed(3),
     '--detail-body-opacity': bodyOpacity.toFixed(3),
     transform:
       sourceExitProgress > 0 ? 'translate3d(0, 0, 0)' : `translate3d(0, ${Math.round((1 - progress) * 8)}px, 0)`,
-    visibility: !committedFeedReturn && opacity > 0.01 ? ('visible' as const) : ('hidden' as const),
-    transition: readerBackDragging.value || committedFeedReturn ? 'none' : undefined,
+    visibility: !committedListReturn && opacity > 0.01 ? ('visible' as const) : ('hidden' as const),
+    transition: readerBackDragging.value || committedListReturn ? 'none' : undefined,
   }
 })
 const detailMorphTextStyle = computed(() => {
   const progress = detailSurfaceProgress.value
-  const committedFeedReturn = detailReturningToFeed.value && !readerBackDragging.value
+  const committedListReturn = detailCommittedListReturn()
   const summaryOpacity = clamp((0.56 - progress) / 0.18)
   const textOpacity = clamp((0.74 - progress) / 0.18)
   return {
-    opacity: committedFeedReturn ? '0' : '1',
+    opacity: committedListReturn ? '0' : '1',
     '--morph-title-size': `${(18 + progress * 10).toFixed(2)}px`,
     '--morph-text-opacity': textOpacity.toFixed(3),
     '--morph-summary-opacity': summaryOpacity.toFixed(3),
     '--morph-source-pointer-events': textOpacity > 0.12 ? 'auto' : 'none',
     transform: `translate3d(0, ${Math.round(progress * -4)}px, 0)`,
-    transition: readerBackDragging.value || committedFeedReturn ? 'none' : undefined,
+    transition: readerBackDragging.value || committedListReturn ? 'none' : undefined,
   }
 })
 const detailHeaderTitleStyle = computed(() => {
@@ -803,7 +817,7 @@ function captureDetailSourceTransitionRects(retry = 6) {
   })
 }
 
-function restoreMorphingItemContent() {
+function restoreMorphingItemContent(unlockDelay = 180) {
   const lockedItemId = morphingItemId.value ?? morphingHeightLockItemId.value
   morphingItemId.value = null
   morphingHeightLockItemId.value = lockedItemId
@@ -811,7 +825,7 @@ function restoreMorphingItemContent() {
   morphingHeightUnlockTimer = window.setTimeout(() => {
     morphingHeightLockItemId.value = null
     morphingItemHeight.value = null
-  }, 180)
+  }, unlockDelay)
 }
 
 function clearHiddenSourceReader() {
@@ -890,17 +904,22 @@ function resetDetailTransition() {
   detailBackExitProgress.value = 0
   detailSourceExitProgress.value = 0
   detailReturningToFeed.value = false
+  detailListReturnCommitted.value = false
   detailSourceItemTargetRect.value = null
   detailSourceNameOriginRect.value = null
   detailSourceNameTargetRect.value = null
 }
 
-function detailBlocksGestures() {
-  return detailReaderOpen.value && !detailReturningToFeed.value
+function detailCommittedListReturn() {
+  return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
 }
 
-function finishCommittedFeedReturnForGesture() {
-  if (!detailReturningToFeed.value || readerBackDragging.value || !detailReaderOpen.value) {
+function detailBlocksGestures() {
+  return detailReaderOpen.value && !detailCommittedListReturn()
+}
+
+function finishCommittedListReturnForGesture() {
+  if (!detailCommittedListReturn()) {
     return
   }
 
@@ -1012,6 +1031,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   detailBackExitProgress.value = 0
   detailSourceExitProgress.value = 0
   detailReturningToFeed.value = false
+  detailListReturnCommitted.value = false
   detailSourceItemTargetRect.value = openedFromSourceReader ? snapshotRect(originRect) : null
   detailSourceNameOriginRect.value = null
   detailSourceNameTargetRect.value = null
@@ -1121,9 +1141,8 @@ function collapseItemReader(duration = 360) {
   detailBackExitProgress.value = 1
   detailSourceExitProgress.value = 0
   detailReturningToFeed.value = !detailOpenedFromSourceReader.value
-  if (detailReturningToFeed.value) {
-    restoreMorphingItemContent()
-  }
+  detailListReturnCommitted.value = true
+  restoreMorphingItemContent(duration + 180)
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
     closeItemReader()
@@ -1140,6 +1159,7 @@ function restoreItemReaderExpansion(duration = 360) {
   detailBackExitProgress.value = 0
   detailSourceExitProgress.value = 0
   detailReturningToFeed.value = false
+  detailListReturnCommitted.value = false
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
     detailEntrySettling.value = false
@@ -1154,6 +1174,7 @@ function restoreDetailFromSourceSwipe(duration = 360) {
   detailEntrySettling.value = true
   detailSourceExitProgress.value = 0
   detailReturningToFeed.value = false
+  detailListReturnCommitted.value = false
   sourceReaderTouchOffset.value = 0
   sourceReaderCovering.value = false
   window.clearTimeout(detailEntryTimer)
@@ -1182,6 +1203,8 @@ function completeDetailToSourceReader(duration = 360) {
   detailBackExitProgress.value = 0
   detailSourceExitProgress.value = 1
   detailReturningToFeed.value = false
+  detailListReturnCommitted.value = true
+  restoreMorphingItemContent(duration + 180)
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
     closeItemReader()
@@ -1504,7 +1527,7 @@ function handleTouchStart(event: TouchEvent) {
     return
   }
 
-  finishCommittedFeedReturnForGesture()
+  finishCommittedListReturnForGesture()
 
   const touch = event.touches[0]
   touchStartX = touch.clientX
@@ -1622,7 +1645,7 @@ function handleWindowPointerDown(event: PointerEvent) {
     return
   }
 
-  finishCommittedFeedReturnForGesture()
+  finishCommittedListReturnForGesture()
 
   touchStartX = event.clientX
   touchStartY = event.clientY
@@ -1749,7 +1772,7 @@ function handleFeedPointerDown(event: PointerEvent) {
     return
   }
 
-  finishCommittedFeedReturnForGesture()
+  finishCommittedListReturnForGesture()
 
   if (canStartNavigationOpen(event.clientX)) {
     return
@@ -1897,7 +1920,7 @@ function handleResize() {
 }
 
 function handleMessage(event: MessageEvent) {
-  if (detailReturningToFeed.value && !readerBackDragging.value) {
+  if (detailCommittedListReturn()) {
     return
   }
 
