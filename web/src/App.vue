@@ -486,7 +486,11 @@ const sourceTitleTextStyle = computed(() => ({
     detailReaderOpen.value && sourceReaderVisible.value
       ? sourceNameMorphProgress.value.toFixed(3)
       : '1',
-  transition: readerBackDragging.value ? 'none' : 'opacity 240ms ease',
+  transform:
+    detailReaderOpen.value && sourceReaderVisible.value
+      ? `translate3d(0, ${Math.round((1 - sourceNameMorphProgress.value) * 6)}px, 0)`
+      : 'translate3d(0, 0, 0)',
+  transition: readerBackDragging.value ? 'none' : 'opacity 360ms ease, transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1)',
 }))
 const mainStyle = computed(() => {
   const baseStyle = {
@@ -1386,19 +1390,25 @@ function completeDetailToSourceReader(duration = 360) {
       kind: detailSourceKind.value,
     }
   }
+  const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 0
   sourceReaderVisible.value = true
   sourceReaderCovering.value = false
   sourceReaderTouchOffset.value = 0
   readerBackDragging.value = false
   detailEntrySettling.value = true
   detailBackExitProgress.value = 0
-  detailSourceExitProgress.value = 1
+  detailSourceExitProgress.value = startProgress
   detailRestoringFromSourceReader.value = false
   detailReturningToFeed.value = false
-  detailListReturnCommitted.value = true
+  detailListReturnCommitted.value = false
   window.clearTimeout(detailEntryTimer)
+  requestAnimationFrame(() => {
+    detailSourceExitProgress.value = 1
+  })
   detailEntryTimer = window.setTimeout(() => {
     detailEntrySettling.value = false
+    detailListReturnCommitted.value = true
+    detailSourceExitProgress.value = 1
     restoreMorphingItemContent()
   }, duration)
 }
