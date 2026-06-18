@@ -98,6 +98,7 @@ const detailBackExitProgress = ref(0)
 const detailSourceExitProgress = ref(0)
 const detailReturningToFeed = ref(false)
 const detailListReturnCommitted = ref(false)
+const detailRestoringFromSourceReader = ref(false)
 const detailScrollTop = ref(0)
 const sourceCatalogEntry = ref<SourceCatalogEntry | null>(null)
 const sourceSubscription = ref<Source | null>(null)
@@ -318,6 +319,7 @@ const feedItemPreviewProgress = computed(() => {
     sourceReaderVisible.value &&
     detailReaderOpen.value &&
     (detailSourceExitProgress.value > 0 ||
+      detailRestoringFromSourceReader.value ||
       (detailOpenedFromSourceReader.value && detailBackExitProgress.value > 0))
 
   if (movingToSourceList && !detailParkedBehindSource.value) {
@@ -342,7 +344,9 @@ const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
 })
 const detailTransitionSurfaceStyle = computed(() => {
   const origin = detailOriginRect.value
-  const sourceExiting = detailSourceExitProgress.value >= detailBackExitProgress.value && detailSourceExitProgress.value > 0
+  const sourceExiting =
+    detailRestoringFromSourceReader.value ||
+    (detailSourceExitProgress.value >= detailBackExitProgress.value && detailSourceExitProgress.value > 0)
   const collapsedTarget = sourceExiting ? detailSourceItemTargetRect.value ?? detailSourceFallbackTargetRect.value : origin
   const exitProgress = Math.max(detailBackExitProgress.value, detailSourceExitProgress.value)
   const progress = detailSurfaceProgress.value
@@ -997,6 +1001,7 @@ function resetDetailTransition() {
   detailSourceExitProgress.value = 0
   detailReturningToFeed.value = false
   detailListReturnCommitted.value = false
+  detailRestoringFromSourceReader.value = false
   detailSourceItemTargetRect.value = null
   detailSourceNameOriginRect.value = null
   detailSourceNameTargetRect.value = null
@@ -1013,6 +1018,15 @@ function hasDetailParkedBehindSource() {
     detailListReturnCommitted.value &&
     !detailReturningToFeed.value &&
     detailSourceExitProgress.value >= 0.99
+  )
+}
+
+function hasParkedDetailSourceState() {
+  return (
+    detailReaderOpen.value &&
+    sourceReaderVisible.value &&
+    detailListReturnCommitted.value &&
+    !detailReturningToFeed.value
   )
 }
 
@@ -1214,24 +1228,35 @@ function restoreDetailFromParkedSource(duration = 360) {
   suppressFollowingClick()
   window.clearTimeout(detailEntryTimer)
   window.clearTimeout(morphingHeightUnlockTimer)
+  const itemRect = snapshotElementRect(findSourceFeedItemElement(detailItem.value?.id))
+  if (itemRect) {
+    detailSourceItemTargetRect.value = itemRect
+  }
   if (detailItem.value?.id) {
     morphingItemId.value = detailItem.value.id
     morphingHeightLockItemId.value = detailItem.value.id
     morphingItemHeight.value = detailSourceItemTargetRect.value?.height ?? morphingItemHeight.value
   }
 
+  const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 1
   readerBackDragging.value = false
   detailEntrySettling.value = true
+  detailRestoringFromSourceReader.value = true
   detailBackExitProgress.value = 0
-  detailSourceExitProgress.value = 0
+  detailSourceExitProgress.value = startProgress
   detailReturningToFeed.value = false
   detailListReturnCommitted.value = false
   sourceReaderCovering.value = false
   sourceReaderTouchOffset.value = 0
   sourceReaderStretch.value = 0
 
+  requestAnimationFrame(() => {
+    detailSourceExitProgress.value = 0
+  })
+
   detailEntryTimer = window.setTimeout(() => {
     detailEntrySettling.value = false
+    detailRestoringFromSourceReader.value = false
     sourceReaderVisible.value = false
     sourceReaderCovering.value = false
     sourceReaderTouchOffset.value = 0
@@ -1243,12 +1268,40 @@ function restoreDetailFromParkedSource(duration = 360) {
   }, duration)
 }
 
+function restoreParkedSourceReader(duration = 260) {
+  if (!detailReaderOpen.value || !sourceReaderVisible.value) {
+    resetBackSwipeOffset()
+    return
+  }
+
+  readerBackDragging.value = false
+  detailEntrySettling.value = true
+  detailRestoringFromSourceReader.value = true
+  detailBackExitProgress.value = 0
+  detailSourceExitProgress.value = Math.max(detailSourceExitProgress.value, 0.001)
+  detailReturningToFeed.value = false
+  detailListReturnCommitted.value = false
+  sourceReaderTouchOffset.value = 0
+  sourceReaderStretch.value = 0
+  window.clearTimeout(detailEntryTimer)
+  requestAnimationFrame(() => {
+    detailSourceExitProgress.value = 1
+  })
+  detailEntryTimer = window.setTimeout(() => {
+    detailEntrySettling.value = false
+    detailRestoringFromSourceReader.value = false
+    detailSourceExitProgress.value = 1
+    detailListReturnCommitted.value = true
+  }, duration)
+}
+
 function closeItemReader() {
   detailItem.value = null
   detailError.value = ''
   detailLoading.value = false
   restoreMorphingItemContent()
   detailOpenedFromSourceReader.value = false
+  detailRestoringFromSourceReader.value = false
   detailReaderTouchOffset.value = 0
   detailReaderStretch.value = 0
   resetDetailTransition()
@@ -1276,6 +1329,7 @@ function collapseItemReader(duration = 360) {
   sourceReaderStretch.value = 0
   detailBackExitProgress.value = 1
   detailSourceExitProgress.value = 0
+  detailRestoringFromSourceReader.value = false
   detailReturningToFeed.value = !detailOpenedFromSourceReader.value
   detailListReturnCommitted.value = true
   window.clearTimeout(detailEntryTimer)
@@ -1293,6 +1347,7 @@ function restoreItemReaderExpansion(duration = 360) {
   detailReaderStretch.value = 0
   detailBackExitProgress.value = 0
   detailSourceExitProgress.value = 0
+  detailRestoringFromSourceReader.value = false
   detailReturningToFeed.value = false
   detailListReturnCommitted.value = false
   window.clearTimeout(detailEntryTimer)
@@ -1308,6 +1363,7 @@ function restoreDetailFromSourceSwipe(duration = 360) {
   readerBackDragging.value = false
   detailEntrySettling.value = true
   detailSourceExitProgress.value = 0
+  detailRestoringFromSourceReader.value = false
   detailReturningToFeed.value = false
   detailListReturnCommitted.value = false
   sourceReaderTouchOffset.value = 0
@@ -1337,6 +1393,7 @@ function completeDetailToSourceReader(duration = 360) {
   detailEntrySettling.value = true
   detailBackExitProgress.value = 0
   detailSourceExitProgress.value = 1
+  detailRestoringFromSourceReader.value = false
   detailReturningToFeed.value = false
   detailListReturnCommitted.value = true
   window.clearTimeout(detailEntryTimer)
@@ -1448,6 +1505,7 @@ function resetBackSwipeOffset() {
   sourceReaderTouchOffset.value = 0
   detailReaderTouchOffset.value = 0
   detailSourceExitProgress.value = 0
+  detailRestoringFromSourceReader.value = false
   sourceReaderStretch.value = 0
   detailReaderStretch.value = 0
   pageSideOffset.value = 0
@@ -1496,6 +1554,10 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number) {
   if (deltaX > 0) {
     backSwipeIntent = 'back'
     sourceReaderCovering.value = false
+    if (backSwipeTarget === 'source' && hasParkedDetailSourceState()) {
+      detailRestoringFromSourceReader.value = true
+      sourceReaderTouchOffset.value = 0
+    }
     detailReturningToFeed.value = backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value
     if (backSwipeTarget === 'detail' && detailOpenedFromSourceReader.value && readerSource.value) {
       sourceReaderVisible.value = true
@@ -1526,7 +1588,11 @@ function updateBackSwipe(deltaX: number, deltaY: number) {
   if (deltaX > 0) {
     backSwipeIntent = 'back'
     sourceReaderCovering.value = false
-    detailSourceExitProgress.value = 0
+    if (backSwipeTarget === 'source' && (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)) {
+      detailRestoringFromSourceReader.value = true
+    } else {
+      detailSourceExitProgress.value = 0
+    }
     detailReturningToFeed.value = backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value
     if (backSwipeTarget === 'detail' && detailOpenedFromSourceReader.value && readerSource.value) {
       sourceReaderVisible.value = true
@@ -1558,7 +1624,15 @@ function updateBackSwipe(deltaX: number, deltaY: number) {
     detailBackExitProgress.value = clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
     sourceReaderTouchOffset.value = 0
   } else if (intent === 'back' && backSwipeTarget === 'source') {
-    sourceReaderTouchOffset.value = Math.max(0, offset)
+    if (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value) {
+      detailRestoringFromSourceReader.value = true
+      detailReaderTouchOffset.value = 0
+      detailBackExitProgress.value = 0
+      detailSourceExitProgress.value = 1 - clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
+      sourceReaderTouchOffset.value = 0
+    } else {
+      sourceReaderTouchOffset.value = Math.max(0, offset)
+    }
   } else if (intent === 'back' && backSwipeTarget === 'page') {
     pageSideOffset.value = Math.max(0, offset)
   } else if (intent === 'source' && backSwipeTarget === 'detail') {
@@ -1604,6 +1678,10 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
       restoreDetailFromSourceSwipe()
       return
     }
+    if (intent === 'back' && target === 'source' && (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)) {
+      restoreParkedSourceReader()
+      return
+    }
     resetBackSwipeOffset()
     return
   }
@@ -1618,7 +1696,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
     return
   }
   if (intent === 'back' && target === 'source') {
-    if (hasDetailParkedBehindSource()) {
+    if (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value) {
       restoreDetailFromParkedSource()
       return
     }
@@ -2030,6 +2108,12 @@ function handleTouchCancel() {
       restoreItemReaderExpansion()
     } else if (canceledBackIntent === 'source' && canceledBackTarget === 'detail') {
       restoreDetailFromSourceSwipe()
+    } else if (
+      canceledBackIntent === 'back' &&
+      canceledBackTarget === 'source' &&
+      (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)
+    ) {
+      restoreParkedSourceReader()
     } else {
       resetBackSwipeOffset()
     }
@@ -2125,6 +2209,12 @@ function handleMessage(event: MessageEvent) {
         restoreItemReaderExpansion()
       } else if (canceledBackIntent === 'source' && canceledBackTarget === 'detail') {
         restoreDetailFromSourceSwipe()
+      } else if (
+        canceledBackIntent === 'back' &&
+        canceledBackTarget === 'source' &&
+        (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)
+      ) {
+        restoreParkedSourceReader()
       } else {
         resetBackSwipeOffset()
       }
