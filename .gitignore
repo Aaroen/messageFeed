@@ -27,6 +27,12 @@ coverage.html
 # Go module 缓存目录（通常不在项目内，但防止意外创建）
 /vendor/
 
+# Web 前端依赖与构建产物
+/web/node_modules/
+/web/dist/
+/web/.vite/
+/web/.cache/
+
 # ==================== IDE 与编辑器 ====================
 # VS Code
 .vscode/

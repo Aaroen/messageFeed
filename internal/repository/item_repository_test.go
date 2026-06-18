@@ -2,6 +2,7 @@ package repository
 
 import (
 	"messagefeed/internal/domain"
+	"strings"
 	"testing"
 	"time"
 )
@@ -74,5 +75,14 @@ func TestItemViewModelToDomainIncludesSourceAndState(t *testing.T) {
 	}
 	if item.ReadAt == nil || !item.ReadAt.Equal(now) {
 		t.Fatalf("ReadAt = %#v, want %s", item.ReadAt, now)
+	}
+}
+
+func TestItemViewBaseQueryFiltersInactiveSources(t *testing.T) {
+	if !strings.Contains(activeSourceStatusFilter, "sources.status") {
+		t.Fatalf("active source filter = %q, want sources.status predicate", activeSourceStatusFilter)
+	}
+	if got, want := string(domain.SourceStatusActive), "active"; got != want {
+		t.Fatalf("active source status = %q, want %q", got, want)
 	}
 }

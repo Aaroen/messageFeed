@@ -22,6 +22,10 @@ type timelineService interface {
 	GetItem(ctx context.Context, input service.GetItemInput) (domain.Item, error)
 }
 
+type recommendationService interface {
+	ListRecommendations(ctx context.Context, input service.ListRecommendationsInput) (service.ListItemsResult, error)
+}
+
 type itemStateService interface {
 	MarkRead(ctx context.Context, input service.UpdateItemStateInput) (domain.UserItemState, error)
 	SetFavorite(ctx context.Context, input service.UpdateItemStateInput) (domain.UserItemState, error)
@@ -29,15 +33,17 @@ type itemStateService interface {
 }
 
 type itemHandler struct {
-	timelineService timelineService
-	itemService     itemStateService
+	timelineService       timelineService
+	recommendationService recommendationService
+	itemService           itemStateService
 }
 
-func registerItemRoutes(router *gin.RouterGroup, timelineService timelineService, itemService itemStateService) {
-	handler := itemHandler{timelineService: timelineService, itemService: itemService}
+func registerItemRoutes(router *gin.RouterGroup, timelineService timelineService, itemService itemStateService, recommendationService recommendationService) {
+	handler := itemHandler{timelineService: timelineService, itemService: itemService, recommendationService: recommendationService}
 	router.GET("/items", handler.listItems)
 	router.GET("/items/:id", handler.getItem)
 	router.GET("/feed/timeline", handler.listItems)
+	router.GET("/feed/recommendations", handler.listRecommendations)
 	router.POST("/items/:id/read", handler.markRead)
 	router.POST("/items/:id/favorite", handler.setFavorite)
 	router.POST("/items/:id/hide", handler.setHidden)
@@ -62,6 +68,7 @@ type itemResponse struct {
 	Summary        string     `json:"summary,omitempty"`
 	ContentSnippet string     `json:"content_snippet,omitempty"`
 	ContentText    string     `json:"content_text,omitempty"`
+	ContentHTML    string     `json:"content_html,omitempty"`
 	Author         string     `json:"author,omitempty"`
 	PublishedAt    *time.Time `json:"published_at,omitempty"`
 	FetchedAt      time.Time  `json:"fetched_at"`
@@ -152,6 +159,51 @@ func (h itemHandler) listItems(c *gin.Context) {
 		IncludeHidden: includeHidden != nil && *includeHidden,
 		Limit:         limit,
 		Offset:        offset,
+	})
+	if err != nil {
+		writeItemError(c, err)
+		return
+	}
+
+	items := make([]itemResponse, 0, len(result.Items))
+	for _, item := range result.Items {
+		items = append(items, itemResponseFromDomain(item))
+	}
+	Success(c, itemListResponse{
+		Items:  items,
+		Total:  result.Total,
+		Limit:  result.Limit,
+		Offset: result.Offset,
+	})
+}
+
+func (h itemHandler) listRecommendations(c *gin.Context) {
+	if h.recommendationService == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "recommendation service unavailable")
+		return
+	}
+
+	limit, err := optionalIntQuery(c, "limit")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid limit")
+		return
+	}
+	offset, err := optionalIntQuery(c, "offset")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid offset")
+		return
+	}
+	sourceID, err := optionalInt64Query(c, "source_id")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid source_id")
+		return
+	}
+
+	result, err := h.recommendationService.ListRecommendations(c.Request.Context(), service.ListRecommendationsInput{
+		UserID:   defaultUserID,
+		SourceID: sourceID,
+		Limit:    limit,
+		Offset:   offset,
 	})
 	if err != nil {
 		writeItemError(c, err)
@@ -346,6 +398,7 @@ func itemResponseFromDomain(item domain.Item) itemResponse {
 		Summary:        item.Summary,
 		ContentSnippet: item.ContentSnippet,
 		ContentText:    plainTextFromHTML(item.ContentSnippet),
+		ContentHTML:    item.ContentSnippet,
 		Author:         item.Author,
 		PublishedAt:    item.PublishedAt,
 		FetchedAt:      item.FetchedAt,

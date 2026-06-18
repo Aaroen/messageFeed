@@ -23,15 +23,16 @@ const serviceName = "messageFeed"
 // RouterOptions 汇总路由层需要的只读依赖。
 // 业务 service 接入后应继续通过该结构注入，不在 handler 内部直接构建依赖。
 type RouterOptions struct {
-	Logger          *slog.Logger
-	Database        *gorm.DB
-	NodeInfo        appRuntime.NodeInfo
-	Now             func() time.Time
-	SourceService   sourceService
-	TimelineService timelineService
-	ItemService     itemStateService
-	FeedViewService feedViewService
-	ServiceName     string
+	Logger                *slog.Logger
+	Database              *gorm.DB
+	NodeInfo              appRuntime.NodeInfo
+	Now                   func() time.Time
+	SourceService         sourceService
+	TimelineService       timelineService
+	RecommendationService recommendationService
+	ItemService           itemStateService
+	FeedViewService       feedViewService
+	ServiceName           string
 }
 
 // NewRouter 创建 Gin 路由树。
@@ -61,7 +62,7 @@ func NewRouter(options RouterOptions) *gin.Engine {
 
 	apiV1 := router.Group("/api/v1")
 	registerSourceRoutes(apiV1, options.SourceService)
-	registerItemRoutes(apiV1, options.TimelineService, options.ItemService)
+	registerItemRoutes(apiV1, options.TimelineService, options.ItemService, options.RecommendationService)
 	registerFeedViewRoutes(apiV1, options.FeedViewService)
 
 	router.NoRoute(func(c *gin.Context) {

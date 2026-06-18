@@ -2,11 +2,14 @@ package handler
 
 import (
 	"context"
+	"encoding/xml"
 	"errors"
+	"io"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/service"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +20,9 @@ const defaultUserID int64 = 1
 type sourceService interface {
 	CreateSource(ctx context.Context, input service.CreateSourceInput) (domain.Source, error)
 	ListSources(ctx context.Context, userID int64) ([]domain.Source, error)
+	ListSourceCatalog(ctx context.Context, input service.ListSourceCatalogInput) (service.ListSourceCatalogResult, error)
+	ImportCatalogSources(ctx context.Context, input service.ImportCatalogSourcesInput) (service.ImportSourceResult, error)
+	ImportURLSources(ctx context.Context, input service.ImportURLSourcesInput) (service.ImportSourceResult, error)
 	UpdateSource(ctx context.Context, input service.UpdateSourceInput) (domain.Source, error)
 	TriggerFetch(ctx context.Context, input service.FetchSourceInput) (service.FetchSourceResult, error)
 }
@@ -31,6 +37,11 @@ func registerSourceRoutes(router *gin.RouterGroup, service sourceService) {
 	router.GET("/sources", handler.listSources)
 	router.PATCH("/sources/:id", handler.updateSource)
 	router.POST("/sources/:id/fetch", handler.fetchSource)
+	router.GET("/source-catalogs", handler.listSourceCatalog)
+	router.GET("/source-catalogs/search", handler.searchSourceCatalog)
+	router.POST("/sources/import/catalog", handler.importCatalogSources)
+	router.POST("/sources/import/urls", handler.importURLSources)
+	router.POST("/sources/import/opml", handler.importOPMLSources)
 }
 
 type createSourceRequest struct {
@@ -77,6 +88,70 @@ type fetchSourceResponse struct {
 	ItemCount    int            `json:"item_count"`
 	CreatedCount int            `json:"created_count"`
 	UpdatedCount int            `json:"updated_count"`
+}
+
+type sourceCatalogListResponse struct {
+	Entries []sourceCatalogResponse `json:"entries"`
+	Total   int64                   `json:"total"`
+	Limit   int                     `json:"limit"`
+	Offset  int                     `json:"offset"`
+}
+
+type sourceCatalogResponse struct {
+	ID             int64      `json:"id"`
+	SourceKey      string     `json:"source_key"`
+	Name           string     `json:"name"`
+	SiteURL        string     `json:"site_url,omitempty"`
+	FeedURL        string     `json:"feed_url"`
+	NormalizedURL  string     `json:"normalized_url"`
+	Type           string     `json:"type"`
+	Category       string     `json:"category"`
+	Tags           []string   `json:"tags"`
+	Language       string     `json:"language"`
+	Country        string     `json:"country,omitempty"`
+	Official       bool       `json:"official"`
+	SourceOrigin   string     `json:"source_origin"`
+	HealthStatus   string     `json:"health_status"`
+	LastCheckedAt  *time.Time `json:"last_checked_at,omitempty"`
+	LastCheckError string     `json:"last_check_error,omitempty"`
+	Subscribed     bool       `json:"subscribed"`
+	SourceID       int64      `json:"source_id,omitempty"`
+	SourceStatus   string     `json:"source_status,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type importCatalogRequest struct {
+	CatalogIDs []int64 `json:"catalog_ids"`
+}
+
+type importURLsRequest struct {
+	URLs []string `json:"urls"`
+}
+
+type opmlDocument struct {
+	Outlines []opmlOutline `xml:"body>outline"`
+}
+
+type opmlOutline struct {
+	XMLURL   string        `xml:"xmlUrl,attr"`
+	HTMLURL  string        `xml:"htmlUrl,attr"`
+	Title    string        `xml:"title,attr"`
+	Text     string        `xml:"text,attr"`
+	Outlines []opmlOutline `xml:"outline"`
+}
+
+type importSourceErrorResponse struct {
+	Reference string `json:"reference"`
+	Message   string `json:"message"`
+}
+
+type importSourceResponse struct {
+	RequestedCount int                         `json:"requested_count"`
+	SuccessCount   int                         `json:"success_count"`
+	FailureCount   int                         `json:"failure_count"`
+	Sources        []sourceResponse            `json:"sources"`
+	Errors         []importSourceErrorResponse `json:"errors"`
 }
 
 func (h sourceHandler) createSource(c *gin.Context) {
@@ -205,6 +280,133 @@ func (h sourceHandler) fetchSource(c *gin.Context) {
 	})
 }
 
+func (h sourceHandler) listSourceCatalog(c *gin.Context) {
+	h.listSourceCatalogWithQuery(c, "")
+}
+
+func (h sourceHandler) searchSourceCatalog(c *gin.Context) {
+	h.listSourceCatalogWithQuery(c, c.Query("q"))
+}
+
+func (h sourceHandler) listSourceCatalogWithQuery(c *gin.Context, query string) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "source catalog service unavailable")
+		return
+	}
+
+	limit, err := optionalIntQuery(c, "limit")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid limit")
+		return
+	}
+	offset, err := optionalIntQuery(c, "offset")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid offset")
+		return
+	}
+
+	result, err := h.service.ListSourceCatalog(c.Request.Context(), service.ListSourceCatalogInput{
+		UserID:   defaultUserID,
+		Category: c.Query("category"),
+		Query:    query,
+		Limit:    limit,
+		Offset:   offset,
+	})
+	if err != nil {
+		writeSourceError(c, err)
+		return
+	}
+
+	entries := make([]sourceCatalogResponse, 0, len(result.Entries))
+	for _, entry := range result.Entries {
+		entries = append(entries, sourceCatalogResponseFromDomain(entry))
+	}
+	Success(c, sourceCatalogListResponse{
+		Entries: entries,
+		Total:   result.Total,
+		Limit:   result.Limit,
+		Offset:  result.Offset,
+	})
+}
+
+func (h sourceHandler) importCatalogSources(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "source service unavailable")
+		return
+	}
+	var request importCatalogRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	result, err := h.service.ImportCatalogSources(c.Request.Context(), service.ImportCatalogSourcesInput{
+		UserID:     defaultUserID,
+		CatalogIDs: request.CatalogIDs,
+	})
+	if err != nil {
+		writeSourceError(c, err)
+		return
+	}
+	Success(c, importSourceResponseFromDomain(result))
+}
+
+func (h sourceHandler) importURLSources(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "source service unavailable")
+		return
+	}
+	var request importURLsRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	result, err := h.service.ImportURLSources(c.Request.Context(), service.ImportURLSourcesInput{
+		UserID: defaultUserID,
+		URLs:   request.URLs,
+	})
+	if err != nil {
+		writeSourceError(c, err)
+		return
+	}
+	Success(c, importSourceResponseFromDomain(result))
+}
+
+func (h sourceHandler) importOPMLSources(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "source service unavailable")
+		return
+	}
+
+	file, _, err := c.Request.FormFile("file")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "opml file is required")
+		return
+	}
+	defer file.Close()
+
+	body, err := io.ReadAll(io.LimitReader(file, 2*1024*1024+1))
+	if err != nil || len(body) > 2*1024*1024 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid opml file")
+		return
+	}
+
+	urls, err := parseOPMLFeedURLs(body)
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid opml content")
+		return
+	}
+	result, err := h.service.ImportURLSources(c.Request.Context(), service.ImportURLSourcesInput{
+		UserID: defaultUserID,
+		URLs:   urls,
+	})
+	if err != nil {
+		writeSourceError(c, err)
+		return
+	}
+	Success(c, importSourceResponseFromDomain(result))
+}
+
 func writeSourceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidInput):
@@ -238,4 +440,70 @@ func sourceResponseFromDomain(source domain.Source) sourceResponse {
 		CreatedAt:            source.CreatedAt,
 		UpdatedAt:            source.UpdatedAt,
 	}
+}
+
+func sourceCatalogResponseFromDomain(entry domain.SourceCatalogEntry) sourceCatalogResponse {
+	return sourceCatalogResponse{
+		ID:             entry.ID,
+		SourceKey:      entry.SourceKey,
+		Name:           entry.Name,
+		SiteURL:        entry.SiteURL,
+		FeedURL:        entry.FeedURL,
+		NormalizedURL:  entry.NormalizedURL,
+		Type:           string(entry.Type),
+		Category:       entry.Category,
+		Tags:           append([]string(nil), entry.Tags...),
+		Language:       entry.Language,
+		Country:        entry.Country,
+		Official:       entry.Official,
+		SourceOrigin:   entry.SourceOrigin,
+		HealthStatus:   string(entry.HealthStatus),
+		LastCheckedAt:  entry.LastCheckedAt,
+		LastCheckError: entry.LastCheckError,
+		Subscribed:     entry.Subscribed,
+		SourceID:       entry.SourceID,
+		SourceStatus:   string(entry.SourceStatus),
+		CreatedAt:      entry.CreatedAt,
+		UpdatedAt:      entry.UpdatedAt,
+	}
+}
+
+func importSourceResponseFromDomain(result service.ImportSourceResult) importSourceResponse {
+	sources := make([]sourceResponse, 0, len(result.Sources))
+	for _, source := range result.Sources {
+		sources = append(sources, sourceResponseFromDomain(source))
+	}
+	errors := make([]importSourceErrorResponse, 0, len(result.Errors))
+	for _, item := range result.Errors {
+		errors = append(errors, importSourceErrorResponse{Reference: item.Reference, Message: item.Message})
+	}
+	return importSourceResponse{
+		RequestedCount: result.RequestedCount,
+		SuccessCount:   result.SuccessCount,
+		FailureCount:   result.FailureCount,
+		Sources:        sources,
+		Errors:         errors,
+	}
+}
+
+func parseOPMLFeedURLs(body []byte) ([]string, error) {
+	var document opmlDocument
+	if err := xml.Unmarshal(body, &document); err != nil {
+		return nil, err
+	}
+	var urls []string
+	for _, outline := range document.Outlines {
+		urls = collectOPMLOutlineURLs(urls, outline)
+	}
+	return urls, nil
+}
+
+func collectOPMLOutlineURLs(urls []string, outline opmlOutline) []string {
+	if value := strings.TrimSpace(outline.XMLURL); value != "" {
+		urls = append(urls, value)
+	}
+	for _, child := range outline.Outlines {
+		urls = collectOPMLOutlineURLs(urls, child)
+	}
+	return urls
 }

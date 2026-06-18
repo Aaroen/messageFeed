@@ -58,6 +58,8 @@ type itemViewModel struct {
 	UpdatedAt      time.Time
 }
 
+const activeSourceStatusFilter = "sources.status = ?"
+
 func (itemModel) TableName() string {
 	return "items"
 }
@@ -158,7 +160,8 @@ func itemViewBaseQuery(db *gorm.DB, userID int64) *gorm.DB {
 	return db.Table("items").
 		Joins("JOIN sources ON sources.id = items.source_id").
 		Joins("LEFT JOIN user_item_states ON user_item_states.item_id = items.id AND user_item_states.user_id = ?", userID).
-		Where("sources.user_id = ?", userID)
+		Where("sources.user_id = ?", userID).
+		Where(activeSourceStatusFilter, string(domain.SourceStatusActive))
 }
 
 func itemViewSelectColumns() string {

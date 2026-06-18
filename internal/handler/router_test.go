@@ -302,8 +302,9 @@ func TestItemRoutes(t *testing.T) {
 	}
 	fakeItemService := &fakeItemStateService{}
 	router := newTestRouter(t, RouterOptions{
-		TimelineService: fakeService,
-		ItemService:     fakeItemService,
+		TimelineService:       fakeService,
+		RecommendationService: fakeService,
+		ItemService:           fakeItemService,
 	})
 
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/items?limit=2&offset=0&source_id=1&is_read=false&is_favorite=true&include_hidden=true", nil)
@@ -346,6 +347,14 @@ func TestItemRoutes(t *testing.T) {
 
 	if timelineRecorder.Code != http.StatusOK {
 		t.Fatalf("timeline status code = %d, want %d", timelineRecorder.Code, http.StatusOK)
+	}
+
+	recommendationRequest := httptest.NewRequest(http.MethodGet, "/api/v1/feed/recommendations?limit=2", nil)
+	recommendationRecorder := httptest.NewRecorder()
+	router.ServeHTTP(recommendationRecorder, recommendationRequest)
+
+	if recommendationRecorder.Code != http.StatusOK {
+		t.Fatalf("recommendations status code = %d, want %d", recommendationRecorder.Code, http.StatusOK)
 	}
 
 	detailRequest := httptest.NewRequest(http.MethodGet, "/api/v1/items/1", nil)
@@ -509,6 +518,23 @@ func (s *fakeSourceService) TriggerFetch(_ context.Context, input service.FetchS
 	return service.FetchSourceResult{}, domain.ErrNotFound
 }
 
+func (s *fakeSourceService) ListSourceCatalog(_ context.Context, input service.ListSourceCatalogInput) (service.ListSourceCatalogResult, error) {
+	return service.ListSourceCatalogResult{
+		Entries: nil,
+		Total:   0,
+		Limit:   input.Limit,
+		Offset:  input.Offset,
+	}, nil
+}
+
+func (s *fakeSourceService) ImportCatalogSources(_ context.Context, _ service.ImportCatalogSourcesInput) (service.ImportSourceResult, error) {
+	return service.ImportSourceResult{}, nil
+}
+
+func (s *fakeSourceService) ImportURLSources(_ context.Context, _ service.ImportURLSourcesInput) (service.ImportSourceResult, error) {
+	return service.ImportSourceResult{}, nil
+}
+
 func testSource(id int64, name string, rawURL string) domain.Source {
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
 	return domain.Source{
@@ -532,6 +558,15 @@ type fakeTimelineService struct {
 
 func (s *fakeTimelineService) ListItems(_ context.Context, input service.ListItemsInput) (service.ListItemsResult, error) {
 	s.input = input
+	return service.ListItemsResult{
+		Items:  append([]domain.Item(nil), s.items...),
+		Total:  int64(len(s.items)),
+		Limit:  input.Limit,
+		Offset: input.Offset,
+	}, nil
+}
+
+func (s *fakeTimelineService) ListRecommendations(_ context.Context, input service.ListRecommendationsInput) (service.ListItemsResult, error) {
 	return service.ListItemsResult{
 		Items:  append([]domain.Item(nil), s.items...),
 		Total:  int64(len(s.items)),

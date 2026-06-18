@@ -63,6 +63,7 @@ func main() {
 	var database *gorm.DB
 	var sourceService *service.SourceService
 	var timelineService *service.TimelineService
+	var recommendationService *service.RecommendationService
 	var itemService *service.ItemService
 	var feedViewService *service.FeedViewService
 	if cfg.Database.DSN != "" {
@@ -95,16 +96,19 @@ func main() {
 		)
 
 		sourceRepository := repository.NewSourceRepository(database)
+		sourceCatalogRepository := repository.NewSourceCatalogRepository(database)
 		itemRepository := repository.NewItemRepository(database)
 		userItemStateRepository := repository.NewUserItemStateRepository(database)
 		feedViewPreferenceRepository := repository.NewFeedViewPreferenceRepository(database)
 		feedFetcher := fetcher.NewClient()
 		sourceService = service.NewSourceService(
 			sourceRepository,
+			service.WithSourceCatalogRepository(sourceCatalogRepository),
 			service.WithItemRepository(itemRepository),
 			service.WithFeedFetcher(feedFetcher),
 		)
 		timelineService = service.NewTimelineService(itemRepository)
+		recommendationService = service.NewRecommendationService(sourceCatalogRepository, feedFetcher)
 		itemService = service.NewItemService(userItemStateRepository)
 		feedViewService = service.NewFeedViewService(feedViewPreferenceRepository)
 
@@ -126,15 +130,16 @@ func main() {
 	})
 
 	router := handler.NewRouter(handler.RouterOptions{
-		Logger:          logger,
-		Database:        database,
-		NodeInfo:        nodeInfo,
-		Now:             time.Now,
-		SourceService:   sourceService,
-		TimelineService: timelineService,
-		ItemService:     itemService,
-		FeedViewService: feedViewService,
-		ServiceName:     cfg.Observability.ServiceName,
+		Logger:                logger,
+		Database:              database,
+		NodeInfo:              nodeInfo,
+		Now:                   time.Now,
+		SourceService:         sourceService,
+		TimelineService:       timelineService,
+		RecommendationService: recommendationService,
+		ItemService:           itemService,
+		FeedViewService:       feedViewService,
+		ServiceName:           cfg.Observability.ServiceName,
 	})
 
 	// ReadHeaderTimeout 用于限制客户端长期占用连接但不完整发送请求头的情况。

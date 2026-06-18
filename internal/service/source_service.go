@@ -28,6 +28,11 @@ type SourceRepository interface {
 	UpdateFetchResult(ctx context.Context, source domain.Source) (domain.Source, error)
 }
 
+type SourceCatalogRepository interface {
+	List(ctx context.Context, options domain.SourceCatalogListOptions) (domain.SourceCatalogListResult, error)
+	GetByIDs(ctx context.Context, ids []int64) ([]domain.SourceCatalogEntry, error)
+}
+
 type ItemRepository interface {
 	UpsertMany(ctx context.Context, items []domain.Item) (domain.ItemUpsertResult, error)
 }
@@ -37,10 +42,11 @@ type FeedFetcher interface {
 }
 
 type SourceService struct {
-	repository     SourceRepository
-	itemRepository ItemRepository
-	feedFetcher    FeedFetcher
-	now            func() time.Time
+	repository        SourceRepository
+	catalogRepository SourceCatalogRepository
+	itemRepository    ItemRepository
+	feedFetcher       FeedFetcher
+	now               func() time.Time
 }
 
 type SourceServiceOption func(*SourceService)
@@ -48,6 +54,12 @@ type SourceServiceOption func(*SourceService)
 func WithItemRepository(repository ItemRepository) SourceServiceOption {
 	return func(service *SourceService) {
 		service.itemRepository = repository
+	}
+}
+
+func WithSourceCatalogRepository(repository SourceCatalogRepository) SourceServiceOption {
+	return func(service *SourceService) {
+		service.catalogRepository = repository
 	}
 }
 
@@ -101,6 +113,44 @@ type UpdateSourceInput struct {
 type FetchSourceInput struct {
 	UserID int64
 	ID     int64
+}
+
+type ListSourceCatalogInput struct {
+	UserID   int64
+	Category string
+	Query    string
+	Limit    int
+	Offset   int
+}
+
+type ListSourceCatalogResult struct {
+	Entries []domain.SourceCatalogEntry
+	Total   int64
+	Limit   int
+	Offset  int
+}
+
+type ImportCatalogSourcesInput struct {
+	UserID     int64
+	CatalogIDs []int64
+}
+
+type ImportURLSourcesInput struct {
+	UserID int64
+	URLs   []string
+}
+
+type ImportSourceResult struct {
+	RequestedCount int
+	SuccessCount   int
+	FailureCount   int
+	Sources        []domain.Source
+	Errors         []ImportSourceError
+}
+
+type ImportSourceError struct {
+	Reference string `json:"reference"`
+	Message   string `json:"message"`
 }
 
 type FetchSourceResult struct {
@@ -197,6 +247,140 @@ func (s *SourceService) ListSources(ctx context.Context, userID int64) ([]domain
 	return sources, nil
 }
 
+func (s *SourceService) ListSourceCatalog(ctx context.Context, input ListSourceCatalogInput) (ListSourceCatalogResult, error) {
+	ctx, span := observability.StartSpan(ctx, "service.source_catalog.list",
+		attribute.Int64("user.id", input.UserID),
+		attribute.String("source_catalog.category", input.Category),
+		attribute.String("source_catalog.query", input.Query),
+	)
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	if s == nil || s.catalogRepository == nil {
+		opErr = fmt.Errorf("source catalog service is not configured")
+		return ListSourceCatalogResult{}, opErr
+	}
+	if input.UserID < 1 {
+		opErr = fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
+		return ListSourceCatalogResult{}, opErr
+	}
+	result, err := s.catalogRepository.List(ctx, domain.SourceCatalogListOptions{
+		UserID:   input.UserID,
+		Category: strings.TrimSpace(input.Category),
+		Query:    strings.TrimSpace(input.Query),
+		Limit:    input.Limit,
+		Offset:   input.Offset,
+	})
+	if err != nil {
+		opErr = err
+		return ListSourceCatalogResult{}, opErr
+	}
+	span.SetAttributes(attribute.Int("source_catalog.count", len(result.Entries)))
+	return ListSourceCatalogResult{
+		Entries: result.Entries,
+		Total:   result.Total,
+		Limit:   result.Limit,
+		Offset:  result.Offset,
+	}, nil
+}
+
+func (s *SourceService) ImportCatalogSources(ctx context.Context, input ImportCatalogSourcesInput) (ImportSourceResult, error) {
+	ctx, span := observability.StartSpan(ctx, "service.source.import_catalog",
+		attribute.Int64("user.id", input.UserID),
+		attribute.Int("source_catalog.requested", len(input.CatalogIDs)),
+	)
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	if s == nil || s.catalogRepository == nil {
+		opErr = fmt.Errorf("source catalog service is not configured")
+		return ImportSourceResult{}, opErr
+	}
+	if input.UserID < 1 {
+		opErr = fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
+		return ImportSourceResult{}, opErr
+	}
+	ids := uniquePositiveIDs(input.CatalogIDs)
+	if len(ids) == 0 {
+		opErr = fmt.Errorf("%w: catalog_ids must not be empty", domain.ErrInvalidInput)
+		return ImportSourceResult{}, opErr
+	}
+
+	entries, err := s.catalogRepository.GetByIDs(ctx, ids)
+	if err != nil {
+		opErr = err
+		return ImportSourceResult{}, opErr
+	}
+	byID := make(map[int64]domain.SourceCatalogEntry, len(entries))
+	for _, entry := range entries {
+		byID[entry.ID] = entry
+	}
+
+	result := ImportSourceResult{RequestedCount: len(ids)}
+	for _, id := range ids {
+		entry, ok := byID[id]
+		if !ok {
+			result.Errors = append(result.Errors, ImportSourceError{Reference: strconv.FormatInt(id, 10), Message: "catalog entry not found"})
+			result.FailureCount++
+			continue
+		}
+		source, err := s.createOrReactivateSource(ctx, CreateSourceInput{
+			UserID:               input.UserID,
+			Name:                 entry.Name,
+			Type:                 entry.Type,
+			URL:                  entry.FeedURL,
+			FetchIntervalSeconds: DefaultSourceFetchIntervalSeconds,
+			Tags:                 entry.Tags,
+			Weight:               0,
+		})
+		if err != nil {
+			result.Errors = append(result.Errors, ImportSourceError{Reference: entry.Name, Message: sourceImportErrorMessage(err)})
+			result.FailureCount++
+			continue
+		}
+		result.Sources = append(result.Sources, source)
+		result.SuccessCount++
+	}
+	span.SetAttributes(attribute.Int("source.imported", result.SuccessCount), attribute.Int("source.failed", result.FailureCount))
+	return result, nil
+}
+
+func (s *SourceService) ImportURLSources(ctx context.Context, input ImportURLSourcesInput) (ImportSourceResult, error) {
+	ctx, span := observability.StartSpan(ctx, "service.source.import_urls",
+		attribute.Int64("user.id", input.UserID),
+		attribute.Int("source.requested", len(input.URLs)),
+	)
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	if input.UserID < 1 {
+		opErr = fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
+		return ImportSourceResult{}, opErr
+	}
+	urls := uniqueNonEmptyStrings(input.URLs)
+	if len(urls) == 0 {
+		opErr = fmt.Errorf("%w: urls must not be empty", domain.ErrInvalidInput)
+		return ImportSourceResult{}, opErr
+	}
+
+	result := ImportSourceResult{RequestedCount: len(urls)}
+	for _, rawURL := range urls {
+		source, err := s.createOrReactivateSource(ctx, CreateSourceInput{
+			UserID: input.UserID,
+			URL:    rawURL,
+		})
+		if err != nil {
+			result.Errors = append(result.Errors, ImportSourceError{Reference: rawURL, Message: sourceImportErrorMessage(err)})
+			result.FailureCount++
+			continue
+		}
+		result.Sources = append(result.Sources, source)
+		result.SuccessCount++
+	}
+	span.SetAttributes(attribute.Int("source.imported", result.SuccessCount), attribute.Int("source.failed", result.FailureCount))
+	return result, nil
+}
+
 func (s *SourceService) UpdateSource(ctx context.Context, input UpdateSourceInput) (domain.Source, error) {
 	ctx, span := observability.StartSpan(ctx, "service.source.update",
 		attribute.Int64("user.id", input.UserID),
@@ -281,6 +465,40 @@ func (s *SourceService) UpdateSource(ctx context.Context, input UpdateSourceInpu
 		return domain.Source{}, opErr
 	}
 	return updated, nil
+}
+
+func (s *SourceService) createOrReactivateSource(ctx context.Context, input CreateSourceInput) (domain.Source, error) {
+	source, err := s.CreateSource(ctx, input)
+	if err == nil {
+		return source, nil
+	}
+	if !errors.Is(err, domain.ErrConflict) {
+		return domain.Source{}, err
+	}
+
+	normalizedURL, _, normalizeErr := NormalizeSourceURL(input.URL)
+	if normalizeErr != nil {
+		return domain.Source{}, normalizeErr
+	}
+	sources, listErr := s.ListSources(ctx, input.UserID)
+	if listErr != nil {
+		return domain.Source{}, listErr
+	}
+	for _, existing := range sources {
+		if existing.NormalizedURL != normalizedURL {
+			continue
+		}
+		if existing.Status == domain.SourceStatusActive {
+			return existing, nil
+		}
+		status := domain.SourceStatusActive
+		return s.UpdateSource(ctx, UpdateSourceInput{
+			UserID: input.UserID,
+			ID:     existing.ID,
+			Status: &status,
+		})
+	}
+	return domain.Source{}, err
 }
 
 func (s *SourceService) TriggerFetch(ctx context.Context, input FetchSourceInput) (FetchSourceResult, error) {
@@ -438,6 +656,52 @@ func normalizeTags(tags []string) []string {
 		normalized = append(normalized, value)
 	}
 	return normalized
+}
+
+func uniquePositiveIDs(values []int64) []int64 {
+	seen := make(map[int64]struct{}, len(values))
+	normalized := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value < 1 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	return normalized
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	normalized := make([]string, 0, len(values))
+	for _, rawValue := range values {
+		value := strings.TrimSpace(rawValue)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	return normalized
+}
+
+func sourceImportErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrInvalidInput):
+		return "invalid source input"
+	case errors.Is(err, domain.ErrConflict):
+		return "source already exists"
+	case errors.Is(err, domain.ErrNotFound):
+		return "source not found"
+	default:
+		return err.Error()
+	}
 }
 
 func truncateError(value string, maxLength int) string {
