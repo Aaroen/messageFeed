@@ -173,8 +173,23 @@ function formatDate(value?: string) {
   }).format(new Date(value))
 }
 
+function plainPreviewText(...values: Array<string | undefined>) {
+  const value = values.find((item) => item?.trim())
+  if (!value) {
+    return ''
+  }
+
+  const input = value.trim()
+  if (typeof DOMParser === 'undefined') {
+    return input.replace(/\s+/g, ' ')
+  }
+
+  const documentFragment = new DOMParser().parseFromString(input, 'text/html')
+  return (documentFragment.body.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
 function itemSummary(item: FeedItem) {
-  return item.content_text || item.content_snippet || '暂无摘要。'
+  return plainPreviewText(item.summary, item.content_snippet, item.content_text, item.content_html) || '暂无摘要。'
 }
 
 function feedItemStyle(item: FeedItem) {

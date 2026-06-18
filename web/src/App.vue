@@ -495,7 +495,13 @@ const pageContentInnerStyle = computed(() => ({
 const detailHTML = computed(() => detailItem.value?.content_html || detailItem.value?.content_snippet || '')
 const detailText = computed(() => detailItem.value?.content_text || detailItem.value?.summary || detailItem.value?.content_snippet || '')
 const detailPreviewSummary = computed(
-  () => detailItem.value?.summary || detailItem.value?.content_snippet || detailItem.value?.content_text || '暂无摘要。',
+  () =>
+    plainPreviewText(
+      detailItem.value?.summary,
+      detailItem.value?.content_snippet,
+      detailItem.value?.content_text,
+      detailItem.value?.content_html,
+    ) || '暂无摘要。',
 )
 const detailDisplayDate = computed(() => formatItemDate(detailItem.value?.published_at || detailItem.value?.fetched_at))
 const detailMorphSummaryVisible = computed(() => detailSurfaceProgress.value < 0.54)
@@ -761,6 +767,21 @@ function escapeHTML(value: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
+}
+
+function plainPreviewText(...values: Array<string | undefined>) {
+  const value = values.find((item) => item?.trim())
+  if (!value) {
+    return ''
+  }
+
+  const input = value.trim()
+  if (typeof DOMParser === 'undefined') {
+    return input.replace(/\s+/g, ' ')
+  }
+
+  const documentFragment = new DOMParser().parseFromString(input, 'text/html')
+  return (documentFragment.body.textContent || '').replace(/\s+/g, ' ').trim()
 }
 
 function formatItemDate(value?: string) {
