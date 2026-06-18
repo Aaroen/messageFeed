@@ -1024,6 +1024,9 @@ function finishCommittedListReturnForGesture() {
   if (!detailCommittedListReturn()) {
     return
   }
+  if (hasDetailParkedBehindSource()) {
+    return
+  }
 
   window.clearTimeout(detailEntryTimer)
   closeItemReader()
