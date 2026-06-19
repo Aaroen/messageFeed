@@ -470,6 +470,14 @@ const sourceNameMorphProgress = computed(() =>
 const sourceTitleProgress = computed(() =>
   detailReaderOpen.value && sourceReaderVisible.value ? sourceNameMorphProgress.value : 1,
 )
+const sourceTitleRevealVisible = computed(
+  () =>
+    Boolean(readerSource.value) &&
+    detailReaderOpen.value &&
+    sourceReaderVisible.value &&
+    !sourceReaderCovering.value &&
+    !sourcePullActive.value,
+)
 const sourceNameMorphVisible = computed(
   () => false,
 )
@@ -502,22 +510,47 @@ const sourceNameMorphStyle = computed(() => {
   }
 })
 const sourceTitleLayerStyle = computed(() => {
-  const progress = clamp(sourceTitleProgress.value / 0.72)
+  if (sourceTitleRevealVisible.value) {
+    return {
+      opacity: '0',
+      transform: 'translate3d(0, 0, 0)',
+      filter: 'none',
+      transition: readerBackDragging.value ? 'none' : 'opacity 120ms ease',
+    }
+  }
+
   return {
-    opacity: progress.toFixed(3),
-    transform: `translate3d(0, ${Math.round((1 - progress) * 10)}px, 0) scale(${(
-      0.97 +
-      progress * 0.03
-    ).toFixed(3)})`,
-    filter: `blur(${((1 - progress) * 2).toFixed(2)}px)`,
+    opacity: sourceTitleProgress.value.toFixed(3),
+    transform: 'translate3d(0, 0, 0)',
+    filter: 'none',
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity 420ms ease, transform 420ms cubic-bezier(0.16, 1, 0.3, 1), filter 420ms ease',
+      : 'opacity 220ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)',
   }
 })
 const sourceTitleTextStyle = computed(() => ({
   display: 'inline-block',
 }))
+const sourceTitleRevealStyle = computed(() => {
+  const progress = clamp(sourceTitleProgress.value / 0.55)
+  const left = windowWidth.value <= 720 ? 72 : 80
+  const right = windowWidth.value <= 720 ? 104 : 120
+  const top = Math.round((feedHeaderHeight.value - 44) / 2)
+  return {
+    top: `${top}px`,
+    left: `${left}px`,
+    width: `calc(100vw - ${left + right}px)`,
+    opacity: progress.toFixed(3),
+    transform: `translate3d(0, ${Math.round((1 - progress) * 12)}px, 0) scale(${(
+      0.965 +
+      progress * 0.035
+    ).toFixed(3)})`,
+    filter: `blur(${((1 - progress) * 2.4).toFixed(2)}px)`,
+    transition: readerBackDragging.value
+      ? 'none'
+      : 'opacity 420ms ease, transform 420ms cubic-bezier(0.16, 1, 0.3, 1), filter 420ms ease',
+  }
+})
 const mainStyle = computed(() => {
   const baseStyle = {
     '--feed-header-height': `${feedHeaderHeight.value}px`,
@@ -3050,6 +3083,16 @@ onUnmounted(() => {
         />
       </div>
     </section>
+
+    <div
+      v-if="sourceTitleRevealVisible && readerSource"
+      class="source-title-reveal"
+      :style="sourceTitleRevealStyle"
+      aria-hidden="true"
+    >
+      <span>{{ readerSource.name }}</span>
+      <small>{{ sourceToggleActive ? '已订阅' : '未订阅' }}</small>
+    </div>
 
     <div
       v-if="sourceNameMorphVisible && detailItem"

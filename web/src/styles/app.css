@@ -1218,6 +1218,40 @@ body[arco-theme='dark'] .reader-overlay {
   will-change: left, top, width, font-size, opacity;
 }
 
+.source-title-reveal {
+  position: fixed;
+  z-index: 146;
+  display: grid;
+  min-width: 0;
+  height: 44px;
+  align-content: center;
+  gap: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  transform-origin: left center;
+  will-change: opacity, transform, filter;
+}
+
+.source-title-reveal span,
+.source-title-reveal small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-title-reveal span {
+  color: var(--mf-text);
+  font-size: 18px;
+  font-weight: 780;
+  line-height: 1.25;
+}
+
+.source-title-reveal small {
+  color: var(--mf-text-muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
 .reader-transition-surface {
   position: relative;
   z-index: 1;
