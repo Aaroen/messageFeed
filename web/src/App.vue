@@ -533,6 +533,7 @@ const sourceTitleRevealVisible = computed(
     Boolean(readerSource.value) &&
     detailReaderOpen.value &&
     sourceReaderVisible.value &&
+    sourceNameMorphProgress.value > 0.001 &&
     !sourcePullActive.value,
 )
 const sourceNameMorphActive = computed(
@@ -540,8 +541,10 @@ const sourceNameMorphActive = computed(
     Boolean(detailItem.value) &&
     sourceReaderVisible.value &&
     !detailReturningToFeed.value &&
+    sourceNameMorphProgress.value > 0.001 &&
+    sourceNameMorphProgress.value < 0.985 &&
+    Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value) &&
     (readerBackDragging.value ||
-      detailEntrySettling.value ||
       detailRestoringFromSourceReader.value ||
       detailSourceExitProgress.value > 0.001),
 )
@@ -1256,7 +1259,7 @@ function sourceNameTargetFallback(itemRect: RectSnapshot | null) {
     }
   }
 
-  return snapshotElementRect(sourceTitleTextRef.value)
+  return null
 }
 
 function captureDetailSourceTransitionRects(
@@ -2887,13 +2890,25 @@ function updateTopTabsByScroll(current: number, previous: number) {
     return
   }
 
-  if (feedPullActive.value || feedTopPulling.value || (feedChromeSettling.value && !detailReaderOpen.value)) {
+  if (feedPullActive.value || feedTopPulling.value || feedChromeSettling.value) {
     return
   }
 
   const delta = current - previous
   if (Math.abs(delta) < 3 || current < 0) {
     return
+  }
+
+  if (detailReaderOpen.value) {
+    const max = detailScrollMax.value
+    const bottomStabilityZone = 28
+    const nearBottom =
+      max > 0 &&
+      current >= max - bottomStabilityZone &&
+      previous >= max - bottomStabilityZone
+    if (nearBottom) {
+      return
+    }
   }
 
   const hideThreshold = detailReaderOpen.value ? feedHeaderHeight.value : isFeedRoute.value ? 8 : feedHeaderHeight.value
