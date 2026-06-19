@@ -39,6 +39,16 @@ type RectSnapshot = {
   width: number
   height: number
 }
+type ParkedDetailSnapshot = {
+  item: FeedItem
+  sourceKind: FeedSourceKind
+  originRect: RectSnapshot | null
+  sourceItemTargetRect: RectSnapshot | null
+  sourceNameOriginRect: RectSnapshot | null
+  sourceNameTargetRect: RectSnapshot | null
+  morphingItemHeight: number | null
+  scrollTop: number
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -100,6 +110,7 @@ const detailReturningToFeed = ref(false)
 const detailListReturnCommitted = ref(false)
 const detailRestoringFromSourceReader = ref(false)
 const detailScrollTop = ref(0)
+const parkedDetailStack = ref<ParkedDetailSnapshot[]>([])
 const sourceCatalogEntry = ref<SourceCatalogEntry | null>(null)
 const sourceSubscription = ref<Source | null>(null)
 const sourceSubscriptionLoading = ref(false)
@@ -1057,6 +1068,68 @@ function hasParkedDetailSourceState() {
   )
 }
 
+function snapshotParkedDetail(): ParkedDetailSnapshot | null {
+  if (!detailItem.value || !hasParkedDetailSourceState()) {
+    return null
+  }
+
+  return {
+    item: { ...detailItem.value },
+    sourceKind: detailSourceKind.value,
+    originRect: detailOriginRect.value ? { ...detailOriginRect.value } : null,
+    sourceItemTargetRect: detailSourceItemTargetRect.value ? { ...detailSourceItemTargetRect.value } : null,
+    sourceNameOriginRect: detailSourceNameOriginRect.value ? { ...detailSourceNameOriginRect.value } : null,
+    sourceNameTargetRect: detailSourceNameTargetRect.value ? { ...detailSourceNameTargetRect.value } : null,
+    morphingItemHeight: morphingItemHeight.value,
+    scrollTop: detailScrollTop.value,
+  }
+}
+
+function pushParkedDetailSnapshot() {
+  const snapshot = snapshotParkedDetail()
+  if (!snapshot) {
+    return
+  }
+
+  parkedDetailStack.value.push(snapshot)
+}
+
+function restorePreviousParkedDetail() {
+  const snapshot = parkedDetailStack.value.pop()
+  if (!snapshot) {
+    return false
+  }
+
+  detailItem.value = snapshot.item
+  detailError.value = ''
+  detailLoading.value = false
+  detailSourceKind.value = snapshot.sourceKind
+  detailOpenedFromSourceReader.value = false
+  detailOriginRect.value = snapshot.originRect
+  detailSourceItemTargetRect.value = snapshot.sourceItemTargetRect
+  detailSourceNameOriginRect.value = snapshot.sourceNameOriginRect
+  detailSourceNameTargetRect.value = snapshot.sourceNameTargetRect
+  detailScrollTop.value = snapshot.scrollTop
+  lastDetailScrollTop = snapshot.scrollTop
+  morphingItemId.value = null
+  morphingHeightLockItemId.value = null
+  morphingItemHeight.value = snapshot.morphingItemHeight
+  detailEntryProgress.value = 1
+  detailEntrySettling.value = false
+  detailReaderTouchOffset.value = 0
+  detailReaderStretch.value = 0
+  detailBackExitProgress.value = 0
+  detailSourceExitProgress.value = 1
+  detailReturningToFeed.value = false
+  detailListReturnCommitted.value = true
+  detailRestoringFromSourceReader.value = false
+  sourceReaderVisible.value = true
+  sourceReaderCovering.value = false
+  sourceReaderTouchOffset.value = 0
+  sourceReaderStretch.value = 0
+  return true
+}
+
 function detailBlocksGestures() {
   return detailReaderOpen.value && !detailCommittedListReturn()
 }
@@ -1160,6 +1233,11 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   window.clearTimeout(hiddenSourceCleanupTimer)
   const openedFromSourceReader =
     sourceReaderOpen.value && readerSource.value?.id === item.source_id && readerSource.value.kind === sourceKind
+  if (openedFromSourceReader && hasParkedDetailSourceState()) {
+    pushParkedDetailSnapshot()
+  } else if (!openedFromSourceReader) {
+    parkedDetailStack.value = []
+  }
   detailError.value = ''
   detailLoading.value = true
   detailItem.value = item
@@ -1223,6 +1301,11 @@ function closeSourceReader() {
     return
   }
 
+  if (!detailReaderOpen.value && parkedDetailStack.value.length > 0 && restorePreviousParkedDetail()) {
+    restoreDetailFromParkedSource()
+    return
+  }
+
   if (sourceReaderOpen.value) {
     sourceReaderTouchOffset.value = windowWidth.value
     settleReaderMotion(240, () => {
@@ -1233,6 +1316,7 @@ function closeSourceReader() {
       sourceCatalogEntry.value = null
       sourceSubscription.value = null
       sourceNotice.value = null
+      parkedDetailStack.value = []
     })
     return
   }
@@ -1244,6 +1328,7 @@ function closeSourceReader() {
   sourceCatalogEntry.value = null
   sourceSubscription.value = null
   sourceNotice.value = null
+  parkedDetailStack.value = []
 }
 
 function restoreDetailFromParkedSource(duration = 360) {
@@ -1284,6 +1369,7 @@ function restoreDetailFromParkedSource(duration = 360) {
   detailEntryTimer = window.setTimeout(() => {
     detailEntrySettling.value = false
     detailRestoringFromSourceReader.value = false
+    parkedDetailStack.value = []
     sourceReaderVisible.value = false
     sourceReaderCovering.value = false
     sourceReaderTouchOffset.value = 0
@@ -1333,6 +1419,7 @@ function closeItemReader() {
   detailReaderStretch.value = 0
   resetDetailTransition()
   if (!sourceReaderVisible.value) {
+    parkedDetailStack.value = []
     scheduleHiddenSourceReaderCleanup()
   }
 }
@@ -1343,6 +1430,7 @@ function collapseItemReader(duration = 360) {
   }
 
   suppressFollowingClick()
+  const shouldRestorePreviousParkedDetail = detailOpenedFromSourceReader.value && parkedDetailStack.value.length > 0
   if (detailOpenedFromSourceReader.value && readerSource.value) {
     sourceReaderVisible.value = true
     sourceReaderCovering.value = false
@@ -1361,6 +1449,9 @@ function collapseItemReader(duration = 360) {
   detailListReturnCommitted.value = true
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
+    if (shouldRestorePreviousParkedDetail && restorePreviousParkedDetail()) {
+      return
+    }
     closeItemReader()
   }, duration)
 }
