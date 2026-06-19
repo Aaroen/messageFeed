@@ -1494,9 +1494,10 @@ body[arco-theme='dark'] .reader-back-button {
 .reader-detail {
   display: grid;
   justify-items: center;
-  overflow: hidden;
+  overflow-y: auto;
   padding: 18px 20px 26px;
   scrollbar-width: none;
+  touch-action: pan-y;
 }
 
 .reader-detail::-webkit-scrollbar {
@@ -1573,11 +1574,12 @@ body[arco-theme='dark'] .reader-back-button {
 
 .reader-detail__frame {
   width: 100%;
-  height: var(--detail-frame-min-height, 62vh);
+  height: var(--detail-frame-content-height, var(--detail-frame-min-height, 62vh));
   min-height: var(--detail-frame-min-height, 62vh);
   border: 0;
   background: transparent;
   opacity: var(--detail-body-opacity, 1);
+  pointer-events: none;
   transition: opacity 160ms linear;
 }
 

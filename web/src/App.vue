@@ -112,6 +112,7 @@ const detailRestoringFromSourceReader = ref(false)
 const detailScrollTop = ref(0)
 const detailScrollHeight = ref(0)
 const detailScrollClientHeight = ref(0)
+const detailFrameContentHeight = ref(0)
 const detailProgressDragging = ref(false)
 const parkedDetailStack = ref<ParkedDetailSnapshot[]>([])
 const sourceCatalogEntry = ref<SourceCatalogEntry | null>(null)
@@ -440,6 +441,7 @@ const detailContentStyle = computed(() => {
     '--detail-body-opacity': bodyOpacity.toFixed(3),
     '--detail-inline-meta-opacity': inlineMetaOpacity.toFixed(3),
     '--detail-frame-min-height': cssPx(detailFrameMinHeight.value),
+    '--detail-frame-content-height': cssPx(Math.max(detailFrameMinHeight.value, detailFrameContentHeight.value)),
     transform:
       sourceExitProgress > 0 ? cssTranslate3d(0, 0) : cssTranslate3d(0, (1 - progress) * 8),
     visibility: !committedListReturn && opacity > 0.01 ? ('visible' as const) : ('hidden' as const),
@@ -682,8 +684,12 @@ const detailPreviewSummary = computed(
 )
 const detailDisplayDate = computed(() => formatItemDate(detailItem.value?.published_at || detailItem.value?.fetched_at))
 const detailMorphSummaryVisible = computed(() => detailSurfaceProgress.value < 0.54)
+const detailFrameBody = computed(() => {
+  const source = detailHTML.value || `<p>${escapeHTML(detailText.value || '暂无正文。')}</p>`
+  return sanitizeDetailHTML(source)
+})
 const detailSrcdoc = computed(() => {
-  const body = detailHTML.value || `<p>${escapeHTML(detailText.value || '暂无正文。')}</p>`
+  const body = detailFrameBody.value
   return `<!doctype html>
 <html>
 <head>
@@ -704,12 +710,19 @@ const detailSrcdoc = computed(() => {
   body {
     margin: 0;
     padding: 0;
+    background: transparent;
     color: #162033;
     font: 16px/1.72 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     overflow-wrap: anywhere;
+    overflow: hidden;
     scrollbar-width: none;
     -ms-overflow-style: none;
     touch-action: pan-y;
+  }
+  #messagefeed-detail-body {
+    display: flow-root;
+    min-height: 1px;
+    overflow-wrap: anywhere;
   }
   *::-webkit-scrollbar,
   html::-webkit-scrollbar,
@@ -730,14 +743,15 @@ const detailSrcdoc = computed(() => {
 </style>
 </head>
 <body>
+<main id="messagefeed-detail-body">
 ${body}
+</main>
 <script>
 (() => {
   let startX = 0;
   let startY = 0;
   let tracking = false;
   let intent = null;
-  let scrollTicking = false;
   let metricsTicking = false;
   let resizeObserver = null;
   const preferTouchEvents = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -754,18 +768,20 @@ ${body}
       source: 'detail-frame'
     }, '*');
   };
-  const currentScrollTop = () => {
-    const doc = document.documentElement;
-    const body = document.body;
-    return window.scrollY || doc.scrollTop || body.scrollTop || 0;
-  };
   const scrollMetrics = () => {
     const doc = document.documentElement;
     const body = document.body;
-    const scrollHeight = Math.max(doc.scrollHeight || 0, body.scrollHeight || 0);
+    const content = document.getElementById('messagefeed-detail-body');
+    const contentRect = content?.getBoundingClientRect();
+    const scrollHeight = Math.max(
+      doc.scrollHeight || 0,
+      body.scrollHeight || 0,
+      content?.scrollHeight || 0,
+      contentRect ? Math.ceil(contentRect.height) : 0
+    );
     const clientHeight = window.innerHeight || doc.clientHeight || body.clientHeight || 0;
     return {
-      scrollTop: currentScrollTop(),
+      scrollTop: 0,
       scrollHeight,
       clientHeight
     };
@@ -784,25 +800,9 @@ ${body}
       postScrollMetrics();
     });
   };
-  window.addEventListener('scroll', () => {
-    if (scrollTicking) return;
-    scrollTicking = true;
-    requestAnimationFrame(() => {
-      scrollTicking = false;
-      requestScrollMetrics();
-    });
-  }, { passive: true });
-  document.addEventListener('scroll', requestScrollMetrics, { passive: true, capture: true });
-  document.documentElement.addEventListener('scroll', requestScrollMetrics, { passive: true, capture: true });
-  document.body.addEventListener('scroll', requestScrollMetrics, { passive: true, capture: true });
-  const metricsInterval = window.setInterval(requestScrollMetrics, 220);
-  window.addEventListener('pagehide', () => window.clearInterval(metricsInterval), { passive: true });
   window.addEventListener('resize', () => requestAnimationFrame(postScrollMetrics), { passive: true });
   window.addEventListener('message', (event) => {
     if (event.data?.type !== 'messagefeed-detail-scroll-to') return;
-    const top = Number(event.data.top || 0);
-    if (!Number.isFinite(top)) return;
-    window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
     requestAnimationFrame(postScrollMetrics);
   });
   window.addEventListener('load', () => {
@@ -810,8 +810,10 @@ ${body}
       postScrollMetrics();
       if ('ResizeObserver' in window) {
         resizeObserver = new ResizeObserver(() => requestAnimationFrame(postScrollMetrics));
+        const content = document.getElementById('messagefeed-detail-body');
         resizeObserver.observe(document.documentElement);
         resizeObserver.observe(document.body);
+        if (content) resizeObserver.observe(content);
       }
       window.setTimeout(postScrollMetrics, 180);
       window.setTimeout(postScrollMetrics, 520);
@@ -1101,6 +1103,34 @@ function plainPreviewText(...values: Array<string | undefined>) {
 
   const documentFragment = new DOMParser().parseFromString(input, 'text/html')
   return (documentFragment.body.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
+function sanitizeDetailHTML(value: string) {
+  const input = value.trim()
+  if (!input || typeof DOMParser === 'undefined') {
+    return input
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<\/?(?:html|head|body)[^>]*>/gi, '')
+  }
+
+  const documentFragment = new DOMParser().parseFromString(input, 'text/html')
+  documentFragment
+    .querySelectorAll('script, style, link, meta, base, title, noscript, object, embed')
+    .forEach((element) => element.remove())
+  documentFragment.body.querySelectorAll('*').forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase()
+      const attributeValue = attribute.value.trim().toLowerCase()
+      if (
+        name.startsWith('on') ||
+        ((name === 'href' || name === 'src') && attributeValue.startsWith('javascript:'))
+      ) {
+        element.removeAttribute(attribute.name)
+      }
+    }
+  })
+  return documentFragment.body.innerHTML || input
 }
 
 function formatItemDate(value?: string) {
@@ -1440,6 +1470,7 @@ function restorePreviousParkedDetail() {
   detailSourceNameTargetRect.value = snapshot.sourceNameTargetRect
   detailScrollTop.value = snapshot.scrollTop
   lastDetailScrollTop = snapshot.scrollTop
+  detailFrameContentHeight.value = 0
   morphingItemId.value = null
   morphingHeightLockItemId.value = null
   morphingItemHeight.value = snapshot.morphingItemHeight
@@ -1576,6 +1607,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   detailScrollTop.value = 0
   detailScrollHeight.value = 0
   detailScrollClientHeight.value = 0
+  detailFrameContentHeight.value = 0
   detailProgressDragging.value = false
   activeDetailProgressPointerId = null
   lastDetailScrollTop = 0
@@ -1719,6 +1751,7 @@ function closeItemReader() {
   detailScrollTop.value = 0
   detailScrollHeight.value = 0
   detailScrollClientHeight.value = 0
+  detailFrameContentHeight.value = 0
   detailProgressDragging.value = false
   activeDetailProgressPointerId = null
   detailReaderTouchOffset.value = 0
@@ -2369,7 +2402,16 @@ function handleWindowPointerCancel(event: PointerEvent) {
 }
 
 function handleTouchEnd(event: TouchEvent) {
-  if (!trackingEdgeSwipe && !trackingNavigationClose && !trackingViewSwipe && !trackingBackSwipe) {
+  if (
+    !trackingEdgeSwipeCandidate &&
+    !trackingNavigationCloseCandidate &&
+    !trackingViewSwipeCandidate &&
+    !trackingBackSwipeCandidate &&
+    !trackingEdgeSwipe &&
+    !trackingNavigationClose &&
+    !trackingViewSwipe &&
+    !trackingBackSwipe
+  ) {
     return
   }
 
@@ -2380,6 +2422,11 @@ function handleTouchEnd(event: TouchEvent) {
 
   if (trackingBackSwipe) {
     finishBackSwipe(deltaX, deltaY)
+    resetGestureTracking()
+    return
+  }
+
+  if (!trackingEdgeSwipe && !trackingNavigationClose && !trackingViewSwipe) {
     resetGestureTracking()
     return
   }
@@ -2568,14 +2615,25 @@ function handleResize() {
   windowHeight.value = window.innerHeight
 }
 
-function scrollDetailFrameTo(top: number) {
-  detailFrameRef.value?.contentWindow?.postMessage(
-    {
-      type: 'messagefeed-detail-scroll-to',
-      top: Math.max(0, top),
-    },
-    '*',
-  )
+function syncDetailContainerMetrics() {
+  const container = detailContentRef.value
+  if (!container) {
+    return
+  }
+
+  detailScrollTop.value = container.scrollTop
+  detailScrollHeight.value = Math.max(0, container.scrollHeight)
+  detailScrollClientHeight.value = Math.max(0, container.clientHeight)
+}
+
+function scrollDetailContentTo(top: number) {
+  const container = detailContentRef.value
+  if (!container) {
+    return
+  }
+
+  container.scrollTop = Math.max(0, top)
+  syncDetailContainerMetrics()
 }
 
 function updateDetailProgressFromPointer(clientY: number) {
@@ -2589,7 +2647,7 @@ function updateDetailProgressFromPointer(clientY: number) {
   const nextScrollTop = detailScrollMax.value * progress
   detailScrollTop.value = nextScrollTop
   lastDetailScrollTop = nextScrollTop
-  scrollDetailFrameTo(nextScrollTop)
+  scrollDetailContentTo(nextScrollTop)
 }
 
 function handleDetailProgressPointerDown(event: PointerEvent) {
@@ -2630,31 +2688,11 @@ function finishDetailProgressDrag(event?: PointerEvent) {
 
 function handleDetailFrameLoad() {
   requestAnimationFrame(() => {
-    if (detailScrollTop.value > 0) {
-      scrollDetailFrameTo(detailScrollTop.value)
+    syncDetailContainerMetrics()
+    if (detailScrollTop.value > 0 && detailContentRef.value) {
+      detailContentRef.value.scrollTop = detailScrollTop.value
     }
   })
-}
-
-function updateDetailChromeByFrameGesture(deltaX: number, deltaY: number) {
-  if (!detailReaderOpen.value || feedPullActive.value || feedTopPulling.value) {
-    return
-  }
-
-  const absX = Math.abs(deltaX)
-  const absY = Math.abs(deltaY)
-  if (absY < 30 || absY <= absX * 1.18) {
-    return
-  }
-
-  if (deltaY < 0 && topChromeProgress.value > 0.01) {
-    setTopChromeVisible(false)
-    return
-  }
-
-  if (deltaY > 0 && topChromeProgress.value < 0.99) {
-    setTopChromeVisible(true)
-  }
 }
 
 function handleMessage(event: MessageEvent) {
@@ -2664,20 +2702,11 @@ function handleMessage(event: MessageEvent) {
 
   if (event.data?.type === 'messagefeed-detail-scroll' && detailReaderOpen.value) {
     const payload = event.data as { scrollTop?: number; scrollHeight?: number; clientHeight?: number }
-    const current = Number(payload.scrollTop ?? 0)
-    if (Number.isFinite(current)) {
-      detailScrollTop.value = current
-      updateTopTabsByScroll(current, lastDetailScrollTop)
-      lastDetailScrollTop = current
-    }
     const scrollHeight = Number(payload.scrollHeight ?? 0)
-    const clientHeight = Number(payload.clientHeight ?? 0)
     if (Number.isFinite(scrollHeight)) {
-      detailScrollHeight.value = Math.max(0, scrollHeight)
+      detailFrameContentHeight.value = Math.max(0, scrollHeight)
     }
-    if (Number.isFinite(clientHeight)) {
-      detailScrollClientHeight.value = Math.max(0, clientHeight)
-    }
+    requestAnimationFrame(syncDetailContainerMetrics)
     return
   }
 
@@ -2714,9 +2743,6 @@ function handleMessage(event: MessageEvent) {
   }
 
   if (payload.phase === 'move') {
-    if (fromDetailFrame) {
-      updateDetailChromeByFrameGesture(deltaX, deltaY)
-    }
     updateBackSwipe(deltaX, deltaY, fromDetailFrame)
     return
   }
@@ -2925,6 +2951,8 @@ function handleDetailContentScroll(event: Event) {
 
   const current = target.scrollTop
   detailScrollTop.value = current
+  detailScrollHeight.value = Math.max(0, target.scrollHeight)
+  detailScrollClientHeight.value = Math.max(0, target.clientHeight)
   updateTopTabsByScroll(current, lastDetailScrollTop)
   lastDetailScrollTop = current
 }
