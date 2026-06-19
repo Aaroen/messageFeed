@@ -63,6 +63,7 @@ type ReaderSessionSnapshot = {
   detailListReturnCommitted: boolean
   detailSourceExitProgress: number
   sourceReaderReturnMode: 'detail' | null
+  sourceReaderBackDetail: ParkedDetailSnapshot | null
   morphingItemHeight: number | null
   parkedDetailStack: ParkedDetailSnapshot[]
 }
@@ -140,6 +141,7 @@ const detailScrollClientHeight = ref(0)
 const detailFrameContentHeight = ref(0)
 const detailProgressDragging = ref(false)
 const parkedDetailStack = ref<ParkedDetailSnapshot[]>([])
+const sourceReaderBackDetail = ref<ParkedDetailSnapshot | null>(null)
 const sourceCatalogEntry = ref<SourceCatalogEntry | null>(null)
 const sourceSubscription = ref<Source | null>(null)
 const sourceSubscriptionLoading = ref(false)
@@ -1574,6 +1576,22 @@ function readerSessionSnapshot(): ReaderSessionSnapshot {
     detailListReturnCommitted: detailListReturnCommitted.value,
     detailSourceExitProgress: detailSourceExitProgress.value,
     sourceReaderReturnMode: sourceReaderReturnMode.value,
+    sourceReaderBackDetail: sourceReaderBackDetail.value
+      ? {
+          ...sourceReaderBackDetail.value,
+          item: { ...sourceReaderBackDetail.value.item },
+          originRect: sourceReaderBackDetail.value.originRect ? { ...sourceReaderBackDetail.value.originRect } : null,
+          sourceItemTargetRect: sourceReaderBackDetail.value.sourceItemTargetRect
+            ? { ...sourceReaderBackDetail.value.sourceItemTargetRect }
+            : null,
+          sourceNameOriginRect: sourceReaderBackDetail.value.sourceNameOriginRect
+            ? { ...sourceReaderBackDetail.value.sourceNameOriginRect }
+            : null,
+          sourceNameTargetRect: sourceReaderBackDetail.value.sourceNameTargetRect
+            ? { ...sourceReaderBackDetail.value.sourceNameTargetRect }
+            : null,
+        }
+      : null,
     morphingItemHeight: morphingItemHeight.value,
     parkedDetailStack: parkedDetailStack.value.map((item) => ({
       ...item,
@@ -1671,6 +1689,9 @@ async function restoreReaderSession() {
       ? 1
       : clamp(snapshot.detailSourceExitProgress || 0)
     sourceReaderReturnMode.value = snapshot.sourceReaderReturnMode === 'detail' ? 'detail' : null
+    sourceReaderBackDetail.value = snapshot.sourceReaderBackDetail
+      ? { ...snapshot.sourceReaderBackDetail, item: { ...snapshot.sourceReaderBackDetail.item } }
+      : null
     detailReturningToFeed.value = false
     detailListReturnCommitted.value = Boolean(snapshot.detailListReturnCommitted)
     detailRestoringFromSourceReader.value = false
@@ -1856,18 +1877,24 @@ function sourceReaderShouldReturnToDetail() {
     return false
   }
 
+  const hasDetailReturnTarget =
+    detailReaderOpen.value ||
+    parkedDetailStack.value.length > 0 ||
+    sourceReaderBackDetail.value !== null ||
+    detailListReturnCommitted.value ||
+    detailSourceExitProgress.value > 0.45 ||
+    detailRestoringFromSourceReader.value
   const sourceLayerAvailable =
     readerSource.value !== null &&
-    (sourceReaderVisible.value || detailListReturnCommitted.value || detailSourceExitProgress.value > 0.45)
+    (sourceReaderVisible.value ||
+      sourceReaderBackDetail.value !== null ||
+      detailListReturnCommitted.value ||
+      detailSourceExitProgress.value > 0.45)
   return (
     sourceReaderReturnMode.value === 'detail' &&
     sourceLayerAvailable &&
     !detailReturningToFeed.value &&
-    (detailReaderOpen.value ||
-      parkedDetailStack.value.length > 0 ||
-      detailListReturnCommitted.value ||
-      detailSourceExitProgress.value > 0.45 ||
-      detailRestoringFromSourceReader.value)
+    hasDetailReturnTarget
   )
 }
 
@@ -1882,16 +1909,17 @@ function restoreSourceReaderBackTarget() {
     return
   }
 
+  if (sourceReaderBackDetail.value && restoreParkedDetailSnapshot(sourceReaderBackDetail.value)) {
+    restoreDetailFromParkedSource()
+    return
+  }
+
   sourceReaderReturnMode.value = null
   closeSourceReader()
 }
 
-function snapshotParkedDetail(): ParkedDetailSnapshot | null {
-  const canSnapshotForSourceReturn =
-    sourceReaderReturnMode.value === 'detail' &&
-    sourceReaderVisible.value &&
-    !detailReturningToFeed.value
-  if (!detailItem.value || (!hasParkedDetailSourceState() && !canSnapshotForSourceReturn)) {
+function snapshotCurrentDetail(): ParkedDetailSnapshot | null {
+  if (!detailItem.value) {
     return null
   }
 
@@ -1907,6 +1935,18 @@ function snapshotParkedDetail(): ParkedDetailSnapshot | null {
   }
 }
 
+function snapshotParkedDetail(): ParkedDetailSnapshot | null {
+  const canSnapshotForSourceReturn =
+    sourceReaderReturnMode.value === 'detail' &&
+    sourceReaderVisible.value &&
+    !detailReturningToFeed.value
+  if (!hasParkedDetailSourceState() && !canSnapshotForSourceReturn) {
+    return null
+  }
+
+  return snapshotCurrentDetail()
+}
+
 function pushParkedDetailSnapshot() {
   const snapshot = snapshotParkedDetail()
   if (!snapshot) {
@@ -1916,8 +1956,7 @@ function pushParkedDetailSnapshot() {
   parkedDetailStack.value.push(snapshot)
 }
 
-function restorePreviousParkedDetail() {
-  const snapshot = parkedDetailStack.value.pop()
+function restoreParkedDetailSnapshot(snapshot: ParkedDetailSnapshot | null) {
   if (!snapshot) {
     return false
   }
@@ -1949,6 +1988,10 @@ function restorePreviousParkedDetail() {
   sourceReaderReturnMode.value = 'detail'
   sourceReaderVisible.value = true
   return true
+}
+
+function restorePreviousParkedDetail() {
+  return restoreParkedDetailSnapshot(parkedDetailStack.value.pop() ?? null)
 }
 
 function detailBlocksGestures() {
@@ -2016,6 +2059,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
       sourceReaderStretch.value = 0
       if (!detailReaderOpen.value) {
         sourceReaderReturnMode.value = null
+        sourceReaderBackDetail.value = null
       }
     }
     sourceReaderVisible.value = nextVisible
@@ -2031,6 +2075,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
     sourceReaderStretch.value = 0
     if (!detailReaderOpen.value) {
       sourceReaderReturnMode.value = null
+      sourceReaderBackDetail.value = null
     }
   }
   sourceReaderVisible.value = nextVisible
@@ -2145,6 +2190,7 @@ function closeSourceReader() {
     sourceReaderStretch.value = 0
     sourceReaderVisible.value = false
     sourceReaderReturnMode.value = null
+    sourceReaderBackDetail.value = null
     parkedDetailStack.value = []
     scheduleHiddenSourceReaderCleanup(340)
     return
@@ -2153,6 +2199,7 @@ function closeSourceReader() {
   readerSource.value = null
   sourceReaderVisible.value = false
   sourceReaderReturnMode.value = null
+  sourceReaderBackDetail.value = null
   sourceReaderOffset.value = 0
   sourceReaderStretch.value = 0
   sourceCatalogEntry.value = null
@@ -2197,6 +2244,7 @@ function restoreDetailFromParkedSource(duration = 360) {
     detailEntrySettling.value = false
     detailRestoringFromSourceReader.value = false
     sourceReaderReturnMode.value = null
+    sourceReaderBackDetail.value = null
     parkedDetailStack.value = []
     sourceReaderVisible.value = false
     detailSourceItemTargetRect.value = null
@@ -2257,6 +2305,7 @@ function closeItemReader() {
     sourceReaderReturnMode.value = 'detail'
   } else if (!sourceReaderVisible.value) {
     sourceReaderReturnMode.value = null
+    sourceReaderBackDetail.value = null
     parkedDetailStack.value = []
     scheduleHiddenSourceReaderCleanup()
   }
@@ -2287,9 +2336,11 @@ function collapseItemReader(duration = 360) {
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
     if (shouldRestorePreviousParkedDetail && restorePreviousParkedDetail()) {
+      nextTick(() => syncVirtualHistoryState(true))
       return
     }
     closeItemReader()
+    nextTick(() => syncVirtualHistoryState(true))
   }, motionDelay(duration))
 }
 
@@ -2342,6 +2393,9 @@ function completeDetailToSourceReader(duration = 360) {
     }
   }
   const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 0
+  if (!sourceReaderBackDetail.value) {
+    sourceReaderBackDetail.value = snapshotCurrentDetail()
+  }
   sourceReaderReturnMode.value = 'detail'
   sourceReaderVisible.value = true
   captureDetailSourceTransitionRects(12, { lock: true })
@@ -2442,6 +2496,10 @@ function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
   return Math.abs(deltaX) > viewDragThreshold && Math.abs(deltaX) > Math.abs(deltaY) * viewDirectionLockRatio
 }
 
+function canCommitRightBackSwipe() {
+  return backSwipeTarget === 'detail'
+}
+
 function blockedSwipeStretch(deltaX: number, currentX = touchStartX + deltaX) {
   const width = Math.max(1, windowWidth.value)
   const edgeStopZone = Math.min(54, width * 0.12)
@@ -2518,12 +2576,9 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   readerBackDragging.value = true
   detailEntrySettling.value = false
   if (deltaX > 0) {
-    backSwipeIntent = 'back'
+    backSwipeIntent = canCommitRightBackSwipe() ? 'back' : 'blocked'
     if (backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value) {
       refreshDetailFeedOriginRect(true)
-    }
-    if (backSwipeTarget === 'source' && hasParkedDetailSourceState()) {
-      detailRestoringFromSourceReader.value = true
     }
     detailReturningToFeed.value = backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value
     if (backSwipeTarget === 'detail' && detailOpenedFromSourceReader.value && readerSource.value) {
@@ -2552,15 +2607,11 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
 
   suppressFollowingClick()
   if (deltaX > 0) {
-    backSwipeIntent = 'back'
+    backSwipeIntent = canCommitRightBackSwipe() ? 'back' : 'blocked'
     if (backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value) {
       refreshDetailFeedOriginRect(true)
     }
-    if (backSwipeTarget === 'source' && (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)) {
-      detailRestoringFromSourceReader.value = true
-    } else {
-      detailSourceExitProgress.value = 0
-    }
+    detailSourceExitProgress.value = 0
     detailReturningToFeed.value = backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value
     if (backSwipeTarget === 'detail' && detailOpenedFromSourceReader.value && readerSource.value) {
       sourceReaderVisible.value = true
@@ -2600,7 +2651,9 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
       sourceReaderOffset.value = Math.max(0, offset)
     }
   } else if (intent === 'back' && backSwipeTarget === 'page') {
-    pageSideOffset.value = Math.max(0, offset)
+    pageSideOffset.value = 0
+    pageSideStretch.value = stretch
+    updateStretchAnchor(pageStretchAnchor, stretch)
   } else if (intent === 'source' && backSwipeTarget === 'detail') {
     detailReaderTouchOffset.value = 0
     detailBackExitProgress.value = 0
@@ -3616,6 +3669,7 @@ watch(
     detailOpenedFromSourceReader.value,
     detailListReturnCommitted.value,
     sourceReaderReturnMode.value,
+    sourceReaderBackDetail.value?.item.id ?? 0,
     parkedDetailStack.value.length,
   ],
   () => {
