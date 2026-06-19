@@ -104,6 +104,8 @@ const morphingItemHeight = ref<number | null>(null)
 const detailOpenedFromSourceReader = ref(false)
 const detailEntryProgress = ref(1)
 const detailEntrySettling = ref(false)
+const detailHeaderPreviousTitle = ref('')
+const detailHeaderSwapProgress = ref(1)
 const detailBackExitProgress = ref(0)
 const detailSourceExitProgress = ref(0)
 const detailReturningToFeed = ref(false)
@@ -511,6 +513,31 @@ const detailHeaderTitleStyle = computed(() => {
     transform: cssTranslate3d(0, (1 - opacity) * 8),
     filter: `blur(${((1 - opacity) * 2.6).toFixed(2)}px)`,
     transition: readerBackDragging.value ? 'none' : undefined,
+  }
+})
+const detailHeaderTitleSwapping = computed(() =>
+  Boolean(detailHeaderPreviousTitle.value) && detailHeaderSwapProgress.value < 0.999,
+)
+const detailHeaderCurrentTextStyle = computed(() => {
+  const progress = detailHeaderTitleSwapping.value ? detailHeaderSwapProgress.value : 1
+  return {
+    opacity: progress.toFixed(3),
+    filter: `blur(${((1 - progress) * 2.8).toFixed(2)}px)`,
+    transform: cssTranslate3d(0, (1 - progress) * 6),
+    transition: readerBackDragging.value
+      ? 'none'
+      : 'opacity 260ms ease, filter 320ms ease, transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
+  }
+})
+const detailHeaderPreviousTextStyle = computed(() => {
+  const progress = detailHeaderSwapProgress.value
+  return {
+    opacity: (1 - progress).toFixed(3),
+    filter: `blur(${(progress * 3.2).toFixed(2)}px)`,
+    transform: cssTranslate3d(0, progress * -6),
+    transition: readerBackDragging.value
+      ? 'none'
+      : 'opacity 220ms ease, filter 320ms ease, transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
   }
 })
 const detailInlineSourceStyle = computed(() => {
@@ -976,6 +1003,7 @@ let navigationTimer = 0
 let sourceNoticeTimer = 0
 let readerMotionTimer = 0
 let detailEntryTimer = 0
+let detailHeaderSwapTimer = 0
 let morphingHeightUnlockTimer = 0
 let hiddenSourceCleanupTimer = 0
 let feedRefreshSettleTimer = 0
@@ -1404,6 +1432,25 @@ function startDetailEntry(rect?: DOMRect) {
   })
 }
 
+function startDetailHeaderTitleSwap(nextItem: FeedItem) {
+  if (!detailItem.value || detailItem.value.id === nextItem.id) {
+    detailHeaderPreviousTitle.value = ''
+    detailHeaderSwapProgress.value = 1
+    window.clearTimeout(detailHeaderSwapTimer)
+    return
+  }
+
+  detailHeaderPreviousTitle.value = detailItem.value.title
+  detailHeaderSwapProgress.value = 0
+  window.clearTimeout(detailHeaderSwapTimer)
+  requestAnimationFrame(() => {
+    detailHeaderSwapProgress.value = 1
+  })
+  detailHeaderSwapTimer = window.setTimeout(() => {
+    detailHeaderPreviousTitle.value = ''
+  }, motionDelay(320))
+}
+
 function resetDetailTransition() {
   detailEntryProgress.value = 1
   detailEntrySettling.value = false
@@ -1591,6 +1638,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   window.clearTimeout(hiddenSourceCleanupTimer)
   const openedFromSourceReader =
     sourceReaderOpen.value && readerSource.value?.id === item.source_id && readerSource.value.kind === sourceKind
+  startDetailHeaderTitleSwap(item)
   if (openedFromSourceReader && hasParkedDetailSourceState()) {
     pushParkedDetailSnapshot()
   } else if (!openedFromSourceReader) {
@@ -1760,6 +1808,9 @@ function closeItemReader() {
   detailItem.value = null
   detailError.value = ''
   detailLoading.value = false
+  detailHeaderPreviousTitle.value = ''
+  detailHeaderSwapProgress.value = 1
+  window.clearTimeout(detailHeaderSwapTimer)
   restoreMorphingItemContent()
   detailOpenedFromSourceReader.value = false
   detailRestoringFromSourceReader.value = false
@@ -3187,6 +3238,7 @@ onUnmounted(() => {
   window.clearTimeout(sourceNoticeTimer)
   window.clearTimeout(readerMotionTimer)
   window.clearTimeout(detailEntryTimer)
+  window.clearTimeout(detailHeaderSwapTimer)
   window.clearTimeout(morphingHeightUnlockTimer)
   window.clearTimeout(hiddenSourceCleanupTimer)
 })
@@ -3295,7 +3347,17 @@ onUnmounted(() => {
               :class="{ 'feed-header-layer--hidden': !detailHeaderVisible }"
             >
               <div v-if="detailItem" class="detail-header-title" :style="detailHeaderTitleStyle">
-                <span>{{ detailItem.title }}</span>
+                <span
+                  v-if="detailHeaderPreviousTitle"
+                  class="detail-header-title__text detail-header-title__text--previous"
+                  :style="detailHeaderPreviousTextStyle"
+                  aria-hidden="true"
+                >
+                  {{ detailHeaderPreviousTitle }}
+                </span>
+                <span class="detail-header-title__text" :style="detailHeaderCurrentTextStyle">
+                  {{ detailItem.title }}
+                </span>
               </div>
             </div>
             <div

@@ -592,13 +592,15 @@ body[arco-theme='dark'] .settings-icon-button--active {
 }
 
 .detail-header-title {
+  position: relative;
   display: grid;
   min-width: 0;
   gap: 2px;
   pointer-events: auto;
 }
 
-.detail-header-title span {
+.detail-header-title__text {
+  grid-area: 1 / 1;
   overflow: hidden;
   color: var(--mf-text);
   font-size: 18px;
@@ -606,6 +608,13 @@ body[arco-theme='dark'] .settings-icon-button--active {
   line-height: 1.24;
   text-overflow: ellipsis;
   white-space: nowrap;
+  will-change: opacity, filter, transform;
+}
+
+.detail-header-title__text--previous {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .detail-header-title__source {
