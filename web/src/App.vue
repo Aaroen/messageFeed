@@ -593,12 +593,14 @@ const sourceNameMorphProgress = computed(() =>
 const sourceTitleProgress = computed(() =>
   detailReaderOpen.value && sourceReaderVisible.value ? sourceNameMorphProgress.value : 1,
 )
+const sourceTitleRevealProgress = computed(() =>
+  clamp((sourceTitleProgress.value - 0.64) / 0.24),
+)
 const sourceTitleRevealVisible = computed(
   () =>
     Boolean(readerSource.value) &&
     detailReaderOpen.value &&
     sourceReaderVisible.value &&
-    sourceNameMorphProgress.value > 0.001 &&
     !sourcePullActive.value,
 )
 const sourceNameMorphActive = computed(
@@ -614,7 +616,14 @@ const sourceNameMorphActive = computed(
       detailSourceExitProgress.value > 0.001),
 )
 const sourceNameMorphVisible = computed(
-  () => sourceNameMorphActive.value && !detailCommittedListReturn(),
+  () =>
+    Boolean(detailItem.value) &&
+    sourceReaderVisible.value &&
+    !detailReturningToFeed.value &&
+    sourceNameMorphProgress.value > 0.001 &&
+    sourceNameMorphProgress.value < 0.995 &&
+    Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value) &&
+    !detailCommittedListReturn(),
 )
 const sourceNameMorphStyle = computed(() => {
   const origin = detailSourceNameOriginRect.value
@@ -632,9 +641,9 @@ const sourceNameMorphStyle = computed(() => {
   const top = origin.top + (target.top - origin.top) * progress
   const width = origin.width + (target.width - origin.width) * progress
   const size = 13 + (12 - 13) * progress
-  const fadeOut = clamp((progress - 0.68) / 0.22)
+  const fadeOut = clamp((progress - 0.62) / 0.28)
   const opacity = clamp(1 - fadeOut)
-  const blur = Math.sin(progress * Math.PI) * 1.4 + fadeOut * 1.8
+  const blur = Math.sin(progress * Math.PI) * 1.6 + fadeOut * 2.2
 
   return {
     left: cssPx(left),
@@ -650,29 +659,32 @@ const sourceNameMorphStyle = computed(() => {
   }
 })
 const sourceTitleLayerStyle = computed(() => {
-  if (sourceTitleRevealVisible.value) {
+  if (detailReaderOpen.value && sourceReaderVisible.value) {
     return {
       opacity: '0',
       transform: 'translate3d(0, 0, 0)',
-      filter: 'none',
-      transition: readerBackDragging.value ? 'none' : 'opacity 120ms ease',
+      filter: 'blur(2px)',
+      transition: readerBackDragging.value ? 'none' : 'opacity 160ms ease, filter 160ms ease',
     }
   }
 
+  const revealProgress = sourceTitleRevealVisible.value ? sourceTitleRevealProgress.value : 0
+  const opacity = sourceTitleProgress.value * (1 - revealProgress)
+
   return {
-    opacity: sourceTitleProgress.value.toFixed(3),
+    opacity: opacity.toFixed(3),
     transform: 'translate3d(0, 0, 0)',
-    filter: 'none',
+    filter: `blur(${(revealProgress * 2).toFixed(2)}px)`,
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity 220ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+      : 'opacity 220ms ease, filter 220ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)',
   }
 })
 const sourceTitleTextStyle = computed(() => ({
   display: 'inline-block',
 }))
 const sourceTitleRevealStyle = computed(() => {
-  const progress = clamp((sourceTitleProgress.value - 0.72) / 0.22)
+  const progress = sourceTitleRevealProgress.value
   const left = windowWidth.value <= 720 ? 72 : 80
   const right = windowWidth.value <= 720 ? 104 : 120
   const top = (feedHeaderHeight.value - 44) / 2
@@ -2333,8 +2345,12 @@ function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
   return Math.abs(deltaX) > viewDragThreshold && Math.abs(deltaX) > Math.abs(deltaY) * viewDirectionLockRatio
 }
 
-function blockedSwipeStretch(deltaX: number) {
-  const stretch = Math.min(Math.log1p(Math.abs(deltaX)) / 72, 0.045)
+function blockedSwipeStretch(deltaX: number, currentX = touchStartX + deltaX) {
+  const width = Math.max(1, windowWidth.value)
+  const distanceToEdge = deltaX < 0 ? clamp(currentX / width) : clamp((width - currentX) / width)
+  const edgeFalloff = Math.pow(distanceToEdge, 0.78)
+  const distanceProgress = clamp(Math.log1p(Math.abs(deltaX) / 18) / Math.log1p(width / 18))
+  const stretch = 0.085 * distanceProgress * edgeFalloff
   return deltaX < 0 ? -stretch : stretch
 }
 
@@ -2421,7 +2437,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   return true
 }
 
-function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false) {
+function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false, currentX = touchStartX + deltaX) {
   beginBackSwipeIfAllowed(deltaX, deltaY, fromDetailFrame)
 
   if (!trackingBackSwipe) {
@@ -2457,7 +2473,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
   const intent = backSwipeIntent
   const offset = backSwipeVisualOffset(deltaX)
-  const stretch = blockedSwipeStretch(deltaX)
+  const stretch = blockedSwipeStretch(deltaX, currentX)
 
   detailReaderStretch.value = 0
   sourceReaderStretch.value = 0
@@ -2636,7 +2652,7 @@ function handleTouchMove(event: TouchEvent) {
   const viewHorizontal = isViewHorizontalSwipe(deltaX, deltaY)
 
   if (trackingBackSwipeCandidate || trackingBackSwipe) {
-    const handledBackSwipe = updateBackSwipe(deltaX, deltaY)
+    const handledBackSwipe = updateBackSwipe(deltaX, deltaY, false, touch.clientX)
     if (!handledBackSwipe) {
       return
     }
@@ -3105,6 +3121,7 @@ function handleMessage(event: MessageEvent) {
     source?: string
     startX?: number
     startY?: number
+    x?: number
     dx?: number
     dy?: number
   }
@@ -3114,6 +3131,7 @@ function handleMessage(event: MessageEvent) {
   const startY = Number(payload.startY ?? 0) + frameOffset.top
   const deltaX = Number(payload.dx ?? 0)
   const deltaY = Number(payload.dy ?? 0)
+  const currentX = Number(payload.x ?? Number(payload.startX ?? 0) + deltaX) + frameOffset.left
 
   if (payload.phase === 'start') {
     beginDetailGestureCandidate(startX, startY)
@@ -3121,7 +3139,7 @@ function handleMessage(event: MessageEvent) {
   }
 
   if (payload.phase === 'move') {
-    updateBackSwipe(deltaX, deltaY, fromDetailFrame)
+    updateBackSwipe(deltaX, deltaY, fromDetailFrame, currentX)
     return
   }
 
@@ -3634,7 +3652,7 @@ onUnmounted(() => {
     </button>
 
     <button
-      v-if="navigationVisible"
+      v-show="navigationVisible"
       class="nav-scrim"
       type="button"
       aria-label="关闭导航"
@@ -3643,7 +3661,7 @@ onUnmounted(() => {
     />
 
     <aside
-      v-if="navigationVisible"
+      v-show="navigationVisible"
       class="nav-panel"
       :class="{ 'nav-panel--settling': navigationSettling }"
       :style="navigationPanelStyle"
@@ -3937,7 +3955,8 @@ onUnmounted(() => {
     </section>
 
     <div
-      v-if="sourceTitleRevealVisible && readerSource"
+      v-if="readerSource"
+      v-show="sourceTitleRevealVisible"
       class="source-title-reveal"
       :style="sourceTitleRevealStyle"
       aria-hidden="true"
@@ -3947,7 +3966,8 @@ onUnmounted(() => {
     </div>
 
     <div
-      v-if="sourceNameMorphVisible && detailItem"
+      v-if="detailItem"
+      v-show="sourceNameMorphVisible"
       class="detail-source-morph"
       :style="sourceNameMorphStyle"
     >
