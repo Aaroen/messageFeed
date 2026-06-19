@@ -185,6 +185,13 @@ const feedHeaderReturnProgress = computed(() => {
   if (!detailReaderOpen.value || !isFeedRoute.value || detailOpenedFromSourceReader.value) {
     return 0
   }
+  if (
+    sourceReaderVisible.value &&
+    !detailReturningToFeed.value &&
+    (detailSourceExitProgress.value > 0.001 || detailRestoringFromSourceReader.value || detailListReturnCommitted.value)
+  ) {
+    return 0
+  }
   return clamp(Math.max(detailBackExitProgress.value, detailListReturnCommitted.value ? 1 : 0))
 })
 const feedTabsLayerHidden = computed(() => {
@@ -482,10 +489,18 @@ const detailMorphTextStyle = computed(() => {
 })
 const detailHeaderTitleStyle = computed(() => {
   const progress = detailSurfaceProgress.value
-  const opacity = clamp((progress - 0.58) / 0.22) * (1 - feedHeaderReturnProgress.value)
+  const sourceListTitleProgress =
+    sourceReaderVisible.value && !detailReturningToFeed.value
+      ? clamp((1 - detailSourceExitProgress.value) / 0.72)
+      : 0
+  const opacity =
+    sourceListTitleProgress > 0
+      ? sourceListTitleProgress
+      : clamp((progress - 0.58) / 0.22) * (1 - feedHeaderReturnProgress.value)
   return {
     opacity: opacity.toFixed(3),
     transform: `translate3d(0, ${Math.round((1 - opacity) * 8)}px, 0)`,
+    filter: `blur(${((1 - opacity) * 2.6).toFixed(2)}px)`,
     transition: readerBackDragging.value ? 'none' : undefined,
   }
 })
@@ -655,12 +670,29 @@ const detailSrcdoc = computed(() => {
 <base target="_blank" />
 <style>
   :root { color-scheme: light dark; }
+  * {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  html {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
   body {
     margin: 0;
     padding: 0;
     color: #162033;
     font: 16px/1.72 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     overflow-wrap: anywhere;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  *::-webkit-scrollbar,
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
   }
   img, video, iframe { max-width: 100%; height: auto; }
   pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -812,6 +844,7 @@ const navigationDragRatio = 1.1
 const viewDirectionLockRatio = 1.9
 const topPullDirectionLockRatio = 1.18
 const viewDragThreshold = 16
+const blockedSwipeStartDistance = 34
 
 let touchStartX = 0
 let touchStartY = 0
@@ -1732,16 +1765,20 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number) {
     return false
   }
 
-  if (deltaX > 0 && !isLeftHalf(touchStartX)) {
-    trackingBackSwipeCandidate = false
+  const startsInAllowedHalf = deltaX > 0 ? isLeftHalf(touchStartX) : isRightHalf(touchStartX)
+  if (!startsInAllowedHalf) {
+    if (Math.abs(deltaX) < blockedSwipeStartDistance) {
+      return false
+    }
+    trackingBackSwipe = true
+    readerBackDragging.value = true
+    detailEntrySettling.value = false
     backSwipeIntent = 'blocked'
-    return false
-  }
-
-  if (deltaX < 0 && !isRightHalf(touchStartX)) {
     trackingBackSwipeCandidate = false
-    backSwipeIntent = 'blocked'
-    return false
+    trackingEdgeSwipeCandidate = false
+    trackingNavigationCloseCandidate = false
+    trackingViewSwipeCandidate = false
+    return true
   }
 
   trackingBackSwipe = true
@@ -1778,7 +1815,12 @@ function updateBackSwipe(deltaX: number, deltaY: number) {
   }
 
   suppressFollowingClick()
-  if (deltaX > 0) {
+  const invalidHalfBlocked =
+    backSwipeIntent === 'blocked' &&
+    ((deltaX > 0 && !isLeftHalf(touchStartX)) || (deltaX < 0 && !isRightHalf(touchStartX)))
+  if (invalidHalfBlocked) {
+    detailReturningToFeed.value = false
+  } else if (deltaX > 0) {
     backSwipeIntent = 'back'
     if (backSwipeTarget === 'source' && (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)) {
       detailRestoringFromSourceReader.value = true

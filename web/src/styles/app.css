@@ -1493,7 +1493,15 @@ body[arco-theme='dark'] .reader-back-button {
 .reader-detail {
   display: grid;
   justify-items: center;
+  overflow: hidden;
   padding: 18px 20px 26px;
+  scrollbar-width: none;
+}
+
+.reader-detail::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .reader-detail__surface {
