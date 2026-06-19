@@ -1216,12 +1216,12 @@ body[arco-theme='dark'] .reader-overlay {
 .detail-source-morph {
   position: fixed;
   z-index: 145;
-  overflow: hidden;
+  overflow: visible;
   color: var(--mf-primary-strong);
   font-weight: 780;
   line-height: 1.32;
   pointer-events: none;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   transform-origin: left top;
   white-space: nowrap;
   will-change: left, top, width, font-size, opacity, filter;

@@ -89,6 +89,9 @@ const sourceReaderOffset = ref(0)
 const sourceReaderStretch = ref(0)
 const pageSideOffset = ref(0)
 const pageSideStretch = ref(0)
+const detailStretchAnchor = ref<'left' | 'right' | null>(null)
+const sourceStretchAnchor = ref<'left' | 'right' | null>(null)
+const pageStretchAnchor = ref<'left' | 'right' | null>(null)
 const readerBackDragging = ref(false)
 const readerMotionSettling = ref(false)
 const viewDragOffset = ref(0)
@@ -339,8 +342,7 @@ const sourceReaderStyle = computed(() => {
     '--source-underlay-blur': `${((1 - sourceReaderRevealProgress.value) * (darkTheme.value ? 5 : 8)).toFixed(2)}px`,
     '--source-underlay-opacity': (underlayBaseOpacity + sourceReaderRevealProgress.value * (1 - underlayBaseOpacity)).toFixed(3),
     transform: `${cssTranslate3d(sourceReaderOffset.value, 0)} scaleX(${(1 + Math.abs(sourceStretch)).toFixed(4)})`,
-    transformOrigin:
-      sourceStretch > 0 ? 'left center' : sourceStretch < 0 ? 'right center' : undefined,
+    transformOrigin: stretchTransformOrigin(sourceStretch, sourceStretchAnchor.value),
     transition: readerBackDragging.value
       ? 'none'
       : 'opacity 320ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
@@ -349,12 +351,7 @@ const sourceReaderStyle = computed(() => {
 const detailReaderStyle = computed(() => ({
   transform: `translate3d(0, 0, 0) scaleX(${(1 + Math.abs(detailReaderStretch.value)).toFixed(4)})`,
   transition: readerBackDragging.value ? 'none' : undefined,
-  transformOrigin:
-    detailReaderStretch.value > 0
-      ? 'left center'
-      : detailReaderStretch.value < 0
-        ? 'right center'
-        : undefined,
+  transformOrigin: stretchTransformOrigin(detailReaderStretch.value, detailStretchAnchor.value),
   pointerEvents: detailCommittedListReturn() ? ('none' as const) : ('auto' as const),
   '--detail-overlay-opacity': detailCommittedListReturn() || detailReturningToFeed.value
     ? '0'
@@ -639,7 +636,7 @@ const sourceNameMorphStyle = computed(() => {
 
   const left = origin.left + (target.left - origin.left) * progress
   const top = origin.top + (target.top - origin.top) * progress
-  const width = origin.width + (target.width - origin.width) * progress
+  const width = Math.max(origin.width, target.width, origin.width + (target.width - origin.width) * progress) + 18
   const size = 13 + (12 - 13) * progress
   const fadeOut = clamp((progress - 0.62) / 0.28)
   const opacity = clamp(1 - fadeOut)
@@ -749,12 +746,7 @@ const navOpenButtonStyle = computed(() => {
 })
 const pageContentInnerStyle = computed(() => ({
   transform: `${cssTranslate3d(pageSideOffset.value, pagePullOffset.value)} scaleX(${(1 + Math.abs(pageSideStretch.value)).toFixed(4)})`,
-  transformOrigin:
-    pageSideStretch.value > 0
-      ? 'left center'
-      : pageSideStretch.value < 0
-        ? 'right center'
-        : undefined,
+  transformOrigin: stretchTransformOrigin(pageSideStretch.value, pageStretchAnchor.value),
 }))
 const detailHTML = computed(() => detailItem.value?.content_html || detailItem.value?.content_snippet || '')
 const detailText = computed(() => detailItem.value?.content_text || detailItem.value?.summary || detailItem.value?.content_snippet || '')
@@ -1177,6 +1169,41 @@ function cssPx(value: number) {
 
 function cssTranslate3d(x: number, y: number, z = 0) {
   return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
+}
+
+function stretchTransformOrigin(stretch: number, anchor: 'left' | 'right' | null) {
+  if (stretch > 0 || anchor === 'left') {
+    return 'left center'
+  }
+  if (stretch < 0 || anchor === 'right') {
+    return 'right center'
+  }
+  return undefined
+}
+
+function updateStretchAnchor(
+  anchorRef: typeof detailStretchAnchor,
+  stretch: number,
+) {
+  if (stretch > 0) {
+    anchorRef.value = 'left'
+  } else if (stretch < 0) {
+    anchorRef.value = 'right'
+  }
+}
+
+function clearStretchAnchors(delay = 280) {
+  window.setTimeout(() => {
+    if (!readerBackDragging.value && detailReaderStretch.value === 0) {
+      detailStretchAnchor.value = null
+    }
+    if (!readerBackDragging.value && sourceReaderStretch.value === 0) {
+      sourceStretchAnchor.value = null
+    }
+    if (!readerBackDragging.value && pageSideStretch.value === 0) {
+      pageStretchAnchor.value = null
+    }
+  }, delay)
 }
 
 function cssRotate(degrees: number) {
@@ -1814,13 +1841,15 @@ function hasParkedDetailSourceState() {
 }
 
 function sourceReaderShouldReturnToDetail() {
+  const sourceLayerAvailable =
+    readerSource.value !== null &&
+    (sourceReaderVisible.value || detailListReturnCommitted.value || detailSourceExitProgress.value > 0.45)
   return (
     detailReaderOpen.value &&
-    sourceReaderOpen.value &&
-    !detailOpenedFromSourceReader.value &&
+    sourceLayerAvailable &&
     !detailReturningToFeed.value &&
     (detailListReturnCommitted.value ||
-      detailSourceExitProgress.value > 0.001 ||
+      detailSourceExitProgress.value > 0.45 ||
       detailRestoringFromSourceReader.value)
   )
 }
@@ -2364,12 +2393,18 @@ function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
 
 function blockedSwipeStretch(deltaX: number, currentX = touchStartX + deltaX) {
   const width = Math.max(1, windowWidth.value)
-  const edgeDeadZone = Math.min(54, width * 0.12)
-  const rawDistanceToEdge = deltaX < 0 ? currentX : width - currentX
-  const edgeDistance = Math.max(0, rawDistanceToEdge - edgeDeadZone)
-  const edgeFalloff = Math.pow(clamp(edgeDistance / Math.max(1, width * 0.36)), 2.15)
-  const distanceProgress = clamp(Math.log1p(Math.abs(deltaX) / 18) / Math.log1p(width / 18))
-  const stretch = 0.07 * distanceProgress * edgeFalloff
+  const edgeStopZone = Math.min(54, width * 0.12)
+  const availableDistance =
+    deltaX < 0
+      ? Math.max(1, touchStartX - edgeStopZone)
+      : Math.max(1, width - touchStartX - edgeStopZone)
+  const travelledToEdge =
+    deltaX < 0
+      ? Math.max(0, touchStartX - currentX)
+      : Math.max(0, currentX - touchStartX)
+  const edgeProgress = clamp(travelledToEdge / availableDistance)
+  const distanceProgress = Math.log1p(edgeProgress * 14) / Math.log1p(14)
+  const stretch = 0.07 * distanceProgress
   return deltaX < 0 ? -stretch : stretch
 }
 
@@ -2388,6 +2423,7 @@ function resetBackSwipeOffset() {
   pageSideOffset.value = 0
   pageSideStretch.value = 0
   readerBackDragging.value = false
+  clearStretchAnchors()
 }
 
 function prepareDetailSourceReaderPreload() {
@@ -2523,12 +2559,15 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     detailBackExitProgress.value = 0
     detailSourceExitProgress.value = 0
     detailReaderStretch.value = stretch
+    updateStretchAnchor(detailStretchAnchor, stretch)
   } else if (intent === 'blocked' && backSwipeTarget === 'source') {
     detailSourceExitProgress.value = hasParkedDetailSourceState() ? 1 : 0
     sourceReaderStretch.value = stretch
+    updateStretchAnchor(sourceStretchAnchor, stretch)
   } else if (intent === 'blocked' && backSwipeTarget === 'page') {
     pageSideOffset.value = 0
     pageSideStretch.value = stretch
+    updateStretchAnchor(pageStretchAnchor, stretch)
   }
 
   return true
