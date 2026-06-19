@@ -171,6 +171,12 @@ messageFeed/
 | `agent_plans` | Agent 结构化计划，记录计划状态、风险等级、影响摘要、确认策略、幂等键和回滚摘要 |
 | `agent_plan_steps` | Agent 计划步骤，记录目标对象、操作类型、参数摘要、执行状态和错误 |
 | `agent_audit_logs` | Agent 审计日志，记录用户确认、执行结果、模型输出、操作者、request id 和 trace id |
+| `agent_sessions` | Agent 会话，记录用户、模型、上下文窗口、状态、开始时间和结束时间 |
+| `agent_transcript_entries` | Agent transcript 条目，记录用户、模型、工具、系统、摘要和自定义事件等上下文输入输出 |
+| `agent_context_segments` | Agent 上下文语义块，记录语义类型、起止 transcript、摘要、关键词、实体、来源引用和归档引用 |
+| `agent_context_archives` | Agent 上下文归档，记录原文位置、内容 hash、摘要、存储类型和创建时间 |
+| `agent_recall_events` | Agent 回忆事件，记录召回查询、召回引用、召回原因和使用位置 |
+| `agent_memory_promotions` | Agent 记忆提升记录，记录从会话、阅读行为、AI 源或归档提升到画像或长期记忆的候选与确认状态 |
 | `control_commands` | 用户自然语言设置指令，包含原始文本、解析状态、模型版本和用户上下文引用 |
 | `control_capabilities` | 可被自然语言控制的设置能力清单，包含能力名称、目标类型、风险等级、确认策略和回滚支持 |
 | `control_change_plans` | 设置变更计划，包含计划状态、风险等级、确认策略、影响摘要和回滚摘要 |
@@ -196,6 +202,8 @@ messageFeed/
 - `user_interest_tags(user_id, tag, category)`
 - `agent_plans(user_id, dedupe_key)`
 - `agent_plan_steps(plan_id, step_order)`
+- `agent_context_segments(session_id, start_entry_id, end_entry_id)`
+- `agent_context_archives(content_hash)`
 - `control_change_plans(user_id, dedupe_key)`
 - `control_change_steps(plan_id, step_order)`
 - `market_instruments(market, symbol)`
@@ -256,9 +264,15 @@ AgentAuditLogger
 ├── RecordPlan(ctx, plan) -> error
 ├── RecordApproval(ctx, approval) -> error
 └── RecordStepResult(ctx, result) -> error
+
+AgentContextManager
+├── BuildSnapshot(ctx, user, taskScope) -> AgentContextSnapshot
+├── EstimatePressure(ctx, snapshot) -> ContextPressure
+├── Compact(ctx, session, policy) -> ContextCompactionResult
+└── Recall(ctx, query, scope) -> []RecallResult
 ```
 
-所有 Agent 可执行能力必须注册到 `AgentCapabilityRegistry`。模型只能生成意图、计划、说明文本和工具参数摘要；实际执行必须由 `AgentExecutor` 调用已注册能力和既有 service 接口完成。完整 Agent 方案见 `docs/agent-plan.md`。
+所有 Agent 可执行能力必须注册到 `AgentCapabilityRegistry`。模型只能生成意图、计划、说明文本和工具参数摘要；实际执行必须由 `AgentExecutor` 调用已注册能力和既有 service 接口完成。`AgentContextManager` 负责组装冻结记忆快照、估算上下文压力、按完整语义块归档历史、生成压缩摘要并通过回忆工具取回历史证据。完整 Agent 方案见 `docs/agent-plan.md`。
 
 主动网络采集接口抽象：
 
@@ -337,6 +351,15 @@ ControlCapabilityRegistry
 | `POST` | `/api/v1/agent/plans/{id}/rollback` | 回滚可回滚的 Agent 计划 |
 | `GET` | `/api/v1/agent/audit-logs` | 查询 Agent 审计记录 |
 | `GET` | `/api/v1/agent/capabilities` | 查询 Agent 可用能力 |
+| `GET` | `/api/v1/agent/sessions/{id}/context` | 查询 Agent 会话当前上下文快照、使用率、保护区和压缩摘要 |
+| `POST` | `/api/v1/agent/sessions/{id}/context/compact` | 对指定 Agent 会话触发一次上下文压缩评估 |
+| `GET` | `/api/v1/agent/sessions/{id}/archives` | 查询 Agent 会话语义归档块和摘要索引 |
+| `GET` | `/api/v1/agent/archives/{id}` | 查询单个上下文归档块的原文引用和元数据 |
+| `POST` | `/api/v1/agent/sessions/{id}/recall` | 按任务、关键词、实体、时间或引用执行受控回忆 |
+| `GET` | `/api/v1/agent/sessions/{id}/recall-events` | 查询 Agent 会话记忆召回记录 |
+| `GET` | `/api/v1/agent/memory-promotions` | 查询候选记忆提升记录 |
+| `POST` | `/api/v1/agent/memory-promotions/{id}/approve` | 确认将候选证据提升为画像或长期记忆 |
+| `POST` | `/api/v1/agent/memory-promotions/{id}/reject` | 拒绝候选记忆提升 |
 | `POST` | `/api/v1/agent/ai-items` | 手动生成 AI 源条目，例如日报、周报或专题报告 |
 | `POST` | `/api/v1/acquisition/tasks` | 创建主动网络采集任务 |
 | `GET` | `/api/v1/acquisition/tasks` | 查询主动网络采集任务 |
@@ -411,6 +434,8 @@ ControlCapabilityRegistry
 - 行情数据必须记录 provider 和 quote_time，避免用户误判实时性。
 - Agent 和自然语言设置控制必须保存计划、用户确认、执行结果和审计日志。
 - 模型不得接收密钥、token、Webhook URL 等敏感明文，不得直接修改数据库。
+- Agent 上下文压缩必须保留原文归档引用；高风险操作不得只依赖摘要执行。
+- Agent 召回内容必须标注来源、时间和可信等级，且不得覆盖系统规则、权限策略和能力边界。
 - 主动网络采集必须保存来源 URL、抓取时间、内容 hash、抽取方法和失败原因；搜索结果不得直接作为事实使用。
 - 阅读行为采集必须有明确推荐、统计或 Agent 决策用途；不得采集鼠标轨迹、键盘轨迹、剪贴板和浏览器外部行为。
 - 用户画像必须可解释、可编辑、可回滚；长期偏好不得由单次行为静默确认。
@@ -451,16 +476,18 @@ ControlCapabilityRegistry
 
 ### 10.1 AI Agent 与 AI 源链路
 
-AI Agent 采用“用户命令或系统事件 -> 意图解析 -> 结构化计划 -> 策略校验 -> 用户确认 -> 受控执行 -> AI 源沉淀 -> 通知或反馈”的链路：
+AI Agent 采用“用户命令或系统事件 -> 上下文与记忆快照 -> 意图解析 -> 结构化计划 -> 策略校验 -> 用户确认 -> 受控执行 -> AI 源沉淀 -> 通知或反馈”的链路：
 
 1. `handler` 接收自然语言命令、系统事件或调度触发，并记录 `agent_commands`。
-2. `agent` 调用 `llm` 解析意图，匹配 `agent_capabilities` 中注册的能力。
-3. `agent` 生成 `agent_plans` 和 `agent_plan_steps`，标注风险等级、确认策略、影响范围和幂等键。
-4. `agent` 对中高风险操作要求用户确认，例如订阅管理、通知频率提高、金融告警创建和批量变更。
-5. 用户确认后，`AgentExecutor` 只能调用已注册能力和既有 service 接口，不直接写数据库。
-6. Agent 生成的日报、周报、热点分析、主动网络研究报告和执行结果写入 `messageFeed AI` 内部源。
-7. 高优先级 AI 源条目可由 `notifier` 通过企业微信、`ntfy` 等通道推送。
-8. 全过程写入审计日志、指标和 trace。
+2. `AgentContextManager` 组装冻结记忆快照，读取用户画像、当前任务、相关条目、AI 源报告、网页快照和能力边界。
+3. `agent` 调用 `llm` 解析意图，匹配 `agent_capabilities` 中注册的能力。
+4. `agent` 生成 `agent_plans` 和 `agent_plan_steps`，标注风险等级、确认策略、影响范围和幂等键。
+5. `agent` 对中高风险操作要求用户确认，例如订阅管理、通知频率提高、金融告警创建和批量变更。
+6. 用户确认后，`AgentExecutor` 只能调用已注册能力和既有 service 接口，不直接写数据库。
+7. Agent 生成的日报、周报、热点分析、主动网络研究报告和执行结果写入 `messageFeed AI` 内部源。
+8. 当上下文达到压缩阈值时，按完整语义块归档历史，保留摘要、索引和原文引用。
+9. 高优先级 AI 源条目可由 `notifier` 通过企业微信、`ntfy` 等通道推送。
+10. 全过程写入审计日志、上下文压缩记录、记忆召回记录、指标和 trace。
 
 ### 10.2 主动网络采集链路
 
