@@ -2541,9 +2541,12 @@ function backSwipeVisualOffset(deltaX: number) {
 }
 
 function resetBackSwipeOffset() {
+  const keepDetailParkedBehindSource = hasParkedDetailSourceState()
   detailReaderTouchOffset.value = 0
-  detailSourceExitProgress.value = 0
+  detailBackExitProgress.value = 0
+  detailSourceExitProgress.value = keepDetailParkedBehindSource ? 1 : 0
   detailRestoringFromSourceReader.value = false
+  detailReturningToFeed.value = false
   detailReaderStretch.value = 0
   sourceReaderStretch.value = 0
   sourceReaderOffset.value = 0
