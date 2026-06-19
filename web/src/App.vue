@@ -60,8 +60,10 @@ const feedContentRef = ref<HTMLElement | null>(null)
 const pageContentRef = ref<HTMLElement | null>(null)
 const sourceReaderContentRef = ref<HTMLElement | null>(null)
 const detailContentRef = ref<HTMLElement | null>(null)
+const detailFrameRef = ref<HTMLIFrameElement | null>(null)
 const detailInlineSourceRef = ref<HTMLElement | null>(null)
 const sourceTitleTextRef = ref<HTMLElement | null>(null)
+const detailProgressTrackRef = ref<HTMLElement | null>(null)
 const feedScrollTop = ref(0)
 const sourceReaderScrollTop = ref(0)
 const detailReaderTouchOffset = ref(0)
@@ -107,6 +109,9 @@ const detailReturningToFeed = ref(false)
 const detailListReturnCommitted = ref(false)
 const detailRestoringFromSourceReader = ref(false)
 const detailScrollTop = ref(0)
+const detailScrollHeight = ref(0)
+const detailScrollClientHeight = ref(0)
+const detailProgressDragging = ref(false)
 const parkedDetailStack = ref<ParkedDetailSnapshot[]>([])
 const sourceCatalogEntry = ref<SourceCatalogEntry | null>(null)
 const sourceSubscription = ref<Source | null>(null)
@@ -346,6 +351,13 @@ const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
     height: 146,
   }
 })
+const detailSurfaceMargin = computed(() => (windowWidth.value <= 720 ? 10 : 14))
+const detailExpandedTop = computed(() =>
+  Math.round((feedHeaderHeight.value + detailSurfaceMargin.value) * topChromeProgress.value),
+)
+const detailFrameMinHeight = computed(() =>
+  Math.max(300, windowHeight.value - detailExpandedTop.value - detailSurfaceMargin.value - 96),
+)
 const detailTransitionSurfaceStyle = computed(() => {
   const origin = detailOriginRect.value
   const sourceExiting =
@@ -354,11 +366,11 @@ const detailTransitionSurfaceStyle = computed(() => {
   const collapsedTarget = sourceExiting ? detailSourceItemTargetRect.value ?? detailSourceFallbackTargetRect.value : origin
   const exitProgress = Math.max(detailBackExitProgress.value, detailSourceExitProgress.value)
   const progress = detailSurfaceProgress.value
-  const fallbackLeft = windowWidth.value <= 720 ? 14 : 24
-  const expandedLeft = origin?.left ?? fallbackLeft
-  const targetTop = Math.round((feedHeaderHeight.value + 10) * topChromeProgress.value)
-  const expandedWidth = Math.max(1, origin?.width ?? windowWidth.value - fallbackLeft * 2)
-  const targetHeight = Math.max(1, windowHeight.value - targetTop)
+  const surfaceMargin = detailSurfaceMargin.value
+  const expandedLeft = surfaceMargin
+  const targetTop = detailExpandedTop.value
+  const expandedWidth = Math.max(1, windowWidth.value - surfaceMargin * 2)
+  const targetHeight = Math.max(1, windowHeight.value - targetTop - surfaceMargin)
   const draggingToList =
     readerBackDragging.value && (detailBackExitProgress.value > 0 || detailSourceExitProgress.value > 0)
   const committedListReturn = detailCommittedListReturn()
@@ -413,10 +425,44 @@ const detailContentStyle = computed(() => {
     opacity: committedListReturn ? '0' : opacity.toFixed(3),
     '--detail-body-opacity': bodyOpacity.toFixed(3),
     '--detail-inline-meta-opacity': inlineMetaOpacity.toFixed(3),
+    '--detail-frame-min-height': `${Math.round(detailFrameMinHeight.value)}px`,
     transform:
       sourceExitProgress > 0 ? 'translate3d(0, 0, 0)' : `translate3d(0, ${Math.round((1 - progress) * 8)}px, 0)`,
     visibility: !committedListReturn && opacity > 0.01 ? ('visible' as const) : ('hidden' as const),
     transition: readerBackDragging.value || committedListReturn ? 'none' : undefined,
+  }
+})
+const detailScrollMax = computed(() => Math.max(0, detailScrollHeight.value - detailScrollClientHeight.value))
+const detailReadingProgress = computed(() =>
+  detailScrollMax.value > 0 ? clamp(detailScrollTop.value / detailScrollMax.value) : 0,
+)
+const detailProgressVisible = computed(
+  () =>
+    detailReaderOpen.value &&
+    !detailCommittedListReturn() &&
+    detailSurfaceProgress.value > 0.86 &&
+    detailScrollMax.value > 8,
+)
+const detailProgressStyle = computed(() => {
+  const margin = detailSurfaceMargin.value
+  const top = Math.max(margin, detailExpandedTop.value + margin)
+  return {
+    top: `${Math.round(top)}px`,
+    right: `${Math.max(6, Math.round(margin * 0.5))}px`,
+    bottom: `${margin}px`,
+    opacity: detailProgressVisible.value ? '1' : '0',
+    pointerEvents: detailProgressVisible.value ? ('auto' as const) : ('none' as const),
+    transition: detailProgressDragging.value || readerBackDragging.value ? 'none' : undefined,
+  }
+})
+const detailProgressFillStyle = computed(() => ({
+  height: `${(detailReadingProgress.value * 100).toFixed(2)}%`,
+}))
+const detailProgressThumbStyle = computed(() => {
+  const progress = detailReadingProgress.value
+  return {
+    top: `${(progress * 100).toFixed(2)}%`,
+    transform: `translate3d(0, ${(-progress * 42).toFixed(2)}px, 0)`,
   }
 })
 const detailMorphTextStyle = computed(() => {
@@ -637,6 +683,7 @@ ${body}
   let notifiedStart = false;
   let intent = null;
   let scrollTicking = false;
+  let resizeObserver = null;
   const post = (phase, touch) => {
     window.parent.postMessage({
       type: 'messagefeed-detail-gesture',
@@ -659,17 +706,51 @@ ${body}
     const body = document.body;
     return window.scrollY || doc.scrollTop || body.scrollTop || 0;
   };
+  const scrollMetrics = () => {
+    const doc = document.documentElement;
+    const body = document.body;
+    const scrollHeight = Math.max(doc.scrollHeight || 0, body.scrollHeight || 0);
+    const clientHeight = window.innerHeight || doc.clientHeight || body.clientHeight || 0;
+    return {
+      scrollTop: currentScrollTop(),
+      scrollHeight,
+      clientHeight
+    };
+  };
+  const postScrollMetrics = () => {
+    window.parent.postMessage({
+      type: 'messagefeed-detail-scroll',
+      ...scrollMetrics()
+    }, '*');
+  };
   window.addEventListener('scroll', () => {
     if (scrollTicking) return;
     scrollTicking = true;
     requestAnimationFrame(() => {
       scrollTicking = false;
-      window.parent.postMessage({
-        type: 'messagefeed-detail-scroll',
-        scrollTop: currentScrollTop()
-      }, '*');
+      postScrollMetrics();
     });
   }, { passive: true });
+  window.addEventListener('resize', () => requestAnimationFrame(postScrollMetrics), { passive: true });
+  window.addEventListener('message', (event) => {
+    if (event.data?.type !== 'messagefeed-detail-scroll-to') return;
+    const top = Number(event.data.top || 0);
+    if (!Number.isFinite(top)) return;
+    window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+    requestAnimationFrame(postScrollMetrics);
+  });
+  window.addEventListener('load', () => {
+    requestAnimationFrame(() => {
+      postScrollMetrics();
+      if ('ResizeObserver' in window) {
+        resizeObserver = new ResizeObserver(() => requestAnimationFrame(postScrollMetrics));
+        resizeObserver.observe(document.documentElement);
+        resizeObserver.observe(document.body);
+      }
+      window.setTimeout(postScrollMetrics, 180);
+      window.setTimeout(postScrollMetrics, 520);
+    });
+  });
   window.addEventListener('touchstart', (event) => {
     if (event.touches.length !== 1) return;
     startX = event.touches[0].clientX;
@@ -770,6 +851,7 @@ let pageTouchStartY = 0
 let pageTopPullDistance = 0
 let trackingPageTopPullCandidate = false
 let trackingPageTopPull = false
+let activeDetailProgressPointerId: number | null = null
 
 function resetGestureTracking() {
   trackingEdgeSwipeCandidate = false
@@ -1270,6 +1352,10 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   detailSourceNameOriginRect.value = null
   detailSourceNameTargetRect.value = null
   detailScrollTop.value = 0
+  detailScrollHeight.value = 0
+  detailScrollClientHeight.value = 0
+  detailProgressDragging.value = false
+  activeDetailProgressPointerId = null
   lastDetailScrollTop = 0
   sourceReaderVisible.value = openedFromSourceReader
   startDetailEntry(originRect)
@@ -1407,6 +1493,11 @@ function closeItemReader() {
   restoreMorphingItemContent()
   detailOpenedFromSourceReader.value = false
   detailRestoringFromSourceReader.value = false
+  detailScrollTop.value = 0
+  detailScrollHeight.value = 0
+  detailScrollClientHeight.value = 0
+  detailProgressDragging.value = false
+  activeDetailProgressPointerId = null
   detailReaderTouchOffset.value = 0
   detailReaderStretch.value = 0
   resetDetailTransition()
@@ -2228,17 +2319,94 @@ function handleResize() {
   windowHeight.value = window.innerHeight
 }
 
+function scrollDetailFrameTo(top: number) {
+  detailFrameRef.value?.contentWindow?.postMessage(
+    {
+      type: 'messagefeed-detail-scroll-to',
+      top: Math.max(0, top),
+    },
+    '*',
+  )
+}
+
+function updateDetailProgressFromPointer(clientY: number) {
+  const track = detailProgressTrackRef.value
+  if (!track || detailScrollMax.value <= 0) {
+    return
+  }
+
+  const rect = track.getBoundingClientRect()
+  const progress = clamp((clientY - rect.top) / Math.max(1, rect.height))
+  const nextScrollTop = detailScrollMax.value * progress
+  detailScrollTop.value = nextScrollTop
+  lastDetailScrollTop = nextScrollTop
+  scrollDetailFrameTo(nextScrollTop)
+}
+
+function handleDetailProgressPointerDown(event: PointerEvent) {
+  if (!detailProgressVisible.value || event.pointerType === 'mouse' && event.button !== 0) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  suppressFollowingClick()
+  detailProgressDragging.value = true
+  activeDetailProgressPointerId = event.pointerId
+  ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
+  updateDetailProgressFromPointer(event.clientY)
+}
+
+function handleDetailProgressPointerMove(event: PointerEvent) {
+  if (!detailProgressDragging.value || activeDetailProgressPointerId !== event.pointerId) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  updateDetailProgressFromPointer(event.clientY)
+}
+
+function finishDetailProgressDrag(event?: PointerEvent) {
+  if (event && activeDetailProgressPointerId !== event.pointerId) {
+    return
+  }
+
+  if (event) {
+    ;(event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId)
+  }
+  activeDetailProgressPointerId = null
+  detailProgressDragging.value = false
+}
+
+function handleDetailFrameLoad() {
+  requestAnimationFrame(() => {
+    if (detailScrollTop.value > 0) {
+      scrollDetailFrameTo(detailScrollTop.value)
+    }
+  })
+}
+
 function handleMessage(event: MessageEvent) {
   if (detailCommittedListReturn()) {
     return
   }
 
   if (event.data?.type === 'messagefeed-detail-scroll' && detailReaderOpen.value) {
-    const current = Number((event.data as { scrollTop?: number }).scrollTop ?? 0)
+    const payload = event.data as { scrollTop?: number; scrollHeight?: number; clientHeight?: number }
+    const current = Number(payload.scrollTop ?? 0)
     if (Number.isFinite(current)) {
       detailScrollTop.value = current
       updateTopTabsByScroll(current, lastDetailScrollTop)
       lastDetailScrollTop = current
+    }
+    const scrollHeight = Number(payload.scrollHeight ?? 0)
+    const clientHeight = Number(payload.clientHeight ?? 0)
+    if (Number.isFinite(scrollHeight)) {
+      detailScrollHeight.value = Math.max(0, scrollHeight)
+    }
+    if (Number.isFinite(clientHeight)) {
+      detailScrollClientHeight.value = Math.max(0, clientHeight)
     }
     return
   }
@@ -3030,7 +3198,10 @@ onUnmounted(() => {
     >
       <div
         class="reader-transition-surface"
-        :class="{ 'reader-transition-surface--settling': detailEntrySettling || feedChromeSettling }"
+        :class="{
+          'reader-transition-surface--entry-settling': detailEntrySettling,
+          'reader-transition-surface--chrome-settling': feedChromeSettling,
+        }"
         :style="detailTransitionSurfaceStyle"
       >
         <article v-if="detailItem" class="reader-morph-text" :style="detailMorphTextStyle">
@@ -3063,10 +3234,12 @@ onUnmounted(() => {
               <span>{{ detailDisplayDate }}</span>
             </div>
             <iframe
+              ref="detailFrameRef"
               class="reader-detail__frame"
               title="条目正文"
               sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
               :srcdoc="detailSrcdoc"
+              @load="handleDetailFrameLoad"
             />
             <div class="reader-detail__actions">
               <a :href="detailItem.url" target="_blank" rel="noreferrer">阅读原文</a>
@@ -3077,6 +3250,28 @@ onUnmounted(() => {
             <h2>{{ detailLoading ? '正在加载条目' : '暂无条目内容' }}</h2>
             <p>请稍候。</p>
           </section>
+        </div>
+      </div>
+      <div
+        ref="detailProgressTrackRef"
+        class="reader-detail-progress"
+        :class="{ 'reader-detail-progress--dragging': detailProgressDragging }"
+        role="scrollbar"
+        aria-label="正文阅读进度"
+        aria-orientation="vertical"
+        :aria-valuenow="Math.round(detailReadingProgress * 100)"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        :style="detailProgressStyle"
+        @pointerdown="handleDetailProgressPointerDown"
+        @pointermove="handleDetailProgressPointerMove"
+        @pointerup="finishDetailProgressDrag"
+        @pointercancel="finishDetailProgressDrag"
+        @touchstart.stop.prevent
+      >
+        <div class="reader-detail-progress__track">
+          <div class="reader-detail-progress__fill" :style="detailProgressFillStyle" />
+          <div class="reader-detail-progress__thumb" :style="detailProgressThumbStyle" />
         </div>
       </div>
     </section>
