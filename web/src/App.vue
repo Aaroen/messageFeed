@@ -506,12 +506,12 @@ const detailHeaderTitleStyle = computed(() => {
   }
 })
 const detailInlineSourceStyle = computed(() => ({
-  opacity: (1 - sourceNameMorphProgress.value).toFixed(3),
+  opacity: (sourceNameMorphActive.value ? 0 : 1 - sourceNameMorphProgress.value).toFixed(3),
   transform: 'translate3d(0, 0, 0)',
   transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease',
 }))
 const detailMorphSourceLabelStyle = computed(() => ({
-  opacity: (1 - sourceNameMorphProgress.value).toFixed(3),
+  opacity: (sourceNameMorphActive.value ? 0 : 1 - sourceNameMorphProgress.value).toFixed(3),
   transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease',
 }))
 const sourceNameMorphProgress = computed(() =>
@@ -527,8 +527,18 @@ const sourceTitleRevealVisible = computed(
     sourceReaderVisible.value &&
     !sourcePullActive.value,
 )
+const sourceNameMorphActive = computed(
+  () =>
+    Boolean(detailItem.value) &&
+    sourceReaderVisible.value &&
+    !detailReturningToFeed.value &&
+    (readerBackDragging.value ||
+      detailEntrySettling.value ||
+      detailRestoringFromSourceReader.value ||
+      detailSourceExitProgress.value > 0.001),
+)
 const sourceNameMorphVisible = computed(
-  () => false,
+  () => sourceNameMorphActive.value && !detailCommittedListReturn(),
 )
 const sourceNameMorphStyle = computed(() => {
   const origin = detailSourceNameOriginRect.value
@@ -537,6 +547,7 @@ const sourceNameMorphStyle = computed(() => {
   if (!origin || !target) {
     return {
       opacity: '0',
+      filter: 'blur(0)',
       transform: 'translate3d(0, 0, 0)',
     }
   }
@@ -544,18 +555,22 @@ const sourceNameMorphStyle = computed(() => {
   const left = origin.left + (target.left - origin.left) * progress
   const top = origin.top + (target.top - origin.top) * progress
   const width = origin.width + (target.width - origin.width) * progress
-  const size = 13 + (18 - 13) * progress
+  const size = 13 + (12 - 13) * progress
+  const fadeOut = clamp((progress - 0.82) / 0.18)
+  const opacity = clamp(1 - fadeOut)
+  const blur = Math.sin(progress * Math.PI) * 1.4 + fadeOut * 1.8
 
   return {
     left: `${Math.round(left)}px`,
     top: `${Math.round(top)}px`,
     width: `${Math.round(width)}px`,
-    opacity: '1',
+    opacity: opacity.toFixed(3),
     fontSize: `${size.toFixed(2)}px`,
+    filter: `blur(${blur.toFixed(2)}px)`,
     transform: 'translate3d(0, 0, 0)',
     transition: readerBackDragging.value
       ? 'none'
-      : 'left 360ms cubic-bezier(0.2, 0.8, 0.2, 1), top 360ms cubic-bezier(0.2, 0.8, 0.2, 1), width 360ms cubic-bezier(0.2, 0.8, 0.2, 1), font-size 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease',
+      : 'left 360ms cubic-bezier(0.2, 0.8, 0.2, 1), top 360ms cubic-bezier(0.2, 0.8, 0.2, 1), width 360ms cubic-bezier(0.2, 0.8, 0.2, 1), font-size 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease, filter 180ms ease',
   }
 })
 const sourceTitleLayerStyle = computed(() => {
@@ -1075,12 +1090,33 @@ function findSourceFeedItemElement(itemID?: number) {
   return sourceReaderContentRef.value.querySelector(`[data-feed-item-id="${itemID}"]`)
 }
 
-function captureDetailSourceTransitionRects(retry = 6) {
+function findSourceFeedItemSourceElement(itemID?: number) {
+  const itemElement = findSourceFeedItemElement(itemID)
+  return itemElement?.querySelector('.feed-item__source') ?? null
+}
+
+function sourceNameTargetFallback(itemRect: RectSnapshot | null) {
+  if (itemRect) {
+    const left = itemRect.left + 16
+    const top = itemRect.top + 16
+    return {
+      left,
+      top,
+      width: Math.max(1, Math.min(itemRect.width - 32, 180)),
+      height: 18,
+    }
+  }
+
+  return snapshotElementRect(sourceTitleTextRef.value)
+}
+
+function captureDetailSourceTransitionRects(retry = 12) {
   nextTick(() => {
     requestAnimationFrame(() => {
       const itemRect = snapshotElementRect(findSourceFeedItemElement(detailItem.value?.id))
       const sourceOriginRect = snapshotElementRect(detailInlineSourceRef.value)
-      const sourceTargetRect = snapshotElementRect(sourceTitleTextRef.value)
+      const sourceTargetRect =
+        snapshotElementRect(findSourceFeedItemSourceElement(detailItem.value?.id)) ?? sourceNameTargetFallback(itemRect)
 
       if (itemRect) {
         detailSourceItemTargetRect.value = itemRect
@@ -1098,6 +1134,14 @@ function captureDetailSourceTransitionRects(retry = 6) {
       }
     })
   })
+}
+
+function detailFrameViewportOffset() {
+  const rect = detailFrameRef.value?.getBoundingClientRect()
+  return {
+    left: rect?.left ?? 0,
+    top: rect?.top ?? 0,
+  }
 }
 
 function restoreMorphingItemContent(unlockDelay = 180) {
@@ -2475,11 +2519,12 @@ function handleMessage(event: MessageEvent) {
     dx?: number
     dy?: number
   }
-  const startX = Number(payload.startX ?? 0)
-  const startY = Number(payload.startY ?? 0)
+  const fromDetailFrame = payload.source === 'detail-frame'
+  const frameOffset = fromDetailFrame ? detailFrameViewportOffset() : { left: 0, top: 0 }
+  const startX = Number(payload.startX ?? 0) + frameOffset.left
+  const startY = Number(payload.startY ?? 0) + frameOffset.top
   const deltaX = Number(payload.dx ?? 0)
   const deltaY = Number(payload.dy ?? 0)
-  const fromDetailFrame = payload.source === 'detail-frame'
 
   if (payload.phase === 'start') {
     touchStartX = startX

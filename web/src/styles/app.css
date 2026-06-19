@@ -971,10 +971,11 @@ body[arco-theme='dark'] .app-main--refreshing .app-header {
 .feed-item--morphing .feed-item__meta,
 .feed-item--morphing .feed-item__read-target,
 .feed-item--morphing .feed-item__actions {
+  filter: blur(var(--feed-morph-preview-blur, 0));
   opacity: var(--feed-morph-preview-opacity, 0);
   pointer-events: none;
   transform: translate3d(0, var(--feed-morph-preview-shift, 0), 0);
-  will-change: opacity, transform;
+  will-change: opacity, transform, filter;
 }
 
 .feed-item__text-placeholder {
@@ -1214,7 +1215,7 @@ body[arco-theme='dark'] .reader-overlay {
   text-overflow: ellipsis;
   transform-origin: left top;
   white-space: nowrap;
-  will-change: left, top, width, font-size, opacity;
+  will-change: left, top, width, font-size, opacity, filter;
 }
 
 .source-title-reveal {

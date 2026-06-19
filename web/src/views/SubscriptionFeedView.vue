@@ -204,6 +204,7 @@ function feedItemStyle(item: FeedItem) {
     const progress = safeMorphingPreviewProgress.value
     style['--feed-morph-preview-opacity'] = progress.toFixed(3)
     style['--feed-morph-preview-shift'] = `${Math.round((1 - progress) * 6)}px`
+    style['--feed-morph-preview-blur'] = `${((1 - progress) * 2.4).toFixed(2)}px`
   }
 
   return Object.keys(style).length > 0 ? style : undefined
