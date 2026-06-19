@@ -3447,6 +3447,7 @@ watch(
 watch(
   () => [
     route.fullPath,
+    navigationVisible.value,
     sourceReaderVisible.value,
     readerSource.value?.id ?? 0,
     readerSource.value?.kind ?? '',
@@ -3454,14 +3455,25 @@ watch(
     detailSourceKind.value,
     detailOpenedFromSourceReader.value,
     detailListReturnCommitted.value,
-    detailSourceExitProgress.value,
-    topChromeProgress.value,
-    feedContentCollapsed.value,
     parkedDetailStack.value.length,
   ],
   () => {
     scheduleReaderSessionSave()
     nextTick(syncVirtualHistoryState)
+  },
+)
+
+watch(
+  () => [
+    detailSourceExitProgress.value,
+    topChromeProgress.value,
+    feedContentCollapsed.value,
+    feedScrollTop.value,
+    sourceReaderScrollTop.value,
+    detailScrollTop.value,
+  ],
+  () => {
+    scheduleReaderSessionSave()
   },
 )
 
