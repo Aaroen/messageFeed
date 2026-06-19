@@ -500,9 +500,10 @@ const detailMorphTextStyle = computed(() => {
 })
 const detailHeaderTitleStyle = computed(() => {
   const progress = detailSurfaceProgress.value
+  const sourceReturnProgress = sourceNameMorphProgress.value
   const sourceListTitleProgress =
     sourceReaderVisible.value && !detailReturningToFeed.value
-      ? clamp((1 - detailSourceExitProgress.value) / 0.72)
+      ? clamp((1 - sourceReturnProgress) / 0.52)
       : 0
   const opacity =
     sourceListTitleProgress > 0
@@ -511,7 +512,7 @@ const detailHeaderTitleStyle = computed(() => {
   return {
     opacity: opacity.toFixed(3),
     transform: cssTranslate3d(0, (1 - opacity) * 8),
-    filter: `blur(${((1 - opacity) * 2.6).toFixed(2)}px)`,
+    filter: `blur(${((1 - opacity) * 3.2).toFixed(2)}px)`,
     transition: readerBackDragging.value ? 'none' : undefined,
   }
 })
