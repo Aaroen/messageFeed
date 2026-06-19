@@ -740,7 +740,7 @@ ${body}
   let scrollTicking = false;
   let metricsTicking = false;
   let resizeObserver = null;
-  const preferPointerEvents = 'PointerEvent' in window;
+  const preferTouchEvents = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const post = (phase, touch) => {
     window.parent.postMessage({
       type: 'messagefeed-detail-gesture',
@@ -795,6 +795,8 @@ ${body}
   document.addEventListener('scroll', requestScrollMetrics, { passive: true, capture: true });
   document.documentElement.addEventListener('scroll', requestScrollMetrics, { passive: true, capture: true });
   document.body.addEventListener('scroll', requestScrollMetrics, { passive: true, capture: true });
+  const metricsInterval = window.setInterval(requestScrollMetrics, 220);
+  window.addEventListener('pagehide', () => window.clearInterval(metricsInterval), { passive: true });
   window.addEventListener('resize', () => requestAnimationFrame(postScrollMetrics), { passive: true });
   window.addEventListener('message', (event) => {
     if (event.data?.type !== 'messagefeed-detail-scroll-to') return;
@@ -816,7 +818,7 @@ ${body}
     });
   });
   window.addEventListener('touchstart', (event) => {
-    if (preferPointerEvents) return;
+    if (!preferTouchEvents) return;
     if (event.touches.length !== 1) return;
     startX = event.touches[0].clientX;
     startY = event.touches[0].clientY;
@@ -825,7 +827,7 @@ ${body}
     post('start', event.touches[0]);
   }, { passive: true, capture: true });
   window.addEventListener('touchmove', (event) => {
-    if (preferPointerEvents) return;
+    if (!preferTouchEvents) return;
     if (!tracking || event.touches.length !== 1) return;
     const touch = event.touches[0];
     const dx = touch.clientX - startX;
@@ -847,7 +849,7 @@ ${body}
     post('move', touch);
   }, { passive: false, capture: true });
   window.addEventListener('touchcancel', (event) => {
-    if (preferPointerEvents) return;
+    if (!preferTouchEvents) return;
     const touch = event.changedTouches[0];
     if (tracking && touch) post('cancel', touch);
     requestScrollMetrics();
@@ -855,7 +857,7 @@ ${body}
     intent = null;
   }, { passive: true, capture: true });
   window.addEventListener('touchend', (event) => {
-    if (preferPointerEvents) return;
+    if (!preferTouchEvents) return;
     const touch = event.changedTouches[0];
     if (!touch) return;
     if (tracking) post('end', touch);
@@ -863,7 +865,7 @@ ${body}
     tracking = false;
     intent = null;
   }, { passive: true, capture: true });
-  if (preferPointerEvents) {
+  if (!preferTouchEvents && window.PointerEvent) {
     let pointerTracking = false;
     let pointerIntent = null;
     let pointerId = null;
@@ -2634,6 +2636,27 @@ function handleDetailFrameLoad() {
   })
 }
 
+function updateDetailChromeByFrameGesture(deltaX: number, deltaY: number) {
+  if (!detailReaderOpen.value || feedPullActive.value || feedTopPulling.value) {
+    return
+  }
+
+  const absX = Math.abs(deltaX)
+  const absY = Math.abs(deltaY)
+  if (absY < 30 || absY <= absX * 1.18) {
+    return
+  }
+
+  if (deltaY < 0 && topChromeProgress.value > 0.01) {
+    setTopChromeVisible(false)
+    return
+  }
+
+  if (deltaY > 0 && topChromeProgress.value < 0.99) {
+    setTopChromeVisible(true)
+  }
+}
+
 function handleMessage(event: MessageEvent) {
   if (detailCommittedListReturn()) {
     return
@@ -2691,6 +2714,9 @@ function handleMessage(event: MessageEvent) {
   }
 
   if (payload.phase === 'move') {
+    if (fromDetailFrame) {
+      updateDetailChromeByFrameGesture(deltaX, deltaY)
+    }
     updateBackSwipe(deltaX, deltaY, fromDetailFrame)
     return
   }
