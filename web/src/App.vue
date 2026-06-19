@@ -677,6 +677,7 @@ const detailSrcdoc = computed(() => {
   html {
     scrollbar-width: none;
     -ms-overflow-style: none;
+    touch-action: pan-y;
   }
   body {
     margin: 0;
@@ -686,6 +687,7 @@ const detailSrcdoc = computed(() => {
     overflow-wrap: anywhere;
     scrollbar-width: none;
     -ms-overflow-style: none;
+    touch-action: pan-y;
   }
   *::-webkit-scrollbar,
   html::-webkit-scrollbar,
@@ -799,15 +801,16 @@ ${body}
     if (!intent) {
       const absX = Math.abs(dx);
       const absY = Math.abs(dy);
-      if (absX > 16 && absX > absY * 1.55) {
+      if (absX > 8 && absX > absY * 1.28) {
         intent = 'horizontal';
       } else {
         return;
       }
     }
+    event.preventDefault();
     ensureStart(touch);
     post('move', touch);
-  }, { passive: true });
+  }, { passive: false });
   window.addEventListener('touchcancel', (event) => {
     const touch = event.changedTouches[0];
     if (tracking && touch && notifiedStart) post('cancel', touch);
@@ -838,13 +841,13 @@ const feedTabs = [
 ]
 
 const navigationOpenDistance = 72
-const viewSwitchDistance = 86
+const viewSwitchDistance = 62
 const directionLockRatio = 1.25
 const navigationDragRatio = 1.1
-const viewDirectionLockRatio = 1.9
+const viewDirectionLockRatio = 1.35
 const topPullDirectionLockRatio = 1.18
-const viewDragThreshold = 16
-const blockedSwipeStartDistance = 34
+const viewDragThreshold = 8
+const blockedSwipeStartDistance = 24
 
 let touchStartX = 0
 let touchStartY = 0

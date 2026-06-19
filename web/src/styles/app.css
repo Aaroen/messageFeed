@@ -1583,8 +1583,8 @@ body[arco-theme='dark'] .reader-back-button {
 .reader-detail-progress {
   position: fixed;
   z-index: 135;
-  width: 18px;
-  padding: 8px 5px;
+  width: 16px;
+  padding: 8px 6px;
   border-radius: 999px;
   opacity: 0;
   touch-action: none;
@@ -1600,12 +1600,12 @@ body[arco-theme='dark'] .reader-back-button {
   width: 4px;
   height: 100%;
   overflow: hidden;
-  border: 1px solid rgba(117, 132, 153, 0.2);
+  border: 1px solid rgba(117, 132, 153, 0.18);
   border-radius: 999px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.34)),
-    rgba(117, 132, 153, 0.18);
-  box-shadow: 0 10px 26px rgba(31, 45, 61, 0.12);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 10px 26px rgba(31, 45, 61, 0.08),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.56);
   backdrop-filter: blur(16px) saturate(1.1);
 }
 
@@ -1615,32 +1615,13 @@ body[arco-theme='dark'] .reader-back-button {
   bottom: 0;
   left: 0;
   border-radius: inherit;
-  background: linear-gradient(180deg, var(--mf-primary), var(--mf-aqua));
-  opacity: 0.82;
+  background: var(--mf-primary);
+  opacity: 1;
   transition: height 90ms linear;
 }
 
 .reader-detail-progress__thumb {
-  position: absolute;
-  left: 50%;
-  width: 12px;
-  height: 42px;
-  border: 1px solid rgba(37, 99, 235, 0.24);
-  border-radius: 999px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.68)),
-    var(--mf-surface-raised);
-  box-shadow: 0 10px 28px rgba(31, 45, 61, 0.18);
-  margin-left: -6px;
-  transition:
-    top 90ms linear,
-    transform 90ms linear,
-    border-color 160ms ease,
-    background 160ms ease;
-}
-
-.reader-detail-progress:active .reader-detail-progress__thumb {
-  border-color: rgba(37, 99, 235, 0.42);
+  display: none;
 }
 
 .reader-detail-progress--dragging .reader-detail-progress__fill,
@@ -1649,19 +1630,15 @@ body[arco-theme='dark'] .reader-back-button {
 }
 
 body[arco-theme='dark'] .reader-detail-progress__track {
-  border-color: rgba(148, 163, 184, 0.18);
-  background:
-    linear-gradient(180deg, rgba(32, 43, 61, 0.82), rgba(32, 43, 61, 0.48)),
-    rgba(148, 163, 184, 0.12);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(241, 245, 249, 0.86);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.2),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
 body[arco-theme='dark'] .reader-detail-progress__thumb {
-  border-color: rgba(96, 165, 250, 0.3);
-  background:
-    linear-gradient(180deg, rgba(32, 43, 61, 0.96), rgba(32, 43, 61, 0.74)),
-    var(--mf-surface-raised);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+  display: none;
 }
 
 .reader-detail__actions {
