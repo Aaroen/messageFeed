@@ -1724,36 +1724,36 @@ function syncVirtualHistoryState(forcePush = false) {
 
 function runVirtualBackAnimation() {
   if (navigationVisible.value) {
+    lastHomeBackAttemptAt = 0
     closeNavigation()
     return true
   }
 
-  if (hasParkedDetailSourceState()) {
+  if (sourceReaderShouldReturnToDetail()) {
+    lastHomeBackAttemptAt = 0
     restoreDetailFromParkedSource()
     return true
   }
 
   if (sourceReaderOpen.value && !detailReaderOpen.value) {
+    lastHomeBackAttemptAt = 0
     closeSourceReader()
     return true
   }
 
   if (detailReaderOpen.value) {
+    lastHomeBackAttemptAt = 0
     collapseItemReader()
     return true
   }
 
   if (!isFeedRoute.value && !navigationVisible.value) {
+    lastHomeBackAttemptAt = 0
     goHome(false)
     return true
   }
 
-  if (isFeedRoute.value && route.name !== 'recommendations') {
-    navigateTo('/recommendations')
-    return true
-  }
-
-  if (isFeedRoute.value && route.name === 'recommendations') {
+  if (isFeedRoute.value) {
     const now = Date.now()
     if (now - lastHomeBackAttemptAt <= homeExitDoubleBackMs) {
       lastHomeBackAttemptAt = 0
@@ -1810,6 +1810,18 @@ function hasParkedDetailSourceState() {
     sourceReaderVisible.value &&
     detailListReturnCommitted.value &&
     !detailReturningToFeed.value
+  )
+}
+
+function sourceReaderShouldReturnToDetail() {
+  return (
+    detailReaderOpen.value &&
+    sourceReaderOpen.value &&
+    !detailOpenedFromSourceReader.value &&
+    !detailReturningToFeed.value &&
+    (detailListReturnCommitted.value ||
+      detailSourceExitProgress.value > 0.001 ||
+      detailRestoringFromSourceReader.value)
   )
 }
 
@@ -2040,6 +2052,11 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
 }
 
 function closeSourceReader() {
+  if (sourceReaderShouldReturnToDetail()) {
+    restoreDetailFromParkedSource()
+    return
+  }
+
   if (hasDetailParkedBehindSource()) {
     restoreDetailFromParkedSource()
     return
@@ -2347,10 +2364,12 @@ function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
 
 function blockedSwipeStretch(deltaX: number, currentX = touchStartX + deltaX) {
   const width = Math.max(1, windowWidth.value)
-  const distanceToEdge = deltaX < 0 ? clamp(currentX / width) : clamp((width - currentX) / width)
-  const edgeFalloff = Math.pow(distanceToEdge, 0.78)
+  const edgeDeadZone = Math.min(54, width * 0.12)
+  const rawDistanceToEdge = deltaX < 0 ? currentX : width - currentX
+  const edgeDistance = Math.max(0, rawDistanceToEdge - edgeDeadZone)
+  const edgeFalloff = Math.pow(clamp(edgeDistance / Math.max(1, width * 0.36)), 2.15)
   const distanceProgress = clamp(Math.log1p(Math.abs(deltaX) / 18) / Math.log1p(width / 18))
-  const stretch = 0.085 * distanceProgress * edgeFalloff
+  const stretch = 0.07 * distanceProgress * edgeFalloff
   return deltaX < 0 ? -stretch : stretch
 }
 
