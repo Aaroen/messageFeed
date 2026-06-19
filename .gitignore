@@ -101,6 +101,9 @@ docker-compose.override.yml
 logs/
 /tmp/
 
+# 本地 HTTPS 预览证书
+web/certs/
+
 # 性能分析文件
 cpu.prof
 mem.prof
