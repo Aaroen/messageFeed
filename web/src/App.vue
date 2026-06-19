@@ -1761,6 +1761,12 @@ function runVirtualBackAnimation() {
     return true
   }
 
+  if (detailReaderOpen.value && detailOpenedFromSourceReader.value && !detailCommittedListReturn()) {
+    lastHomeBackAttemptAt = 0
+    collapseItemReader()
+    return true
+  }
+
   if (sourceReaderShouldReturnToDetail()) {
     lastHomeBackAttemptAt = 0
     restoreSourceReaderBackTarget()
@@ -1846,6 +1852,10 @@ function hasParkedDetailSourceState() {
 }
 
 function sourceReaderShouldReturnToDetail() {
+  if (detailOpenedFromSourceReader.value && !detailCommittedListReturn()) {
+    return false
+  }
+
   const sourceLayerAvailable =
     readerSource.value !== null &&
     (sourceReaderVisible.value || detailListReturnCommitted.value || detailSourceExitProgress.value > 0.45)
@@ -1877,7 +1887,11 @@ function restoreSourceReaderBackTarget() {
 }
 
 function snapshotParkedDetail(): ParkedDetailSnapshot | null {
-  if (!detailItem.value || !hasParkedDetailSourceState()) {
+  const canSnapshotForSourceReturn =
+    sourceReaderReturnMode.value === 'detail' &&
+    sourceReaderVisible.value &&
+    !detailReturningToFeed.value
+  if (!detailItem.value || (!hasParkedDetailSourceState() && !canSnapshotForSourceReturn)) {
     return null
   }
 
@@ -2041,7 +2055,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   const openedFromSourceReader =
     sourceReaderOpen.value && readerSource.value?.id === item.source_id && readerSource.value.kind === sourceKind
   startDetailHeaderTitleSwap(item)
-  if (openedFromSourceReader && hasParkedDetailSourceState()) {
+  if (openedFromSourceReader && (hasParkedDetailSourceState() || sourceReaderReturnMode.value === 'detail')) {
     pushParkedDetailSnapshot()
   } else if (!openedFromSourceReader) {
     parkedDetailStack.value = []
@@ -2220,6 +2234,7 @@ function restoreParkedSourceReader(duration = 260) {
 }
 
 function closeItemReader() {
+  const previousSourceReturnMode = sourceReaderReturnMode.value
   detailItem.value = null
   detailError.value = ''
   detailLoading.value = false
@@ -2238,7 +2253,9 @@ function closeItemReader() {
   detailReaderTouchOffset.value = 0
   detailReaderStretch.value = 0
   resetDetailTransition()
-  if (!sourceReaderVisible.value) {
+  if (sourceReaderVisible.value && previousSourceReturnMode === 'detail') {
+    sourceReaderReturnMode.value = 'detail'
+  } else if (!sourceReaderVisible.value) {
     sourceReaderReturnMode.value = null
     parkedDetailStack.value = []
     scheduleHiddenSourceReaderCleanup()
