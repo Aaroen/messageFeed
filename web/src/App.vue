@@ -49,6 +49,24 @@ type ParkedDetailSnapshot = {
   morphingItemHeight: number | null
   scrollTop: number
 }
+type ReaderSessionSnapshot = {
+  savedAt: number
+  routeFullPath: string
+  feedScrollTop: number
+  sourceReaderScrollTop: number
+  detailScrollTop: number
+  topChromeProgress: number
+  feedContentCollapsed: boolean
+  readerSource: ReaderSource | null
+  sourceReaderVisible: boolean
+  detailItem: FeedItem | null
+  detailSourceKind: FeedSourceKind
+  detailOpenedFromSourceReader: boolean
+  detailListReturnCommitted: boolean
+  detailSourceExitProgress: number
+  morphingItemHeight: number | null
+  parkedDetailStack: ParkedDetailSnapshot[]
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -128,6 +146,8 @@ const readerMorphDuration = 360
 const readerMorphCleanupBuffer = 96
 const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
 const readerRectRetryDelay = 64
+const readerSessionStorageKey = 'messagefeed-reader-session-v1'
+const readerSessionMaxAgeMs = 24 * 60 * 60 * 1000
 
 const selectedKeys = computed(() => [route.name?.toString() ?? 'subscriptions'])
 const pageTitle = computed(() => route.meta.title?.toString() ?? '订阅')
@@ -1010,6 +1030,11 @@ let hiddenSourceCleanupTimer = 0
 let feedRefreshSettleTimer = 0
 let feedChromeSettleTimer = 0
 let pagePullSettleTimer = 0
+let readerSessionSaveTimer = 0
+let removeSystemBackGuard: (() => void) | null = null
+let programmaticRouteNavigation = false
+let readerSessionRestoring = false
+let virtualBackHandledAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
 let lastFeedScrollTop = 0
 let lastPageScrollTop = 0
@@ -1058,16 +1083,38 @@ function suppressFollowingClick() {
   }, 420)
 }
 
+async function pushRoute(path: string) {
+  programmaticRouteNavigation = true
+  try {
+    await router.push(path)
+  } finally {
+    window.setTimeout(() => {
+      programmaticRouteNavigation = false
+    }, 0)
+  }
+}
+
+async function replaceRoute(path: string) {
+  programmaticRouteNavigation = true
+  try {
+    await router.replace(path)
+  } finally {
+    window.setTimeout(() => {
+      programmaticRouteNavigation = false
+    }, 0)
+  }
+}
+
 function handleMenuClick(key: string) {
   const item = managementItems.find((navItem) => navItem.key === key)
   if (item) {
-    router.push(item.path)
+    void pushRoute(item.path)
     closeNavigation()
   }
 }
 
 function goHome(closePanel = navigationVisible.value) {
-  router.push('/recommendations')
+  void pushRoute('/recommendations')
   topChromeProgress.value = 1
   feedContentCollapsed.value = false
   viewDragOffset.value = 0
@@ -1094,7 +1141,7 @@ function handleCornerButtonClick() {
 function navigateTo(path: string) {
   viewSettling.value = true
   viewDragOffset.value = 0
-  router.push(path)
+  void pushRoute(path)
   window.clearTimeout(viewSwipeTimer)
   viewSwipeTimer = window.setTimeout(() => {
     viewSettling.value = false
@@ -1467,8 +1514,238 @@ function resetDetailTransition() {
   detailFeedOriginLocked.value = false
 }
 
+function readerSessionSnapshot(): ReaderSessionSnapshot {
+  return {
+    savedAt: Date.now(),
+    routeFullPath: route.fullPath,
+    feedScrollTop: feedScrollTop.value,
+    sourceReaderScrollTop: sourceReaderScrollTop.value,
+    detailScrollTop: detailScrollTop.value,
+    topChromeProgress: topChromeProgress.value,
+    feedContentCollapsed: feedContentCollapsed.value,
+    readerSource: readerSource.value ? { ...readerSource.value } : null,
+    sourceReaderVisible: sourceReaderVisible.value,
+    detailItem: detailItem.value ? { ...detailItem.value } : null,
+    detailSourceKind: detailSourceKind.value,
+    detailOpenedFromSourceReader: detailOpenedFromSourceReader.value,
+    detailListReturnCommitted: detailListReturnCommitted.value,
+    detailSourceExitProgress: detailSourceExitProgress.value,
+    morphingItemHeight: morphingItemHeight.value,
+    parkedDetailStack: parkedDetailStack.value.map((item) => ({
+      ...item,
+      item: { ...item.item },
+      originRect: item.originRect ? { ...item.originRect } : null,
+      sourceItemTargetRect: item.sourceItemTargetRect ? { ...item.sourceItemTargetRect } : null,
+      sourceNameOriginRect: item.sourceNameOriginRect ? { ...item.sourceNameOriginRect } : null,
+      sourceNameTargetRect: item.sourceNameTargetRect ? { ...item.sourceNameTargetRect } : null,
+    })),
+  }
+}
+
+function saveReaderSessionNow() {
+  if (readerSessionRestoring || typeof window === 'undefined') {
+    return
+  }
+
+  window.sessionStorage.setItem(readerSessionStorageKey, JSON.stringify(readerSessionSnapshot()))
+}
+
+function scheduleReaderSessionSave() {
+  if (readerSessionRestoring || typeof window === 'undefined') {
+    return
+  }
+
+  window.clearTimeout(readerSessionSaveTimer)
+  readerSessionSaveTimer = window.setTimeout(saveReaderSessionNow, 80)
+}
+
+function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
+  const apply = () => {
+    if (feedContentRef.value) {
+      feedContentRef.value.scrollTop = snapshot.feedScrollTop
+    }
+    if (sourceReaderContentRef.value) {
+      sourceReaderContentRef.value.scrollTop = snapshot.sourceReaderScrollTop
+    }
+    if (detailContentRef.value) {
+      detailContentRef.value.scrollTop = snapshot.detailScrollTop
+      syncDetailContainerMetrics()
+    }
+  }
+
+  nextTick(() => {
+    apply()
+    window.setTimeout(apply, 120)
+    window.setTimeout(apply, 520)
+  })
+}
+
+async function restoreReaderSession() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const raw = window.sessionStorage.getItem(readerSessionStorageKey)
+  if (!raw) {
+    return
+  }
+
+  let snapshot: ReaderSessionSnapshot
+  try {
+    snapshot = JSON.parse(raw) as ReaderSessionSnapshot
+  } catch {
+    window.sessionStorage.removeItem(readerSessionStorageKey)
+    return
+  }
+
+  if (!snapshot.savedAt || Date.now() - snapshot.savedAt > readerSessionMaxAgeMs) {
+    window.sessionStorage.removeItem(readerSessionStorageKey)
+    return
+  }
+
+  readerSessionRestoring = true
+  try {
+    if (snapshot.routeFullPath && route.fullPath !== snapshot.routeFullPath) {
+      await replaceRoute(snapshot.routeFullPath)
+    }
+
+    feedScrollTop.value = snapshot.feedScrollTop || 0
+    sourceReaderScrollTop.value = snapshot.sourceReaderScrollTop || 0
+    detailScrollTop.value = snapshot.detailScrollTop || 0
+    lastDetailScrollTop = detailScrollTop.value
+    topChromeProgress.value = typeof snapshot.topChromeProgress === 'number' ? snapshot.topChromeProgress : 1
+    feedContentCollapsed.value = Boolean(snapshot.feedContentCollapsed)
+    readerSource.value = snapshot.readerSource ? { ...snapshot.readerSource } : null
+    sourceReaderVisible.value = Boolean(snapshot.readerSource && snapshot.sourceReaderVisible)
+    detailItem.value = snapshot.detailItem ? { ...snapshot.detailItem } : null
+    detailSourceKind.value = snapshot.detailSourceKind || 'subscriptions'
+    detailOpenedFromSourceReader.value = Boolean(snapshot.detailOpenedFromSourceReader)
+    detailEntryProgress.value = 1
+    detailEntrySettling.value = false
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = snapshot.detailListReturnCommitted
+      ? 1
+      : clamp(snapshot.detailSourceExitProgress || 0)
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = Boolean(snapshot.detailListReturnCommitted)
+    detailRestoringFromSourceReader.value = false
+    detailError.value = ''
+    detailLoading.value = false
+    detailFrameContentHeight.value = 0
+    morphingItemId.value = null
+    morphingHeightLockItemId.value = null
+    morphingItemHeight.value = snapshot.morphingItemHeight ?? null
+    parkedDetailStack.value = Array.isArray(snapshot.parkedDetailStack)
+      ? snapshot.parkedDetailStack.map((item) => ({ ...item, item: { ...item.item } }))
+      : []
+
+    if (readerSource.value) {
+      void loadSourceReaderSubscription(readerSource.value)
+    }
+    restoreSavedScrollPositions(snapshot)
+  } finally {
+    nextTick(() => {
+      readerSessionRestoring = false
+      scheduleReaderSessionSave()
+      syncVirtualHistoryState()
+    })
+  }
+}
+
 function detailCommittedListReturn() {
   return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
+}
+
+function hasVirtualBackTarget() {
+  return (
+    navigationVisible.value ||
+    hasDetailParkedBehindSource() ||
+    sourceReaderOpen.value ||
+    detailReaderOpen.value ||
+    (!isFeedRoute.value && !navigationVisible.value)
+  )
+}
+
+function syncVirtualHistoryState() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const currentState = window.history.state || {}
+  if (!hasVirtualBackTarget()) {
+    if (currentState.messagefeedVirtualLayer) {
+      const { messagefeedVirtualLayer: _messagefeedVirtualLayer, ...restState } = currentState
+      window.history.replaceState(restState, '', route.fullPath)
+    }
+    return
+  }
+
+  if (currentState.messagefeedVirtualLayer) {
+    return
+  }
+
+  window.history.pushState(
+    {
+      ...currentState,
+      messagefeedVirtualLayer: true,
+    },
+    '',
+    route.fullPath,
+  )
+}
+
+function runVirtualBackAnimation() {
+  if (navigationVisible.value) {
+    closeNavigation()
+    return true
+  }
+
+  if (hasDetailParkedBehindSource()) {
+    restoreDetailFromParkedSource()
+    return true
+  }
+
+  if (sourceReaderOpen.value && !detailReaderOpen.value) {
+    closeSourceReader()
+    return true
+  }
+
+  if (detailReaderOpen.value) {
+    collapseItemReader()
+    return true
+  }
+
+  if (!isFeedRoute.value && !navigationVisible.value) {
+    goHome(false)
+    return true
+  }
+
+  return false
+}
+
+function consumeSystemBack() {
+  const handled = runVirtualBackAnimation()
+  if (!handled) {
+    return false
+  }
+
+  virtualBackHandledAt = Date.now()
+  scheduleReaderSessionSave()
+  nextTick(syncVirtualHistoryState)
+  return true
+}
+
+function handleBrowserPopState() {
+  if (!hasVirtualBackTarget()) {
+    return
+  }
+
+  if (Date.now() - virtualBackHandledAt < 80) {
+    syncVirtualHistoryState()
+    return
+  }
+
+  consumeSystemBack()
 }
 
 function hasDetailParkedBehindSource() {
@@ -1703,6 +1980,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
       if (detailContentRef.value) {
         detailContentRef.value.scrollTop = 0
       }
+      scheduleReaderSessionSave()
     })
   }
 }
@@ -2257,7 +2535,7 @@ function finishViewSwipe(nextPath: string | null) {
   viewSettling.value = true
   window.clearTimeout(viewSwipeTimer)
   if (nextPath) {
-    router.push(nextPath)
+    void pushRoute(nextPath)
   }
   viewDragOffset.value = 0
   viewSwipeTimer = window.setTimeout(() => {
@@ -3000,6 +3278,7 @@ function handleFeedContentScroll(event: Event) {
   feedScrollTop.value = current
   updateTopTabsByScroll(current, lastFeedScrollTop)
   lastFeedScrollTop = current
+  scheduleReaderSessionSave()
 }
 
 function handlePageContentScroll(event: Event) {
@@ -3011,6 +3290,7 @@ function handlePageContentScroll(event: Event) {
   const current = target.scrollTop
   updateTopTabsByScroll(current, lastPageScrollTop)
   lastPageScrollTop = current
+  scheduleReaderSessionSave()
 }
 
 function handleSourceReaderScroll(event: Event) {
@@ -3020,6 +3300,7 @@ function handleSourceReaderScroll(event: Event) {
   }
 
   sourceReaderScrollTop.value = target.scrollTop
+  scheduleReaderSessionSave()
 }
 
 function handleDetailContentScroll(event: Event) {
@@ -3034,6 +3315,7 @@ function handleDetailContentScroll(event: Event) {
   detailScrollClientHeight.value = Math.max(0, target.clientHeight)
   updateTopTabsByScroll(current, lastDetailScrollTop)
   lastDetailScrollTop = current
+  scheduleReaderSessionSave()
 }
 
 function resetPageTopPullTracking() {
@@ -3157,6 +3439,29 @@ watch(
         lastPageScrollTop = pageContentRef.value?.scrollTop ?? 0
       })
     }
+    scheduleReaderSessionSave()
+    nextTick(syncVirtualHistoryState)
+  },
+)
+
+watch(
+  () => [
+    route.fullPath,
+    sourceReaderVisible.value,
+    readerSource.value?.id ?? 0,
+    readerSource.value?.kind ?? '',
+    detailItem.value?.id ?? 0,
+    detailSourceKind.value,
+    detailOpenedFromSourceReader.value,
+    detailListReturnCommitted.value,
+    detailSourceExitProgress.value,
+    topChromeProgress.value,
+    feedContentCollapsed.value,
+    parkedDetailStack.value.length,
+  ],
+  () => {
+    scheduleReaderSessionSave()
+    nextTick(syncVirtualHistoryState)
   },
 )
 
@@ -3201,10 +3506,24 @@ onMounted(() => {
     document.body.setAttribute('arco-theme', 'dark')
     darkTheme.value = true
   }
+  removeSystemBackGuard = router.beforeEach(() => {
+    if (programmaticRouteNavigation || !hasVirtualBackTarget()) {
+      return true
+    }
+
+    if (Date.now() - virtualBackHandledAt < 120) {
+      return false
+    }
+
+    return consumeSystemBack() ? false : true
+  })
+  void restoreReaderSession()
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('resize', handleResize)
   window.addEventListener('message', handleMessage)
   window.addEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
+  window.addEventListener('popstate', handleBrowserPopState)
+  window.addEventListener('beforeunload', saveReaderSessionNow)
   window.addEventListener('scroll', handleScroll, { passive: true })
   window.addEventListener('pointerdown', handleWindowPointerDown, { passive: true })
   window.addEventListener('pointermove', handleWindowPointerMove, { passive: false })
@@ -3217,10 +3536,15 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  saveReaderSessionNow()
+  removeSystemBackGuard?.()
+  removeSystemBackGuard = null
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('message', handleMessage)
   window.removeEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
+  window.removeEventListener('popstate', handleBrowserPopState)
+  window.removeEventListener('beforeunload', saveReaderSessionNow)
   window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('pointerdown', handleWindowPointerDown)
   window.removeEventListener('pointermove', handleWindowPointerMove)
@@ -3242,6 +3566,7 @@ onUnmounted(() => {
   window.clearTimeout(detailHeaderSwapTimer)
   window.clearTimeout(morphingHeightUnlockTimer)
   window.clearTimeout(hiddenSourceCleanupTimer)
+  window.clearTimeout(readerSessionSaveTimer)
 })
 </script>
 
@@ -3331,7 +3656,7 @@ onUnmounted(() => {
           aria-label="设置"
           @pointerdown.stop
           @touchstart.stop
-          @click="router.push('/settings'); closeNavigation()"
+          @click="pushRoute('/settings'); closeNavigation()"
         >
           <IconSettings />
         </button>
