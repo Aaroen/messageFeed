@@ -2596,7 +2596,11 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   trackingBackSwipe = true
   readerBackDragging.value = true
   detailEntrySettling.value = false
-  if (deltaX > 0) {
+  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
+    backSwipeIntent = 'back'
+    detailRestoringFromSourceReader.value = true
+    detailReturningToFeed.value = false
+  } else if (deltaX > 0) {
     backSwipeIntent = canCommitRightBackSwipe() ? 'back' : 'blocked'
     if (backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value) {
       refreshDetailFeedOriginRect(true)
@@ -2606,10 +2610,6 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
       sourceReaderVisible.value = true
       captureDetailSourceTransitionRects(12, { lock: true })
     }
-  } else if (backSwipeTarget === 'source' && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
-    backSwipeIntent = 'back'
-    detailRestoringFromSourceReader.value = true
-    detailReturningToFeed.value = false
   } else if (backSwipeTarget === 'detail' && detailItem.value?.source_id && !detailOpenedFromSourceReader.value) {
     backSwipeIntent = 'source'
     showSourceReaderUnderDetail()
@@ -2631,7 +2631,11 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  if (deltaX > 0) {
+  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
+    backSwipeIntent = 'back'
+    detailRestoringFromSourceReader.value = true
+    detailReturningToFeed.value = false
+  } else if (deltaX > 0) {
     backSwipeIntent = canCommitRightBackSwipe() ? 'back' : 'blocked'
     if (backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value) {
       refreshDetailFeedOriginRect(true)
@@ -2642,10 +2646,6 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
       sourceReaderVisible.value = true
       captureDetailSourceTransitionRects(12, { lock: true })
     }
-  } else if (backSwipeTarget === 'source' && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
-    backSwipeIntent = 'back'
-    detailRestoringFromSourceReader.value = true
-    detailReturningToFeed.value = false
   } else if (
     backSwipeTarget === 'detail' &&
     detailItem.value?.source_id &&
@@ -2669,12 +2669,12 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     detailReaderTouchOffset.value = 0
     detailBackExitProgress.value = clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
   } else if (intent === 'back' && backSwipeTarget === 'source') {
-    if (offset < 0 && canReturnSourceReaderToDetail()) {
+    if (offset > 0 && canReturnSourceReaderToDetail()) {
       detailRestoringFromSourceReader.value = true
       detailReaderTouchOffset.value = 0
       detailBackExitProgress.value = 0
       sourceReaderOffset.value = 0
-      detailSourceExitProgress.value = 1 - clamp(Math.max(0, -offset) / Math.max(220, windowWidth.value * 0.52))
+      detailSourceExitProgress.value = 1 - clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
     } else {
       detailSourceExitProgress.value = 0
       sourceReaderStretch.value = 0
@@ -2714,7 +2714,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
     intent === 'back' && target === 'detail'
       ? deltaX > 0 && (detailBackExitProgress.value >= 0.42 || deltaX >= viewSwitchDistance)
       : intent === 'back' && target === 'source'
-        ? deltaX < 0 && (detailSourceExitProgress.value <= 0.58 || Math.abs(deltaX) >= viewSwitchDistance)
+        ? deltaX > 0 && (detailSourceExitProgress.value <= 0.58 || deltaX >= viewSwitchDistance)
       : intent === 'source' && target === 'detail'
         ? deltaX < 0 && (detailSourceExitProgress.value >= 0.42 || Math.abs(deltaX) >= viewSwitchDistance)
         : intent === 'back'
