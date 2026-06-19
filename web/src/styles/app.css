@@ -192,7 +192,7 @@ body[arco-theme='dark'] .theme-icon-button:hover {
 .nav-scrim {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 180;
   border: 0;
   background:
     linear-gradient(90deg, rgba(18, 27, 43, 0.34), rgba(18, 27, 43, 0.12)),
@@ -211,7 +211,7 @@ body[arco-theme='dark'] .nav-scrim {
   position: fixed;
   top: 14px;
   left: 14px;
-  z-index: 70;
+  z-index: 190;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   width: clamp(var(--nav-panel-min-width), 32vw, var(--nav-panel-max-width));

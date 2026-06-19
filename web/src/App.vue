@@ -347,9 +347,14 @@ const sourceReaderStyle = computed(() => {
   }
 })
 const detailReaderStyle = computed(() => ({
-  transform: `translate3d(0, 0, 0) scaleX(${(1 + detailReaderStretch.value).toFixed(4)})`,
+  transform: `translate3d(0, 0, 0) scaleX(${(1 + Math.abs(detailReaderStretch.value)).toFixed(4)})`,
   transition: readerBackDragging.value ? 'none' : undefined,
-  transformOrigin: detailReaderStretch.value > 0 ? 'left center' : undefined,
+  transformOrigin:
+    detailReaderStretch.value > 0
+      ? 'left center'
+      : detailReaderStretch.value < 0
+        ? 'right center'
+        : undefined,
   pointerEvents: detailCommittedListReturn() ? ('none' as const) : ('auto' as const),
   '--detail-overlay-opacity': detailCommittedListReturn() || detailReturningToFeed.value
     ? '0'
@@ -731,8 +736,13 @@ const navOpenButtonStyle = computed(() => {
   }
 })
 const pageContentInnerStyle = computed(() => ({
-  transform: `${cssTranslate3d(pageSideOffset.value, pagePullOffset.value)} scaleX(${(1 + pageSideStretch.value).toFixed(4)})`,
-  transformOrigin: pageSideStretch.value > 0 ? 'left center' : undefined,
+  transform: `${cssTranslate3d(pageSideOffset.value, pagePullOffset.value)} scaleX(${(1 + Math.abs(pageSideStretch.value)).toFixed(4)})`,
+  transformOrigin:
+    pageSideStretch.value > 0
+      ? 'left center'
+      : pageSideStretch.value < 0
+        ? 'right center'
+        : undefined,
 }))
 const detailHTML = computed(() => detailItem.value?.content_html || detailItem.value?.content_snippet || '')
 const detailText = computed(() => detailItem.value?.content_text || detailItem.value?.summary || detailItem.value?.content_snippet || '')
@@ -2324,7 +2334,8 @@ function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
 }
 
 function blockedSwipeStretch(deltaX: number) {
-  return Math.min(Math.log1p(Math.abs(deltaX)) / 72, 0.045)
+  const stretch = Math.min(Math.log1p(Math.abs(deltaX)) / 72, 0.045)
+  return deltaX < 0 ? -stretch : stretch
 }
 
 function backSwipeVisualOffset(deltaX: number) {
@@ -2479,7 +2490,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     detailReaderStretch.value = stretch
   } else if (intent === 'blocked' && backSwipeTarget === 'source') {
     detailSourceExitProgress.value = hasParkedDetailSourceState() ? 1 : 0
-    sourceReaderStretch.value = deltaX < 0 ? -stretch : stretch
+    sourceReaderStretch.value = stretch
   } else if (intent === 'blocked' && backSwipeTarget === 'page') {
     pageSideOffset.value = 0
     pageSideStretch.value = stretch
@@ -2576,6 +2587,14 @@ function handleTouchStart(event: TouchEvent) {
   touchStartX = touch.clientX
   touchStartY = touch.clientY
   touchStartNavigationProgress = navigationProgress.value
+
+  if (navigationVisible.value) {
+    trackingNavigationCloseCandidate = navigationOpen.value
+    trackingEdgeSwipeCandidate = false
+    trackingViewSwipeCandidate = false
+    trackingBackSwipeCandidate = false
+    return
+  }
 
   if (detailBlocksGestures()) {
     beginDetailGestureCandidate(touch.clientX, touch.clientY)
@@ -3074,6 +3093,10 @@ function handleMessage(event: MessageEvent) {
   }
 
   if (event.data?.type !== 'messagefeed-detail-gesture' || !detailReaderOpen.value) {
+    return
+  }
+
+  if (navigationVisible.value) {
     return
   }
 
