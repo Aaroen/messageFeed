@@ -87,6 +87,7 @@ const feedScrollTop = ref(0)
 const sourceReaderScrollTop = ref(0)
 const detailReaderTouchOffset = ref(0)
 const detailReaderStretch = ref(0)
+const sourceReaderStretch = ref(0)
 const pageSideOffset = ref(0)
 const pageSideStretch = ref(0)
 const readerBackDragging = ref(false)
@@ -148,6 +149,7 @@ const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
 const readerRectRetryDelay = 64
 const readerSessionStorageKey = 'messagefeed-reader-session-v1'
 const readerSessionMaxAgeMs = 24 * 60 * 60 * 1000
+const homeExitDoubleBackMs = 1600
 
 const selectedKeys = computed(() => [route.name?.toString() ?? 'subscriptions'])
 const pageTitle = computed(() => route.meta.title?.toString() ?? '订阅')
@@ -342,7 +344,8 @@ const sourceReaderStyle = computed(() => {
       !sourceReaderVisible.value || detailBlocksGestures() ? ('none' as const) : ('auto' as const),
     '--source-underlay-blur': `${((1 - sourceReaderRevealProgress.value) * (darkTheme.value ? 5 : 8)).toFixed(2)}px`,
     '--source-underlay-opacity': (underlayBaseOpacity + sourceReaderRevealProgress.value * (1 - underlayBaseOpacity)).toFixed(3),
-    transform: 'translate3d(0, 0, 0)',
+    transform: `translate3d(0, 0, 0) scaleX(${(1 + sourceReaderStretch.value).toFixed(4)})`,
+    transformOrigin: sourceReaderStretch.value > 0 ? 'left center' : undefined,
     transition: readerBackDragging.value ? 'none' : 'opacity 320ms ease',
   }
 })
@@ -999,8 +1002,6 @@ const navigationDragRatio = 1.1
 const viewDirectionLockRatio = 1.35
 const topPullDirectionLockRatio = 1.18
 const viewDragThreshold = 8
-const blockedSwipeStartDistance = 24
-
 let touchStartX = 0
 let touchStartY = 0
 let touchStartNavigationProgress = 0
@@ -1035,6 +1036,7 @@ let removeSystemBackGuard: (() => void) | null = null
 let programmaticRouteNavigation = false
 let readerSessionRestoring = false
 let virtualBackHandledAt = 0
+let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
 let lastFeedScrollTop = 0
 let lastPageScrollTop = 0
@@ -1659,11 +1661,15 @@ function detailCommittedListReturn() {
 function hasVirtualBackTarget() {
   return (
     navigationVisible.value ||
-    hasDetailParkedBehindSource() ||
+    hasParkedDetailSourceState() ||
     sourceReaderOpen.value ||
     detailReaderOpen.value ||
     (!isFeedRoute.value && !navigationVisible.value)
   )
+}
+
+function shouldGuardSystemBack() {
+  return hasVirtualBackTarget() || isFeedRoute.value
 }
 
 function syncVirtualHistoryState() {
@@ -1672,22 +1678,32 @@ function syncVirtualHistoryState() {
   }
 
   const currentState = window.history.state || {}
-  if (!hasVirtualBackTarget()) {
-    if (currentState.messagefeedVirtualLayer) {
-      const { messagefeedVirtualLayer: _messagefeedVirtualLayer, ...restState } = currentState
+  if (!shouldGuardSystemBack()) {
+    if (currentState.messagefeedVirtualLayer || currentState.messagefeedHomeGuard) {
+      const {
+        messagefeedVirtualLayer: _messagefeedVirtualLayer,
+        messagefeedHomeGuard: _messagefeedHomeGuard,
+        ...restState
+      } = currentState
       window.history.replaceState(restState, '', route.fullPath)
     }
     return
   }
 
-  if (currentState.messagefeedVirtualLayer) {
+  const needsVirtualLayer = hasVirtualBackTarget()
+  const needsHomeGuard = !needsVirtualLayer && isFeedRoute.value
+  if (
+    (needsVirtualLayer && currentState.messagefeedVirtualLayer) ||
+    (needsHomeGuard && currentState.messagefeedHomeGuard)
+  ) {
     return
   }
 
   window.history.pushState(
     {
       ...currentState,
-      messagefeedVirtualLayer: true,
+      messagefeedVirtualLayer: needsVirtualLayer || undefined,
+      messagefeedHomeGuard: needsHomeGuard || undefined,
     },
     '',
     route.fullPath,
@@ -1700,7 +1716,7 @@ function runVirtualBackAnimation() {
     return true
   }
 
-  if (hasDetailParkedBehindSource()) {
+  if (hasParkedDetailSourceState()) {
     restoreDetailFromParkedSource()
     return true
   }
@@ -1720,6 +1736,21 @@ function runVirtualBackAnimation() {
     return true
   }
 
+  if (isFeedRoute.value && route.name !== 'recommendations') {
+    navigateTo('/recommendations')
+    return true
+  }
+
+  if (isFeedRoute.value && route.name === 'recommendations') {
+    const now = Date.now()
+    if (now - lastHomeBackAttemptAt <= homeExitDoubleBackMs) {
+      lastHomeBackAttemptAt = 0
+      return false
+    }
+    lastHomeBackAttemptAt = now
+    return true
+  }
+
   return false
 }
 
@@ -1736,7 +1767,7 @@ function consumeSystemBack() {
 }
 
 function handleBrowserPopState() {
-  if (!hasVirtualBackTarget()) {
+  if (!shouldGuardSystemBack()) {
     return
   }
 
@@ -1745,7 +1776,9 @@ function handleBrowserPopState() {
     return
   }
 
-  consumeSystemBack()
+  if (!consumeSystemBack()) {
+    return
+  }
 }
 
 function hasDetailParkedBehindSource() {
@@ -2266,33 +2299,20 @@ function isNavigationDrag(deltaX: number, deltaY: number) {
   return Math.abs(deltaX) > 8 && Math.abs(deltaX) > Math.abs(deltaY) * navigationDragRatio
 }
 
-function isLeftHalf(clientX: number) {
-  return clientX <= windowWidth.value / 2
-}
-
-function isRightHalf(clientX: number) {
-  return clientX > windowWidth.value / 2
-}
-
-function canStartViewSwipe(clientX: number) {
+function canStartViewSwipe(_clientX: number) {
   if (!isFeedRoute.value || navigationVisible.value || sourceReaderOpen.value || detailBlocksGestures()) {
     return false
   }
 
-  if (activeFeedIndex.value === 0) {
-    return isRightHalf(clientX)
-  }
-
-  return isLeftHalf(clientX)
+  return true
 }
 
-function canStartNavigationOpen(clientX: number) {
+function canStartNavigationOpen(_clientX: number) {
   return (
     route.name === 'subscriptions' &&
     !navigationVisible.value &&
     !sourceReaderOpen.value &&
-    !detailBlocksGestures() &&
-    isLeftHalf(clientX)
+    !detailBlocksGestures()
   )
 }
 
@@ -2314,6 +2334,7 @@ function resetBackSwipeOffset() {
   detailSourceExitProgress.value = 0
   detailRestoringFromSourceReader.value = false
   detailReaderStretch.value = 0
+  sourceReaderStretch.value = 0
   pageSideOffset.value = 0
   pageSideStretch.value = 0
   readerBackDragging.value = false
@@ -2344,27 +2365,14 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
     return false
   }
 
-  const startsInAllowedHalf = deltaX > 0 ? isLeftHalf(touchStartX) : isRightHalf(touchStartX)
-  if (!startsInAllowedHalf) {
-    if (Math.abs(deltaX) < blockedSwipeStartDistance) {
-      return false
-    }
-    trackingBackSwipe = true
-    readerBackDragging.value = true
-    detailEntrySettling.value = false
-    backSwipeIntent = 'blocked'
-    trackingBackSwipeCandidate = false
-    trackingEdgeSwipeCandidate = false
-    trackingNavigationCloseCandidate = false
-    trackingViewSwipeCandidate = false
-    return true
-  }
-
   trackingBackSwipe = true
   readerBackDragging.value = true
   detailEntrySettling.value = false
   if (deltaX > 0) {
-    backSwipeIntent = 'back'
+    backSwipeIntent =
+      backSwipeTarget === 'source' && !hasParkedDetailSourceState()
+        ? 'blocked'
+        : 'back'
     if (backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value) {
       refreshDetailFeedOriginRect(true)
     }
@@ -2397,13 +2405,11 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  const invalidHalfBlocked =
-    backSwipeIntent === 'blocked' &&
-    ((deltaX > 0 && !isLeftHalf(touchStartX)) || (deltaX < 0 && !isRightHalf(touchStartX)))
-  if (invalidHalfBlocked) {
-    detailReturningToFeed.value = false
-  } else if (deltaX > 0) {
-    backSwipeIntent = 'back'
+  if (deltaX > 0) {
+    backSwipeIntent =
+      backSwipeTarget === 'source' && !(hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)
+        ? 'blocked'
+        : 'back'
     if (backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value) {
       refreshDetailFeedOriginRect(true)
     }
@@ -2420,7 +2426,6 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   } else if (
     backSwipeTarget === 'detail' &&
     detailItem.value?.source_id &&
-    isRightHalf(touchStartX) &&
     !detailOpenedFromSourceReader.value
   ) {
     backSwipeIntent = 'source'
@@ -2434,6 +2439,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   const stretch = blockedSwipeStretch(deltaX)
 
   detailReaderStretch.value = 0
+  sourceReaderStretch.value = 0
   pageSideStretch.value = 0
 
   if (intent === 'back' && backSwipeTarget === 'detail') {
@@ -2459,6 +2465,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     detailReaderStretch.value = stretch
   } else if (intent === 'blocked' && backSwipeTarget === 'source') {
     detailSourceExitProgress.value = hasParkedDetailSourceState() ? 1 : 0
+    sourceReaderStretch.value = stretch
   } else if (intent === 'blocked' && backSwipeTarget === 'page') {
     pageSideOffset.value = 0
     pageSideStretch.value = stretch
@@ -2574,8 +2581,7 @@ function handleTouchStart(event: TouchEvent) {
   }
 
   trackingEdgeSwipeCandidate = canStartNavigationOpen(touchStartX)
-  trackingNavigationCloseCandidate =
-    navigationOpen.value && touchStartX <= Math.max(navigationWidth.value + 40, windowWidth.value / 2)
+  trackingNavigationCloseCandidate = navigationOpen.value
   trackingViewSwipeCandidate = canStartViewSwipe(touchStartX)
 }
 
@@ -2612,6 +2618,7 @@ function handleTouchMove(event: TouchEvent) {
     trackingEdgeSwipe = true
     trackingEdgeSwipeCandidate = false
     trackingViewSwipeCandidate = false
+    trackingNavigationCloseCandidate = false
     navigationDragStarted = true
     navigationSettling.value = false
   }
@@ -2620,6 +2627,7 @@ function handleTouchMove(event: TouchEvent) {
     trackingNavigationClose = true
     trackingNavigationCloseCandidate = false
     trackingViewSwipeCandidate = false
+    trackingEdgeSwipeCandidate = false
     navigationDragStarted = true
     navigationSettling.value = false
   }
@@ -2645,6 +2653,8 @@ function handleTouchMove(event: TouchEvent) {
     ) {
       trackingViewSwipe = true
       trackingViewSwipeCandidate = false
+      trackingEdgeSwipeCandidate = false
+      trackingNavigationCloseCandidate = false
     } else {
       return
     }
@@ -2672,8 +2682,7 @@ function handleWindowPointerDown(event: PointerEvent) {
   touchStartY = event.clientY
   touchStartNavigationProgress = navigationProgress.value
   trackingEdgeSwipeCandidate = canStartNavigationOpen(touchStartX)
-  trackingNavigationCloseCandidate =
-    navigationOpen.value && touchStartX <= Math.max(navigationWidth.value + 40, windowWidth.value / 2)
+  trackingNavigationCloseCandidate = navigationOpen.value
   trackingViewSwipeCandidate = false
   activeNavigationPointerId =
     trackingEdgeSwipeCandidate || trackingNavigationCloseCandidate ? event.pointerId : null
@@ -2690,6 +2699,7 @@ function handleWindowPointerMove(event: PointerEvent) {
   if (trackingEdgeSwipeCandidate && deltaX > 8 && isNavigationDrag(deltaX, deltaY)) {
     trackingEdgeSwipe = true
     trackingEdgeSwipeCandidate = false
+    trackingNavigationCloseCandidate = false
     navigationDragStarted = true
     navigationSettling.value = false
   }
@@ -2697,6 +2707,7 @@ function handleWindowPointerMove(event: PointerEvent) {
   if (trackingNavigationCloseCandidate && deltaX < -8 && isNavigationDrag(deltaX, deltaY)) {
     trackingNavigationClose = true
     trackingNavigationCloseCandidate = false
+    trackingEdgeSwipeCandidate = false
     navigationDragStarted = true
     navigationSettling.value = false
   }
@@ -2808,10 +2819,6 @@ function handleFeedPointerDown(event: PointerEvent) {
   }
 
   finishCommittedListReturnForGesture()
-
-  if (canStartNavigationOpen(event.clientX)) {
-    return
-  }
 
   if (!canStartViewSwipe(event.clientX)) {
     return
@@ -3519,7 +3526,7 @@ onMounted(() => {
     darkTheme.value = true
   }
   removeSystemBackGuard = router.beforeEach(() => {
-    if (programmaticRouteNavigation || !hasVirtualBackTarget()) {
+    if (programmaticRouteNavigation || !shouldGuardSystemBack()) {
       return true
     }
 
@@ -3529,7 +3536,9 @@ onMounted(() => {
 
     return consumeSystemBack() ? false : true
   })
-  void restoreReaderSession()
+  void restoreReaderSession().finally(() => {
+    nextTick(syncVirtualHistoryState)
+  })
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('resize', handleResize)
   window.addEventListener('message', handleMessage)
