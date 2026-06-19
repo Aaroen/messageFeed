@@ -62,6 +62,7 @@ type ReaderSessionSnapshot = {
   detailOpenedFromSourceReader: boolean
   detailListReturnCommitted: boolean
   detailSourceExitProgress: number
+  sourceReaderReturnMode: 'detail' | null
   morphingItemHeight: number | null
   parkedDetailStack: ParkedDetailSnapshot[]
 }
@@ -132,6 +133,7 @@ const detailSourceExitProgress = ref(0)
 const detailReturningToFeed = ref(false)
 const detailListReturnCommitted = ref(false)
 const detailRestoringFromSourceReader = ref(false)
+const sourceReaderReturnMode = ref<'detail' | null>(null)
 const detailScrollTop = ref(0)
 const detailScrollHeight = ref(0)
 const detailScrollClientHeight = ref(0)
@@ -1547,6 +1549,7 @@ function resetDetailTransition() {
   detailReturningToFeed.value = false
   detailListReturnCommitted.value = false
   detailRestoringFromSourceReader.value = false
+  sourceReaderReturnMode.value = null
   detailSourceItemTargetRect.value = null
   detailSourceNameOriginRect.value = null
   detailSourceNameTargetRect.value = null
@@ -1570,6 +1573,7 @@ function readerSessionSnapshot(): ReaderSessionSnapshot {
     detailOpenedFromSourceReader: detailOpenedFromSourceReader.value,
     detailListReturnCommitted: detailListReturnCommitted.value,
     detailSourceExitProgress: detailSourceExitProgress.value,
+    sourceReaderReturnMode: sourceReaderReturnMode.value,
     morphingItemHeight: morphingItemHeight.value,
     parkedDetailStack: parkedDetailStack.value.map((item) => ({
       ...item,
@@ -1666,6 +1670,7 @@ async function restoreReaderSession() {
     detailSourceExitProgress.value = snapshot.detailListReturnCommitted
       ? 1
       : clamp(snapshot.detailSourceExitProgress || 0)
+    sourceReaderReturnMode.value = snapshot.sourceReaderReturnMode === 'detail' ? 'detail' : null
     detailReturningToFeed.value = false
     detailListReturnCommitted.value = Boolean(snapshot.detailListReturnCommitted)
     detailRestoringFromSourceReader.value = false
@@ -1758,7 +1763,7 @@ function runVirtualBackAnimation() {
 
   if (sourceReaderShouldReturnToDetail()) {
     lastHomeBackAttemptAt = 0
-    restoreDetailFromParkedSource()
+    restoreSourceReaderBackTarget()
     return true
   }
 
@@ -1845,13 +1850,30 @@ function sourceReaderShouldReturnToDetail() {
     readerSource.value !== null &&
     (sourceReaderVisible.value || detailListReturnCommitted.value || detailSourceExitProgress.value > 0.45)
   return (
-    detailReaderOpen.value &&
+    sourceReaderReturnMode.value === 'detail' &&
     sourceLayerAvailable &&
     !detailReturningToFeed.value &&
-    (detailListReturnCommitted.value ||
+    (detailReaderOpen.value ||
+      parkedDetailStack.value.length > 0 ||
+      detailListReturnCommitted.value ||
       detailSourceExitProgress.value > 0.45 ||
       detailRestoringFromSourceReader.value)
   )
+}
+
+function restoreSourceReaderBackTarget() {
+  if (detailReaderOpen.value) {
+    restoreDetailFromParkedSource()
+    return
+  }
+
+  if (parkedDetailStack.value.length > 0 && restorePreviousParkedDetail()) {
+    restoreDetailFromParkedSource()
+    return
+  }
+
+  sourceReaderReturnMode.value = null
+  closeSourceReader()
 }
 
 function snapshotParkedDetail(): ParkedDetailSnapshot | null {
@@ -1910,6 +1932,7 @@ function restorePreviousParkedDetail() {
   detailReturningToFeed.value = false
   detailListReturnCommitted.value = true
   detailRestoringFromSourceReader.value = false
+  sourceReaderReturnMode.value = 'detail'
   sourceReaderVisible.value = true
   return true
 }
@@ -1977,6 +2000,9 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
     if (nextVisible) {
       sourceReaderOffset.value = 0
       sourceReaderStretch.value = 0
+      if (!detailReaderOpen.value) {
+        sourceReaderReturnMode.value = null
+      }
     }
     sourceReaderVisible.value = nextVisible
     if (nextVisible && detailReaderOpen.value) {
@@ -1989,6 +2015,9 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
   if (nextVisible) {
     sourceReaderOffset.value = 0
     sourceReaderStretch.value = 0
+    if (!detailReaderOpen.value) {
+      sourceReaderReturnMode.value = null
+    }
   }
   sourceReaderVisible.value = nextVisible
   sourceCatalogEntry.value = null
@@ -2082,7 +2111,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
 
 function closeSourceReader() {
   if (sourceReaderShouldReturnToDetail()) {
-    restoreDetailFromParkedSource()
+    restoreSourceReaderBackTarget()
     return
   }
 
@@ -2101,6 +2130,7 @@ function closeSourceReader() {
     sourceReaderOffset.value = 0
     sourceReaderStretch.value = 0
     sourceReaderVisible.value = false
+    sourceReaderReturnMode.value = null
     parkedDetailStack.value = []
     scheduleHiddenSourceReaderCleanup(340)
     return
@@ -2108,6 +2138,7 @@ function closeSourceReader() {
 
   readerSource.value = null
   sourceReaderVisible.value = false
+  sourceReaderReturnMode.value = null
   sourceReaderOffset.value = 0
   sourceReaderStretch.value = 0
   sourceCatalogEntry.value = null
@@ -2151,6 +2182,7 @@ function restoreDetailFromParkedSource(duration = 360) {
   detailEntryTimer = window.setTimeout(() => {
     detailEntrySettling.value = false
     detailRestoringFromSourceReader.value = false
+    sourceReaderReturnMode.value = null
     parkedDetailStack.value = []
     sourceReaderVisible.value = false
     detailSourceItemTargetRect.value = null
@@ -2207,6 +2239,7 @@ function closeItemReader() {
   detailReaderStretch.value = 0
   resetDetailTransition()
   if (!sourceReaderVisible.value) {
+    sourceReaderReturnMode.value = null
     parkedDetailStack.value = []
     scheduleHiddenSourceReaderCleanup()
   }
@@ -2292,6 +2325,7 @@ function completeDetailToSourceReader(duration = 360) {
     }
   }
   const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 0
+  sourceReaderReturnMode.value = 'detail'
   sourceReaderVisible.value = true
   captureDetailSourceTransitionRects(12, { lock: true })
   readerBackDragging.value = false
@@ -3564,6 +3598,7 @@ watch(
     detailSourceKind.value,
     detailOpenedFromSourceReader.value,
     detailListReturnCommitted.value,
+    sourceReaderReturnMode.value,
     parkedDetailStack.value.length,
   ],
   () => {
