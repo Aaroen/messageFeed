@@ -61,6 +61,7 @@ const pullStartedWithVisibleChrome = ref(false)
 const pullThreshold = 76
 const pullMaxOffset = 116
 const verticalLockRatio = 1.18
+const motionCleanupBuffer = 96
 let touchStartY = 0
 let touchStartX = 0
 let touchStartChromeDistance = 0
@@ -115,7 +116,7 @@ const freezeBodyForTopChromePull = computed(
 const feedBodyStyle = computed(() => ({
   transform: freezeBodyForTopChromePull.value
     ? 'translate3d(0, 0, 0)'
-    : `translate3d(0, ${Math.min(Math.round(pullOffset.value * 0.34), 38)}px, 0)`,
+    : `translate3d(0, ${cssPx(Math.min(pullOffset.value * 0.34, 38))}, 0)`,
 }))
 const safeMorphingPreviewProgress = computed(() => Math.min(Math.max(props.morphingPreviewProgress, 0), 1))
 
@@ -191,19 +192,27 @@ function itemSummary(item: FeedItem) {
   return plainPreviewText(item.summary, item.content_snippet, item.content_text, item.content_html) || '暂无摘要。'
 }
 
+function cssPx(value: number) {
+  return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
+}
+
+function cssRotate(degrees: number) {
+  return `rotate(${(Number.isFinite(degrees) ? degrees : 0).toFixed(2)}deg)`
+}
+
 function feedItemStyle(item: FeedItem) {
   const style: Record<string, string> = {}
   const locksHeight =
     (props.morphingItemId === item.id || props.morphingHeightLockItemId === item.id) && props.morphingItemHeight
 
   if (locksHeight && props.morphingItemHeight) {
-    style.height = `${Math.round(props.morphingItemHeight)}px`
+    style.height = cssPx(props.morphingItemHeight)
   }
 
   if (props.morphingItemId === item.id) {
     const progress = safeMorphingPreviewProgress.value
     style['--feed-morph-preview-opacity'] = progress.toFixed(3)
-    style['--feed-morph-preview-shift'] = `${Math.round((1 - progress) * 6)}px`
+    style['--feed-morph-preview-shift'] = cssPx((1 - progress) * 6)
     style['--feed-morph-preview-blur'] = `${((1 - progress) * 2.4).toFixed(2)}px`
   }
 
@@ -258,7 +267,7 @@ async function loadItems(options: { refresh?: boolean } = {}) {
       pullStartedWithVisibleChrome.value = false
       pullSettleTimer = window.setTimeout(() => {
         pullSettling.value = false
-      }, 260)
+      }, 260 + motionCleanupBuffer)
     }, 120)
   }
 }
@@ -455,7 +464,7 @@ watch(
       >
         <span
           class="feed-local-refresh__icon"
-          :style="{ transform: refreshing ? undefined : `rotate(${Math.round(pullProgress * 300)}deg)` }"
+          :style="{ transform: refreshing ? undefined : cssRotate(pullProgress * 300) }"
         >
           <IconRefresh />
         </span>

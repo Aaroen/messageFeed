@@ -119,6 +119,12 @@ const sourceSubscription = ref<Source | null>(null)
 const sourceSubscriptionLoading = ref(false)
 const sourceNotice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
 const sourceTimelinePreloadEnabled = ref(true)
+const detailTransitionRectsLocked = ref(false)
+const detailFeedOriginLocked = ref(false)
+const readerMorphDuration = 360
+const readerMorphCleanupBuffer = 96
+const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
+const readerRectRetryDelay = 64
 
 const selectedKeys = computed(() => [route.name?.toString() ?? 'subscriptions'])
 const pageTitle = computed(() => route.meta.title?.toString() ?? '订阅')
@@ -228,10 +234,10 @@ const pullStatusText = computed(() => feedInteraction.statusText)
 const pullStatusMeta = computed(() => feedInteraction.statusMeta)
 const pullStatusStyle = computed(() => ({
   opacity: feedPullActive.value ? '1' : '0',
-  transform: `translate3d(0, ${Math.round((1 - pullProgress.value) * -10)}px, 0) scale(${(0.96 + pullProgress.value * 0.04).toFixed(3)})`,
+  transform: `${cssTranslate3d(0, (1 - pullProgress.value) * -10)} scale(${(0.96 + pullProgress.value * 0.04).toFixed(3)})`,
 }))
 const pullIconStyle = computed(() => ({
-  transform: feedInteraction.pullRefreshing ? 'none' : `rotate(${Math.round(pullProgress.value * 300)}deg)`,
+  transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(pullProgress.value * 300),
 }))
 const feedTabsLayerStyle = computed(() => {
   if (!detailReaderOpen.value) {
@@ -242,16 +248,16 @@ const feedTabsLayerStyle = computed(() => {
   return {
     opacity: progress.toFixed(3),
     pointerEvents: progress > 0.96 && !detailBlocksGestures() ? ('auto' as const) : ('none' as const),
-    transform: `translate3d(0, ${Math.round((1 - progress) * 7)}px, 0) scale(${(0.98 + progress * 0.02).toFixed(3)})`,
+    transform: `${cssTranslate3d(0, (1 - progress) * 7)} scale(${(0.98 + progress * 0.02).toFixed(3)})`,
     transition: readerBackDragging.value ? 'none' : undefined,
   }
 })
 const sourcePullStatusStyle = computed(() => ({
   opacity: sourcePullActive.value ? '1' : '0',
-  transform: `translate3d(0, ${Math.round((1 - sourcePullProgress.value) * -10)}px, 0) scale(${(0.96 + sourcePullProgress.value * 0.04).toFixed(3)})`,
+  transform: `${cssTranslate3d(0, (1 - sourcePullProgress.value) * -10)} scale(${(0.96 + sourcePullProgress.value * 0.04).toFixed(3)})`,
 }))
 const sourcePullIconStyle = computed(() => ({
-  transform: feedInteraction.pullRefreshing ? 'none' : `rotate(${Math.round(sourcePullProgress.value * 300)}deg)`,
+  transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(sourcePullProgress.value * 300),
 }))
 const sourceToggleLabel = computed(() => {
   if (sourceSubscriptionLoading.value) {
@@ -269,14 +275,14 @@ const navigationWidth = computed(() => {
 const navigationVisible = computed(() => navigationOpen.value || navigationProgress.value > 0 || navigationSettling.value)
 const navigationPanelStyle = computed(() => ({
   width: `${navigationWidth.value}px`,
-  transform: `translate3d(${Math.round((navigationProgress.value - 1) * (navigationWidth.value + 28))}px, 0, 0)`,
+  transform: cssTranslate3d((navigationProgress.value - 1) * (navigationWidth.value + 28), 0),
 }))
 const navigationScrimStyle = computed(() => ({
   opacity: navigationProgress.value,
   pointerEvents: navigationProgress.value > 0.2 ? ('auto' as const) : ('none' as const),
 }))
 const feedTrackStyle = computed(() => ({
-  transform: `translate3d(calc(${-activeFeedIndex.value * 100}% + ${Math.round(viewDragOffset.value)}px), 0, 0)`,
+  transform: `translate3d(calc(${-activeFeedIndex.value * 100}% + ${cssPx(viewDragOffset.value)}), 0, 0)`,
 }))
 const mainClass = computed(() => ({
   'app-main--feed': isFeedRoute.value,
@@ -361,7 +367,7 @@ const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
 })
 const detailSurfaceMargin = computed(() => (windowWidth.value <= 720 ? 10 : 14))
 const detailExpandedTop = computed(() =>
-  Math.round((feedHeaderHeight.value + detailSurfaceMargin.value) * topChromeProgress.value),
+  (feedHeaderHeight.value + detailSurfaceMargin.value) * topChromeProgress.value,
 )
 const detailFrameMinHeight = computed(() =>
   Math.max(300, windowHeight.value - detailExpandedTop.value - detailSurfaceMargin.value - 96),
@@ -391,12 +397,12 @@ const detailTransitionSurfaceStyle = computed(() => {
           ? progress
           : 1 - exitProgress * 0.28
     return {
-      width: `${expandedWidth}px`,
-      height: `${targetHeight}px`,
+      width: cssPx(expandedWidth),
+      height: cssPx(targetHeight),
       opacity: clamp(opacity).toFixed(3),
-      transform: `translate3d(${Math.round(expandedLeft)}px, ${targetTop + Math.round(exitProgress * 18)}px, 0)`,
+      transform: cssTranslate3d(expandedLeft, targetTop + exitProgress * 18),
       transition: readerBackDragging.value ? 'none' : undefined,
-      borderRadius: `${Math.round(16 - exitProgress * 4)}px`,
+      borderRadius: cssPx(16 - exitProgress * 4),
     }
   }
 
@@ -404,7 +410,7 @@ const detailTransitionSurfaceStyle = computed(() => {
   const height = collapsedTarget.height + (targetHeight - collapsedTarget.height) * progress
   const x = collapsedTarget.left + (expandedLeft - collapsedTarget.left) * progress
   const y = collapsedTarget.top + (targetTop - collapsedTarget.top) * progress
-  const radius = Math.round(12 + 4 * progress)
+  const radius = 12 + 4 * progress
   const minimumSurfaceOpacity = darkTheme.value ? 0.64 : 0.36
   const opacity =
     draggingToList
@@ -414,11 +420,11 @@ const detailTransitionSurfaceStyle = computed(() => {
         : minimumSurfaceOpacity + progress * (1 - minimumSurfaceOpacity)
 
   return {
-    width: `${Math.round(width)}px`,
-    height: `${Math.round(height)}px`,
+    width: cssPx(width),
+    height: cssPx(height),
     opacity: clamp(opacity).toFixed(3),
-    transform: `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`,
-    borderRadius: `${radius}px`,
+    transform: cssTranslate3d(x, y),
+    borderRadius: cssPx(radius),
     transition: readerBackDragging.value ? 'none' : undefined,
   }
 })
@@ -433,9 +439,9 @@ const detailContentStyle = computed(() => {
     opacity: committedListReturn ? '0' : opacity.toFixed(3),
     '--detail-body-opacity': bodyOpacity.toFixed(3),
     '--detail-inline-meta-opacity': inlineMetaOpacity.toFixed(3),
-    '--detail-frame-min-height': `${Math.round(detailFrameMinHeight.value)}px`,
+    '--detail-frame-min-height': cssPx(detailFrameMinHeight.value),
     transform:
-      sourceExitProgress > 0 ? 'translate3d(0, 0, 0)' : `translate3d(0, ${Math.round((1 - progress) * 8)}px, 0)`,
+      sourceExitProgress > 0 ? cssTranslate3d(0, 0) : cssTranslate3d(0, (1 - progress) * 8),
     visibility: !committedListReturn && opacity > 0.01 ? ('visible' as const) : ('hidden' as const),
     transition: readerBackDragging.value || committedListReturn ? 'none' : undefined,
   }
@@ -455,8 +461,8 @@ const detailProgressStyle = computed(() => {
   const margin = detailSurfaceMargin.value
   const top = Math.max(margin, detailExpandedTop.value + margin)
   return {
-    top: `${Math.round(top)}px`,
-    right: `${Math.max(6, Math.round(margin * 0.5))}px`,
+    top: cssPx(top),
+    right: cssPx(Math.max(6, margin * 0.5)),
     bottom: `${margin}px`,
     opacity: detailProgressVisible.value ? '1' : '0',
     pointerEvents: detailProgressVisible.value ? ('auto' as const) : ('none' as const),
@@ -484,7 +490,7 @@ const detailMorphTextStyle = computed(() => {
     '--morph-text-opacity': textOpacity.toFixed(3),
     '--morph-summary-opacity': summaryOpacity.toFixed(3),
     '--morph-source-pointer-events': textOpacity > 0.12 ? 'auto' : 'none',
-    transform: `translate3d(0, ${Math.round(progress * -4)}px, 0)`,
+    transform: cssTranslate3d(0, progress * -4),
     transition: readerBackDragging.value || committedListReturn ? 'none' : undefined,
   }
 })
@@ -500,7 +506,7 @@ const detailHeaderTitleStyle = computed(() => {
       : clamp((progress - 0.58) / 0.22) * (1 - feedHeaderReturnProgress.value)
   return {
     opacity: opacity.toFixed(3),
-    transform: `translate3d(0, ${Math.round((1 - opacity) * 8)}px, 0)`,
+    transform: cssTranslate3d(0, (1 - opacity) * 8),
     filter: `blur(${((1 - opacity) * 2.6).toFixed(2)}px)`,
     transition: readerBackDragging.value ? 'none' : undefined,
   }
@@ -561,9 +567,9 @@ const sourceNameMorphStyle = computed(() => {
   const blur = Math.sin(progress * Math.PI) * 1.4 + fadeOut * 1.8
 
   return {
-    left: `${Math.round(left)}px`,
-    top: `${Math.round(top)}px`,
-    width: `${Math.round(width)}px`,
+    left: cssPx(left),
+    top: cssPx(top),
+    width: cssPx(width),
     opacity: opacity.toFixed(3),
     fontSize: `${size.toFixed(2)}px`,
     filter: `blur(${blur.toFixed(2)}px)`,
@@ -599,13 +605,13 @@ const sourceTitleRevealStyle = computed(() => {
   const progress = clamp(sourceTitleProgress.value / 0.55)
   const left = windowWidth.value <= 720 ? 72 : 80
   const right = windowWidth.value <= 720 ? 104 : 120
-  const top = Math.round((feedHeaderHeight.value - 44) / 2)
+  const top = (feedHeaderHeight.value - 44) / 2
   return {
-    top: `${top}px`,
-    left: `${left}px`,
+    top: cssPx(top),
+    left: cssPx(left),
     width: `calc(100vw - ${left + right}px)`,
     opacity: progress.toFixed(3),
-    transform: `translate3d(0, ${Math.round((1 - progress) * 12)}px, 0) scale(${(
+    transform: `${cssTranslate3d(0, (1 - progress) * 12)} scale(${(
       0.965 +
       progress * 0.035
     ).toFixed(3)})`,
@@ -618,7 +624,7 @@ const sourceTitleRevealStyle = computed(() => {
 const mainStyle = computed(() => {
   const baseStyle = {
     '--feed-header-height': `${feedHeaderHeight.value}px`,
-    '--feed-header-space': `${Math.round(feedContentSpace.value)}px`,
+    '--feed-header-space': cssPx(feedContentSpace.value),
     '--detail-underlay-blur': `${(detailSurfaceProgress.value * 7).toFixed(2)}px`,
     '--detail-underlay-opacity': (1 - detailSurfaceProgress.value * 0.08).toFixed(3),
   }
@@ -639,17 +645,17 @@ const headerStyle = computed(() => {
   return {
     opacity: progress.toFixed(3),
     pointerEvents: progress > 0.86 ? ('auto' as const) : ('none' as const),
-    transform: `translate3d(0, ${Math.round((progress - 1) * feedHeaderHeight.value)}px, 0)`,
+    transform: cssTranslate3d(0, (progress - 1) * feedHeaderHeight.value),
   }
 })
 const navOpenButtonStyle = computed(() => {
   const progress = feedCornerHidden.value ? 0 : feedHeaderProgress.value
   const settling = feedChromeSettling.value || feedRefreshSettling.value
   return {
-    top: `${Math.round((feedHeaderHeight.value - 44) / 2)}px`,
+    top: cssPx((feedHeaderHeight.value - 44) / 2),
     opacity: progress.toFixed(3),
     pointerEvents: progress > 0.86 && !feedCornerHidden.value ? ('auto' as const) : ('none' as const),
-    transform: `translate3d(0, ${Math.round((progress - 1) * feedHeaderHeight.value)}px, 0) scale(${(
+    transform: `${cssTranslate3d(0, (progress - 1) * feedHeaderHeight.value)} scale(${(
       0.92 +
       progress * 0.08
     ).toFixed(3)})`,
@@ -660,7 +666,7 @@ const navOpenButtonStyle = computed(() => {
   }
 })
 const pageContentInnerStyle = computed(() => ({
-  transform: `translate3d(${Math.round(pageSideOffset.value)}px, ${Math.round(pagePullOffset.value)}px, 0) scaleX(${(1 + pageSideStretch.value).toFixed(4)})`,
+  transform: `${cssTranslate3d(pageSideOffset.value, pagePullOffset.value)} scaleX(${(1 + pageSideStretch.value).toFixed(4)})`,
   transformOrigin: pageSideStretch.value > 0 ? 'left center' : undefined,
 }))
 const detailHTML = computed(() => detailItem.value?.content_html || detailItem.value?.content_snippet || '')
@@ -976,11 +982,31 @@ function navigateTo(path: string) {
   window.clearTimeout(viewSwipeTimer)
   viewSwipeTimer = window.setTimeout(() => {
     viewSettling.value = false
-  }, 260)
+  }, motionDelay(260))
 }
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.min(Math.max(value, min), max)
+}
+
+function motionDelay(duration = readerMorphDuration) {
+  return duration === readerMorphDuration ? readerMorphCleanupDelay : duration + readerMorphCleanupBuffer
+}
+
+function cssNumber(value: number, digits = 2) {
+  return Number.isFinite(value) ? value.toFixed(digits) : '0.00'
+}
+
+function cssPx(value: number) {
+  return `${cssNumber(value)}px`
+}
+
+function cssTranslate3d(x: number, y: number, z = 0) {
+  return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
+}
+
+function cssRotate(degrees: number) {
+  return `rotate(${cssNumber(degrees)}deg)`
 }
 
 function escapeHTML(value: string) {
@@ -1084,6 +1110,35 @@ function findSourceFeedItemElement(itemID?: number) {
   return sourceReaderContentRef.value.querySelector(`[data-feed-item-id="${itemID}"]`)
 }
 
+function findFeedItemElement(itemID?: number) {
+  if (!itemID || !feedContentRef.value) {
+    return null
+  }
+
+  const activePane = feedContentRef.value.querySelectorAll('.feed-pane').item(activeFeedIndex.value)
+  return (
+    activePane?.querySelector(`[data-feed-item-id="${itemID}"]`) ??
+    feedContentRef.value.querySelector(`[data-feed-item-id="${itemID}"]`)
+  )
+}
+
+function refreshDetailFeedOriginRect(lock = false) {
+  if (detailFeedOriginLocked.value) {
+    return
+  }
+
+  const itemRect = snapshotElementRect(findFeedItemElement(detailItem.value?.id))
+  if (!itemRect) {
+    return
+  }
+
+  detailOriginRect.value = itemRect
+  morphingItemHeight.value = itemRect.height
+  if (lock) {
+    detailFeedOriginLocked.value = true
+  }
+}
+
 function findSourceFeedItemSourceElement(itemID?: number) {
   const itemElement = findSourceFeedItemElement(itemID)
   return itemElement?.querySelector('.feed-item__source') ?? null
@@ -1104,9 +1159,20 @@ function sourceNameTargetFallback(itemRect: RectSnapshot | null) {
   return snapshotElementRect(sourceTitleTextRef.value)
 }
 
-function captureDetailSourceTransitionRects(retry = 12) {
+function captureDetailSourceTransitionRects(
+  retry = 12,
+  options: { force?: boolean; lock?: boolean } = {},
+) {
+  if (detailTransitionRectsLocked.value && !options.force) {
+    return
+  }
+
   nextTick(() => {
     requestAnimationFrame(() => {
+      if (detailTransitionRectsLocked.value && !options.force) {
+        return
+      }
+
       const itemRect = snapshotElementRect(findSourceFeedItemElement(detailItem.value?.id))
       const sourceOriginRect = snapshotElementRect(detailInlineSourceRef.value)
       const sourceTargetRect =
@@ -1123,8 +1189,14 @@ function captureDetailSourceTransitionRects(retry = 12) {
         detailSourceNameTargetRect.value = sourceTargetRect
       }
 
+      const hasSourceOrigin = Boolean(sourceOriginRect || detailSourceNameOriginRect.value)
+      if (options.lock && itemRect && sourceTargetRect && hasSourceOrigin) {
+        detailTransitionRectsLocked.value = true
+        return
+      }
+
       if (retry > 0 && (!itemRect || !sourceOriginRect || !sourceTargetRect)) {
-        window.setTimeout(() => captureDetailSourceTransitionRects(retry - 1), 80)
+        window.setTimeout(() => captureDetailSourceTransitionRects(retry - 1, options), readerRectRetryDelay)
       }
     })
   })
@@ -1182,7 +1254,7 @@ function showSourceReaderUnderDetail() {
   }
 
   sourceReaderVisible.value = true
-  captureDetailSourceTransitionRects()
+  captureDetailSourceTransitionRects(12, { lock: true })
 }
 
 function settleReaderMotion(duration = 260, done?: () => void) {
@@ -1192,7 +1264,7 @@ function settleReaderMotion(duration = 260, done?: () => void) {
   readerMotionTimer = window.setTimeout(() => {
     readerMotionSettling.value = false
     done?.()
-  }, duration)
+  }, motionDelay(duration))
 }
 
 function startDetailEntry(rect?: DOMRect) {
@@ -1212,7 +1284,7 @@ function startDetailEntry(rect?: DOMRect) {
       detailEntryProgress.value = 1
       detailEntryTimer = window.setTimeout(() => {
         detailEntrySettling.value = false
-      }, 360)
+      }, motionDelay(readerMorphDuration))
     })
   })
 }
@@ -1228,6 +1300,8 @@ function resetDetailTransition() {
   detailSourceItemTargetRect.value = null
   detailSourceNameOriginRect.value = null
   detailSourceNameTargetRect.value = null
+  detailTransitionRectsLocked.value = false
+  detailFeedOriginLocked.value = false
 }
 
 function detailCommittedListReturn() {
@@ -1374,7 +1448,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
   if (readerSource.value?.id === source.id && readerSource.value.kind === source.kind) {
     sourceReaderVisible.value = nextVisible
     if (nextVisible && detailReaderOpen.value) {
-      captureDetailSourceTransitionRects()
+      captureDetailSourceTransitionRects(12, { lock: true })
     }
     return
   }
@@ -1390,7 +1464,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
       sourceReaderContentRef.value.scrollTop = 0
     }
     if (nextVisible && detailReaderOpen.value) {
-      captureDetailSourceTransitionRects()
+      captureDetailSourceTransitionRects(12, { lock: true })
     }
   })
   void loadSourceReaderSubscription(source)
@@ -1427,6 +1501,8 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   detailSourceItemTargetRect.value = openedFromSourceReader ? snapshotRect(originRect) : null
   detailSourceNameOriginRect.value = null
   detailSourceNameTargetRect.value = null
+  detailTransitionRectsLocked.value = false
+  detailFeedOriginLocked.value = false
   detailScrollTop.value = 0
   detailScrollHeight.value = 0
   detailScrollClientHeight.value = 0
@@ -1437,7 +1513,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   startDetailEntry(originRect)
   morphingItemHeight.value = detailOriginRect.value?.height ?? null
   if (openedFromSourceReader) {
-    captureDetailSourceTransitionRects()
+    captureDetailSourceTransitionRects(12, { lock: true })
   }
   if (!openedFromSourceReader && sourceTimelinePreloadEnabled.value && item.source_id) {
     openSourceReader(
@@ -1532,9 +1608,10 @@ function restoreDetailFromParkedSource(duration = 360) {
     detailSourceItemTargetRect.value = null
     detailSourceNameOriginRect.value = null
     detailSourceNameTargetRect.value = null
+    detailTransitionRectsLocked.value = false
     restoreMorphingItemContent()
     scheduleHiddenSourceReaderCleanup()
-  }, duration)
+  }, motionDelay(duration))
 }
 
 function restoreParkedSourceReader(duration = 260) {
@@ -1559,7 +1636,7 @@ function restoreParkedSourceReader(duration = 260) {
     detailRestoringFromSourceReader.value = false
     detailSourceExitProgress.value = 1
     detailListReturnCommitted.value = true
-  }, duration)
+  }, motionDelay(duration))
 }
 
 function closeItemReader() {
@@ -1590,6 +1667,9 @@ function collapseItemReader(duration = 360) {
 
   suppressFollowingClick()
   const shouldRestorePreviousParkedDetail = detailOpenedFromSourceReader.value && parkedDetailStack.value.length > 0
+  if (!detailOpenedFromSourceReader.value) {
+    refreshDetailFeedOriginRect(true)
+  }
   if (detailOpenedFromSourceReader.value && readerSource.value) {
     sourceReaderVisible.value = true
   }
@@ -1608,7 +1688,7 @@ function collapseItemReader(duration = 360) {
       return
     }
     closeItemReader()
-  }, duration)
+  }, motionDelay(duration))
 }
 
 function restoreItemReaderExpansion(duration = 360) {
@@ -1623,13 +1703,14 @@ function restoreItemReaderExpansion(duration = 360) {
   detailRestoringFromSourceReader.value = false
   detailReturningToFeed.value = false
   detailListReturnCommitted.value = false
+  detailFeedOriginLocked.value = false
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
     detailEntrySettling.value = false
     if (shouldHideSourceAfterRestore) {
       sourceReaderVisible.value = false
     }
-  }, duration)
+  }, motionDelay(duration))
 }
 
 function restoreDetailFromSourceSwipe(duration = 360) {
@@ -1646,7 +1727,8 @@ function restoreDetailFromSourceSwipe(duration = 360) {
     detailSourceItemTargetRect.value = null
     detailSourceNameOriginRect.value = null
     detailSourceNameTargetRect.value = null
-  }, duration)
+    detailTransitionRectsLocked.value = false
+  }, motionDelay(duration))
 }
 
 function completeDetailToSourceReader(duration = 360) {
@@ -1659,6 +1741,7 @@ function completeDetailToSourceReader(duration = 360) {
   }
   const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 0
   sourceReaderVisible.value = true
+  captureDetailSourceTransitionRects(12, { lock: true })
   readerBackDragging.value = false
   detailEntrySettling.value = true
   detailBackExitProgress.value = 0
@@ -1677,7 +1760,7 @@ function completeDetailToSourceReader(duration = 360) {
     detailListReturnCommitted.value = true
     detailSourceExitProgress.value = 1
     restoreMorphingItemContent()
-  }, duration)
+  }, motionDelay(duration))
 }
 
 function noopTopPullStart(_startedWithVisibleChrome: boolean) {}
@@ -1696,7 +1779,7 @@ function settleNavigation(open: boolean) {
     if (!open) {
       navigationProgress.value = 0
     }
-  }, 240)
+  }, motionDelay(220))
 }
 
 function openNavigation() {
@@ -1710,7 +1793,7 @@ function openNavigation() {
   })
   navigationTimer = window.setTimeout(() => {
     navigationSettling.value = false
-  }, 240)
+  }, motionDelay(220))
 }
 
 function closeNavigation() {
@@ -1834,13 +1917,16 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   detailEntrySettling.value = false
   if (deltaX > 0) {
     backSwipeIntent = 'back'
+    if (backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value) {
+      refreshDetailFeedOriginRect(true)
+    }
     if (backSwipeTarget === 'source' && hasParkedDetailSourceState()) {
       detailRestoringFromSourceReader.value = true
     }
     detailReturningToFeed.value = backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value
     if (backSwipeTarget === 'detail' && detailOpenedFromSourceReader.value && readerSource.value) {
       sourceReaderVisible.value = true
-      captureDetailSourceTransitionRects()
+      captureDetailSourceTransitionRects(12, { lock: true })
     }
   } else if (backSwipeTarget === 'detail' && detailItem.value?.source_id && !detailOpenedFromSourceReader.value) {
     backSwipeIntent = 'source'
@@ -1870,6 +1956,9 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     detailReturningToFeed.value = false
   } else if (deltaX > 0) {
     backSwipeIntent = 'back'
+    if (backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value) {
+      refreshDetailFeedOriginRect(true)
+    }
     if (backSwipeTarget === 'source' && (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)) {
       detailRestoringFromSourceReader.value = true
     } else {
@@ -1878,7 +1967,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     detailReturningToFeed.value = backSwipeTarget === 'detail' && !detailOpenedFromSourceReader.value
     if (backSwipeTarget === 'detail' && detailOpenedFromSourceReader.value && readerSource.value) {
       sourceReaderVisible.value = true
-      captureDetailSourceTransitionRects()
+      captureDetailSourceTransitionRects(12, { lock: true })
     }
   } else if (
     backSwipeTarget === 'detail' &&
@@ -2003,7 +2092,7 @@ function finishViewSwipe(nextPath: string | null) {
   viewDragOffset.value = 0
   viewSwipeTimer = window.setTimeout(() => {
     viewSettling.value = false
-  }, 260)
+  }, motionDelay(260))
 }
 
 function handleTouchStart(event: TouchEvent) {
@@ -2597,7 +2686,7 @@ function setTopChromeVisible(visible: boolean) {
   topChromeProgress.value = nextProgress
   feedChromeSettleTimer = window.setTimeout(() => {
     feedChromeSettling.value = false
-  }, 800)
+  }, motionDelay(800))
 }
 
 function currentContentScrollTop() {
@@ -2764,7 +2853,7 @@ function settlePagePullOffset() {
   pagePullOffset.value = 0
   pagePullSettleTimer = window.setTimeout(() => {
     pagePullSettling.value = false
-  }, 360)
+  }, motionDelay(360))
 }
 
 function handlePageTouchStart(event: TouchEvent) {
@@ -2894,7 +2983,7 @@ watch(
       window.clearTimeout(feedRefreshSettleTimer)
       feedRefreshSettleTimer = window.setTimeout(() => {
         feedRefreshSettling.value = false
-      }, 260)
+      }, motionDelay(800))
     }
 
     if (!active && !refreshWasActive.value) {
