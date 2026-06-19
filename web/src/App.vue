@@ -339,15 +339,15 @@ const detailSurfaceProgress = computed(() =>
   clamp(detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value))),
 )
 const feedItemPreviewProgress = computed(() => {
-  const movingToSourceList =
+  if (
     sourceReaderVisible.value &&
     detailReaderOpen.value &&
+    !detailParkedBehindSource.value &&
     (detailSourceExitProgress.value > 0 ||
       detailRestoringFromSourceReader.value ||
       (detailOpenedFromSourceReader.value && detailBackExitProgress.value > 0))
-
-  if (movingToSourceList && !detailParkedBehindSource.value) {
-    return 0
+  ) {
+    return clamp(Math.max(detailSourceExitProgress.value, detailBackExitProgress.value))
   }
 
   if (detailParkedBehindSource.value) {
@@ -513,15 +513,27 @@ const detailHeaderTitleStyle = computed(() => {
     transition: readerBackDragging.value ? 'none' : undefined,
   }
 })
-const detailInlineSourceStyle = computed(() => ({
-  opacity: (sourceNameMorphActive.value ? 0 : 1 - sourceNameMorphProgress.value).toFixed(3),
-  transform: 'translate3d(0, 0, 0)',
-  transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease',
-}))
-const detailMorphSourceLabelStyle = computed(() => ({
-  opacity: (sourceNameMorphActive.value ? 0 : 1 - sourceNameMorphProgress.value).toFixed(3),
-  transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease',
-}))
+const detailInlineSourceStyle = computed(() => {
+  const progress = sourceNameMorphProgress.value
+  const opacity = sourceNameMorphActive.value ? clamp((0.2 - progress) / 0.2) : 1 - progress
+  const blur = sourceNameMorphActive.value ? clamp(progress / 0.2) * 2.2 : progress * 1.8
+  return {
+    opacity: opacity.toFixed(3),
+    filter: `blur(${blur.toFixed(2)}px)`,
+    transform: 'translate3d(0, 0, 0)',
+    transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease, filter 220ms ease',
+  }
+})
+const detailMorphSourceLabelStyle = computed(() => {
+  const progress = sourceNameMorphProgress.value
+  const opacity = sourceNameMorphActive.value ? clamp((0.2 - progress) / 0.2) : 1 - progress
+  const blur = sourceNameMorphActive.value ? clamp(progress / 0.2) * 2.2 : progress * 1.8
+  return {
+    opacity: opacity.toFixed(3),
+    filter: `blur(${blur.toFixed(2)}px)`,
+    transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease, filter 220ms ease',
+  }
+})
 const sourceNameMorphProgress = computed(() =>
   clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
 )
@@ -567,7 +579,7 @@ const sourceNameMorphStyle = computed(() => {
   const top = origin.top + (target.top - origin.top) * progress
   const width = origin.width + (target.width - origin.width) * progress
   const size = 13 + (12 - 13) * progress
-  const fadeOut = clamp((progress - 0.82) / 0.18)
+  const fadeOut = clamp((progress - 0.68) / 0.22)
   const opacity = clamp(1 - fadeOut)
   const blur = Math.sin(progress * Math.PI) * 1.4 + fadeOut * 1.8
 
@@ -607,7 +619,7 @@ const sourceTitleTextStyle = computed(() => ({
   display: 'inline-block',
 }))
 const sourceTitleRevealStyle = computed(() => {
-  const progress = clamp(sourceTitleProgress.value / 0.55)
+  const progress = clamp((sourceTitleProgress.value - 0.72) / 0.22)
   const left = windowWidth.value <= 720 ? 72 : 80
   const right = windowWidth.value <= 720 ? 104 : 120
   const top = (feedHeaderHeight.value - 44) / 2
