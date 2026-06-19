@@ -501,11 +501,20 @@ const sourceNameMorphStyle = computed(() => {
       : 'left 360ms cubic-bezier(0.2, 0.8, 0.2, 1), top 360ms cubic-bezier(0.2, 0.8, 0.2, 1), width 360ms cubic-bezier(0.2, 0.8, 0.2, 1), font-size 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease',
   }
 })
-const sourceTitleLayerStyle = computed(() => ({
-  opacity: sourceTitleProgress.value.toFixed(3),
-  transform: `translate3d(0, ${Math.round((1 - sourceTitleProgress.value) * 6)}px, 0)`,
-  transition: readerBackDragging.value ? 'none' : 'opacity 360ms ease, transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1)',
-}))
+const sourceTitleLayerStyle = computed(() => {
+  const progress = clamp(sourceTitleProgress.value / 0.72)
+  return {
+    opacity: progress.toFixed(3),
+    transform: `translate3d(0, ${Math.round((1 - progress) * 10)}px, 0) scale(${(
+      0.97 +
+      progress * 0.03
+    ).toFixed(3)})`,
+    filter: `blur(${((1 - progress) * 2).toFixed(2)}px)`,
+    transition: readerBackDragging.value
+      ? 'none'
+      : 'opacity 420ms ease, transform 420ms cubic-bezier(0.16, 1, 0.3, 1), filter 420ms ease',
+  }
+})
 const sourceTitleTextStyle = computed(() => ({
   display: 'inline-block',
 }))
@@ -1517,7 +1526,9 @@ function completeDetailToSourceReader(duration = 360) {
   detailListReturnCommitted.value = false
   window.clearTimeout(detailEntryTimer)
   requestAnimationFrame(() => {
-    detailSourceExitProgress.value = 1
+    requestAnimationFrame(() => {
+      detailSourceExitProgress.value = 1
+    })
   })
   detailEntryTimer = window.setTimeout(() => {
     detailEntrySettling.value = false
