@@ -730,7 +730,6 @@ ${body}
   let startX = 0;
   let startY = 0;
   let tracking = false;
-  let notifiedStart = false;
   let intent = null;
   let scrollTicking = false;
   let resizeObserver = null;
@@ -746,11 +745,6 @@ ${body}
       dy: touch.clientY - startY,
       source: 'detail-frame'
     }, '*');
-  };
-  const ensureStart = (touch) => {
-    if (notifiedStart) return;
-    notifiedStart = true;
-    post('start', touch);
   };
   const currentScrollTop = () => {
     const doc = document.documentElement;
@@ -807,42 +801,42 @@ ${body}
     startX = event.touches[0].clientX;
     startY = event.touches[0].clientY;
     tracking = true;
-    notifiedStart = false;
     intent = null;
-  }, { passive: true });
+    post('start', event.touches[0]);
+  }, { passive: true, capture: true });
   window.addEventListener('touchmove', (event) => {
     if (!tracking || event.touches.length !== 1) return;
     const touch = event.touches[0];
     const dx = touch.clientX - startX;
     const dy = touch.clientY - startY;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
     if (!intent) {
-      const absX = Math.abs(dx);
-      const absY = Math.abs(dy);
-      if (absX > 6 && absX > absY * 0.92) {
+      if (absX > 3 && absX > absY * 0.52) {
         intent = 'horizontal';
       } else {
+        post('move', touch);
         return;
       }
     }
-    event.preventDefault();
-    ensureStart(touch);
+    if (event.cancelable) {
+      event.preventDefault();
+    }
     post('move', touch);
-  }, { passive: false });
+  }, { passive: false, capture: true });
   window.addEventListener('touchcancel', (event) => {
     const touch = event.changedTouches[0];
-    if (tracking && touch && notifiedStart) post('cancel', touch);
+    if (tracking && touch) post('cancel', touch);
     tracking = false;
-    notifiedStart = false;
     intent = null;
-  }, { passive: true });
+  }, { passive: true, capture: true });
   window.addEventListener('touchend', (event) => {
     const touch = event.changedTouches[0];
     if (!touch) return;
-    if (tracking && notifiedStart) post('end', touch);
+    if (tracking) post('end', touch);
     tracking = false;
-    notifiedStart = false;
     intent = null;
-  }, { passive: true });
+  }, { passive: true, capture: true });
 })();
 <\/script>
 </body>
@@ -1810,7 +1804,7 @@ function prepareDetailSourceReaderPreload() {
 }
 
 function isDetailFrameHorizontalSwipe(deltaX: number, deltaY: number) {
-  return Math.abs(deltaX) > 5 && Math.abs(deltaX) > Math.abs(deltaY) * 0.72
+  return Math.abs(deltaX) > 3 && Math.abs(deltaX) > Math.abs(deltaY) * 0.52
 }
 
 function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame = false) {
@@ -2549,6 +2543,7 @@ function handleMessage(event: MessageEvent) {
       resetGestureTracking()
       return
     }
+    resetGestureTracking()
     return
   }
 
@@ -2571,6 +2566,7 @@ function handleMessage(event: MessageEvent) {
         resetBackSwipeOffset()
       }
     }
+    resetGestureTracking()
   }
 }
 
