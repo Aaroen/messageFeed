@@ -64,6 +64,7 @@ const detailFrameRef = ref<HTMLIFrameElement | null>(null)
 const detailInlineSourceRef = ref<HTMLElement | null>(null)
 const sourceTitleTextRef = ref<HTMLElement | null>(null)
 const detailProgressTrackRef = ref<HTMLElement | null>(null)
+const detailProgressBarRef = ref<HTMLElement | null>(null)
 const feedScrollTop = ref(0)
 const sourceReaderScrollTop = ref(0)
 const detailReaderTouchOffset = ref(0)
@@ -727,7 +728,8 @@ ${body}
       x: touch.clientX,
       y: touch.clientY,
       dx: touch.clientX - startX,
-      dy: touch.clientY - startY
+      dy: touch.clientY - startY,
+      source: 'detail-frame'
     }, '*');
   };
   const ensureStart = (touch) => {
@@ -801,7 +803,7 @@ ${body}
     if (!intent) {
       const absX = Math.abs(dx);
       const absY = Math.abs(dy);
-      if (absX > 8 && absX > absY * 1.28) {
+      if (absX > 6 && absX > absY * 0.92) {
         intent = 'horizontal';
       } else {
         return;
@@ -1763,8 +1765,13 @@ function prepareDetailSourceReaderPreload() {
   )
 }
 
-function beginBackSwipeIfAllowed(deltaX: number, deltaY: number) {
-  if (!trackingBackSwipeCandidate || !isBackHorizontalSwipe(deltaX, deltaY)) {
+function isDetailFrameHorizontalSwipe(deltaX: number, deltaY: number) {
+  return Math.abs(deltaX) > 5 && Math.abs(deltaX) > Math.abs(deltaY) * 0.72
+}
+
+function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame = false) {
+  const horizontal = fromDetailFrame ? isDetailFrameHorizontalSwipe(deltaX, deltaY) : isBackHorizontalSwipe(deltaX, deltaY)
+  if (!trackingBackSwipeCandidate || !horizontal) {
     return false
   }
 
@@ -1810,8 +1817,8 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number) {
   return true
 }
 
-function updateBackSwipe(deltaX: number, deltaY: number) {
-  beginBackSwipeIfAllowed(deltaX, deltaY)
+function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false) {
+  beginBackSwipeIfAllowed(deltaX, deltaY, fromDetailFrame)
 
   if (!trackingBackSwipe) {
     return false
@@ -2375,7 +2382,7 @@ function scrollDetailFrameTo(top: number) {
 }
 
 function updateDetailProgressFromPointer(clientY: number) {
-  const track = detailProgressTrackRef.value
+  const track = detailProgressBarRef.value ?? detailProgressTrackRef.value
   if (!track || detailScrollMax.value <= 0) {
     return
   }
@@ -2462,6 +2469,7 @@ function handleMessage(event: MessageEvent) {
 
   const payload = event.data as {
     phase?: 'start' | 'move' | 'end' | 'cancel'
+    source?: string
     startX?: number
     startY?: number
     dx?: number
@@ -2471,6 +2479,7 @@ function handleMessage(event: MessageEvent) {
   const startY = Number(payload.startY ?? 0)
   const deltaX = Number(payload.dx ?? 0)
   const deltaY = Number(payload.dy ?? 0)
+  const fromDetailFrame = payload.source === 'detail-frame'
 
   if (payload.phase === 'start') {
     touchStartX = startX
@@ -2485,7 +2494,7 @@ function handleMessage(event: MessageEvent) {
   }
 
   if (payload.phase === 'move') {
-    updateBackSwipe(deltaX, deltaY)
+    updateBackSwipe(deltaX, deltaY, fromDetailFrame)
     return
   }
 
@@ -3314,7 +3323,7 @@ onUnmounted(() => {
         @pointercancel="finishDetailProgressDrag"
         @touchstart.stop.prevent
       >
-        <div class="reader-detail-progress__track">
+        <div ref="detailProgressBarRef" class="reader-detail-progress__track">
           <div class="reader-detail-progress__fill" :style="detailProgressFillStyle" />
           <div class="reader-detail-progress__thumb" :style="detailProgressThumbStyle" />
         </div>

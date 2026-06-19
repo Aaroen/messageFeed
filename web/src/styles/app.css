@@ -1583,9 +1583,10 @@ body[arco-theme='dark'] .reader-back-button {
 .reader-detail-progress {
   position: fixed;
   z-index: 135;
-  width: 16px;
-  padding: 8px 6px;
+  width: 28px;
+  padding: 8px 12px;
   border-radius: 999px;
+  cursor: pointer;
   opacity: 0;
   touch-action: none;
   transition:
@@ -1612,7 +1613,7 @@ body[arco-theme='dark'] .reader-back-button {
 .reader-detail-progress__fill {
   position: absolute;
   right: 0;
-  bottom: 0;
+  top: 0;
   left: 0;
   border-radius: inherit;
   background: var(--mf-primary);
