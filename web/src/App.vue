@@ -8,7 +8,7 @@ import {
   IconSettings,
   IconSunFill,
 } from '@arco-design/web-vue/es/icon'
-import { useRoute, useRouter } from 'vue-router'
+import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import {
@@ -146,7 +146,7 @@ const sourceCatalogEntry = ref<SourceCatalogEntry | null>(null)
 const sourceSubscription = ref<Source | null>(null)
 const sourceSubscriptionLoading = ref(false)
 const sourceNotice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
-const sourceTimelinePreloadEnabled = ref(true)
+const sourceTimelinePreloadEnabled = ref(false)
 const detailTransitionRectsLocked = ref(false)
 const detailFeedOriginLocked = ref(false)
 const readerMorphDuration = 360
@@ -155,6 +155,7 @@ const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
 const readerRectRetryDelay = 64
 const readerSessionStorageKey = 'messagefeed-reader-session-v1'
 const readerSessionMaxAgeMs = 24 * 60 * 60 * 1000
+const readerURLQueryKeys = ['item', 'itemKind', 'source', 'sourceKind'] as const
 const homeExitDoubleBackMs = 1600
 
 const selectedKeys = computed(() => [route.name?.toString() ?? 'subscriptions'])
@@ -1049,6 +1050,7 @@ let pagePullSettleTimer = 0
 let readerSessionSaveTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let programmaticRouteNavigation = false
+let readerURLSyncing = false
 let readerSessionRestoring = false
 let virtualBackHandledAt = 0
 let lastHomeBackAttemptAt = 0
@@ -1120,6 +1122,72 @@ async function replaceRoute(path: string) {
       programmaticRouteNavigation = false
     }, 0)
   }
+}
+
+function readerQueryBase() {
+  const query: LocationQueryRaw = { ...route.query }
+  for (const key of readerURLQueryKeys) {
+    delete query[key]
+  }
+  return query
+}
+
+function readerQueryValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? '')).join('\u0001')
+  }
+  return value == null ? '' : String(value)
+}
+
+function readerQueriesEqual(left: Record<string, unknown>, right: Record<string, unknown>) {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
+  for (const key of keys) {
+    if (readerQueryValue(left[key]) !== readerQueryValue(right[key])) {
+      return false
+    }
+  }
+  return true
+}
+
+function readerURLQuery() {
+  const query = readerQueryBase()
+  if (sourceReaderOpen.value && readerSource.value) {
+    query.source = String(readerSource.value.id)
+    query.sourceKind = readerSource.value.kind
+  }
+  if (detailItem.value?.id) {
+    query.item = String(detailItem.value.id)
+    query.itemKind = detailSourceKind.value
+  }
+  return query
+}
+
+async function syncReaderURLToState() {
+  if (readerURLSyncing || readerSessionRestoring || !route.name) {
+    return
+  }
+
+  const query = readerURLQuery()
+  if (readerQueriesEqual(route.query, query)) {
+    return
+  }
+
+  readerURLSyncing = true
+  programmaticRouteNavigation = true
+  try {
+    await router.replace({ name: route.name, query })
+  } finally {
+    window.setTimeout(() => {
+      readerURLSyncing = false
+      programmaticRouteNavigation = false
+    }, 0)
+  }
+}
+
+function scheduleReaderURLAndHistorySync(forcePush = false) {
+  void syncReaderURLToState().finally(() => {
+    nextTick(() => syncVirtualHistoryState(forcePush))
+  })
 }
 
 function handleMenuClick(key: string) {
@@ -1668,7 +1736,8 @@ async function restoreReaderSession() {
   readerSessionRestoring = true
   try {
     if (snapshot.routeFullPath && route.fullPath !== snapshot.routeFullPath) {
-      await replaceRoute(snapshot.routeFullPath)
+      window.sessionStorage.removeItem(readerSessionStorageKey)
+      return
     }
 
     feedScrollTop.value = snapshot.feedScrollTop || 0
@@ -1713,7 +1782,7 @@ async function restoreReaderSession() {
     nextTick(() => {
       readerSessionRestoring = false
       scheduleReaderSessionSave()
-      syncVirtualHistoryState()
+      scheduleReaderURLAndHistorySync()
     })
   }
 }
@@ -1833,8 +1902,7 @@ function consumeSystemBack() {
 
   virtualBackHandledAt = Date.now()
   scheduleReaderSessionSave()
-  syncVirtualHistoryState(true)
-  nextTick(() => syncVirtualHistoryState(true))
+  scheduleReaderURLAndHistorySync(true)
   return true
 }
 
@@ -2336,11 +2404,11 @@ function collapseItemReader(duration = 360) {
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
     if (shouldRestorePreviousParkedDetail && restorePreviousParkedDetail()) {
-      nextTick(() => syncVirtualHistoryState(true))
+      scheduleReaderURLAndHistorySync(true)
       return
     }
     closeItemReader()
-    nextTick(() => syncVirtualHistoryState(true))
+    scheduleReaderURLAndHistorySync(true)
   }, motionDelay(duration))
 }
 
@@ -3361,7 +3429,7 @@ function handleMessage(event: MessageEvent) {
 }
 
 function loadReaderSettings() {
-  sourceTimelinePreloadEnabled.value = localStorage.getItem('messagefeed-source-preload') !== 'false'
+  sourceTimelinePreloadEnabled.value = localStorage.getItem('messagefeed-source-preload') === 'true'
 }
 
 function handleReaderSettingsChanged(event: Event) {
@@ -3675,7 +3743,7 @@ watch(
       })
     }
     scheduleReaderSessionSave()
-    nextTick(syncVirtualHistoryState)
+    scheduleReaderURLAndHistorySync()
   },
 )
 
@@ -3696,7 +3764,7 @@ watch(
   ],
   () => {
     scheduleReaderSessionSave()
-    nextTick(syncVirtualHistoryState)
+    scheduleReaderURLAndHistorySync()
   },
 )
 
@@ -3767,7 +3835,7 @@ onMounted(() => {
     return consumeSystemBack() ? false : true
   })
   void restoreReaderSession().finally(() => {
-    nextTick(syncVirtualHistoryState)
+    scheduleReaderURLAndHistorySync()
   })
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('resize', handleResize)

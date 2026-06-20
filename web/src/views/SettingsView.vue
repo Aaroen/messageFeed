@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-const sourceTimelinePreload = ref(true)
+const sourceTimelinePreload = ref(false)
 
 function loadSettings() {
-  sourceTimelinePreload.value = localStorage.getItem('messagefeed-source-preload') !== 'false'
+  sourceTimelinePreload.value = localStorage.getItem('messagefeed-source-preload') === 'true'
 }
 
 function updateSourceTimelinePreload() {
