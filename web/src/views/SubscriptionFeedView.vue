@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { formatAPIError } from '@/api/client'
 import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
+import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
 
 type FeedMode = 'subscriptions' | 'recommendations' | 'source'
 type SourceKind = 'subscriptions' | 'recommendations'
@@ -50,6 +51,7 @@ const emit = defineEmits<{
 }>()
 
 const feedInteraction = useFeedInteractionStore()
+const feedListCache = useFeedListCacheStore()
 const items = ref<FeedItem[]>([])
 const loading = ref(false)
 const refreshing = ref(false)
@@ -71,6 +73,7 @@ const pullThreshold = 76
 const pullMaxOffset = 116
 const emptyPullMaxOffset = 88
 const pageSize = 10
+const cacheTTLMS = 60 * 1000
 const verticalLockRatio = 1.18
 const motionCleanupBuffer = 96
 let touchStartY = 0
@@ -255,6 +258,72 @@ function mergeItems(currentItems: FeedItem[], nextItems: FeedItem[]) {
   return sortItemsDescending(Array.from(itemMap.values()))
 }
 
+function cacheEntryIsFresh(entry: FeedListCacheEntry) {
+  return Date.now() - entry.cachedAt <= cacheTTLMS
+}
+
+function restoreItemsFromCache() {
+  const entry = feedListCache.get(viewKey.value)
+  if (!entry) {
+    return null
+  }
+
+  items.value = sortItemsDescending(entry.items)
+  totalCount.value = entry.total
+  nextOffset.value = entry.nextOffset
+  reachedEnd.value = entry.reachedEnd
+  lastUpdatedAt.value = entry.lastUpdatedAt
+  error.value = ''
+  scheduleLoadMoreObserver()
+  return entry
+}
+
+function writeItemsToCache() {
+  feedListCache.set(viewKey.value, {
+    items: items.value,
+    total: totalCount.value,
+    nextOffset: nextOffset.value,
+    reachedEnd: reachedEnd.value,
+    lastUpdatedAt: lastUpdatedAt.value,
+    cachedAt: Date.now(),
+  })
+}
+
+function shouldRefreshCache(entry: FeedListCacheEntry | null) {
+  return !entry || !cacheEntryIsFresh(entry)
+}
+
+function loadInitialItems() {
+  const restored = restoreItemsFromCache()
+  if (!props.active) {
+    return
+  }
+  if (!restored) {
+    void loadItems({ refresh: isSourceMode.value })
+    return
+  }
+  if (shouldRefreshCache(restored)) {
+    void loadItems({ refresh: true, background: true })
+  }
+}
+
+function refreshStaleCacheInBackground() {
+  if (!props.active || loading.value || refreshing.value || loadingMore.value) {
+    return
+  }
+  const entry = feedListCache.get(viewKey.value)
+  if (!entry || cacheEntryIsFresh(entry)) {
+    return
+  }
+  void loadItems({ refresh: true, background: true })
+}
+
+function handleVisibilityRefresh() {
+  if (document.visibilityState === 'visible') {
+    refreshStaleCacheInBackground()
+  }
+}
+
 function feedItemStyle(item: FeedItem) {
   const style: Record<string, string> = {}
   const locksHeight =
@@ -337,18 +406,19 @@ async function refreshSubscriptionSources() {
   }
 }
 
-async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) {
+async function loadItems(options: { refresh?: boolean; append?: boolean; background?: boolean } = {}) {
   const isRefresh = Boolean(options.refresh)
   const isAppend = Boolean(options.append)
+  const isBackground = Boolean(options.background)
   if (loading.value || refreshing.value || loadingMore.value || (isAppend && !canLoadMore.value)) {
     return
   }
   error.value = ''
   if (isAppend) {
     loadingMore.value = true
-  } else if (isRefresh) {
+  } else if (isRefresh && !isBackground) {
     refreshing.value = true
-  } else {
+  } else if (!isBackground) {
     loading.value = true
   }
   try {
@@ -386,17 +456,18 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
     nextOffset.value = requestOffset + nextItems.length
     reachedEnd.value = nextItems.length < pageSize || nextOffset.value >= nextTotal
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    if (!props.backgroundRefresh && refreshNotice) {
+    writeItemsToCache()
+    if (!props.backgroundRefresh && !isBackground && refreshNotice) {
       showFeedNotice(refreshNotice.type, refreshNotice.message, 180)
-    } else if (!props.backgroundRefresh && autoFetchNotice && autoFetchNotice.type === 'warning') {
+    } else if (!props.backgroundRefresh && !isBackground && autoFetchNotice && autoFetchNotice.type === 'warning') {
       showFeedNotice(autoFetchNotice.type, autoFetchNotice.message)
-    } else if (!props.backgroundRefresh && isRefresh) {
+    } else if (!props.backgroundRefresh && !isBackground && isRefresh) {
       showFeedNotice('success', '刷新成功', 180)
     }
   } catch (err) {
     const message = formatAPIError(err)
     if (isRefresh) {
-      if (props.backgroundRefresh) {
+      if (props.backgroundRefresh || isBackground) {
         error.value = `刷新失败：${message}`
       } else {
         showFeedNotice('warning', `刷新失败：${message}`, 180)
@@ -415,7 +486,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
       return
     }
 
-    if (props.backgroundRefresh) {
+    if (props.backgroundRefresh || isBackground) {
       pullOffset.value = 0
       refreshing.value = false
       pullStartedWithVisibleChrome.value = false
@@ -628,9 +699,9 @@ function handleTouchCancel() {
 }
 
 onMounted(() => {
-  if (props.active) {
-    void loadItems({ refresh: isSourceMode.value })
-  }
+  loadInitialItems()
+  window.addEventListener('focus', refreshStaleCacheInBackground)
+  document.addEventListener('visibilitychange', handleVisibilityRefresh)
 })
 
 onUnmounted(() => {
@@ -638,6 +709,8 @@ onUnmounted(() => {
   window.clearTimeout(loadMoreSyncTimer)
   window.clearTimeout(feedNoticeTimer)
   stopLoadMoreObserver()
+  window.removeEventListener('focus', refreshStaleCacheInBackground)
+  document.removeEventListener('visibilitychange', handleVisibilityRefresh)
   if (usesGlobalPullState.value && feedInteraction.pullViewKey === viewKey.value) {
     feedInteraction.resetPullState()
   }
@@ -650,8 +723,13 @@ watch(
       resetPullGesture(true)
       return
     }
+    const restored = hasItems.value ? feedListCache.get(viewKey.value) : restoreItemsFromCache()
     if (!hasItems.value && !loading.value) {
-      void loadItems()
+      void loadItems({ refresh: isSourceMode.value })
+      return
+    }
+    if (shouldRefreshCache(restored)) {
+      void loadItems({ refresh: true, background: true })
     }
   },
 )
@@ -660,7 +738,7 @@ watch(
   () => [props.mode, props.sourceKind, props.sourceId] as const,
   () => {
     if (props.active) {
-      void loadItems({ refresh: isSourceMode.value })
+      loadInitialItems()
     }
   },
 )
