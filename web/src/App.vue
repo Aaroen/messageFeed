@@ -140,8 +140,8 @@ const {
   applyDetailFeedOriginRectState,
   applyDetailSourceTransitionRectsState,
   applyVisibleSourceReturnTargetState,
-  beginRestoreMorphingItemContentState,
-  finishRestoreMorphingItemContentState,
+  clearMorphingHeightUnlockTimer,
+  restoreMorphingItemContentWithDelay,
   revealSourceReaderUnderDetailState,
   beginReaderMotionSettlingState,
   finishReaderMotionSettlingState,
@@ -1220,7 +1220,6 @@ let viewSwipeTimer = 0
 let readerMotionTimer = 0
 let detailEntryTimer = 0
 let detailHeaderSwapTimer = 0
-let morphingHeightUnlockTimer = 0
 let hiddenSourceCleanupTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
@@ -1636,11 +1635,7 @@ function setDetailFrameElement(element: HTMLIFrameElement | null) {
 }
 
 function restoreMorphingItemContent(unlockDelay = 180) {
-  beginRestoreMorphingItemContentState()
-  window.clearTimeout(morphingHeightUnlockTimer)
-  morphingHeightUnlockTimer = window.setTimeout(() => {
-    finishRestoreMorphingItemContentState()
-  }, unlockDelay)
+  restoreMorphingItemContentWithDelay(unlockDelay)
 }
 
 function scheduleHiddenSourceReaderCleanup(delay = 180) {
@@ -1924,7 +1919,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
 }
 
 async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
-  window.clearTimeout(morphingHeightUnlockTimer)
+  clearMorphingHeightUnlockTimer()
   window.clearTimeout(hiddenSourceCleanupTimer)
   const openedFromSourceReader =
     sourceReaderOpen.value && readerSource.value?.id === item.source_id && readerSource.value.kind === sourceKind
@@ -2013,7 +2008,7 @@ function restoreDetailFromParkedSource(duration = 360) {
 
   suppressFollowingClick()
   window.clearTimeout(detailEntryTimer)
-  window.clearTimeout(morphingHeightUnlockTimer)
+  clearMorphingHeightUnlockTimer()
   captureVisibleSourceReturnTarget()
   beginRestoreDetailFromParkedSourceState()
   setTopChromeVisible(true)
@@ -3616,7 +3611,7 @@ onUnmounted(() => {
   window.clearTimeout(readerMotionTimer)
   window.clearTimeout(detailEntryTimer)
   window.clearTimeout(detailHeaderSwapTimer)
-  window.clearTimeout(morphingHeightUnlockTimer)
+  clearMorphingHeightUnlockTimer()
   window.clearTimeout(hiddenSourceCleanupTimer)
   readerSession.clearTimer()
 })

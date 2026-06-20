@@ -138,6 +138,8 @@ function updateStretchAnchor(anchorRef: { value: 'left' | 'right' | null }, stre
 }
 
 export function useReaderStackState() {
+  let morphingHeightUnlockTimer = 0
+
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
   const detailContentRef = ref<HTMLElement | null>(null)
   const detailFrameRef = ref<HTMLIFrameElement | null>(null)
@@ -658,6 +660,18 @@ export function useReaderStackState() {
     morphingItemHeight.value = null
   }
 
+  function clearMorphingHeightUnlockTimer() {
+    window.clearTimeout(morphingHeightUnlockTimer)
+  }
+
+  function restoreMorphingItemContentWithDelay(unlockDelay = 180) {
+    beginRestoreMorphingItemContentState()
+    clearMorphingHeightUnlockTimer()
+    morphingHeightUnlockTimer = window.setTimeout(() => {
+      finishRestoreMorphingItemContentState()
+    }, unlockDelay)
+  }
+
   function revealSourceReaderUnderDetailState() {
     sourceReaderVisible.value = true
   }
@@ -1078,6 +1092,8 @@ export function useReaderStackState() {
     applyVisibleSourceReturnTargetState,
     beginRestoreMorphingItemContentState,
     finishRestoreMorphingItemContentState,
+    clearMorphingHeightUnlockTimer,
+    restoreMorphingItemContentWithDelay,
     revealSourceReaderUnderDetailState,
     beginReaderMotionSettlingState,
     finishReaderMotionSettlingState,
