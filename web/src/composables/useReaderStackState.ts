@@ -867,6 +867,14 @@ export function useReaderStackState() {
     }
   }
 
+  function restoreItemReaderExpansionWithDelay(delay: number) {
+    const result = beginRestoreItemReaderExpansionState()
+    clearDetailEntryTimer()
+    setDetailEntryTimer(() => {
+      finishRestoreItemReaderExpansionState(result.shouldHideSourceAfterRestore)
+    }, delay)
+  }
+
   function beginRestoreDetailFromSourceSwipeState() {
     readerBackDragging.value = false
     detailEntrySettling.value = true
@@ -883,6 +891,14 @@ export function useReaderStackState() {
     detailSourceNameOriginRect.value = null
     detailSourceNameTargetRect.value = null
     detailTransitionRectsLocked.value = false
+  }
+
+  function restoreDetailFromSourceSwipeWithDelay(delay: number) {
+    beginRestoreDetailFromSourceSwipeState()
+    clearDetailEntryTimer()
+    setDetailEntryTimer(() => {
+      finishRestoreDetailFromSourceSwipeState()
+    }, delay)
   }
 
   function beginCompleteDetailToSourceReaderState() {
@@ -1204,8 +1220,10 @@ export function useReaderStackState() {
     beginCollapseItemReaderState,
     beginRestoreItemReaderExpansionState,
     finishRestoreItemReaderExpansionState,
+    restoreItemReaderExpansionWithDelay,
     beginRestoreDetailFromSourceSwipeState,
     finishRestoreDetailFromSourceSwipeState,
+    restoreDetailFromSourceSwipeWithDelay,
     beginCompleteDetailToSourceReaderState,
     commitCompleteDetailToSourceReaderState,
     finishCompleteDetailToSourceReaderState,

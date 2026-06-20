@@ -154,10 +154,8 @@ const {
   clearSourceReaderReturnModeState,
   closeItemReaderState,
   beginCollapseItemReaderState,
-  beginRestoreItemReaderExpansionState,
-  finishRestoreItemReaderExpansionState,
-  beginRestoreDetailFromSourceSwipeState,
-  finishRestoreDetailFromSourceSwipeState,
+  restoreItemReaderExpansionWithDelay,
+  restoreDetailFromSourceSwipeWithDelay,
   beginCompleteDetailToSourceReaderState,
   commitCompleteDetailToSourceReaderState,
   finishCompleteDetailToSourceReaderState,
@@ -2028,19 +2026,11 @@ function collapseItemReader(duration = 360) {
 }
 
 function restoreItemReaderExpansion(duration = 360) {
-  const result = beginRestoreItemReaderExpansionState()
-  clearDetailEntryTimer()
-  setDetailEntryTimer(() => {
-    finishRestoreItemReaderExpansionState(result.shouldHideSourceAfterRestore)
-  }, motionDelay(duration))
+  restoreItemReaderExpansionWithDelay(motionDelay(duration))
 }
 
 function restoreDetailFromSourceSwipe(duration = 360) {
-  beginRestoreDetailFromSourceSwipeState()
-  clearDetailEntryTimer()
-  setDetailEntryTimer(() => {
-    finishRestoreDetailFromSourceSwipeState()
-  }, motionDelay(duration))
+  restoreDetailFromSourceSwipeWithDelay(motionDelay(duration))
 }
 
 function completeDetailToSourceReader(duration = 360) {
