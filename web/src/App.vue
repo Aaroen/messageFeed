@@ -132,6 +132,7 @@ const {
   closeVisibleSourceReaderState,
   clearSourceReaderState,
   beginOpenItemReaderState,
+  closeItemReaderState,
   detailBlocksGestures,
 } = useReaderStackState()
 const {
@@ -2098,35 +2099,15 @@ function restoreParkedSourceReader(duration = 260) {
 }
 
 function closeItemReader() {
-  const previousSourceReturnMode = sourceReaderReturnMode.value
-  detailItem.value = null
-  detailError.value = ''
-  detailLoading.value = false
-  detailHeaderPreviousTitle.value = ''
-  detailHeaderSwapProgress.value = 1
   window.clearTimeout(detailHeaderSwapTimer)
   restoreMorphingItemContent()
-  detailOpenedFromSourceReader.value = false
-  detailRestoringFromSourceReader.value = false
-  detailScrollTop.value = 0
-  detailScrollHeight.value = 0
-  detailScrollClientHeight.value = 0
-  detailFrameContentHeight.value = 0
-  detailProgressDragging.value = false
+  const result = closeItemReaderState()
   activeDetailProgressPointerId = null
-  detailReaderTouchOffset.value = 0
-  detailReaderStretch.value = 0
-  resetDetailTransition()
   if (isFeedRoute.value) {
     setTopChromeVisible(true)
     setChromeContentCollapsed(false)
   }
-  if (sourceReaderVisible.value && previousSourceReturnMode === 'detail') {
-    sourceReaderReturnMode.value = 'detail'
-  } else if (!sourceReaderVisible.value) {
-    sourceReaderReturnMode.value = null
-    sourceReaderBackDetail.value = null
-    parkedDetailStack.value = []
+  if (result.shouldScheduleHiddenSourceCleanup) {
     scheduleHiddenSourceReaderCleanup()
   }
 }

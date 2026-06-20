@@ -36,6 +36,10 @@ type BeginOpenItemReaderStateOptions = {
   originRect: RectSnapshot | null
 }
 
+type CloseItemReaderStateResult = {
+  shouldScheduleHiddenSourceCleanup: boolean
+}
+
 type ReaderStackSessionSnapshot = Pick<
   ReaderSessionSnapshot,
   | 'sourceReaderScrollTop'
@@ -464,6 +468,39 @@ export function useReaderStackState() {
     sourceReaderVisible.value = openedFromSourceReader
   }
 
+  function closeItemReaderState(): CloseItemReaderStateResult {
+    const previousSourceReturnMode = sourceReaderReturnMode.value
+    detailItem.value = null
+    detailError.value = ''
+    detailLoading.value = false
+    detailHeaderPreviousTitle.value = ''
+    detailHeaderSwapProgress.value = 1
+    detailOpenedFromSourceReader.value = false
+    detailRestoringFromSourceReader.value = false
+    detailScrollTop.value = 0
+    detailScrollHeight.value = 0
+    detailScrollClientHeight.value = 0
+    detailFrameContentHeight.value = 0
+    detailProgressDragging.value = false
+    detailReaderTouchOffset.value = 0
+    detailReaderStretch.value = 0
+    resetDetailTransition()
+
+    if (sourceReaderVisible.value && previousSourceReturnMode === 'detail') {
+      sourceReaderReturnMode.value = 'detail'
+      return { shouldScheduleHiddenSourceCleanup: false }
+    }
+
+    if (!sourceReaderVisible.value) {
+      sourceReaderReturnMode.value = null
+      sourceReaderBackDetail.value = null
+      parkedDetailStack.value = []
+      return { shouldScheduleHiddenSourceCleanup: true }
+    }
+
+    return { shouldScheduleHiddenSourceCleanup: false }
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -545,6 +582,7 @@ export function useReaderStackState() {
     closeVisibleSourceReaderState,
     clearSourceReaderState,
     beginOpenItemReaderState,
+    closeItemReaderState,
     detailBlocksGestures,
   }
 }
