@@ -443,6 +443,10 @@ export function useReaderStackState() {
     return restoreParkedDetailSnapshot(parkedDetailStack.value.pop() ?? null, options)
   }
 
+  function restorePreviousParkedDetailIfReaderClosed(options: RestoreParkedDetailOptions = {}) {
+    return !detailReaderOpen.value && parkedDetailStack.value.length > 0 && restorePreviousParkedDetail(options)
+  }
+
   function restoreSourceReaderBackTargetState(
     options: RestoreParkedDetailOptions = {},
   ): RestoreSourceReaderBackTargetStateResult {
@@ -1336,6 +1340,7 @@ export function useReaderStackState() {
     pushParkedDetailSnapshot,
     restoreParkedDetailSnapshot,
     restorePreviousParkedDetail,
+    restorePreviousParkedDetailIfReaderClosed,
     restoreSourceReaderBackTargetState,
     prepareSourceReaderReturnDragState,
     clearHiddenSourceReader,

@@ -123,6 +123,7 @@ const {
   pushParkedDetailSnapshot,
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
+  restorePreviousParkedDetailIfReaderClosed,
   restoreSourceReaderBackTargetState,
   prepareSourceReaderReturnDragState,
   clearHiddenSourceCleanupTimer,
@@ -1912,7 +1913,13 @@ function closeSourceReader() {
     return
   }
 
-  if (!detailReaderOpen.value && parkedDetailStack.value.length > 0 && restorePreviousParkedDetail()) {
+  if (
+    restorePreviousParkedDetailIfReaderClosed({
+      onDetailScrollTop: (scrollTop) => {
+        lastDetailScrollTop = scrollTop
+      },
+    })
+  ) {
     restoreDetailFromParkedSource()
     return
   }
