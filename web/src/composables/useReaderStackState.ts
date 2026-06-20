@@ -64,6 +64,11 @@ type BeginCollapseItemReaderStateResult = {
   shouldRestorePreviousParkedDetail: boolean
 }
 
+type CollapseItemReaderTransitionOptions = {
+  afterBegin?: (result: BeginCollapseItemReaderStateResult) => void
+  afterFinish?: (result: BeginCollapseItemReaderStateResult) => void
+}
+
 type BeginRestoreItemReaderExpansionStateResult = {
   shouldHideSourceAfterRestore: boolean
 }
@@ -855,6 +860,18 @@ export function useReaderStackState() {
     }
   }
 
+  function collapseItemReaderWithDelay(
+    delay: number,
+    options: CollapseItemReaderTransitionOptions = {},
+  ) {
+    const result = beginCollapseItemReaderState()
+    options.afterBegin?.(result)
+    clearDetailEntryTimer()
+    setDetailEntryTimer(() => {
+      options.afterFinish?.(result)
+    }, delay)
+  }
+
   function beginRestoreItemReaderExpansionState(): BeginRestoreItemReaderExpansionStateResult {
     const shouldHideSourceAfterRestore =
       detailOpenedFromSourceReader.value && sourceReaderVisible.value
@@ -1263,6 +1280,7 @@ export function useReaderStackState() {
     clearSourceReaderReturnModeState,
     closeItemReaderState,
     beginCollapseItemReaderState,
+    collapseItemReaderWithDelay,
     restoreItemReaderExpansionWithDelay,
     restoreDetailFromSourceSwipeWithDelay,
     completeDetailToSourceReaderWithDelay,

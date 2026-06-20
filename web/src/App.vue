@@ -153,7 +153,7 @@ const {
   clearSourceReturnTargetReadyState,
   clearSourceReaderReturnModeState,
   closeItemReaderState,
-  beginCollapseItemReaderState,
+  collapseItemReaderWithDelay,
   restoreItemReaderExpansionWithDelay,
   restoreDetailFromSourceSwipeWithDelay,
   completeDetailToSourceReaderWithDelay,
@@ -2004,19 +2004,21 @@ function collapseItemReader(duration = 360) {
   }
 
   suppressFollowingClick()
-  const result = beginCollapseItemReaderState()
-  if (result.shouldRefreshFeedOrigin) {
-    refreshDetailFeedOriginRect(true)
-  }
-  clearDetailEntryTimer()
-  setDetailEntryTimer(() => {
-    if (result.shouldRestorePreviousParkedDetail && restorePreviousParkedDetail()) {
+  collapseItemReaderWithDelay(motionDelay(duration), {
+    afterBegin: (result) => {
+      if (result.shouldRefreshFeedOrigin) {
+        refreshDetailFeedOriginRect(true)
+      }
+    },
+    afterFinish: (result) => {
+      if (result.shouldRestorePreviousParkedDetail && restorePreviousParkedDetail()) {
+        scheduleReaderURLAndHistorySync(true)
+        return
+      }
+      closeItemReader()
       scheduleReaderURLAndHistorySync(true)
-      return
-    }
-    closeItemReader()
-    scheduleReaderURLAndHistorySync(true)
-  }, motionDelay(duration))
+    },
+  })
 }
 
 function restoreItemReaderExpansion(duration = 360) {
