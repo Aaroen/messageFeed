@@ -160,6 +160,7 @@ const sourceNotice = ref<{ type: 'success' | 'warning'; message: string } | null
 const sourceTimelinePreloadEnabled = ref(false)
 const detailTransitionRectsLocked = ref(false)
 const detailFeedOriginLocked = ref(false)
+const sourceReturnTargetReady = ref(false)
 const readerMorphDuration = 360
 const readerMorphCleanupBuffer = 96
 const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
@@ -448,7 +449,9 @@ const detailTransitionSurfaceStyle = computed(() => {
   const expandedWidth = Math.max(1, windowWidth.value - surfaceMargin * 2)
   const targetHeight = Math.max(1, windowHeight.value - targetTop - surfaceMargin)
   const draggingToList =
-    readerBackDragging.value && (detailBackExitProgress.value > 0 || detailSourceExitProgress.value > 0)
+    readerBackDragging.value &&
+    (detailBackExitProgress.value > 0 || detailSourceExitProgress.value > 0) &&
+    !(backSwipeTarget === 'source' && !sourceReturnTargetReady.value)
   const committedListReturn = detailCommittedListReturn()
 
   if (!collapsedTarget) {
@@ -1111,6 +1114,7 @@ function resetGestureTracking() {
   navigationDragStarted = false
   backSwipeTarget = null
   backSwipeIntent = null
+  sourceReturnTargetReady.value = false
 }
 
 function isInteractiveTarget(target: EventTarget | null) {
@@ -1550,6 +1554,29 @@ function captureDetailSourceTransitionRects(
   })
 }
 
+function captureVisibleSourceReturnTarget() {
+  const itemRect = snapshotElementRect(findSourceFeedItemElement(detailItem.value?.id))
+  if (!itemRect) {
+    sourceReturnTargetReady.value = false
+    return false
+  }
+
+  const sourceTargetRect =
+    snapshotElementRect(findSourceFeedItemSourceElement(detailItem.value?.id)) ?? sourceNameTargetFallback(itemRect)
+  const sourceOriginRect = snapshotElementRect(detailInlineSourceRef.value)
+
+  detailSourceItemTargetRect.value = itemRect
+  morphingItemHeight.value = itemRect.height
+  if (sourceTargetRect) {
+    detailSourceNameTargetRect.value = sourceTargetRect
+  }
+  if (sourceOriginRect) {
+    detailSourceNameOriginRect.value = sourceOriginRect
+  }
+  sourceReturnTargetReady.value = true
+  return true
+}
+
 function detailFrameViewportOffset() {
   const rect = detailFrameRef.value?.getBoundingClientRect()
   return {
@@ -1672,6 +1699,7 @@ function resetDetailTransition() {
   detailSourceNameTargetRect.value = null
   detailTransitionRectsLocked.value = false
   detailFeedOriginLocked.value = false
+  sourceReturnTargetReady.value = false
 }
 
 function readerSessionSnapshot(): ReaderSessionSnapshot {
@@ -2350,10 +2378,7 @@ function restoreDetailFromParkedSource(duration = 360) {
   suppressFollowingClick()
   window.clearTimeout(detailEntryTimer)
   window.clearTimeout(morphingHeightUnlockTimer)
-  const itemRect = snapshotElementRect(findSourceFeedItemElement(detailItem.value?.id))
-  if (itemRect) {
-    detailSourceItemTargetRect.value = itemRect
-  }
+  captureVisibleSourceReturnTarget()
   if (detailItem.value?.id) {
     morphingItemId.value = detailItem.value.id
     morphingHeightLockItemId.value = detailItem.value.id
@@ -2639,7 +2664,7 @@ function canReturnSourceReaderToDetail() {
 
 function prepareSourceReaderReturnDrag() {
   if (detailReaderOpen.value) {
-    return true
+    return captureVisibleSourceReturnTarget()
   }
 
   const parkedSnapshot = parkedDetailStack.value[parkedDetailStack.value.length - 1] ?? null
@@ -2648,7 +2673,10 @@ function prepareSourceReaderReturnDrag() {
     return false
   }
 
-  return restoreParkedDetailSnapshot(snapshot)
+  if (!restoreParkedDetailSnapshot(snapshot)) {
+    return false
+  }
+  return captureVisibleSourceReturnTarget()
 }
 
 function blockedSwipeStretch(deltaX: number, currentX = touchStartX + deltaX) {
@@ -2686,6 +2714,7 @@ function resetBackSwipeOffset() {
   pageSideOffset.value = 0
   pageSideStretch.value = 0
   readerBackDragging.value = false
+  sourceReturnTargetReady.value = false
   clearStretchAnchors()
 }
 
@@ -2727,8 +2756,8 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   }
 
   trackingBackSwipe = true
-  readerBackDragging.value = true
   detailEntrySettling.value = false
+  sourceReturnTargetReady.value = false
   if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
     backSwipeIntent = 'back'
     detailRestoringFromSourceReader.value = true
@@ -2749,6 +2778,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   } else {
     backSwipeIntent = 'blocked'
   }
+  readerBackDragging.value = true
   trackingBackSwipeCandidate = false
   trackingEdgeSwipeCandidate = false
   trackingNavigationCloseCandidate = false
