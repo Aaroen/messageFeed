@@ -129,6 +129,8 @@ const {
   resetDetailTransition,
   clearHiddenSourceReader,
   openSourceReaderState,
+  closeVisibleSourceReaderState,
+  clearSourceReaderState,
   detailBlocksGestures,
 } = useReaderStackState()
 const {
@@ -2030,13 +2032,7 @@ function closeSourceReader() {
   }
 
   if (sourceReaderOpen.value) {
-    readerBackDragging.value = false
-    sourceReaderOffset.value = 0
-    sourceReaderStretch.value = 0
-    sourceReaderVisible.value = false
-    sourceReaderReturnMode.value = null
-    sourceReaderBackDetail.value = null
-    parkedDetailStack.value = []
+    closeVisibleSourceReaderState()
     if (isFeedRoute.value && !detailReaderOpen.value) {
       setTopChromeVisible(true)
       setChromeContentCollapsed(false)
@@ -2045,14 +2041,8 @@ function closeSourceReader() {
     return
   }
 
-  readerSource.value = null
-  sourceReaderVisible.value = false
-  sourceReaderReturnMode.value = null
-  sourceReaderBackDetail.value = null
-  sourceReaderOffset.value = 0
-  sourceReaderStretch.value = 0
+  clearSourceReaderState()
   resetSourceSubscriptionState()
-  parkedDetailStack.value = []
   if (isFeedRoute.value && !detailReaderOpen.value) {
     setTopChromeVisible(true)
     setChromeContentCollapsed(false)

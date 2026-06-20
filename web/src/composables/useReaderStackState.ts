@@ -402,6 +402,26 @@ export function useReaderStackState() {
     }
   }
 
+  function closeVisibleSourceReaderState() {
+    readerBackDragging.value = false
+    sourceReaderOffset.value = 0
+    sourceReaderStretch.value = 0
+    sourceReaderVisible.value = false
+    sourceReaderReturnMode.value = null
+    sourceReaderBackDetail.value = null
+    parkedDetailStack.value = []
+  }
+
+  function clearSourceReaderState() {
+    readerSource.value = null
+    sourceReaderVisible.value = false
+    sourceReaderReturnMode.value = null
+    sourceReaderBackDetail.value = null
+    sourceReaderOffset.value = 0
+    sourceReaderStretch.value = 0
+    parkedDetailStack.value = []
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -480,6 +500,8 @@ export function useReaderStackState() {
     resetDetailTransition,
     clearHiddenSourceReader,
     openSourceReaderState,
+    closeVisibleSourceReaderState,
+    clearSourceReaderState,
     detailBlocksGestures,
   }
 }
