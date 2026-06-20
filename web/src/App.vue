@@ -436,14 +436,14 @@ const sourceReaderStyle = computed(() => {
     transformOrigin: stretchTransformOrigin(sourceStretch, sourceStretchAnchor.value),
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity 320ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+      : 'opacity var(--motion-normal) ease, transform var(--motion-normal) var(--ease-standard)',
   }
 })
 const sourceContentStyle = computed(() => ({
   paddingTop: cssPx(sourceHeaderSpace.value + 14),
   transform: cssTranslate3d(0, sourceContentSettleOffset.value),
   transition: sourceContentSettling.value
-    ? 'padding-top 1000ms cubic-bezier(0.16, 1, 0.3, 1), transform 1000ms cubic-bezier(0.16, 1, 0.3, 1)'
+    ? 'padding-top var(--motion-chrome) var(--ease-emphasized), transform var(--motion-chrome) var(--ease-emphasized)'
     : sourceContentSettleOffset.value > 0
       ? 'none'
       : undefined,
@@ -454,7 +454,7 @@ const sourceHeaderStyle = computed(() => ({
   transform: cssTranslate3d(0, (topChromeProgress.value - 1) * feedHeaderHeight.value),
   transition:
     feedChromeSettling.value || readerBackDragging.value
-      ? 'transform 1000ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1000ms ease'
+      ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) ease'
       : undefined,
 }))
 const detailHeaderLayerStyle = computed(() => chromeLayerStyle(detailHeaderVisible.value, topChromeProgress.value))
@@ -664,7 +664,7 @@ const detailHeaderCurrentTextStyle = computed(() => {
     transform: cssTranslate3d(0, (1 - progress) * 6),
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity 260ms ease, filter 320ms ease, transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
+      : 'opacity var(--motion-normal) ease, filter var(--motion-normal) ease, transform var(--motion-normal) var(--ease-emphasized)',
   }
 })
 const detailHeaderPreviousTextStyle = computed(() => {
@@ -675,7 +675,7 @@ const detailHeaderPreviousTextStyle = computed(() => {
     transform: cssTranslate3d(0, progress * -6),
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity 220ms ease, filter 320ms ease, transform 320ms cubic-bezier(0.16, 1, 0.3, 1)',
+      : 'opacity 220ms ease, filter var(--motion-normal) ease, transform var(--motion-normal) var(--ease-emphasized)',
   }
 })
 const detailInlineSourceStyle = computed(() => {
@@ -778,7 +778,7 @@ const sourceNameMorphStyle = computed(() => {
     transform: 'translate3d(0, 0, 0)',
     transition: readerBackDragging.value
       ? 'none'
-      : 'left 360ms cubic-bezier(0.2, 0.8, 0.2, 1), top 360ms cubic-bezier(0.2, 0.8, 0.2, 1), width 360ms cubic-bezier(0.2, 0.8, 0.2, 1), font-size 360ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease, filter 180ms ease',
+      : 'left var(--motion-reader) var(--ease-standard), top var(--motion-reader) var(--ease-standard), width var(--motion-reader) var(--ease-standard), font-size var(--motion-reader) var(--ease-standard), opacity 180ms ease, filter 180ms ease',
   }
 })
 const sourceTitleLayerStyle = computed(() => {
@@ -791,7 +791,7 @@ const sourceTitleLayerStyle = computed(() => {
     filter: `blur(${(revealProgress * 2).toFixed(2)}px)`,
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity 220ms ease, filter 220ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+      : 'opacity 220ms ease, filter 220ms ease, transform 220ms var(--ease-standard)',
   }
 })
 const sourceTitleTextStyle = computed(() => ({
@@ -814,7 +814,7 @@ const sourceTitleRevealStyle = computed(() => {
     filter: `blur(${((1 - progress) * 2.4).toFixed(2)}px)`,
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity 420ms ease, transform 420ms cubic-bezier(0.16, 1, 0.3, 1), filter 420ms ease',
+      : 'opacity var(--motion-slow) ease, transform var(--motion-slow) var(--ease-emphasized), filter var(--motion-slow) ease',
   }
 })
 const mainStyle = computed(() => {
@@ -856,7 +856,7 @@ const navOpenButtonStyle = computed(() => {
       progress * 0.08
     ).toFixed(3)})`,
     transition: settling
-      ? 'transform 1000ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1000ms ease, visibility 1000ms ease, border-color 160ms ease, background 160ms ease'
+      ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) ease, visibility var(--motion-chrome) ease, border-color var(--motion-fast) ease, background var(--motion-fast) ease'
       : undefined,
     visibility: progress > 0.01 && !feedCornerHidden.value ? ('visible' as const) : ('hidden' as const),
   }
@@ -1457,7 +1457,7 @@ function chromeLayerStyle(
     transition: options.disableTransition
       ? 'none'
       : feedChromeSettling.value || feedRefreshSettling.value
-        ? 'transform 1000ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1000ms ease, visibility 1000ms ease'
+        ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) ease, visibility var(--motion-chrome) ease'
         : undefined,
     visibility: safeProgress > 0.01 ? ('visible' as const) : ('hidden' as const),
   }
