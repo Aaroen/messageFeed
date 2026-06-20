@@ -224,6 +224,20 @@ export function useReaderStackState() {
     sourceReturnTargetReady.value = false
   }
 
+  function clearHiddenSourceReader() {
+    if (sourceReaderVisible.value) {
+      return false
+    }
+
+    sourceReaderOffset.value = 0
+    sourceReaderStretch.value = 0
+    readerSource.value = null
+    sourceCatalogEntry.value = null
+    sourceSubscription.value = null
+    sourceNotice.value = null
+    return true
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -298,6 +312,7 @@ export function useReaderStackState() {
     restoreParkedDetailSnapshot,
     restorePreviousParkedDetail,
     resetDetailTransition,
+    clearHiddenSourceReader,
     detailBlocksGestures,
   }
 }

@@ -135,6 +135,7 @@ const {
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
   resetDetailTransition,
+  clearHiddenSourceReader,
   detailBlocksGestures,
 } = useReaderStackState()
 const feedScrollTop = ref(0)
@@ -1693,18 +1694,6 @@ function restoreMorphingItemContent(unlockDelay = 180) {
     morphingHeightLockItemId.value = null
     morphingItemHeight.value = null
   }, unlockDelay)
-}
-
-function clearHiddenSourceReader() {
-  if (sourceReaderVisible.value) {
-    return
-  }
-  sourceReaderOffset.value = 0
-  sourceReaderStretch.value = 0
-  readerSource.value = null
-  sourceCatalogEntry.value = null
-  sourceSubscription.value = null
-  sourceNotice.value = null
 }
 
 function scheduleHiddenSourceReaderCleanup(delay = 180) {
