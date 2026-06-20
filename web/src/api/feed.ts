@@ -1,6 +1,7 @@
 import { apiClient } from '@/api/client'
 
 const sourceFetchTimeoutMS = 25000
+const activeSourcesFetchTimeoutMS = 60000
 
 interface APIEnvelope<T> {
   data: T
@@ -85,6 +86,14 @@ export interface ImportSourcesResult {
   errors: Array<{ reference: string; message: string }>
 }
 
+export interface FetchSourcesResult {
+  requested_count: number
+  success_count: number
+  failure_count: number
+  sources: Source[]
+  errors: Array<{ source_id: number; source_name: string; message: string }>
+}
+
 export async function listSources() {
   const response = await apiClient.get<APIEnvelope<Source[]>>('/api/v1/sources')
   return response.data.data
@@ -98,6 +107,13 @@ export async function updateSourceStatus(id: number, status: Source['status']) {
 export async function fetchSource(id: number) {
   const response = await apiClient.post<APIEnvelope<{ source: Source }>>(`/api/v1/sources/${id}/fetch`, undefined, {
     timeout: sourceFetchTimeoutMS,
+  })
+  return response.data.data
+}
+
+export async function fetchActiveSources() {
+  const response = await apiClient.post<APIEnvelope<FetchSourcesResult>>('/api/v1/source-fetches', undefined, {
+    timeout: activeSourcesFetchTimeoutMS,
   })
   return response.data.data
 }
@@ -149,7 +165,7 @@ export async function listTimelineItems(
 }
 
 export async function listRecommendationItems(
-  params: { limit?: number; offset?: number; source_id?: number; order?: 'asc' | 'desc' } = {},
+  params: { limit?: number; offset?: number; source_id?: number; order?: 'asc' | 'desc'; refresh?: boolean } = {},
 ) {
   const response = await apiClient.get<APIEnvelope<FeedItemList>>('/api/v1/feed/recommendations', {
     params: {

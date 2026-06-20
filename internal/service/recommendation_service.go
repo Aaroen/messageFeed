@@ -22,7 +22,9 @@ const (
 	maxRecommendationFetchSources   = 10
 	minRecommendationFetchSources   = 6
 	recommendationFetchConcurrency  = 8
-	recommendationFetchTimeout      = 4 * time.Second
+	recommendationFetchTimeout      = 2 * time.Second
+	recommendationCacheTTL          = 5 * time.Minute
+	recommendationRefreshTimeout    = 6 * time.Second
 	maxRecommendationItemsPerSource = 8
 )
 
@@ -30,6 +32,9 @@ type RecommendationService struct {
 	catalogRepository SourceCatalogRepository
 	feedFetcher       FeedFetcher
 	now               func() time.Time
+	cacheMu           sync.Mutex
+	cache             map[recommendationCacheKey]recommendationCacheEntry
+	refreshing        map[recommendationCacheKey]struct{}
 }
 
 func NewRecommendationService(catalogRepository SourceCatalogRepository, feedFetcher FeedFetcher, options ...SourceServiceOption) *RecommendationService {
@@ -45,6 +50,8 @@ func NewRecommendationService(catalogRepository SourceCatalogRepository, feedFet
 		catalogRepository: catalogRepository,
 		feedFetcher:       feedFetcher,
 		now:               now,
+		cache:             make(map[recommendationCacheKey]recommendationCacheEntry),
+		refreshing:        make(map[recommendationCacheKey]struct{}),
 	}
 }
 
@@ -54,6 +61,7 @@ type ListRecommendationsInput struct {
 	Limit    int
 	Offset   int
 	Order    string
+	Refresh  bool
 }
 
 func (s *RecommendationService) ListRecommendations(ctx context.Context, input ListRecommendationsInput) (ListItemsResult, error) {
@@ -115,34 +123,52 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 		return ListItemsResult{Items: nil, Total: 0, Limit: limit, Offset: input.Offset}, nil
 	}
 
-	rng := rand.New(rand.NewSource(recommendationShuffleSeed(input.UserID, s.now())))
+	now := s.now()
+	rng := rand.New(rand.NewSource(recommendationShuffleSeed(input.UserID, now)))
 	rng.Shuffle(len(candidates), func(i, j int) {
 		candidates[i], candidates[j] = candidates[j], candidates[i]
 	})
 
-	selected := candidates[:recommendationSourceLimit(limit, len(candidates))]
-	sourceItems := s.fetchRecommendationItems(ctx, input.UserID, selected)
-	items := sortedRecommendationItems(sourceItems, order)
-	total := len(items)
-	if input.Offset > 0 {
-		if input.Offset >= len(items) {
-			items = nil
-		} else {
-			items = items[input.Offset:]
-		}
+	selected := candidates[:recommendationSourceLimit(maxRecommendationLimit, len(candidates))]
+	cacheKey := recommendationCacheKey{
+		userID:   input.UserID,
+		sourceID: input.SourceID,
+		order:    order,
+		day:      recommendationCacheDay(now),
 	}
-	if len(items) > limit {
-		items = items[:limit]
+	if cachedItems, ok := s.getRecommendationCache(cacheKey, now); ok {
+		if input.Refresh {
+			s.refreshRecommendationCacheAsync(cacheKey, input.UserID, selected, order)
+		}
+		items := paginateRecommendationItems(cachedItems, limit, input.Offset)
+		span.SetAttributes(
+			attribute.Bool("recommendation.cache_hit", true),
+			attribute.Bool("recommendation.refresh_requested", input.Refresh),
+			attribute.Int("recommendation.catalog_candidates", len(candidates)),
+			attribute.Int("recommendation.sources_selected", len(selected)),
+			attribute.Int("recommendation.items", len(items)),
+		)
+		return ListItemsResult{
+			Items:  items,
+			Total:  int64(len(cachedItems)),
+			Limit:  limit,
+			Offset: input.Offset,
+		}, nil
 	}
 
+	items := s.buildRecommendationItems(ctx, input.UserID, selected, order)
+	s.setRecommendationCache(cacheKey, items, now)
+	pagedItems := paginateRecommendationItems(items, limit, input.Offset)
 	span.SetAttributes(
+		attribute.Bool("recommendation.cache_hit", false),
+		attribute.Bool("recommendation.refresh_requested", input.Refresh),
 		attribute.Int("recommendation.catalog_candidates", len(candidates)),
 		attribute.Int("recommendation.sources_selected", len(selected)),
-		attribute.Int("recommendation.items", len(items)),
+		attribute.Int("recommendation.items", len(pagedItems)),
 	)
 	return ListItemsResult{
-		Items:  items,
-		Total:  int64(total),
+		Items:  pagedItems,
+		Total:  int64(len(items)),
 		Limit:  limit,
 		Offset: input.Offset,
 	}, nil
@@ -151,6 +177,18 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 type recommendationSourceItems struct {
 	sourceIndex int
 	items       []domain.Item
+}
+
+type recommendationCacheKey struct {
+	userID   int64
+	sourceID int64
+	order    domain.ItemSortOrder
+	day      string
+}
+
+type recommendationCacheEntry struct {
+	items    []domain.Item
+	storedAt time.Time
 }
 
 func (s *RecommendationService) fetchRecommendationItems(ctx context.Context, userID int64, entries []domain.SourceCatalogEntry) []recommendationSourceItems {
@@ -316,6 +354,91 @@ func recommendationItemTime(item domain.Item) time.Time {
 		return *item.PublishedAt
 	}
 	return item.FetchedAt
+}
+
+func (s *RecommendationService) buildRecommendationItems(ctx context.Context, userID int64, entries []domain.SourceCatalogEntry, order domain.ItemSortOrder) []domain.Item {
+	sourceItems := s.fetchRecommendationItems(ctx, userID, entries)
+	return sortedRecommendationItems(sourceItems, order)
+}
+
+func (s *RecommendationService) getRecommendationCache(key recommendationCacheKey, now time.Time) ([]domain.Item, bool) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	entry, ok := s.cache[key]
+	if !ok || now.Sub(entry.storedAt) > recommendationCacheTTL {
+		if ok {
+			delete(s.cache, key)
+		}
+		return nil, false
+	}
+	return cloneRecommendationItems(entry.items), true
+}
+
+func (s *RecommendationService) setRecommendationCache(key recommendationCacheKey, items []domain.Item, now time.Time) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.cache == nil {
+		s.cache = make(map[recommendationCacheKey]recommendationCacheEntry)
+	}
+	s.cache[key] = recommendationCacheEntry{
+		items:    cloneRecommendationItems(items),
+		storedAt: now,
+	}
+}
+
+func (s *RecommendationService) refreshRecommendationCacheAsync(key recommendationCacheKey, userID int64, entries []domain.SourceCatalogEntry, order domain.ItemSortOrder) {
+	if !s.beginRecommendationRefresh(key) {
+		return
+	}
+	refreshEntries := append([]domain.SourceCatalogEntry(nil), entries...)
+	go func() {
+		defer s.endRecommendationRefresh(key)
+		ctx, cancel := context.WithTimeout(context.Background(), recommendationRefreshTimeout)
+		defer cancel()
+		items := s.buildRecommendationItems(ctx, userID, refreshEntries, order)
+		if len(items) == 0 {
+			return
+		}
+		s.setRecommendationCache(key, items, s.now())
+	}()
+}
+
+func (s *RecommendationService) beginRecommendationRefresh(key recommendationCacheKey) bool {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.refreshing == nil {
+		s.refreshing = make(map[recommendationCacheKey]struct{})
+	}
+	if _, ok := s.refreshing[key]; ok {
+		return false
+	}
+	s.refreshing[key] = struct{}{}
+	return true
+}
+
+func (s *RecommendationService) endRecommendationRefresh(key recommendationCacheKey) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	delete(s.refreshing, key)
+}
+
+func paginateRecommendationItems(items []domain.Item, limit int, offset int) []domain.Item {
+	if offset >= len(items) {
+		return nil
+	}
+	paged := items[offset:]
+	if len(paged) > limit {
+		paged = paged[:limit]
+	}
+	return cloneRecommendationItems(paged)
+}
+
+func cloneRecommendationItems(items []domain.Item) []domain.Item {
+	return append([]domain.Item(nil), items...)
+}
+
+func recommendationCacheDay(now time.Time) string {
+	return now.UTC().Format("2006-01-02")
 }
 
 func sortedRecommendationItems(sourceItems []recommendationSourceItems, order domain.ItemSortOrder) []domain.Item {

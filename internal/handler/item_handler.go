@@ -199,6 +199,11 @@ func (h itemHandler) listRecommendations(c *gin.Context) {
 		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid source_id")
 		return
 	}
+	refresh, err := optionalBoolQuery(c, "refresh")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid refresh")
+		return
+	}
 
 	result, err := h.recommendationService.ListRecommendations(c.Request.Context(), service.ListRecommendationsInput{
 		UserID:   defaultUserID,
@@ -206,6 +211,7 @@ func (h itemHandler) listRecommendations(c *gin.Context) {
 		Limit:    limit,
 		Offset:   offset,
 		Order:    c.Query("order"),
+		Refresh:  refresh != nil && *refresh,
 	})
 	if err != nil {
 		writeItemError(c, err)

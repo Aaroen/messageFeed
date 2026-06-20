@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 const defaultUserID int64 = 1
+const fetchActiveSourcesConcurrency = 4
 
 type sourceService interface {
 	CreateSource(ctx context.Context, input service.CreateSourceInput) (domain.Source, error)
@@ -37,6 +39,7 @@ func registerSourceRoutes(router *gin.RouterGroup, service sourceService) {
 	router.GET("/sources", handler.listSources)
 	router.PATCH("/sources/:id", handler.updateSource)
 	router.POST("/sources/:id/fetch", handler.fetchSource)
+	router.POST("/source-fetches", handler.fetchActiveSources)
 	router.GET("/source-catalogs", handler.listSourceCatalog)
 	router.GET("/source-catalogs/search", handler.searchSourceCatalog)
 	router.POST("/sources/import/catalog", handler.importCatalogSources)
@@ -88,6 +91,26 @@ type fetchSourceResponse struct {
 	ItemCount    int            `json:"item_count"`
 	CreatedCount int            `json:"created_count"`
 	UpdatedCount int            `json:"updated_count"`
+}
+
+type fetchSourcesResponse struct {
+	RequestedCount int                `json:"requested_count"`
+	SuccessCount   int                `json:"success_count"`
+	FailureCount   int                `json:"failure_count"`
+	Sources        []sourceResponse   `json:"sources"`
+	Errors         []fetchSourceError `json:"errors"`
+}
+
+type fetchSourceError struct {
+	SourceID   int64  `json:"source_id"`
+	SourceName string `json:"source_name"`
+	Message    string `json:"message"`
+}
+
+type fetchSourceAttempt struct {
+	source domain.Source
+	result service.FetchSourceResult
+	err    error
 }
 
 type sourceCatalogListResponse struct {
@@ -278,6 +301,85 @@ func (h sourceHandler) fetchSource(c *gin.Context) {
 		CreatedCount: result.CreatedCount,
 		UpdatedCount: result.UpdatedCount,
 	})
+}
+
+func (h sourceHandler) fetchActiveSources(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "source service unavailable")
+		return
+	}
+
+	sources, err := h.service.ListSources(c.Request.Context(), defaultUserID)
+	if err != nil {
+		writeSourceError(c, err)
+		return
+	}
+
+	activeSources := make([]domain.Source, 0, len(sources))
+	for _, source := range sources {
+		if source.Status == domain.SourceStatusActive {
+			activeSources = append(activeSources, source)
+		}
+	}
+
+	attempts := fetchSources(c.Request.Context(), h.service, activeSources)
+	response := fetchSourcesResponse{
+		RequestedCount: len(activeSources),
+		Sources:        make([]sourceResponse, 0, len(attempts)),
+		Errors:         make([]fetchSourceError, 0),
+	}
+	for _, attempt := range attempts {
+		if attempt.err != nil {
+			response.FailureCount++
+			response.Errors = append(response.Errors, fetchSourceError{
+				SourceID:   attempt.source.ID,
+				SourceName: attempt.source.Name,
+				Message:    attempt.err.Error(),
+			})
+			continue
+		}
+		response.SuccessCount++
+		response.Sources = append(response.Sources, sourceResponseFromDomain(attempt.result.Source))
+	}
+
+	Success(c, response)
+}
+
+func fetchSources(ctx context.Context, sourceServiceClient sourceService, sources []domain.Source) []fetchSourceAttempt {
+	if len(sources) == 0 {
+		return nil
+	}
+
+	sem := make(chan struct{}, fetchActiveSourcesConcurrency)
+	results := make(chan fetchSourceAttempt, len(sources))
+	var wg sync.WaitGroup
+	for _, source := range sources {
+		wg.Add(1)
+		go func(source domain.Source) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				results <- fetchSourceAttempt{source: source, err: ctx.Err()}
+				return
+			}
+
+			result, err := sourceServiceClient.TriggerFetch(ctx, service.FetchSourceInput{
+				UserID: defaultUserID,
+				ID:     source.ID,
+			})
+			results <- fetchSourceAttempt{source: source, result: result, err: err}
+		}(source)
+	}
+	wg.Wait()
+	close(results)
+
+	attempts := make([]fetchSourceAttempt, 0, len(sources))
+	for result := range results {
+		attempts = append(attempts, result)
+	}
+	return attempts
 }
 
 func (h sourceHandler) listSourceCatalog(c *gin.Context) {

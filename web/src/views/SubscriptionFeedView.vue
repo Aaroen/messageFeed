@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { IconRefresh } from '@arco-design/web-vue/es/icon'
 
 import { formatAPIError } from '@/api/client'
-import { type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
+import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 
 type FeedMode = 'subscriptions' | 'recommendations' | 'source'
@@ -257,6 +257,26 @@ function feedItemStyle(item: FeedItem) {
   return Object.keys(style).length > 0 ? style : undefined
 }
 
+async function refreshSubscriptionSources() {
+  if (effectiveSourceKind.value !== 'subscriptions') {
+    return ''
+  }
+  try {
+    if (isSourceMode.value && props.sourceId > 0) {
+      await fetchSource(props.sourceId)
+      return ''
+    }
+
+    const result = await fetchActiveSources()
+    if (result.failure_count > 0) {
+      return `已抓取 ${result.success_count} 个订阅源，${result.failure_count} 个失败`
+    }
+    return ''
+  } catch (err) {
+    return formatAPIError(err)
+  }
+}
+
 async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) {
   const isRefresh = Boolean(options.refresh)
   const isAppend = Boolean(options.append)
@@ -272,12 +292,14 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
     loading.value = true
   }
   try {
+    const refreshError = isRefresh ? await refreshSubscriptionSources() : ''
     const loader = effectiveSourceKind.value === 'recommendations' ? listRecommendationItems : listTimelineItems
     const requestOffset = isAppend ? nextOffset.value : 0
     const params = {
       limit: pageSize,
       offset: requestOffset,
       order: 'asc' as const,
+      ...(isRefresh && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
       ...(isSourceMode.value && props.sourceId > 0 ? { source_id: props.sourceId } : {}),
     }
     const result = await loader(params)
@@ -286,6 +308,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
     nextOffset.value = requestOffset + result.items.length
     reachedEnd.value = result.items.length < pageSize || nextOffset.value >= result.total
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    if (refreshError) {
+      error.value = refreshError
+    }
   } catch (err) {
     error.value = formatAPIError(err)
   } finally {
