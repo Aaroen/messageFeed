@@ -131,7 +131,6 @@ const {
   clearSourceReaderState,
   beginOpenItemReaderState,
   clearDetailEntryTimer,
-  setDetailEntryTimer,
   startDetailEntryWithDelay,
   completeOpenItemReaderLoadState,
   failOpenItemReaderLoadState,

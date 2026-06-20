@@ -1253,7 +1253,6 @@ export function useReaderStackState() {
     clearSourceReaderState,
     beginOpenItemReaderState,
     clearDetailEntryTimer,
-    setDetailEntryTimer,
     startDetailEntryWithDelay,
     completeOpenItemReaderLoadState,
     failOpenItemReaderLoadState,
