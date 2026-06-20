@@ -40,6 +40,7 @@ import {
   useReaderRouteSync,
 } from '@/composables/useReaderRouteSync'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
+import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 
 type SwipeSurface =
@@ -176,6 +177,25 @@ const pageTitle = computed(() => route.meta.title?.toString() ?? '订阅')
 const sourceReaderMounted = computed(() => readerSource.value !== null)
 const sourceReaderOpen = computed(() => readerSource.value !== null && sourceReaderVisible.value)
 const detailReaderOpen = computed(() => detailItem.value !== null || detailLoading.value || detailError.value !== '')
+const virtualBackGuard = useVirtualBackGuard({
+  route,
+  router,
+  getRouteFullPath: () => route.fullPath,
+  getState: () => {
+    const needsVirtualLayer = hasVirtualBackTarget()
+    return {
+      shouldGuard: needsVirtualLayer || isFeedRoute.value,
+      needsVirtualLayer,
+      needsHomeGuard: !needsVirtualLayer && isFeedRoute.value,
+    }
+  },
+  canHandleNavigation: () => readerSessionInitialized && !programmaticRouteNavigation,
+  consumeBack: runVirtualBackAnimation,
+  onBackConsumed: () => {
+    scheduleReaderSessionSave()
+    scheduleReaderURLAndHistorySync(true)
+  },
+})
 const readerRouteSync = useReaderRouteSync({
   route,
   router,
@@ -187,7 +207,7 @@ const readerRouteSync = useReaderRouteSync({
   setProgrammaticRouteNavigation: (active) => {
     programmaticRouteNavigation = active
   },
-  syncVirtualHistoryState,
+  syncVirtualHistoryState: virtualBackGuard.syncHistoryState,
 })
 const isFeedRoute = computed(() => ['subscriptions', 'recommendations'].includes(route.name?.toString() ?? ''))
 const cornerButtonLabel = computed(() => '打开导航')
@@ -1174,7 +1194,6 @@ let feedChromeSettleTimer = 0
 let sourceContentSettleTimer = 0
 let pagePullSettleTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
-let virtualBackHandledAt = 0
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
 let lastFeedScrollTop = 0
@@ -1912,60 +1931,6 @@ function hasVirtualBackTarget() {
   )
 }
 
-function shouldGuardSystemBack() {
-  return hasVirtualBackTarget() || isFeedRoute.value
-}
-
-function currentHistoryStateHasVirtualGuard() {
-  if (typeof window === 'undefined') {
-    return false
-  }
-  const currentState = window.history.state || {}
-  return Boolean(currentState.messagefeedVirtualLayer || currentState.messagefeedHomeGuard)
-}
-
-function syncVirtualHistoryState(forcePush = false) {
-  if (typeof window === 'undefined') {
-    return
-  }
-  if (!route.name) {
-    return
-  }
-
-  const currentState = window.history.state || {}
-  if (!shouldGuardSystemBack()) {
-    if (currentState.messagefeedVirtualLayer || currentState.messagefeedHomeGuard) {
-      const {
-        messagefeedVirtualLayer: _messagefeedVirtualLayer,
-        messagefeedHomeGuard: _messagefeedHomeGuard,
-        ...restState
-      } = currentState
-      window.history.replaceState(restState, '', route.fullPath)
-    }
-    return
-  }
-
-  const needsVirtualLayer = hasVirtualBackTarget()
-  const needsHomeGuard = !needsVirtualLayer && isFeedRoute.value
-  if (
-    !forcePush &&
-    ((needsVirtualLayer && currentState.messagefeedVirtualLayer) ||
-      (needsHomeGuard && currentState.messagefeedHomeGuard))
-  ) {
-    return
-  }
-
-  window.history.pushState(
-    {
-      ...currentState,
-      messagefeedVirtualLayer: needsVirtualLayer || undefined,
-      messagefeedHomeGuard: needsHomeGuard || undefined,
-    },
-    '',
-    route.fullPath,
-  )
-}
-
 function runVirtualBackAnimation() {
   if (navigationVisible.value) {
     lastHomeBackAttemptAt = 0
@@ -2014,33 +1979,6 @@ function runVirtualBackAnimation() {
   }
 
   return false
-}
-
-function consumeSystemBack() {
-  const handled = runVirtualBackAnimation()
-  if (!handled) {
-    return false
-  }
-
-  virtualBackHandledAt = Date.now()
-  scheduleReaderSessionSave()
-  scheduleReaderURLAndHistorySync(true)
-  return true
-}
-
-function handleBrowserPopState() {
-  if (!shouldGuardSystemBack()) {
-    return
-  }
-
-  if (Date.now() - virtualBackHandledAt < 80) {
-    syncVirtualHistoryState()
-    return
-  }
-
-  if (!consumeSystemBack()) {
-    return
-  }
 }
 
 function hasDetailParkedBehindSource() {
@@ -4219,22 +4157,7 @@ onMounted(() => {
     document.body.setAttribute('arco-theme', 'dark')
     darkTheme.value = true
   }
-  removeSystemBackGuard = router.beforeEach(() => {
-    if (
-      !readerSessionInitialized ||
-      programmaticRouteNavigation ||
-      !currentHistoryStateHasVirtualGuard() ||
-      !shouldGuardSystemBack()
-    ) {
-      return true
-    }
-
-    if (Date.now() - virtualBackHandledAt < 120) {
-      return false
-    }
-
-    return consumeSystemBack() ? false : true
-  })
+  removeSystemBackGuard = virtualBackGuard.installRouterGuard()
   void router.isReady().then(() => restoreReaderSession()).finally(() => {
     readerSessionInitialized = true
     scheduleReaderURLAndHistorySync()
@@ -4243,7 +4166,7 @@ onMounted(() => {
   window.addEventListener('resize', handleResize)
   window.addEventListener('message', handleMessage)
   window.addEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
-  window.addEventListener('popstate', handleBrowserPopState)
+  window.addEventListener('popstate', virtualBackGuard.handlePopState)
   window.addEventListener('beforeunload', saveReaderSessionNow)
   window.addEventListener('scroll', handleScroll, { passive: true })
   window.addEventListener('pointerdown', handleWindowPointerDown, { passive: true })
@@ -4264,7 +4187,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('message', handleMessage)
   window.removeEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
-  window.removeEventListener('popstate', handleBrowserPopState)
+  window.removeEventListener('popstate', virtualBackGuard.handlePopState)
   window.removeEventListener('beforeunload', saveReaderSessionNow)
   window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('pointerdown', handleWindowPointerDown)
