@@ -16,6 +16,7 @@ import {
 } from '@/api/feed'
 import AppFeedHeaderContent from '@/components/AppFeedHeaderContent.vue'
 import AppPageHeaderContent from '@/components/AppPageHeaderContent.vue'
+import FeedPager from '@/components/FeedPager.vue'
 import ReaderDetailOverlayContent from '@/components/ReaderDetailOverlayContent.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
 import ReaderSourceOverlayContent from '@/components/ReaderSourceOverlayContent.vue'
@@ -38,7 +39,6 @@ import {
 } from '@/composables/useReaderRouteSync'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
-import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -3894,50 +3894,25 @@ onUnmounted(() => {
         @pointerup="handleFeedPointerUp"
         @pointercancel="handleFeedPointerCancel"
       >
-        <div class="feed-stage">
-          <div
-            class="feed-track"
-            :class="{ 'feed-track--settling': viewSettling }"
-            :style="feedTrackStyle"
-          >
-            <section class="feed-pane">
-              <SubscriptionFeedView
-                mode="subscriptions"
-                :active="route.name === 'subscriptions' && !detailReaderOpen && !sourceReaderOpen"
-                :scroll-top="feedScrollTop"
-                :top-chrome-progress="topChromeProgress"
-                :header-height="feedHeaderHeight"
-                :freeze-body-during-top-refresh="freezeFeedBodyDuringTopRefresh"
-                :morphing-item-id="morphingItemId"
-                :morphing-height-lock-item-id="morphingHeightLockItemId"
-                :morphing-item-height="morphingItemHeight"
-                :morphing-preview-progress="feedItemPreviewProgress"
-                @top-pull-start="handleFeedTopPullStart"
-                @top-pull-move="handleFeedTopPullMove"
-                @top-pull-end="handleFeedTopPullEnd"
-                @open-item="openItemReader"
-              />
-            </section>
-            <section class="feed-pane">
-              <SubscriptionFeedView
-                mode="recommendations"
-                :active="route.name === 'recommendations' && !detailReaderOpen && !sourceReaderOpen"
-                :scroll-top="feedScrollTop"
-                :top-chrome-progress="topChromeProgress"
-                :header-height="feedHeaderHeight"
-                :freeze-body-during-top-refresh="freezeFeedBodyDuringTopRefresh"
-                :morphing-item-id="morphingItemId"
-                :morphing-height-lock-item-id="morphingHeightLockItemId"
-                :morphing-item-height="morphingItemHeight"
-                :morphing-preview-progress="feedItemPreviewProgress"
-                @top-pull-start="handleFeedTopPullStart"
-                @top-pull-move="handleFeedTopPullMove"
-                @top-pull-end="handleFeedTopPullEnd"
-                @open-item="openItemReader"
-              />
-            </section>
-          </div>
-        </div>
+        <FeedPager
+          :active-key="route.name"
+          :detail-reader-open="detailReaderOpen"
+          :source-reader-open="sourceReaderOpen"
+          :view-settling="viewSettling"
+          :feed-track-style="feedTrackStyle"
+          :feed-scroll-top="feedScrollTop"
+          :top-chrome-progress="topChromeProgress"
+          :feed-header-height="feedHeaderHeight"
+          :freeze-body-during-top-refresh="freezeFeedBodyDuringTopRefresh"
+          :morphing-item-id="morphingItemId"
+          :morphing-height-lock-item-id="morphingHeightLockItemId"
+          :morphing-item-height="morphingItemHeight"
+          :feed-item-preview-progress="feedItemPreviewProgress"
+          @top-pull-start="handleFeedTopPullStart"
+          @top-pull-move="handleFeedTopPullMove"
+          @top-pull-end="handleFeedTopPullEnd"
+          @open-item="openItemReader"
+        />
       </section>
       <section
         v-else
