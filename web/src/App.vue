@@ -364,7 +364,7 @@ const sourceReaderStyle = computed(() => {
   const sourceStretch = sourceReaderStretch.value
   return {
     '--feed-header-height': `${feedHeaderHeight.value}px`,
-    '--source-header-space': cssPx(feedHeaderHeight.value * topChromeProgress.value),
+    '--source-header-space': cssPx(feedHeaderHeight.value),
     zIndex: sourceReaderUnderDetail.value ? 96 : sourceReaderVisible.value ? 110 : 90,
     opacity: !sourceReaderVisible.value
       ? '0'
@@ -388,7 +388,7 @@ const sourceHeaderStyle = computed(() => ({
   transform: cssTranslate3d(0, (topChromeProgress.value - 1) * feedHeaderHeight.value),
   transition:
     feedChromeSettling.value || readerBackDragging.value
-      ? 'transform 800ms cubic-bezier(0.16, 1, 0.3, 1), opacity 800ms ease'
+      ? 'transform 1120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1120ms ease'
       : undefined,
 }))
 const detailHeaderLayerStyle = computed(() => chromeLayerStyle(detailHeaderVisible.value, topChromeProgress.value))
@@ -784,7 +784,7 @@ const navOpenButtonStyle = computed(() => {
       progress * 0.08
     ).toFixed(3)})`,
     transition: settling
-      ? 'transform 800ms cubic-bezier(0.16, 1, 0.3, 1), opacity 800ms ease, visibility 800ms ease, border-color 160ms ease, background 160ms ease'
+      ? 'transform 1120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1120ms ease, visibility 1120ms ease, border-color 160ms ease, background 160ms ease'
       : undefined,
     visibility: progress > 0.01 && !feedCornerHidden.value ? ('visible' as const) : ('hidden' as const),
   }
@@ -1353,7 +1353,7 @@ function chromeLayerStyle(
     transition: options.disableTransition
       ? 'none'
       : feedChromeSettling.value || feedRefreshSettling.value
-        ? 'transform 800ms cubic-bezier(0.16, 1, 0.3, 1), opacity 800ms ease, visibility 800ms ease'
+        ? 'transform 1120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1120ms ease, visibility 1120ms ease'
         : undefined,
     visibility: safeProgress > 0.01 ? ('visible' as const) : ('hidden' as const),
   }
@@ -3599,7 +3599,7 @@ function setTopChromeVisible(visible: boolean) {
   topChromeProgress.value = nextProgress
   feedChromeSettleTimer = window.setTimeout(() => {
     feedChromeSettling.value = false
-  }, motionDelay(800))
+  }, motionDelay(1120))
 }
 
 function currentContentScrollTop() {
@@ -3983,7 +3983,7 @@ watch(
       window.clearTimeout(feedRefreshSettleTimer)
       feedRefreshSettleTimer = window.setTimeout(() => {
         feedRefreshSettling.value = false
-      }, motionDelay(800))
+      }, motionDelay(1120))
     }
 
     if (!active && !refreshWasActive.value) {
