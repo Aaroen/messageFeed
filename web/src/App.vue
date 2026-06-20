@@ -16,10 +16,8 @@ import {
 } from '@/api/feed'
 import AppFeedHeaderContent from '@/components/AppFeedHeaderContent.vue'
 import AppPageHeaderContent from '@/components/AppPageHeaderContent.vue'
+import AppReaderStackContent from '@/components/AppReaderStackContent.vue'
 import FeedPager from '@/components/FeedPager.vue'
-import ReaderDetailOverlayContent from '@/components/ReaderDetailOverlayContent.vue'
-import ReaderStack from '@/components/ReaderStack.vue'
-import ReaderSourceOverlayContent from '@/components/ReaderSourceOverlayContent.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
@@ -3932,7 +3930,7 @@ onUnmounted(() => {
       </section>
     </main>
 
-    <ReaderStack
+    <AppReaderStackContent
       :source-mounted="sourceReaderMounted && Boolean(readerSource)"
       :source-under-detail="sourceReaderUnderDetail"
       :source-style="sourceReaderStyle"
@@ -3949,81 +3947,70 @@ onUnmounted(() => {
       :detail-motion-settling="readerMotionSettling"
       :detail-returning-feed="detailReturningToFeed"
       :detail-style="detailReaderStyle"
-    >
-      <template #source>
-        <ReaderSourceOverlayContent
-          :notice="sourceNotice"
-          :top-chrome-phase="topChromePhase"
-          :top-chrome-progress="topChromeProgress"
-          :header-style="sourceHeaderStyle"
-          :source-name="readerSource?.name || ''"
-          :source-meta="sourceToggleActive ? '已订阅' : '未订阅'"
-          :title-text-style="sourceTitleTextStyle"
-          :title-layer-style="sourceTitleLayerStyle"
-          :main-layer-style="sourceMainLayerStyle"
-          :pull-status-style="sourcePullStatusStyle"
-          :pull-icon-style="sourcePullIconStyle"
-          :pull-active="sourcePullActive"
-          :pull-refreshing="feedInteraction.pullRefreshing"
-          :pull-status-text="pullStatusText"
-          :pull-status-meta="pullStatusMeta"
-          :toggle-active="sourceToggleActive"
-          :toggle-label="sourceToggleLabel"
-          :toggle-disabled="sourceSubscriptionLoading"
-          :content-style="sourceContentStyle"
-          :reader-source="readerSource"
-          :refresh-nonce="sourceReaderRefreshNonce"
-          :scroll-top="sourceReaderScrollTop"
-          :header-height="feedHeaderHeight"
-          :morphing-item-id="morphingItemId"
-          :morphing-height-lock-item-id="morphingHeightLockItemId"
-          :morphing-item-height="morphingItemHeight"
-          :morphing-preview-progress="feedItemPreviewProgress"
-          :background-refresh="!sourceReaderVisible"
-          @content-ref="setSourceReaderContentElement"
-          @content-scroll="handleSourceReaderScroll"
-          @open-navigation="openNavigation"
-          @toggle-subscription="toggleSourceReaderSubscription"
-          @top-pull-start="handleFeedTopPullStart"
-          @top-pull-move="handleFeedTopPullMove"
-          @top-pull-end="handleFeedTopPullEnd"
-          @open-item="openItemReader"
-        />
-      </template>
-
-      <template #detail>
-        <ReaderDetailOverlayContent
-          :entry-settling="detailEntrySettling"
-          :chrome-settling="feedChromeSettling"
-          :transition-style="detailTransitionSurfaceStyle"
-          :item="detailItem"
-          :morph-visible="detailMorphTextVisible"
-          :morph-text-style="detailMorphTextStyle"
-          :morph-source-label-style="detailMorphSourceLabelStyle"
-          :display-date="detailDisplayDate"
-          :morph-summary-visible="detailMorphSummaryVisible"
-          :preview-summary="detailPreviewSummary"
-          :content-style="detailContentStyle"
-          :loading="detailLoading"
-          :error="detailError"
-          :srcdoc="detailSrcdoc"
-          :inline-source-style="detailInlineSourceStyle"
-          :progress-visible="detailProgressVisible"
-          :progress-dragging="detailProgressDragging"
-          :reading-progress="detailReadingProgress"
-          :progress-style="detailProgressStyle"
-          :progress-fill-style="detailProgressFillStyle"
-          :progress-thumb-style="detailProgressThumbStyle"
-          @content-ref="setDetailContentElement"
-          @content-scroll="handleDetailContentScroll"
-          @inline-source-ref="setDetailInlineSourceElement"
-          @frame-ref="setDetailFrameElement"
-          @frame-load="handleDetailFrameLoad"
-          @progress-drag-start="handleDetailProgressDragStart"
-          @progress-drag-end="handleDetailProgressDragEnd"
-          @progress-change="handleDetailProgressChange"
-        />
-      </template>
-    </ReaderStack>
+      :source-notice="sourceNotice"
+      :top-chrome-phase="topChromePhase"
+      :top-chrome-progress="topChromeProgress"
+      :source-header-style="sourceHeaderStyle"
+      :source-name="readerSource?.name || ''"
+      :source-title-text-style="sourceTitleTextStyle"
+      :source-title-layer-style="sourceTitleLayerStyle"
+      :source-main-layer-style="sourceMainLayerStyle"
+      :source-pull-status-style="sourcePullStatusStyle"
+      :source-pull-icon-style="sourcePullIconStyle"
+      :source-pull-active="sourcePullActive"
+      :source-pull-refreshing="feedInteraction.pullRefreshing"
+      :pull-status-text="pullStatusText"
+      :pull-status-meta="pullStatusMeta"
+      :source-toggle-active="sourceToggleActive"
+      :source-toggle-label="sourceToggleLabel"
+      :source-toggle-disabled="sourceSubscriptionLoading"
+      :source-content-style="sourceContentStyle"
+      :reader-source="readerSource"
+      :source-refresh-nonce="sourceReaderRefreshNonce"
+      :source-scroll-top="sourceReaderScrollTop"
+      :feed-header-height="feedHeaderHeight"
+      :morphing-item-id="morphingItemId"
+      :morphing-height-lock-item-id="morphingHeightLockItemId"
+      :morphing-item-height="morphingItemHeight"
+      :feed-item-preview-progress="feedItemPreviewProgress"
+      :source-background-refresh="!sourceReaderVisible"
+      :detail-entry-settling="detailEntrySettling"
+      :detail-chrome-settling="feedChromeSettling"
+      :detail-transition-style="detailTransitionSurfaceStyle"
+      :detail-item="detailItem"
+      :detail-morph-visible="detailMorphTextVisible"
+      :detail-morph-text-style="detailMorphTextStyle"
+      :detail-morph-source-label-style="detailMorphSourceLabelStyle"
+      :detail-display-date="detailDisplayDate"
+      :detail-morph-summary-visible="detailMorphSummaryVisible"
+      :detail-preview-summary="detailPreviewSummary"
+      :detail-content-style="detailContentStyle"
+      :detail-loading="detailLoading"
+      :detail-error="detailError"
+      :detail-srcdoc="detailSrcdoc"
+      :detail-inline-source-style="detailInlineSourceStyle"
+      :detail-progress-visible="detailProgressVisible"
+      :detail-progress-dragging="detailProgressDragging"
+      :detail-reading-progress="detailReadingProgress"
+      :detail-progress-style="detailProgressStyle"
+      :detail-progress-fill-style="detailProgressFillStyle"
+      :detail-progress-thumb-style="detailProgressThumbStyle"
+      @source-content-ref="setSourceReaderContentElement"
+      @source-content-scroll="handleSourceReaderScroll"
+      @open-navigation="openNavigation"
+      @toggle-source-subscription="toggleSourceReaderSubscription"
+      @top-pull-start="handleFeedTopPullStart"
+      @top-pull-move="handleFeedTopPullMove"
+      @top-pull-end="handleFeedTopPullEnd"
+      @open-item="openItemReader"
+      @detail-content-ref="setDetailContentElement"
+      @detail-content-scroll="handleDetailContentScroll"
+      @detail-inline-source-ref="setDetailInlineSourceElement"
+      @detail-frame-ref="setDetailFrameElement"
+      @detail-frame-load="handleDetailFrameLoad"
+      @detail-progress-drag-start="handleDetailProgressDragStart"
+      @detail-progress-drag-end="handleDetailProgressDragEnd"
+      @detail-progress-change="handleDetailProgressChange"
+    />
   </div>
 </template>
