@@ -15,6 +15,7 @@ import {
   getFeedItem,
   type FeedItem,
 } from '@/api/feed'
+import ReaderDetailMorphText from '@/components/ReaderDetailMorphText.vue'
 import ReaderDetailProgress from '@/components/ReaderDetailProgress.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
 import TopChrome from '@/components/TopChrome.vue'
@@ -4132,17 +4133,15 @@ onUnmounted(() => {
           }"
           :style="detailTransitionSurfaceStyle"
         >
-          <article v-if="detailItem && detailMorphTextVisible" class="reader-morph-text" :style="detailMorphTextStyle">
-            <div class="reader-morph-text__meta">
-              <span class="reader-morph-text__source-label" :style="detailMorphSourceLabelStyle">
-                {{ detailItem.source_name || '未知来源' }}
-              </span>
-              <span>{{ detailDisplayDate }}</span>
-              <span v-if="detailItem.author">{{ detailItem.author }}</span>
-            </div>
-            <h2>{{ detailItem.title }}</h2>
-            <p v-if="detailMorphSummaryVisible">{{ detailPreviewSummary }}</p>
-          </article>
+          <ReaderDetailMorphText
+            :item="detailItem"
+            :visible="detailMorphTextVisible"
+            :root-style="detailMorphTextStyle"
+            :source-label-style="detailMorphSourceLabelStyle"
+            :display-date="detailDisplayDate"
+            :summary-visible="detailMorphSummaryVisible"
+            :summary="detailPreviewSummary"
+          />
           <div
             ref="detailContentRef"
             class="reader-overlay__content reader-detail"
