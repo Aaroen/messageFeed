@@ -18,6 +18,7 @@ import ReaderDetailMorphText from '@/components/ReaderDetailMorphText.vue'
 import ReaderDetailProgress from '@/components/ReaderDetailProgress.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
 import ReaderSourceChromeContent from '@/components/ReaderSourceChromeContent.vue'
+import ReaderSourceFeed from '@/components/ReaderSourceFeed.vue'
 import ReaderSourceNotice from '@/components/ReaderSourceNotice.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
@@ -4068,17 +4069,12 @@ onUnmounted(() => {
           :style="sourceContentStyle"
           @scroll.passive="handleSourceReaderScroll"
         >
-          <SubscriptionFeedView
-            v-if="readerSource"
-            :key="`${readerSource.kind}:${readerSource.id}:${sourceReaderRefreshNonce}`"
-            mode="source"
-            :source-kind="readerSource.kind"
-            :source-id="readerSource.id"
-            :active="true"
+          <ReaderSourceFeed
+            :reader-source="readerSource"
+            :refresh-nonce="sourceReaderRefreshNonce"
             :scroll-top="sourceReaderScrollTop"
             :top-chrome-progress="topChromeProgress"
             :header-height="feedHeaderHeight"
-            :freeze-body-during-top-refresh="true"
             :morphing-item-id="morphingItemId"
             :morphing-height-lock-item-id="morphingHeightLockItemId"
             :morphing-item-height="morphingItemHeight"
