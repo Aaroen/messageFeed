@@ -148,7 +148,7 @@ const {
   setDetailProgressDraggingState,
   clearSourceReturnTargetReadyState,
   clearSourceReaderReturnModeState,
-  closeItemReaderState,
+  closeItemReaderWithTransition,
   collapseItemReaderWithDelay,
   restoreItemReaderExpansionWithDelay,
   restoreDetailFromSourceSwipeWithDelay,
@@ -1972,9 +1972,7 @@ function restoreParkedSourceReader(duration = 260) {
 }
 
 function closeItemReader() {
-  clearDetailHeaderSwapTimer()
-  restoreMorphingItemContent()
-  const result = closeItemReaderState()
+  const result = closeItemReaderWithTransition()
   if (isFeedRoute.value) {
     setTopChromeVisible(true)
     setChromeContentCollapsed(false)

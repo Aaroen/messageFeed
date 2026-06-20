@@ -860,6 +860,12 @@ export function useReaderStackState() {
     return { shouldScheduleHiddenSourceCleanup: false }
   }
 
+  function closeItemReaderWithTransition() {
+    clearDetailHeaderSwapTimer()
+    restoreMorphingItemContentWithDelay()
+    return closeItemReaderState()
+  }
+
   function beginCollapseItemReaderState(): BeginCollapseItemReaderStateResult {
     const shouldRestorePreviousParkedDetail =
       detailOpenedFromSourceReader.value && parkedDetailStack.value.length > 0
@@ -1298,7 +1304,7 @@ export function useReaderStackState() {
     setDetailProgressDraggingState,
     clearSourceReturnTargetReadyState,
     clearSourceReaderReturnModeState,
-    closeItemReaderState,
+    closeItemReaderWithTransition,
     collapseItemReaderWithDelay,
     restoreItemReaderExpansionWithDelay,
     restoreDetailFromSourceSwipeWithDelay,
