@@ -267,7 +267,9 @@ const detailParkedBehindSource = computed(
   () =>
     hasDetailParkedBehindSource() && !readerBackDragging.value,
 )
-const sourceReturnDragOnlyDamping = computed(() => readerBackDragging.value && backSwipeTarget === 'source')
+const sourceReaderBlockedDamping = computed(
+  () => readerBackDragging.value && backSwipeTarget === 'source' && backSwipeIntent === 'blocked',
+)
 const headerDetailLayoutActive = computed(
   () => detailChromeVisible.value || (detailReaderOpen.value && isFeedRoute.value && feedHeaderReturnProgress.value > 0.001),
 )
@@ -370,6 +372,7 @@ const sourceReaderStyle = computed(() => {
   const sourceStretch = sourceReaderStretch.value
   return {
     '--feed-header-height': `${feedHeaderHeight.value}px`,
+    '--source-header-space': cssPx(feedHeaderHeight.value * topChromeProgress.value),
     zIndex: sourceReaderUnderDetail.value ? 96 : sourceReaderVisible.value ? 110 : 90,
     opacity: !sourceReaderVisible.value
       ? '0'
@@ -387,12 +390,21 @@ const sourceReaderStyle = computed(() => {
       : 'opacity 320ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
   }
 })
+const sourceHeaderStyle = computed(() => ({
+  opacity: topChromeProgress.value.toFixed(3),
+  pointerEvents: topChromeProgress.value > 0.86 ? ('auto' as const) : ('none' as const),
+  transform: cssTranslate3d(0, (topChromeProgress.value - 1) * feedHeaderHeight.value),
+  transition:
+    feedChromeSettling.value || readerBackDragging.value
+      ? 'transform 800ms cubic-bezier(0.16, 1, 0.3, 1), opacity 800ms ease'
+      : undefined,
+}))
 const detailReaderStyle = computed(() => ({
   transform: `translate3d(0, 0, 0) scaleX(${(1 + Math.abs(detailReaderStretch.value)).toFixed(4)})`,
   transition: readerBackDragging.value ? 'none' : undefined,
   transformOrigin: stretchTransformOrigin(detailReaderStretch.value, detailStretchAnchor.value),
   pointerEvents: detailCommittedListReturn() ? ('none' as const) : ('auto' as const),
-  '--detail-overlay-opacity': sourceReturnDragOnlyDamping.value || detailCommittedListReturn() || detailReturningToFeed.value
+  '--detail-overlay-opacity': sourceReaderBlockedDamping.value || detailCommittedListReturn() || detailReturningToFeed.value
     ? '0'
     : clamp(
         detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value)),
@@ -454,7 +466,7 @@ const detailTransitionSurfaceStyle = computed(() => {
     (detailBackExitProgress.value > 0 || detailSourceExitProgress.value > 0) &&
     !(backSwipeTarget === 'source' && !sourceReturnTargetReady.value)
   const committedListReturn = detailCommittedListReturn()
-  const suppressSourceReturnPreview = sourceReturnDragOnlyDamping.value
+  const suppressSourceReturnPreview = sourceReaderBlockedDamping.value
 
   if (!collapsedTarget) {
     const opacity =
@@ -630,7 +642,9 @@ const sourceNameMorphProgress = computed(() =>
   clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
 )
 const sourceTitleProgress = computed(() =>
-  detailReaderOpen.value && sourceReaderVisible.value ? sourceNameMorphProgress.value : 1,
+  detailReaderOpen.value && sourceReaderVisible.value && !detailCommittedListReturn()
+    ? sourceNameMorphProgress.value
+    : 1,
 )
 const sourceTitleRevealProgress = computed(() =>
   clamp((sourceTitleProgress.value - 0.64) / 0.24),
@@ -640,13 +654,14 @@ const sourceTitleRevealVisible = computed(
     Boolean(readerSource.value) &&
     detailReaderOpen.value &&
     sourceReaderVisible.value &&
+    !detailCommittedListReturn() &&
     !sourcePullActive.value,
 )
 const sourceNameMorphActive = computed(
   () =>
     Boolean(detailItem.value) &&
     sourceReaderVisible.value &&
-    !sourceReturnDragOnlyDamping.value &&
+    !sourceReaderBlockedDamping.value &&
     !detailReturningToFeed.value &&
     sourceNameMorphProgress.value > 0.001 &&
     sourceNameMorphProgress.value < 0.985 &&
@@ -659,7 +674,7 @@ const sourceNameMorphVisible = computed(
   () =>
     Boolean(detailItem.value) &&
     sourceReaderVisible.value &&
-    !sourceReturnDragOnlyDamping.value &&
+    !sourceReaderBlockedDamping.value &&
     !detailReturningToFeed.value &&
     sourceNameMorphProgress.value > 0.001 &&
     sourceNameMorphProgress.value < 0.995 &&
@@ -700,17 +715,8 @@ const sourceNameMorphStyle = computed(() => {
   }
 })
 const sourceTitleLayerStyle = computed(() => {
-  if (detailReaderOpen.value && sourceReaderVisible.value) {
-    return {
-      opacity: '0',
-      transform: 'translate3d(0, 0, 0)',
-      filter: 'blur(2px)',
-      transition: readerBackDragging.value ? 'none' : 'opacity 160ms ease, filter 160ms ease',
-    }
-  }
-
   const revealProgress = sourceTitleRevealVisible.value ? sourceTitleRevealProgress.value : 0
-  const opacity = sourceTitleProgress.value * (1 - revealProgress)
+  const opacity = sourceTitleRevealVisible.value ? sourceTitleProgress.value * (1 - revealProgress) : 1
 
   return {
     opacity: opacity.toFixed(3),
@@ -1097,6 +1103,7 @@ let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
 let lastFeedScrollTop = 0
 let lastPageScrollTop = 0
+let lastSourceReaderScrollTop = 0
 let lastDetailScrollTop = 0
 let topPullStartProgress = 1
 let pageTouchStartX = 0
@@ -1821,6 +1828,7 @@ async function restoreReaderSession() {
 
     feedScrollTop.value = snapshot.feedScrollTop || 0
     sourceReaderScrollTop.value = snapshot.sourceReaderScrollTop || 0
+    lastSourceReaderScrollTop = sourceReaderScrollTop.value
     detailScrollTop.value = snapshot.detailScrollTop || 0
     lastDetailScrollTop = detailScrollTop.value
     topChromeProgress.value = typeof snapshot.topChromeProgress === 'number' ? snapshot.topChromeProgress : 1
@@ -2212,6 +2220,9 @@ async function toggleSourceReaderSubscription() {
 function openSourceReader(source: ReaderSource, options: { visible?: boolean } = {}) {
   window.clearTimeout(hiddenSourceCleanupTimer)
   const nextVisible = options.visible ?? true
+  if (nextVisible) {
+    setTopChromeVisible(true)
+  }
 
   if (readerSource.value?.id === source.id && readerSource.value.kind === source.kind) {
     if (nextVisible) {
@@ -2248,6 +2259,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
   sourceSubscription.value = null
   sourceNotice.value = null
   sourceReaderScrollTop.value = 0
+  lastSourceReaderScrollTop = 0
   nextTick(() => {
     if (sourceReaderContentRef.value) {
       sourceReaderContentRef.value.scrollTop = 0
@@ -2357,6 +2369,10 @@ function closeSourceReader() {
     sourceReaderReturnMode.value = null
     sourceReaderBackDetail.value = null
     parkedDetailStack.value = []
+    if (isFeedRoute.value && !detailReaderOpen.value) {
+      setTopChromeVisible(true)
+      feedContentCollapsed.value = false
+    }
     scheduleHiddenSourceReaderCleanup(340)
     return
   }
@@ -2371,6 +2387,10 @@ function closeSourceReader() {
   sourceSubscription.value = null
   sourceNotice.value = null
   parkedDetailStack.value = []
+  if (isFeedRoute.value && !detailReaderOpen.value) {
+    setTopChromeVisible(true)
+    feedContentCollapsed.value = false
+  }
 }
 
 function restoreDetailFromParkedSource(duration = 360) {
@@ -2463,6 +2483,10 @@ function closeItemReader() {
   detailReaderTouchOffset.value = 0
   detailReaderStretch.value = 0
   resetDetailTransition()
+  if (isFeedRoute.value) {
+    setTopChromeVisible(true)
+    feedContentCollapsed.value = false
+  }
   if (sourceReaderVisible.value && previousSourceReturnMode === 'detail') {
     sourceReaderReturnMode.value = 'detail'
   } else if (!sourceReaderVisible.value) {
@@ -2581,12 +2605,6 @@ function completeDetailToSourceReader(duration = 360) {
     restoreMorphingItemContent()
   }, motionDelay(duration))
 }
-
-function noopTopPullStart(_startedWithVisibleChrome: boolean) {}
-
-function noopTopPullMove(_distance: number) {}
-
-function noopTopPullEnd(_shouldRefresh: boolean) {}
 
 function settleNavigation(open: boolean) {
   window.clearTimeout(navigationTimer)
@@ -2762,7 +2780,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   trackingBackSwipe = true
   detailEntrySettling.value = false
   sourceReturnTargetReady.value = false
-  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
+  if (backSwipeTarget === 'source' && deltaX < 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
     backSwipeIntent = 'back'
     detailRestoringFromSourceReader.value = true
     detailReturningToFeed.value = false
@@ -2798,7 +2816,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
+  if (backSwipeTarget === 'source' && deltaX < 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
     backSwipeIntent = 'back'
     detailRestoringFromSourceReader.value = true
     detailReturningToFeed.value = false
@@ -2836,14 +2854,13 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     detailReaderTouchOffset.value = 0
     detailBackExitProgress.value = clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
   } else if (intent === 'back' && backSwipeTarget === 'source') {
-    if (offset > 0 && canReturnSourceReaderToDetail()) {
+    if (offset < 0 && canReturnSourceReaderToDetail()) {
+      const returnProgress = clamp(Math.max(0, -offset) / Math.max(220, windowWidth.value * 0.52))
       detailRestoringFromSourceReader.value = true
       detailReaderTouchOffset.value = 0
       detailBackExitProgress.value = 0
       sourceReaderOffset.value = 0
-      detailSourceExitProgress.value = 1
-      sourceReaderStretch.value = stretch
-      updateStretchAnchor(sourceStretchAnchor, stretch)
+      detailSourceExitProgress.value = 1 - returnProgress
     } else {
       detailSourceExitProgress.value = hasParkedDetailSourceState() ? 1 : 0
       sourceReaderStretch.value = stretch
@@ -2884,7 +2901,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
     intent === 'back' && target === 'detail'
       ? deltaX > 0 && (detailBackExitProgress.value >= 0.42 || deltaX >= viewSwitchDistance)
       : intent === 'back' && target === 'source'
-        ? deltaX > 0 && (detailSourceExitProgress.value <= 0.58 || deltaX >= viewSwitchDistance)
+        ? deltaX < 0 && (detailSourceExitProgress.value <= 0.58 || Math.abs(deltaX) >= viewSwitchDistance)
       : intent === 'source' && target === 'detail'
         ? deltaX < 0 && (detailSourceExitProgress.value >= 0.42 || Math.abs(deltaX) >= viewSwitchDistance)
         : intent === 'back'
@@ -3553,6 +3570,8 @@ function setTopChromeVisible(visible: boolean) {
   window.clearTimeout(feedChromeSettleTimer)
   if (visible) {
     feedContentCollapsed.value = false
+  } else {
+    feedContentCollapsed.value = true
   }
   topChromeProgress.value = nextProgress
   feedChromeSettleTimer = window.setTimeout(() => {
@@ -3561,6 +3580,10 @@ function setTopChromeVisible(visible: boolean) {
 }
 
 function currentContentScrollTop() {
+  if (sourceReaderOpen.value) {
+    return sourceReaderScrollTop.value
+  }
+
   if (isFeedRoute.value) {
     return feedScrollTop.value
   }
@@ -3637,7 +3660,7 @@ function updateTopTabsByScroll(current: number, previous: number) {
     return
   }
 
-  if (feedPullActive.value || feedTopPulling.value || feedChromeSettling.value) {
+  if (feedPullActive.value || sourcePullActive.value || feedTopPulling.value || feedChromeSettling.value) {
     return
   }
 
@@ -3704,7 +3727,10 @@ function handleSourceReaderScroll(event: Event) {
     return
   }
 
-  sourceReaderScrollTop.value = target.scrollTop
+  const current = target.scrollTop
+  sourceReaderScrollTop.value = current
+  updateTopTabsByScroll(current, lastSourceReaderScrollTop)
+  lastSourceReaderScrollTop = current
   scheduleReaderSessionSave()
 }
 
@@ -3924,10 +3950,11 @@ watch(
   feedPullActive,
   (active) => {
     if (!active && refreshWasActive.value) {
+      const keepChromeVisible = refreshStartedWithChrome.value || feedTopPullStartedWithChrome.value
       refreshStartedWithChrome.value = false
       feedTopPullStartedWithChrome.value = false
-      feedContentCollapsed.value = true
-      setTopChromeVisible(false)
+      feedContentCollapsed.value = !keepChromeVisible
+      setTopChromeVisible(keepChromeVisible)
       refreshWasActive.value = false
       feedRefreshSettling.value = true
       window.clearTimeout(feedRefreshSettleTimer)
@@ -4220,7 +4247,7 @@ onUnmounted(() => {
             <section class="feed-pane">
               <SubscriptionFeedView
                 mode="subscriptions"
-                :active="route.name === 'subscriptions'"
+                :active="route.name === 'subscriptions' && !detailReaderOpen && !sourceReaderOpen"
                 :scroll-top="feedScrollTop"
                 :top-chrome-progress="topChromeProgress"
                 :header-height="feedHeaderHeight"
@@ -4238,7 +4265,7 @@ onUnmounted(() => {
             <section class="feed-pane">
               <SubscriptionFeedView
                 mode="recommendations"
-                :active="route.name === 'recommendations'"
+                :active="route.name === 'recommendations' && !detailReaderOpen && !sourceReaderOpen"
                 :scroll-top="feedScrollTop"
                 :top-chrome-progress="topChromeProgress"
                 :header-height="feedHeaderHeight"
@@ -4289,7 +4316,7 @@ onUnmounted(() => {
       >
         {{ sourceNotice.message }}
       </div>
-      <header class="reader-overlay__header reader-overlay__header--source">
+      <header class="reader-overlay__header reader-overlay__header--source" :style="sourceHeaderStyle">
         <button class="reader-back-button" type="button" aria-label="打开导航" @click="openNavigation">
           <IconMenuUnfold />
         </button>
@@ -4333,7 +4360,7 @@ onUnmounted(() => {
       </header>
       <div
         ref="sourceReaderContentRef"
-        class="reader-overlay__content"
+        class="reader-overlay__content reader-overlay__content--source"
         @scroll.passive="handleSourceReaderScroll"
       >
         <SubscriptionFeedView
@@ -4343,7 +4370,7 @@ onUnmounted(() => {
           :source-id="readerSource.id"
           :active="true"
           :scroll-top="sourceReaderScrollTop"
-          :top-chrome-progress="1"
+          :top-chrome-progress="topChromeProgress"
           :header-height="feedHeaderHeight"
           :freeze-body-during-top-refresh="true"
           :morphing-item-id="morphingItemId"
@@ -4351,9 +4378,9 @@ onUnmounted(() => {
           :morphing-item-height="morphingItemHeight"
           :morphing-preview-progress="feedItemPreviewProgress"
           :background-refresh="!sourceReaderVisible"
-          @top-pull-start="noopTopPullStart"
-          @top-pull-move="noopTopPullMove"
-          @top-pull-end="noopTopPullEnd"
+          @top-pull-start="handleFeedTopPullStart"
+          @top-pull-move="handleFeedTopPullMove"
+          @top-pull-end="handleFeedTopPullEnd"
           @open-item="openItemReader"
         />
       </div>

@@ -851,6 +851,11 @@ body[arco-theme='dark'] .feed-tab--active {
   transition: padding-top 800ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.app-main--chrome-settling .app-content--feed,
+.app-main--chrome-settling .app-content--page {
+  transition: padding-top 800ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .app-main--refresh-settling .app-header,
 .app-main--chrome-settling .app-header {
   transition:
@@ -1237,6 +1242,11 @@ body[arco-theme='dark'] .reader-overlay {
   background: transparent;
 }
 
+.reader-overlay--source {
+  display: block;
+  overflow: hidden;
+}
+
 .reader-overlay--detail::before {
   position: fixed;
   inset: 0;
@@ -1369,7 +1379,13 @@ body[arco-theme='dark'] .reader-transition-surface {
 }
 
 .reader-overlay__header--source {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 4;
   grid-template-columns: 44px minmax(0, 1fr);
+  will-change: transform, opacity;
 }
 
 .reader-back-button {
@@ -1477,6 +1493,12 @@ body[arco-theme='dark'] .reader-back-button {
     transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+}
+
+.reader-overlay__content--source {
+  height: 100%;
+  padding-top: calc(var(--source-header-space, var(--feed-header-height, 86px)) + 14px);
+  transition: padding-top 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .reader-morph-text {
