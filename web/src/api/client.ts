@@ -27,12 +27,12 @@ export function formatAPIError(error: unknown): string {
       return message
     }
     if (error.code === 'ECONNABORTED') {
-      return 'request timeout'
+      return '请求超时'
     }
     return error.message
   }
   if (error instanceof Error) {
     return error.message
   }
-  return 'unknown error'
+  return '未知错误'
 }

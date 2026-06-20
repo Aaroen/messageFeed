@@ -68,7 +68,7 @@ type ReaderSessionSnapshot = {
   parkedDetailStack: ParkedDetailSnapshot[]
 }
 type PageViewExpose = {
-  refreshPage?: () => Promise<void> | void
+  refreshPage?: (options?: { noticeDelayMS?: number }) => Promise<void> | void
 }
 type FetchNowResult = {
   success: boolean
@@ -118,6 +118,7 @@ const feedTopPulling = ref(false)
 const feedTopPullStartedWithChrome = ref(false)
 const refreshStartedWithChrome = ref(false)
 const pagePullOffset = ref(0)
+const pagePullDistance = ref(0)
 const pagePullSettling = ref(false)
 const pagePullRefreshing = ref(false)
 const readerSource = ref<ReaderSource | null>(null)
@@ -177,6 +178,7 @@ const isFeedRoute = computed(() => ['subscriptions', 'recommendations'].includes
 const cornerButtonLabel = computed(() => '打开导航')
 const activeFeedIndex = computed(() => (route.name === 'recommendations' ? 1 : 0))
 const feedPullActive = computed(() => isFeedRoute.value && (feedInteraction.pullActive || feedInteraction.pullOffset > 1))
+const pagePullActive = computed(() => !isFeedRoute.value && (pagePullRefreshing.value || pagePullOffset.value > 1))
 const sourcePullActive = computed(
   () =>
     sourceReaderOpen.value &&
@@ -184,6 +186,7 @@ const sourcePullActive = computed(
     (feedInteraction.pullActive || feedInteraction.pullOffset > 1),
 )
 const pullProgress = computed(() => Math.min(feedInteraction.pullOffset / 76, 1))
+const pagePullProgress = computed(() => Math.min(pagePullDistance.value / pageRefreshThreshold, 1))
 const sourcePullProgress = computed(() => Math.min(feedInteraction.pullOffset / 76, 1))
 const feedHeaderHeight = computed(() => (windowWidth.value <= 720 ? 78 : 86))
 const feedHeaderProgress = computed(() => {
@@ -268,12 +271,31 @@ const headerDetailLayoutActive = computed(
 )
 const pullStatusText = computed(() => feedInteraction.statusText)
 const pullStatusMeta = computed(() => feedInteraction.statusMeta)
+const pagePullStatusText = computed(() => {
+  if (pagePullRefreshing.value) {
+    return '抓取中'
+  }
+  return pagePullProgress.value >= 1 ? '释放刷新' : '下拉刷新'
+})
+const pagePullStatusMeta = computed(() => {
+  if (pagePullRefreshing.value) {
+    return pageTitle.value === '订阅管理' ? '正在更新订阅源列表与推荐源目录' : `正在更新${pageTitle.value}`
+  }
+  return pageTitle.value === '订阅管理' ? '下拉更新订阅管理' : `下拉更新${pageTitle.value}`
+})
 const pullStatusStyle = computed(() => ({
   opacity: feedPullActive.value ? '1' : '0',
   transform: `${cssTranslate3d(0, (1 - pullProgress.value) * -10)} scale(${(0.96 + pullProgress.value * 0.04).toFixed(3)})`,
 }))
 const pullIconStyle = computed(() => ({
   transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(pullProgress.value * 300),
+}))
+const pagePullStatusStyle = computed(() => ({
+  opacity: pagePullActive.value ? '1' : '0',
+  transform: `${cssTranslate3d(0, (1 - pagePullProgress.value) * -10)} scale(${(0.96 + pagePullProgress.value * 0.04).toFixed(3)})`,
+}))
+const pagePullIconStyle = computed(() => ({
+  transform: pagePullRefreshing.value ? 'none' : cssRotate(pagePullProgress.value * 300),
 }))
 const feedTabsLayerStyle = computed(() => {
   if (!detailReaderOpen.value) {
@@ -324,7 +346,7 @@ const mainClass = computed(() => ({
   'app-main--feed': isFeedRoute.value,
   'app-main--page': !isFeedRoute.value,
   'app-main--tabs-hidden': feedChromeHidden.value,
-  'app-main--refreshing': feedPullActive.value,
+  'app-main--refreshing': feedPullActive.value || pagePullActive.value,
   'app-main--pull-dragging': feedPullActive.value && !feedInteraction.pullRefreshing,
   'app-main--top-refresh-contained': freezeFeedBodyDuringTopRefresh.value,
   'app-main--refresh-settling': feedRefreshSettling.value,
@@ -3472,7 +3494,7 @@ function handleMessage(event: MessageEvent) {
 }
 
 function loadReaderSettings() {
-  sourceTimelinePreloadEnabled.value = localStorage.getItem('messagefeed-source-preload') === 'true'
+  sourceTimelinePreloadEnabled.value = localStorage.getItem('messagefeed-source-preload') !== 'false'
 }
 
 function handleReaderSettingsChanged(event: Event) {
@@ -3666,6 +3688,7 @@ function handleDetailContentScroll(event: Event) {
 
 function resetPageTopPullTracking() {
   pageTopPullDistance = 0
+  pagePullDistance.value = pagePullRefreshing.value ? pageRefreshThreshold : 0
   trackingPageTopPullCandidate = false
   trackingPageTopPull = false
 }
@@ -3738,6 +3761,7 @@ function handlePageTouchMove(event: TouchEvent) {
   if (trackingPageTopPull) {
     event.preventDefault()
     pageTopPullDistance = Math.max(pageTopPullDistance, deltaY)
+    pagePullDistance.value = pageTopPullDistance
     pagePullSettling.value = false
     window.clearTimeout(pagePullSettleTimer)
     pagePullOffset.value = pageRubberBandOffset(deltaY)
@@ -3751,10 +3775,12 @@ async function refreshCurrentPageFromPull() {
   }
 
   pagePullRefreshing.value = true
+  pagePullDistance.value = pageRefreshThreshold
   try {
-    await refreshPage()
+    await refreshPage({ noticeDelayMS: 180 })
   } finally {
     pagePullRefreshing.value = false
+    pagePullDistance.value = 0
   }
 }
 
@@ -3789,6 +3815,7 @@ watch(
     resetPageTopPullTracking()
     feedTopPulling.value = false
     pagePullOffset.value = 0
+    pagePullDistance.value = 0
     pagePullSettling.value = false
     viewDragOffset.value = 0
     if (isFeedRoute.value) {
@@ -4108,8 +4135,31 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-          <div v-else>
-            <h1>{{ pageTitle }}</h1>
+          <div v-else class="app-header-page-stack">
+            <div
+              class="feed-header-layer feed-header-layer--tabs"
+              :class="{ 'feed-header-layer--hidden': pagePullActive }"
+            >
+              <h1>{{ pageTitle }}</h1>
+            </div>
+            <div
+              class="feed-header-layer feed-header-layer--refresh"
+              :class="{ 'feed-header-layer--hidden': !pagePullActive }"
+              :style="pagePullStatusStyle"
+              aria-live="polite"
+            >
+              <span
+                class="feed-refresh-header__icon"
+                :class="{ 'feed-refresh-header__icon--refreshing': pagePullRefreshing }"
+                :style="pagePullIconStyle"
+              >
+                <IconSync />
+              </span>
+              <div class="feed-refresh-header__copy">
+                <div class="feed-refresh-header__title">{{ pagePullStatusText }}</div>
+                <div class="feed-refresh-header__meta">{{ pagePullStatusMeta }}</div>
+              </div>
+            </div>
           </div>
         </div>
       </header>

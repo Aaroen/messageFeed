@@ -9,6 +9,7 @@ import {
   importURLSources,
   listSourceCatalog,
   listSources,
+  fetchActiveSources,
   fetchSource,
   updateSourceStatus,
   type ImportSourcesResult,
@@ -50,20 +51,43 @@ const sourceByNormalizedURL = computed(() => {
   return sourceMap
 })
 
-function showNotice(type: 'success' | 'warning', message: string, durationMS?: number) {
+function showNotice(type: 'success' | 'warning', message: string, durationMS?: number, delayMS = 0) {
   const normalized = message.trim()
   if (!normalized) {
     notice.value = null
     return
   }
-  notice.value = { type, message: normalized }
   window.clearTimeout(noticeTimer)
-  const duration = durationMS ?? (type === 'success' ? 1000 : 3000)
-  if (duration > 0) {
-    noticeTimer = window.setTimeout(() => {
-      notice.value = null
-    }, duration)
+  const show = () => {
+    notice.value = { type, message: normalized }
+    const duration = durationMS ?? (type === 'success' ? 1000 : 3000)
+    if (duration > 0) {
+      noticeTimer = window.setTimeout(() => {
+        notice.value = null
+      }, duration)
+    }
   }
+  if (delayMS > 0) {
+    noticeTimer = window.setTimeout(show, delayMS)
+    return
+  }
+  show()
+}
+
+function formatFetchErrors(errors: Array<{ source_name?: string; message: string }> = []) {
+  const details = errors
+    .map((item) => {
+      const name = item.source_name?.trim() || '未知来源'
+      const message = item.message.trim()
+      return message ? `${name}：${message}` : name
+    })
+    .filter(Boolean)
+    .slice(0, 3)
+  if (!details.length) {
+    return '服务未返回具体错误原因'
+  }
+  const overflow = errors.length > details.length ? `；另有 ${errors.length - details.length} 个失败来源` : ''
+  return `${details.join('；')}${overflow}`
 }
 
 async function loadSources(options: { silent?: boolean; notify?: boolean } = {}) {
@@ -103,19 +127,32 @@ async function loadCatalog(options: { silent?: boolean; notify?: boolean } = {})
   }
 }
 
-async function refreshPage() {
+async function refreshPage(options: { noticeDelayMS?: number } = {}) {
   if (loading.value || catalogLoading.value || actionLoading.value) {
     return
   }
   const query = catalogQuery.value.trim()
   try {
+    showNotice('success', query ? `抓取中：正在更新“${query}”的推荐源搜索结果` : '抓取中：正在更新订阅管理数据', 0)
     await Promise.all([
       loadSources({ silent: true, notify: false }),
       loadCatalog({ silent: true, notify: false }),
     ])
-    showNotice('success', query ? `刷新成功：已更新“${query}”的推荐源搜索结果` : '刷新成功：已更新推荐源目录')
+    const fetchResult = await fetchActiveSources()
+    await loadSources({ silent: true, notify: false })
+    if (fetchResult.failure_count > 0) {
+      const prefix = fetchResult.success_count > 0 ? '刷新异常' : '刷新失败'
+      showNotice(
+        'warning',
+        `${prefix}：推荐源目录已更新；已抓取 ${fetchResult.success_count} 个订阅源，${fetchResult.failure_count} 个失败。失败原因：${formatFetchErrors(fetchResult.errors)}`,
+        undefined,
+        options.noticeDelayMS,
+      )
+      return
+    }
+    showNotice('success', '刷新成功', undefined, options.noticeDelayMS)
   } catch (err) {
-    showNotice('warning', `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`)
+    showNotice('warning', `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`, undefined, options.noticeDelayMS)
   }
 }
 
@@ -283,8 +320,7 @@ async function toggleCatalogSource(entry: SourceCatalogEntry) {
 }
 
 onMounted(() => {
-  void loadSources().catch(() => undefined)
-  void loadCatalog().catch(() => undefined)
+  void refreshPage().catch(() => undefined)
 })
 
 onUnmounted(() => {

@@ -63,6 +63,7 @@ const pullDragging = ref(false)
 const pullSettling = ref(false)
 const pullStartedWithVisibleChrome = ref(false)
 const feedPageRef = ref<HTMLElement | null>(null)
+const initialSubscriptionFetchAttempted = ref(false)
 
 const pullThreshold = 76
 const pullMaxOffset = 116
@@ -271,17 +272,24 @@ function feedItemStyle(item: FeedItem) {
   return Object.keys(style).length > 0 ? style : undefined
 }
 
-function showFeedNotice(type: FeedNotice['type'], message: string) {
+function showFeedNotice(type: FeedNotice['type'], message: string, delayMS = 0) {
   const normalized = message.trim()
   if (!normalized) {
     feedNotice.value = null
     return
   }
-  feedNotice.value = { type, message: normalized }
   window.clearTimeout(feedNoticeTimer)
-  feedNoticeTimer = window.setTimeout(() => {
-    feedNotice.value = null
-  }, type === 'success' ? 1000 : 3000)
+  const show = () => {
+    feedNotice.value = { type, message: normalized }
+    feedNoticeTimer = window.setTimeout(() => {
+      feedNotice.value = null
+    }, type === 'success' ? 1000 : 3000)
+  }
+  if (delayMS > 0) {
+    feedNoticeTimer = window.setTimeout(show, delayMS)
+    return
+  }
+  show()
 }
 
 function formatFetchErrors(errors: Array<{ source_name?: string; message: string }> = []) {
@@ -307,7 +315,7 @@ async function refreshSubscriptionSources() {
   try {
     if (isSourceMode.value && props.sourceId > 0) {
       await fetchSource(props.sourceId)
-      return { type: 'success' as const, message: '刷新成功：已刷新当前来源内容' }
+      return { type: 'success' as const, message: '刷新成功' }
     }
 
     const result = await fetchActiveSources()
@@ -321,7 +329,7 @@ async function refreshSubscriptionSources() {
         message: `${prefix}：已刷新 ${result.success_count} 个订阅源，${result.failure_count} 个失败。失败原因：${formatFetchErrors(result.errors)}`,
       }
     }
-    return { type: 'success' as const, message: `刷新成功：已刷新 ${result.success_count} 个订阅源` }
+    return { type: 'success' as const, message: '刷新成功' }
   } catch (err) {
     return { type: 'warning' as const, message: `刷新失败：${formatAPIError(err)}` }
   }
@@ -353,20 +361,40 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
       ...(isSourceMode.value && props.sourceId > 0 ? { source_id: props.sourceId } : {}),
     }
     const result = await loader(params)
-    items.value = isAppend ? mergeItems(items.value, result.items) : sortItemsDescending(result.items)
-    totalCount.value = result.total
-    nextOffset.value = requestOffset + result.items.length
-    reachedEnd.value = result.items.length < pageSize || nextOffset.value >= result.total
+    let nextItems = result.items
+    let nextTotal = result.total
+    let autoFetchNotice: FeedNotice | null = null
+    if (
+      !isRefresh &&
+      !isAppend &&
+      !isSourceMode.value &&
+      effectiveSourceKind.value === 'subscriptions' &&
+      result.total === 0 &&
+      !initialSubscriptionFetchAttempted.value
+    ) {
+      initialSubscriptionFetchAttempted.value = true
+      autoFetchNotice = await refreshSubscriptionSources()
+      const reloaded = await loader(params)
+      nextItems = reloaded.items
+      nextTotal = reloaded.total
+    }
+
+    items.value = isAppend ? mergeItems(items.value, nextItems) : sortItemsDescending(nextItems)
+    totalCount.value = nextTotal
+    nextOffset.value = requestOffset + nextItems.length
+    reachedEnd.value = nextItems.length < pageSize || nextOffset.value >= nextTotal
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     if (refreshNotice) {
-      showFeedNotice(refreshNotice.type, refreshNotice.message)
+      showFeedNotice(refreshNotice.type, refreshNotice.message, 180)
+    } else if (autoFetchNotice && autoFetchNotice.type === 'warning') {
+      showFeedNotice(autoFetchNotice.type, autoFetchNotice.message)
     } else if (isRefresh) {
-      showFeedNotice('success', isSourceMode.value ? '抓取成功：已更新当前来源内容' : '刷新成功：已更新当前列表')
+      showFeedNotice('success', '刷新成功', 180)
     }
   } catch (err) {
     const message = formatAPIError(err)
     if (isRefresh) {
-      showFeedNotice('warning', `刷新失败：${message}`)
+      showFeedNotice('warning', `刷新失败：${message}`, 180)
     } else {
       error.value = `加载失败：${message}`
     }
