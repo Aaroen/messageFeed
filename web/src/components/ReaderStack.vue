@@ -11,9 +11,12 @@ withDefaults(
     sourceTitleRevealMounted?: boolean
     sourceTitleRevealVisible?: boolean
     sourceTitleRevealStyle?: StyleValue
+    sourceTitle?: string
+    sourceMeta?: string
     sourceNameMorphMounted?: boolean
     sourceNameMorphVisible?: boolean
     sourceNameMorphStyle?: StyleValue
+    sourceNameMorphText?: string
     detailOpen?: boolean
     detailClass?: ClassValue
     detailMotionSettling?: boolean
@@ -27,9 +30,12 @@ withDefaults(
     sourceTitleRevealMounted: false,
     sourceTitleRevealVisible: false,
     sourceTitleRevealStyle: undefined,
+    sourceTitle: '',
+    sourceMeta: '',
     sourceNameMorphMounted: false,
     sourceNameMorphVisible: false,
     sourceNameMorphStyle: undefined,
+    sourceNameMorphText: '',
     detailOpen: false,
     detailClass: '',
     detailMotionSettling: false,
@@ -56,7 +62,8 @@ withDefaults(
     :style="sourceTitleRevealStyle"
     aria-hidden="true"
   >
-    <slot name="source-title-reveal" />
+    <span>{{ sourceTitle }}</span>
+    <small>{{ sourceMeta }}</small>
   </div>
 
   <div
@@ -65,7 +72,7 @@ withDefaults(
     class="detail-source-morph"
     :style="sourceNameMorphStyle"
   >
-    <slot name="source-name-morph" />
+    {{ sourceNameMorphText }}
   </div>
 
   <section

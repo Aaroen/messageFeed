@@ -4021,9 +4021,12 @@ onUnmounted(() => {
       :source-title-reveal-mounted="Boolean(readerSource)"
       :source-title-reveal-visible="sourceTitleRevealVisible"
       :source-title-reveal-style="sourceTitleRevealStyle"
+      :source-title="readerSource?.name || ''"
+      :source-meta="sourceToggleActive ? '已订阅' : '未订阅'"
       :source-name-morph-mounted="Boolean(detailItem)"
       :source-name-morph-visible="sourceNameMorphVisible"
       :source-name-morph-style="sourceNameMorphStyle"
+      :source-name-morph-text="detailItem?.source_name || '未知来源'"
       :detail-open="detailReaderOpen"
       :detail-motion-settling="readerMotionSettling"
       :detail-returning-feed="detailReturningToFeed"
@@ -4118,15 +4121,6 @@ onUnmounted(() => {
             @open-item="openItemReader"
           />
         </div>
-      </template>
-
-      <template #source-title-reveal>
-        <span>{{ readerSource?.name }}</span>
-        <small>{{ sourceToggleActive ? '已订阅' : '未订阅' }}</small>
-      </template>
-
-      <template #source-name-morph>
-        {{ detailItem?.source_name || '未知来源' }}
       </template>
 
       <template #detail>
