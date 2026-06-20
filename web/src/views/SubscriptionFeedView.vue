@@ -410,15 +410,16 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   const isRefresh = Boolean(options.refresh)
   const isAppend = Boolean(options.append)
   const isBackground = Boolean(options.background)
+  const isBackgroundRefresh = isBackground || props.backgroundRefresh
   if (loading.value || refreshing.value || loadingMore.value || (isAppend && !canLoadMore.value)) {
     return
   }
   error.value = ''
   if (isAppend) {
     loadingMore.value = true
-  } else if (isRefresh && !isBackground) {
+  } else if (isRefresh && !isBackgroundRefresh) {
     refreshing.value = true
-  } else if (!isBackground) {
+  } else if (!isBackgroundRefresh) {
     loading.value = true
   }
   try {
@@ -457,17 +458,17 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     reachedEnd.value = nextItems.length < pageSize || nextOffset.value >= nextTotal
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     writeItemsToCache()
-    if (!props.backgroundRefresh && !isBackground && refreshNotice) {
+    if (!isBackgroundRefresh && refreshNotice) {
       showFeedNotice(refreshNotice.type, refreshNotice.message, 180)
-    } else if (!props.backgroundRefresh && !isBackground && autoFetchNotice && autoFetchNotice.type === 'warning') {
+    } else if (!isBackgroundRefresh && autoFetchNotice && autoFetchNotice.type === 'warning') {
       showFeedNotice(autoFetchNotice.type, autoFetchNotice.message)
-    } else if (!props.backgroundRefresh && !isBackground && isRefresh) {
+    } else if (!isBackgroundRefresh && isRefresh) {
       showFeedNotice('success', '刷新成功', 180)
     }
   } catch (err) {
     const message = formatAPIError(err)
     if (isRefresh) {
-      if (props.backgroundRefresh || isBackground) {
+      if (isBackgroundRefresh) {
         error.value = `刷新失败：${message}`
       } else {
         showFeedNotice('warning', `刷新失败：${message}`, 180)
@@ -486,7 +487,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       return
     }
 
-    if (props.backgroundRefresh || isBackground) {
+    if (isBackgroundRefresh) {
       pullOffset.value = 0
       refreshing.value = false
       pullStartedWithVisibleChrome.value = false

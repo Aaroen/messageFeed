@@ -1064,6 +1064,7 @@ const navigationDragRatio = 1.1
 const viewDirectionLockRatio = 1.35
 const topPullDirectionLockRatio = 1.18
 const viewDragThreshold = 8
+const viewSwipeChromeRevealDelay = 520
 const pageRefreshThreshold = 52
 let touchStartX = 0
 let touchStartY = 0
@@ -1077,6 +1078,7 @@ let trackingBackSwipeCandidate = false
 let trackingEdgeSwipe = false
 let trackingNavigationClose = false
 let trackingViewSwipe = false
+let viewSwipeStartedWithHiddenChrome = false
 let trackingBackSwipe = false
 let navigationDragStarted = false
 let backSwipeTarget: 'detail' | 'source' | 'page' | null = null
@@ -1118,6 +1120,7 @@ function resetGestureTracking() {
   trackingEdgeSwipeCandidate = false
   trackingNavigationCloseCandidate = false
   trackingViewSwipeCandidate = false
+  viewSwipeStartedWithHiddenChrome = false
   trackingBackSwipeCandidate = false
   trackingEdgeSwipe = false
   trackingNavigationClose = false
@@ -1672,6 +1675,8 @@ function showSourceReaderUnderDetail() {
     openSourceReader(source, { visible: false })
   }
 
+  setTopChromeVisible(true)
+  feedContentCollapsed.value = false
   sourceReaderVisible.value = true
   captureDetailSourceTransitionRects(12, { lock: true })
 }
@@ -2614,6 +2619,8 @@ function completeDetailToSourceReader(duration = 360) {
     sourceReaderBackDetail.value = snapshotCurrentDetail()
   }
   sourceReaderReturnMode.value = 'detail'
+  setTopChromeVisible(true)
+  feedContentCollapsed.value = false
   sourceReaderVisible.value = true
   captureDetailSourceTransitionRects(12, { lock: true })
   readerBackDragging.value = false
@@ -2985,6 +2992,21 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
 function finishViewSwipe(nextPath: string | null) {
   viewSettling.value = true
   window.clearTimeout(viewSwipeTimer)
+  const shouldRevealChromeFirst = Boolean(nextPath) && viewSwipeStartedWithHiddenChrome
+  viewSwipeStartedWithHiddenChrome = false
+  if (shouldRevealChromeFirst) {
+    setTopChromeVisible(true)
+    viewSwipeTimer = window.setTimeout(() => {
+      if (nextPath) {
+        void pushRoute(nextPath)
+      }
+      viewDragOffset.value = 0
+      viewSwipeTimer = window.setTimeout(() => {
+        viewSettling.value = false
+      }, motionDelay(260))
+    }, viewSwipeChromeRevealDelay)
+    return
+  }
   if (nextPath) {
     void pushRoute(nextPath)
   }
@@ -2995,7 +3017,9 @@ function finishViewSwipe(nextPath: string | null) {
 }
 
 function showTopChromeForViewSwipe() {
-  if (topChromeProgress.value < 0.99 || feedContentCollapsed.value) {
+  const shouldRevealChrome = topChromeProgress.value < 0.99 || feedContentCollapsed.value
+  if (shouldRevealChrome) {
+    viewSwipeStartedWithHiddenChrome = true
     setTopChromeVisible(true)
   }
 }
