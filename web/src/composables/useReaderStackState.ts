@@ -40,6 +40,11 @@ type CloseItemReaderStateResult = {
   shouldScheduleHiddenSourceCleanup: boolean
 }
 
+type BeginCollapseItemReaderStateResult = {
+  shouldRefreshFeedOrigin: boolean
+  shouldRestorePreviousParkedDetail: boolean
+}
+
 type ReaderStackSessionSnapshot = Pick<
   ReaderSessionSnapshot,
   | 'sourceReaderScrollTop'
@@ -501,6 +506,30 @@ export function useReaderStackState() {
     return { shouldScheduleHiddenSourceCleanup: false }
   }
 
+  function beginCollapseItemReaderState(): BeginCollapseItemReaderStateResult {
+    const shouldRestorePreviousParkedDetail =
+      detailOpenedFromSourceReader.value && parkedDetailStack.value.length > 0
+    const shouldRefreshFeedOrigin = !detailOpenedFromSourceReader.value
+
+    if (detailOpenedFromSourceReader.value && readerSource.value) {
+      sourceReaderVisible.value = true
+    }
+    readerBackDragging.value = false
+    detailEntrySettling.value = true
+    detailReaderTouchOffset.value = 0
+    detailReaderStretch.value = 0
+    detailBackExitProgress.value = 1
+    detailSourceExitProgress.value = 0
+    detailRestoringFromSourceReader.value = false
+    detailReturningToFeed.value = !detailOpenedFromSourceReader.value
+    detailListReturnCommitted.value = true
+
+    return {
+      shouldRefreshFeedOrigin,
+      shouldRestorePreviousParkedDetail,
+    }
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -583,6 +612,7 @@ export function useReaderStackState() {
     clearSourceReaderState,
     beginOpenItemReaderState,
     closeItemReaderState,
+    beginCollapseItemReaderState,
     detailBlocksGestures,
   }
 }

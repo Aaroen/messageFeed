@@ -133,6 +133,7 @@ const {
   clearSourceReaderState,
   beginOpenItemReaderState,
   closeItemReaderState,
+  beginCollapseItemReaderState,
   detailBlocksGestures,
 } = useReaderStackState()
 const {
@@ -2118,25 +2119,13 @@ function collapseItemReader(duration = 360) {
   }
 
   suppressFollowingClick()
-  const shouldRestorePreviousParkedDetail = detailOpenedFromSourceReader.value && parkedDetailStack.value.length > 0
-  if (!detailOpenedFromSourceReader.value) {
+  const result = beginCollapseItemReaderState()
+  if (result.shouldRefreshFeedOrigin) {
     refreshDetailFeedOriginRect(true)
   }
-  if (detailOpenedFromSourceReader.value && readerSource.value) {
-    sourceReaderVisible.value = true
-  }
-  readerBackDragging.value = false
-  detailEntrySettling.value = true
-  detailReaderTouchOffset.value = 0
-  detailReaderStretch.value = 0
-  detailBackExitProgress.value = 1
-  detailSourceExitProgress.value = 0
-  detailRestoringFromSourceReader.value = false
-  detailReturningToFeed.value = !detailOpenedFromSourceReader.value
-  detailListReturnCommitted.value = true
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
-    if (shouldRestorePreviousParkedDetail && restorePreviousParkedDetail()) {
+    if (result.shouldRestorePreviousParkedDetail && restorePreviousParkedDetail()) {
       scheduleReaderURLAndHistorySync(true)
       return
     }
