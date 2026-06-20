@@ -661,6 +661,19 @@ export function useReaderStackState() {
     morphingItemHeight.value = null
   }
 
+  function revealSourceReaderUnderDetailState() {
+    sourceReaderVisible.value = true
+  }
+
+  function beginReaderMotionSettlingState() {
+    readerBackDragging.value = false
+    readerMotionSettling.value = true
+  }
+
+  function finishReaderMotionSettlingState() {
+    readerMotionSettling.value = false
+  }
+
   function closeItemReaderState(): CloseItemReaderStateResult {
     const previousSourceReturnMode = sourceReaderReturnMode.value
     detailItem.value = null
@@ -1041,6 +1054,9 @@ export function useReaderStackState() {
     applyVisibleSourceReturnTargetState,
     beginRestoreMorphingItemContentState,
     finishRestoreMorphingItemContentState,
+    revealSourceReaderUnderDetailState,
+    beginReaderMotionSettlingState,
+    finishReaderMotionSettlingState,
     closeItemReaderState,
     beginCollapseItemReaderState,
     beginRestoreItemReaderExpansionState,

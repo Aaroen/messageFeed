@@ -144,6 +144,9 @@ const {
   applyVisibleSourceReturnTargetState,
   beginRestoreMorphingItemContentState,
   finishRestoreMorphingItemContentState,
+  revealSourceReaderUnderDetailState,
+  beginReaderMotionSettlingState,
+  finishReaderMotionSettlingState,
   closeItemReaderState,
   beginCollapseItemReaderState,
   beginRestoreItemReaderExpansionState,
@@ -1681,16 +1684,15 @@ function showSourceReaderUnderDetail() {
 
   setTopChromeVisible(true)
   setChromeContentCollapsed(false)
-  sourceReaderVisible.value = true
+  revealSourceReaderUnderDetailState()
   captureDetailSourceTransitionRects(12, { lock: true })
 }
 
 function settleReaderMotion(duration = 260, done?: () => void) {
-  readerBackDragging.value = false
-  readerMotionSettling.value = true
+  beginReaderMotionSettlingState()
   window.clearTimeout(readerMotionTimer)
   readerMotionTimer = window.setTimeout(() => {
-    readerMotionSettling.value = false
+    finishReaderMotionSettlingState()
     done?.()
   }, motionDelay(duration))
 }
