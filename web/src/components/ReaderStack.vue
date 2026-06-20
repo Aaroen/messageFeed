@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import type { StyleValue } from 'vue'
 
-type ClassValue = string | Record<string, boolean> | Array<string | Record<string, boolean>>
-
 withDefaults(
   defineProps<{
     sourceMounted?: boolean
@@ -18,7 +16,6 @@ withDefaults(
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
-    detailClass?: ClassValue
     detailMotionSettling?: boolean
     detailReturningFeed?: boolean
     detailStyle?: StyleValue
@@ -37,7 +34,6 @@ withDefaults(
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,
-    detailClass: '',
     detailMotionSettling: false,
     detailReturningFeed: false,
     detailStyle: undefined,
@@ -78,13 +74,10 @@ withDefaults(
   <section
     v-if="detailOpen"
     class="reader-overlay reader-overlay--detail"
-    :class="[
-      detailClass,
-      {
-        'reader-overlay--motion-settling': detailMotionSettling,
-        'reader-overlay--returning-feed': detailReturningFeed,
-      },
-    ]"
+    :class="{
+      'reader-overlay--motion-settling': detailMotionSettling,
+      'reader-overlay--returning-feed': detailReturningFeed,
+    }"
     :style="detailStyle"
   >
     <slot name="detail" />
