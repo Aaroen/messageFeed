@@ -156,9 +156,7 @@ const {
   beginCollapseItemReaderState,
   restoreItemReaderExpansionWithDelay,
   restoreDetailFromSourceSwipeWithDelay,
-  beginCompleteDetailToSourceReaderState,
-  commitCompleteDetailToSourceReaderState,
-  finishCompleteDetailToSourceReaderState,
+  completeDetailToSourceReaderWithDelay,
   restoreParkedSourceReaderWithDelay,
   beginRestoreDetailFromParkedSourceState,
   commitRestoreDetailFromParkedSourceState,
@@ -2034,20 +2032,16 @@ function restoreDetailFromSourceSwipe(duration = 360) {
 }
 
 function completeDetailToSourceReader(duration = 360) {
-  beginCompleteDetailToSourceReaderState()
-  setTopChromeVisible(true)
-  setChromeContentCollapsed(false)
-  captureDetailSourceTransitionRects(12, { lock: true })
-  clearDetailEntryTimer()
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      commitCompleteDetailToSourceReaderState()
-    })
+  completeDetailToSourceReaderWithDelay(motionDelay(duration), {
+    afterBegin: () => {
+      setTopChromeVisible(true)
+      setChromeContentCollapsed(false)
+      captureDetailSourceTransitionRects(12, { lock: true })
+    },
+    afterFinish: () => {
+      restoreMorphingItemContent()
+    },
   })
-  setDetailEntryTimer(() => {
-    finishCompleteDetailToSourceReaderState()
-    restoreMorphingItemContent()
-  }, motionDelay(duration))
 }
 
 function settleNavigation(open: boolean) {

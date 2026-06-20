@@ -68,6 +68,11 @@ type BeginRestoreItemReaderExpansionStateResult = {
   shouldHideSourceAfterRestore: boolean
 }
 
+type CompleteDetailToSourceReaderTransitionOptions = {
+  afterBegin?: () => void
+  afterFinish?: () => void
+}
+
 type ReaderBackSwipeIntentState =
   | {
       intent: 'source-return'
@@ -935,6 +940,24 @@ export function useReaderStackState() {
     detailSourceExitProgress.value = 1
   }
 
+  function completeDetailToSourceReaderWithDelay(
+    delay: number,
+    options: CompleteDetailToSourceReaderTransitionOptions = {},
+  ) {
+    beginCompleteDetailToSourceReaderState()
+    options.afterBegin?.()
+    clearDetailEntryTimer()
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        commitCompleteDetailToSourceReaderState()
+      })
+    })
+    setDetailEntryTimer(() => {
+      finishCompleteDetailToSourceReaderState()
+      options.afterFinish?.()
+    }, delay)
+  }
+
   function beginRestoreParkedSourceReaderState() {
     if (!detailReaderOpen.value || !sourceReaderVisible.value) {
       return false
@@ -1227,6 +1250,7 @@ export function useReaderStackState() {
     beginCompleteDetailToSourceReaderState,
     commitCompleteDetailToSourceReaderState,
     finishCompleteDetailToSourceReaderState,
+    completeDetailToSourceReaderWithDelay,
     beginRestoreParkedSourceReaderState,
     commitRestoreParkedSourceReaderState,
     finishRestoreParkedSourceReaderState,
