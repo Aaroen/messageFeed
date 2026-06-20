@@ -1308,9 +1308,7 @@ function navigateTo(path: string) {
   feedPagerTransition.setDragOffset(0)
   void pushRoute(path)
   window.clearTimeout(viewSwipeTimer)
-  viewSwipeTimer = window.setTimeout(() => {
-    feedPagerTransition.setSettling(false)
-  }, motionDelay(260))
+  feedPagerTransition.scheduleSettlingEnd(motionDelay(260))
 }
 
 function clamp(value: number, min = 0, max = 1) {
@@ -2484,6 +2482,7 @@ function finishViewSwipe(nextPath: string | null) {
   feedPagerTransition.setSettling(true)
   swipeTransition.settle(committed, { progress: committed ? 1 : 0, isBlocked: false })
   window.clearTimeout(viewSwipeTimer)
+  feedPagerTransition.clearSettlingTimer()
   const shouldRevealChromeFirst = Boolean(nextPath) && viewSwipeStartedWithHiddenChrome
   viewSwipeStartedWithHiddenChrome = false
   if (shouldRevealChromeFirst) {
@@ -2493,9 +2492,7 @@ function finishViewSwipe(nextPath: string | null) {
         void pushRoute(nextPath)
       }
       feedPagerTransition.setDragOffset(0)
-      viewSwipeTimer = window.setTimeout(() => {
-        feedPagerTransition.setSettling(false)
-      }, motionDelay(260))
+      feedPagerTransition.scheduleSettlingEnd(motionDelay(260))
     }, viewSwipeChromeRevealDelay)
     scheduleSwipeTransitionReset(viewSwipeChromeRevealDelay + 260)
     return
@@ -2504,9 +2501,7 @@ function finishViewSwipe(nextPath: string | null) {
     void pushRoute(nextPath)
   }
   feedPagerTransition.setDragOffset(0)
-  viewSwipeTimer = window.setTimeout(() => {
-    feedPagerTransition.setSettling(false)
-  }, motionDelay(260))
+  feedPagerTransition.scheduleSettlingEnd(motionDelay(260))
   scheduleSwipeTransitionReset(260)
 }
 
@@ -3535,6 +3530,7 @@ onUnmounted(() => {
   window.removeEventListener('touchend', handleTouchEnd)
   window.removeEventListener('touchcancel', handleTouchCancel)
   window.clearTimeout(viewSwipeTimer)
+  feedPagerTransition.clearSettlingTimer()
   swipeTransition.clearResetTimer()
   navigationDrawer.clearTimer()
   refreshCompletion.clearTimer()

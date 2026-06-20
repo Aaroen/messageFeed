@@ -23,6 +23,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   const dragThreshold = options.dragThreshold ?? 8
   const dragOffset = ref(0)
   const settling = ref(false)
+  let settlingTimer = 0
 
   const activeIndex = computed(() => (options.getActiveKey() === 'recommendations' ? 1 : 0))
 
@@ -55,6 +56,17 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     settling.value = nextSettling
   }
 
+  function clearSettlingTimer() {
+    window.clearTimeout(settlingTimer)
+  }
+
+  function scheduleSettlingEnd(delay: number) {
+    clearSettlingTimer()
+    settlingTimer = window.setTimeout(() => {
+      setSettling(false)
+    }, Math.max(0, delay))
+  }
+
   function setDragDelta(deltaX: number) {
     if (activeIndex.value === 0) {
       setDragOffset(Math.min(0, Math.max(deltaX, -options.getWindowWidth())))
@@ -64,6 +76,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function reset() {
+    clearSettlingTimer()
     dragOffset.value = 0
     settling.value = false
   }
@@ -80,6 +93,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     targetProgress,
     setDragOffset,
     setSettling,
+    clearSettlingTimer,
+    scheduleSettlingEnd,
     setDragDelta,
     reset,
   }
