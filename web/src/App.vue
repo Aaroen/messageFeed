@@ -11,6 +11,7 @@ import {
 import AppFeedHeaderContent from '@/components/AppFeedHeaderContent.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
 import AppPageHeaderContent from '@/components/AppPageHeaderContent.vue'
+import AppPageOutlet from '@/components/AppPageOutlet.vue'
 import AppReaderStackContent from '@/components/AppReaderStackContent.vue'
 import FeedPager from '@/components/FeedPager.vue'
 import TopChrome from '@/components/TopChrome.vue'
@@ -1538,6 +1539,14 @@ function snapshotElementRect(element: Element | null) {
 
 function setSourceReaderContentElement(element: HTMLElement | null) {
   sourceReaderContentRef.value = element
+}
+
+function setPageContentElement(element: HTMLElement | null) {
+  pageContentRef.value = element
+}
+
+function setPageViewInstance(view: PageViewExpose | null) {
+  pageViewRef.value = view
 }
 
 function findSourceFeedItemElement(itemID?: number) {
@@ -3805,22 +3814,18 @@ onUnmounted(() => {
           @open-item="openItemReader"
         />
       </section>
-      <section
+      <AppPageOutlet
         v-else
-        ref="pageContentRef"
-        class="app-content app-content--page"
-        @scroll.passive="handlePageContentScroll"
-        @touchstart.passive="handlePageTouchStart"
-        @touchmove="handlePageTouchMove"
-        @touchend.passive="handlePageTouchEnd"
-        @touchcancel.passive="handlePageTouchCancel"
-      >
-        <div class="page-content-inner" :style="pageContentInnerStyle">
-          <router-view v-slot="{ Component }">
-            <component :is="Component" ref="pageViewRef" @open-source="openSourceReader" />
-          </router-view>
-        </div>
-      </section>
+        :inner-style="pageContentInnerStyle"
+        @content-ref="setPageContentElement"
+        @view-ref="setPageViewInstance"
+        @content-scroll="handlePageContentScroll"
+        @touch-start="handlePageTouchStart"
+        @touch-move="handlePageTouchMove"
+        @touch-end="handlePageTouchEnd"
+        @touch-cancel="handlePageTouchCancel"
+        @open-source="openSourceReader"
+      />
     </main>
 
     <AppReaderStackContent
