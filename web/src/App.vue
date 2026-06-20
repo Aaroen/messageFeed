@@ -2837,10 +2837,13 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
       detailReaderTouchOffset.value = 0
       detailBackExitProgress.value = 0
       sourceReaderOffset.value = 0
-      detailSourceExitProgress.value = 1 - clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
+      detailSourceExitProgress.value = 1
+      sourceReaderStretch.value = stretch
+      updateStretchAnchor(sourceStretchAnchor, stretch)
     } else {
-      detailSourceExitProgress.value = 0
-      sourceReaderStretch.value = 0
+      detailSourceExitProgress.value = hasParkedDetailSourceState() ? 1 : 0
+      sourceReaderStretch.value = stretch
+      updateStretchAnchor(sourceStretchAnchor, stretch)
       sourceReaderOffset.value = 0
     }
   } else if (intent === 'back' && backSwipeTarget === 'page') {
