@@ -17,6 +17,7 @@ import {
 import ReaderDetailContentInner from '@/components/ReaderDetailContentInner.vue'
 import ReaderDetailMorphText from '@/components/ReaderDetailMorphText.vue'
 import ReaderDetailProgress from '@/components/ReaderDetailProgress.vue'
+import ReaderDetailTransitionSurface from '@/components/ReaderDetailTransitionSurface.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
 import ReaderSourceChromeContent from '@/components/ReaderSourceChromeContent.vue'
 import ReaderSourceFeed from '@/components/ReaderSourceFeed.vue'
@@ -4098,13 +4099,10 @@ onUnmounted(() => {
       </template>
 
       <template #detail>
-        <div
-          class="reader-transition-surface"
-          :class="{
-            'reader-transition-surface--entry-settling': detailEntrySettling,
-            'reader-transition-surface--chrome-settling': feedChromeSettling,
-          }"
-          :style="detailTransitionSurfaceStyle"
+        <ReaderDetailTransitionSurface
+          :entry-settling="detailEntrySettling"
+          :chrome-settling="feedChromeSettling"
+          :root-style="detailTransitionSurfaceStyle"
         >
           <ReaderDetailMorphText
             :item="detailItem"
@@ -4133,7 +4131,7 @@ onUnmounted(() => {
               @frame-load="handleDetailFrameLoad"
             />
           </div>
-        </div>
+        </ReaderDetailTransitionSurface>
         <ReaderDetailProgress
           :visible="detailProgressVisible"
           :dragging="detailProgressDragging"
