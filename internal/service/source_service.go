@@ -528,11 +528,6 @@ func (s *SourceService) TriggerFetch(ctx context.Context, input FetchSourceInput
 		attribute.String("source.name", source.Name),
 		attribute.String("source.status", string(source.Status)),
 	)
-	if source.Status != domain.SourceStatusActive {
-		opErr = fmt.Errorf("%w: inactive source cannot be fetched", domain.ErrInvalidInput)
-		metrics.FeedFetchesTotal.WithLabelValues(sourceLabel, "invalid").Inc()
-		return FetchSourceResult{}, opErr
-	}
 
 	startedAt := time.Now()
 	fetchResult, err := s.feedFetcher.Fetch(ctx, source)

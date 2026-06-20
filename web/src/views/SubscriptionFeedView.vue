@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { IconRefresh } from '@arco-design/web-vue/es/icon'
 
 import { formatAPIError } from '@/api/client'
 import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
@@ -8,6 +7,7 @@ import { useFeedInteractionStore } from '@/stores/feedInteraction'
 
 type FeedMode = 'subscriptions' | 'recommendations' | 'source'
 type SourceKind = 'subscriptions' | 'recommendations'
+type FeedNotice = { type: 'success' | 'warning'; message: string }
 
 const props = withDefaults(
   defineProps<{
@@ -53,7 +53,7 @@ const loading = ref(false)
 const refreshing = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
-const feedNotice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
+const feedNotice = ref<FeedNotice | null>(null)
 const lastUpdatedAt = ref('')
 const totalCount = ref(0)
 const nextOffset = ref(0)
@@ -96,6 +96,14 @@ const effectiveSourceKind = computed<SourceKind>(() => {
   return props.mode === 'recommendations' ? 'recommendations' : 'subscriptions'
 })
 const copy = computed(() => {
+  if (isSourceMode.value) {
+    return {
+      mark: '源',
+      loadingTitle: '抓取中',
+      emptyTitle: '暂无来源内容',
+      emptyDescription: '该来源暂时没有返回可展示内容。',
+    }
+  }
   if (isRecommendations.value || effectiveSourceKind.value === 'recommendations') {
     return {
       mark: '荐',
@@ -115,7 +123,7 @@ const pullProgress = computed(() => Math.min(pullOffset.value / pullThreshold, 1
 const pullActive = computed(() => pullOffset.value > 0 || refreshing.value)
 const pullStatusText = computed(() => {
   if (refreshing.value) {
-    return '正在刷新'
+    return isSourceMode.value ? '抓取中' : '正在刷新'
   }
   return pullProgress.value >= 1 ? '释放刷新' : '下拉刷新'
 })
@@ -218,23 +226,19 @@ function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
 }
 
-function cssRotate(degrees: number) {
-  return `rotate(${(Number.isFinite(degrees) ? degrees : 0).toFixed(2)}deg)`
-}
-
 function itemTime(item: FeedItem) {
   const value = item.published_at || item.fetched_at
   const timestamp = value ? new Date(value).getTime() : 0
   return Number.isFinite(timestamp) ? timestamp : 0
 }
 
-function compareItemsAscending(left: FeedItem, right: FeedItem) {
-  const timeDelta = itemTime(left) - itemTime(right)
+function compareItemsDescending(left: FeedItem, right: FeedItem) {
+  const timeDelta = itemTime(right) - itemTime(left)
   return timeDelta === 0 ? left.id - right.id : timeDelta
 }
 
-function sortItemsAscending(nextItems: FeedItem[]) {
-  return [...nextItems].sort(compareItemsAscending)
+function sortItemsDescending(nextItems: FeedItem[]) {
+  return [...nextItems].sort(compareItemsDescending)
 }
 
 function mergeItems(currentItems: FeedItem[], nextItems: FeedItem[]) {
@@ -245,7 +249,7 @@ function mergeItems(currentItems: FeedItem[], nextItems: FeedItem[]) {
   for (const item of nextItems) {
     itemMap.set(item.id, item)
   }
-  return sortItemsAscending(Array.from(itemMap.values()))
+  return sortItemsDescending(Array.from(itemMap.values()))
 }
 
 function feedItemStyle(item: FeedItem) {
@@ -267,7 +271,7 @@ function feedItemStyle(item: FeedItem) {
   return Object.keys(style).length > 0 ? style : undefined
 }
 
-function showFeedNotice(type: 'success' | 'warning', message: string) {
+function showFeedNotice(type: FeedNotice['type'], message: string) {
   const normalized = message.trim()
   if (!normalized) {
     feedNotice.value = null
@@ -277,7 +281,23 @@ function showFeedNotice(type: 'success' | 'warning', message: string) {
   window.clearTimeout(feedNoticeTimer)
   feedNoticeTimer = window.setTimeout(() => {
     feedNotice.value = null
-  }, 2600)
+  }, type === 'success' ? 1000 : 3000)
+}
+
+function formatFetchErrors(errors: Array<{ source_name?: string; message: string }> = []) {
+  const details = errors
+    .map((item) => {
+      const name = item.source_name?.trim() || '未知来源'
+      const message = item.message.trim()
+      return message ? `${name}：${message}` : name
+    })
+    .filter(Boolean)
+    .slice(0, 3)
+  if (!details.length) {
+    return '服务未返回具体错误原因'
+  }
+  const overflow = errors.length > details.length ? `；另有 ${errors.length - details.length} 个失败来源` : ''
+  return `${details.join('；')}${overflow}`
 }
 
 async function refreshSubscriptionSources() {
@@ -287,19 +307,23 @@ async function refreshSubscriptionSources() {
   try {
     if (isSourceMode.value && props.sourceId > 0) {
       await fetchSource(props.sourceId)
-      return { type: 'success' as const, message: '已刷新当前订阅源' }
+      return { type: 'success' as const, message: '刷新成功：已刷新当前来源内容' }
     }
 
     const result = await fetchActiveSources()
     if (result.requested_count === 0) {
-      return { type: 'warning' as const, message: '没有可抓取的订阅源' }
+      return { type: 'warning' as const, message: '刷新异常：当前没有可抓取的订阅源，请在订阅管理中开启或导入来源' }
     }
     if (result.failure_count > 0) {
-      return { type: 'warning' as const, message: `已刷新 ${result.success_count} 个订阅源，${result.failure_count} 个失败` }
+      const prefix = result.success_count > 0 ? '刷新异常' : '刷新失败'
+      return {
+        type: 'warning' as const,
+        message: `${prefix}：已刷新 ${result.success_count} 个订阅源，${result.failure_count} 个失败。失败原因：${formatFetchErrors(result.errors)}`,
+      }
     }
-    return { type: 'success' as const, message: `已刷新 ${result.success_count} 个订阅源` }
+    return { type: 'success' as const, message: `刷新成功：已刷新 ${result.success_count} 个订阅源` }
   } catch (err) {
-    return { type: 'warning' as const, message: formatAPIError(err) }
+    return { type: 'warning' as const, message: `刷新失败：${formatAPIError(err)}` }
   }
 }
 
@@ -324,21 +348,28 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
     const params = {
       limit: pageSize,
       offset: requestOffset,
-      order: 'asc' as const,
+      order: 'desc' as const,
       ...(isRefresh && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
       ...(isSourceMode.value && props.sourceId > 0 ? { source_id: props.sourceId } : {}),
     }
     const result = await loader(params)
-    items.value = isAppend ? mergeItems(items.value, result.items) : sortItemsAscending(result.items)
+    items.value = isAppend ? mergeItems(items.value, result.items) : sortItemsDescending(result.items)
     totalCount.value = result.total
     nextOffset.value = requestOffset + result.items.length
     reachedEnd.value = result.items.length < pageSize || nextOffset.value >= result.total
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     if (refreshNotice) {
       showFeedNotice(refreshNotice.type, refreshNotice.message)
+    } else if (isRefresh) {
+      showFeedNotice('success', isSourceMode.value ? '抓取成功：已更新当前来源内容' : '刷新成功：已更新当前列表')
     }
   } catch (err) {
-    error.value = formatAPIError(err)
+    const message = formatAPIError(err)
+    if (isRefresh) {
+      showFeedNotice('warning', `刷新失败：${message}`)
+    } else {
+      error.value = `加载失败：${message}`
+    }
   } finally {
     loading.value = false
     loadingMore.value = false
@@ -356,7 +387,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
       offset: pullOffset.value,
       active: true,
       refreshing: true,
-      statusText: '正在刷新',
+      statusText: isSourceMode.value ? '抓取中' : '正在刷新',
       statusMeta: pullStatusMeta.value,
     })
     window.setTimeout(() => {
@@ -556,7 +587,7 @@ function handleTouchCancel() {
 
 onMounted(() => {
   if (props.active) {
-    void loadItems()
+    void loadItems({ refresh: isSourceMode.value })
   }
 })
 
@@ -587,7 +618,7 @@ watch(
   () => [props.mode, props.sourceKind, props.sourceId] as const,
   () => {
     if (props.active) {
-      void loadItems()
+      void loadItems({ refresh: isSourceMode.value })
     }
   },
 )
@@ -645,26 +676,19 @@ watch(
     @touchend.passive="handleTouchEnd"
     @touchcancel.passive="handleTouchCancel"
   >
-    <div class="feed-list-body" :style="feedBodyStyle">
+    <Teleport to="body">
       <div
-        v-if="false"
-        class="feed-local-refresh"
-        :class="{ 'feed-local-refresh--refreshing': refreshing }"
+        v-if="feedNotice"
+        class="sources-toast feed-toast"
+        :class="`sources-toast--${feedNotice.type}`"
+        role="status"
         aria-live="polite"
       >
-        <span
-          class="feed-local-refresh__icon"
-          :style="{ transform: refreshing ? undefined : cssRotate(pullProgress * 300) }"
-        >
-          <IconRefresh />
-        </span>
-        <span class="feed-local-refresh__copy">
-          <strong>{{ pullStatusText }}</strong>
-          <small>{{ pullStatusMeta }}</small>
-        </span>
+        {{ feedNotice.message }}
       </div>
+    </Teleport>
 
-      <a-alert v-if="feedNotice?.message" class="feed-alert" :type="feedNotice.type" :content="feedNotice.message" show-icon />
+    <div class="feed-list-body" :style="feedBodyStyle">
       <a-alert v-if="errorMessage" class="feed-alert" type="warning" :content="errorMessage" show-icon />
 
       <section v-if="loading && !hasItems" class="empty-surface">

@@ -559,6 +559,7 @@ body[arco-theme='dark'] .settings-icon-button--active {
   position: relative;
   width: min(320px, calc(100vw - 126px));
   min-height: 44px;
+  margin: 0 auto;
 }
 
 .app-header--detail .app-header-slot--feed {
@@ -640,6 +641,11 @@ body[arco-theme='dark'] .settings-icon-button--active {
   opacity: 0;
   pointer-events: none;
   transform: translate3d(0, -6px, 0);
+}
+
+.feed-header-layer--tabs {
+  justify-content: center;
+  width: 100%;
 }
 
 .feed-header-layer--refresh {
@@ -1450,7 +1456,9 @@ body[arco-theme='dark'] .reader-back-button {
 
 .reader-source-layer--refresh {
   display: flex;
-  justify-content: flex-start;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
 }
 
 .reader-source-toggle {
@@ -1801,7 +1809,7 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
 
 .sources-toast {
   position: fixed;
-  z-index: 70;
+  z-index: 220;
   top: 18px;
   left: 50%;
   display: block;

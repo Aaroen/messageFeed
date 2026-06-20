@@ -4,7 +4,6 @@ import {
   IconBook,
   IconMenuUnfold,
   IconMoonFill,
-  IconRefresh,
   IconSettings,
   IconSunFill,
   IconSync,
@@ -68,6 +67,13 @@ type ReaderSessionSnapshot = {
   morphingItemHeight: number | null
   parkedDetailStack: ParkedDetailSnapshot[]
 }
+type PageViewExpose = {
+  refreshPage?: () => Promise<void> | void
+}
+type FetchNowResult = {
+  success: boolean
+  error?: string
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -77,6 +83,7 @@ const navigationProgress = ref(0)
 const navigationSettling = ref(false)
 const feedContentRef = ref<HTMLElement | null>(null)
 const pageContentRef = ref<HTMLElement | null>(null)
+const pageViewRef = ref<PageViewExpose | null>(null)
 const sourceReaderContentRef = ref<HTMLElement | null>(null)
 const detailContentRef = ref<HTMLElement | null>(null)
 const detailFrameRef = ref<HTMLIFrameElement | null>(null)
@@ -112,7 +119,9 @@ const feedTopPullStartedWithChrome = ref(false)
 const refreshStartedWithChrome = ref(false)
 const pagePullOffset = ref(0)
 const pagePullSettling = ref(false)
+const pagePullRefreshing = ref(false)
 const readerSource = ref<ReaderSource | null>(null)
+const sourceReaderRefreshNonce = ref(0)
 const sourceReaderVisible = ref(false)
 const detailItem = ref<FeedItem | null>(null)
 const detailLoading = ref(false)
@@ -1019,6 +1028,7 @@ const navigationDragRatio = 1.1
 const viewDirectionLockRatio = 1.35
 const topPullDirectionLockRatio = 1.18
 const viewDragThreshold = 8
+const pageRefreshThreshold = 52
 let touchStartX = 0
 let touchStartY = 0
 let touchStartNavigationProgress = 0
@@ -1083,6 +1093,10 @@ function resetGestureTracking() {
 
 function isInteractiveTarget(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, [role="button"]'))
+}
+
+function isPageTopPullControlTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select'))
 }
 
 function handleClickCapture(event: MouseEvent) {
@@ -1348,19 +1362,29 @@ function formatItemDate(value?: string) {
   }).format(new Date(value))
 }
 
-function showSourceNotice(type: 'success' | 'warning', message: string) {
-  sourceNotice.value = { type, message }
-  window.clearTimeout(sourceNoticeTimer)
-  sourceNoticeTimer = window.setTimeout(() => {
+function showSourceNotice(type: 'success' | 'warning', message: string, durationMS?: number) {
+  const normalized = message.trim()
+  if (!normalized) {
     sourceNotice.value = null
-  }, 2600)
+    return
+  }
+  sourceNotice.value = { type, message: normalized }
+  window.clearTimeout(sourceNoticeTimer)
+  const duration = durationMS ?? (type === 'success' ? 1000 : 3000)
+  if (duration > 0) {
+    sourceNoticeTimer = window.setTimeout(() => {
+      sourceNotice.value = null
+    }, duration)
+  }
 }
 
-async function fetchNow(source: Source) {
+async function fetchNow(source: Source): Promise<FetchNowResult> {
+  showSourceNotice('success', `抓取中：正在抓取 ${source.name} 的最新内容`, 0)
   try {
     await fetchSource(source.id)
+    return { success: true }
   } catch (err) {
-    showSourceNotice('warning', formatAPIError(err))
+    return { success: false, error: formatAPIError(err) }
   }
 }
 
@@ -1383,7 +1407,7 @@ async function loadSourceReaderSubscription(source: ReaderSource) {
     sourceCatalogEntry.value = catalogEntry ?? null
     sourceSubscription.value = directSource ?? catalogSource ?? null
   } catch (err) {
-    showSourceNotice('warning', formatAPIError(err))
+    showSourceNotice('warning', `加载失败：来源状态未同步。详细原因：${formatAPIError(err)}`)
   } finally {
     sourceSubscriptionLoading.value = false
   }
@@ -2090,10 +2114,15 @@ async function toggleSourceReaderSubscription() {
       const nextStatus = sourceSubscription.value.status === 'active' ? 'inactive' : 'active'
       const updated = await updateSourceStatus(sourceSubscription.value.id, nextStatus)
       sourceSubscription.value = updated
+      let fetchResult: FetchNowResult = { success: true }
       if (updated.status === 'active') {
-        await fetchNow(updated)
+        fetchResult = await fetchNow(updated)
       }
-      showSourceNotice('success', `${updated.name} 已${updated.status === 'active' ? '开启' : '关闭'}`)
+      if (updated.status === 'active' && !fetchResult.success) {
+        showSourceNotice('warning', `${updated.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`)
+      } else {
+        showSourceNotice('success', `${updated.name} 已${updated.status === 'active' ? '开启并抓取最新内容' : '关闭'}`)
+      }
       await loadSourceReaderSubscription(readerSource.value)
       return
     }
@@ -2105,14 +2134,22 @@ async function toggleSourceReaderSubscription() {
 
     const result = await importCatalogSources([sourceCatalogEntry.value.id])
     const imported = result.sources[0]
+    let fetchResult: FetchNowResult = { success: true }
     if (imported) {
       sourceSubscription.value = imported
-      await fetchNow(imported)
+      fetchResult = await fetchNow(imported)
     }
-    showSourceNotice('success', `${sourceCatalogEntry.value.name} 已开启`)
+    if (!fetchResult.success) {
+      showSourceNotice(
+        'warning',
+        `${sourceCatalogEntry.value.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`,
+      )
+    } else {
+      showSourceNotice('success', `${sourceCatalogEntry.value.name} 已开启并抓取最新内容`)
+    }
     await loadSourceReaderSubscription(readerSource.value)
   } catch (err) {
-    showSourceNotice('warning', formatAPIError(err))
+    showSourceNotice('warning', `操作失败：来源订阅状态未更新。详细原因：${formatAPIError(err)}`)
   } finally {
     sourceSubscriptionLoading.value = false
   }
@@ -2124,6 +2161,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
 
   if (readerSource.value?.id === source.id && readerSource.value.kind === source.kind) {
     if (nextVisible) {
+      sourceReaderRefreshNonce.value += 1
       sourceReaderOffset.value = 0
       sourceReaderStretch.value = 0
       if (!detailReaderOpen.value) {
@@ -2135,11 +2173,15 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
     if (nextVisible && detailReaderOpen.value) {
       captureDetailSourceTransitionRects(12, { lock: true })
     }
+    if (nextVisible) {
+      void loadSourceReaderSubscription(source)
+    }
     return
   }
 
   readerSource.value = source
   if (nextVisible) {
+    sourceReaderRefreshNonce.value += 1
     sourceReaderOffset.value = 0
     sourceReaderStretch.value = 0
     if (!detailReaderOpen.value) {
@@ -3648,8 +3690,9 @@ function handlePageTouchStart(event: TouchEvent) {
   if (
     isFeedRoute.value ||
     event.touches.length !== 1 ||
+    pagePullRefreshing.value ||
     currentContentScrollTop() > 0 ||
-    isInteractiveTarget(event.target)
+    isPageTopPullControlTarget(event.target)
   ) {
     resetPageTopPullTracking()
     return
@@ -3701,11 +3744,29 @@ function handlePageTouchMove(event: TouchEvent) {
   }
 }
 
+async function refreshCurrentPageFromPull() {
+  const refreshPage = pageViewRef.value?.refreshPage
+  if (!refreshPage || pagePullRefreshing.value) {
+    return
+  }
+
+  pagePullRefreshing.value = true
+  try {
+    await refreshPage()
+  } finally {
+    pagePullRefreshing.value = false
+  }
+}
+
 function handlePageTouchEnd() {
   if (trackingPageTopPull) {
+    const shouldRefresh = pageTopPullDistance >= pageRefreshThreshold
     feedTopPulling.value = false
     setTopChromeVisible(true)
     settlePagePullOffset()
+    if (shouldRefresh) {
+      void refreshCurrentPageFromPull()
+    }
   } else if (trackingPageTopPullCandidate) {
     feedTopPulling.value = false
   }
@@ -4120,7 +4181,7 @@ onUnmounted(() => {
       >
         <div class="page-content-inner" :style="pageContentInnerStyle">
           <router-view v-slot="{ Component }">
-            <component :is="Component" @open-source="openSourceReader" />
+            <component :is="Component" ref="pageViewRef" @open-source="openSourceReader" />
           </router-view>
         </div>
       </section>
@@ -4174,7 +4235,7 @@ onUnmounted(() => {
               :class="{ 'feed-refresh-header__icon--refreshing': feedInteraction.pullRefreshing }"
               :style="sourcePullIconStyle"
             >
-              <IconRefresh />
+              <IconSync />
             </span>
             <div class="feed-refresh-header__copy">
               <div class="feed-refresh-header__title">{{ pullStatusText }}</div>
@@ -4189,6 +4250,7 @@ onUnmounted(() => {
         @scroll.passive="handleSourceReaderScroll"
       >
         <SubscriptionFeedView
+          :key="`${readerSource.kind}:${readerSource.id}:${sourceReaderRefreshNonce}`"
           mode="source"
           :source-kind="readerSource.kind"
           :source-id="readerSource.id"

@@ -33,6 +33,10 @@ type ImportFetchSummary = {
   successCount: number
   failureCount: number
 }
+type FetchNowResult = {
+  success: boolean
+  error?: string
+}
 
 const emit = defineEmits<{
   openSource: [source: { id: number; name: string; kind: 'subscriptions' | 'recommendations' }]
@@ -46,22 +50,33 @@ const sourceByNormalizedURL = computed(() => {
   return sourceMap
 })
 
-function showNotice(type: 'success' | 'warning', message: string) {
-  notice.value = { type, message }
-  window.clearTimeout(noticeTimer)
-  noticeTimer = window.setTimeout(() => {
+function showNotice(type: 'success' | 'warning', message: string, durationMS?: number) {
+  const normalized = message.trim()
+  if (!normalized) {
     notice.value = null
-  }, 2600)
+    return
+  }
+  notice.value = { type, message: normalized }
+  window.clearTimeout(noticeTimer)
+  const duration = durationMS ?? (type === 'success' ? 1000 : 3000)
+  if (duration > 0) {
+    noticeTimer = window.setTimeout(() => {
+      notice.value = null
+    }, duration)
+  }
 }
 
-async function loadSources(options: { silent?: boolean } = {}) {
+async function loadSources(options: { silent?: boolean; notify?: boolean } = {}) {
   if (!options.silent) {
     loading.value = true
   }
   try {
     sources.value = await listSources()
   } catch (err) {
-    showNotice('warning', formatAPIError(err))
+    if (options.notify !== false) {
+      showNotice('warning', `刷新失败：订阅源列表加载失败。详细原因：${formatAPIError(err)}`)
+    }
+    throw err
   } finally {
     if (!options.silent) {
       loading.value = false
@@ -69,7 +84,7 @@ async function loadSources(options: { silent?: boolean } = {}) {
   }
 }
 
-async function loadCatalog(options: { silent?: boolean } = {}) {
+async function loadCatalog(options: { silent?: boolean; notify?: boolean } = {}) {
   if (!options.silent) {
     catalogLoading.value = true
   }
@@ -77,11 +92,30 @@ async function loadCatalog(options: { silent?: boolean } = {}) {
     const result = await listSourceCatalog({ q: catalogQuery.value || undefined, limit: 200, offset: 0 })
     catalog.value = result.entries
   } catch (err) {
-    showNotice('warning', formatAPIError(err))
+    if (options.notify !== false) {
+      showNotice('warning', `刷新失败：推荐源目录加载失败。详细原因：${formatAPIError(err)}`)
+    }
+    throw err
   } finally {
     if (!options.silent) {
       catalogLoading.value = false
     }
+  }
+}
+
+async function refreshPage() {
+  if (loading.value || catalogLoading.value || actionLoading.value) {
+    return
+  }
+  const query = catalogQuery.value.trim()
+  try {
+    await Promise.all([
+      loadSources({ silent: true, notify: false }),
+      loadCatalog({ silent: true, notify: false }),
+    ])
+    showNotice('success', query ? `刷新成功：已更新“${query}”的推荐源搜索结果` : '刷新成功：已更新推荐源目录')
+  } catch (err) {
+    showNotice('warning', `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`)
   }
 }
 
@@ -149,7 +183,7 @@ async function handleImportURLs() {
     urlInput.value = ''
     await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
   } catch (err) {
-    showNotice('warning', formatAPIError(err))
+    showNotice('warning', `导入失败：${formatAPIError(err)}`)
   } finally {
     actionLoading.value = false
   }
@@ -169,7 +203,7 @@ async function handleImportOPML(event: Event) {
     showNotice(importNoticeType(result, fetchSummary), importNoticeMessage('已从 OPML 导入', result, fetchSummary))
     await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
   } catch (err) {
-    showNotice('warning', formatAPIError(err))
+    showNotice('warning', `导入失败：${formatAPIError(err)}`)
   } finally {
     actionLoading.value = false
     input.value = ''
@@ -191,18 +225,21 @@ function catalogToggleLabel(entry: SourceCatalogEntry) {
 
 function openCatalogSource(entry: SourceCatalogEntry) {
   const source = sourceForCatalog(entry)
+  const subscribed = catalogStatus(entry) === 'active' && Boolean(source || entry.source_id)
   emit('openSource', {
-    id: source?.id ?? entry.source_id ?? entry.id,
+    id: subscribed ? source?.id ?? entry.source_id ?? entry.id : entry.id,
     name: source?.name ?? entry.name,
-    kind: source || entry.source_id ? 'subscriptions' : 'recommendations',
+    kind: subscribed ? 'subscriptions' : 'recommendations',
   })
 }
 
-async function fetchNow(source: Source) {
+async function fetchNow(source: Source): Promise<FetchNowResult> {
+  showNotice('success', `抓取中：正在抓取 ${source.name} 的最新内容`, 0)
   try {
     await fetchSource(source.id)
+    return { success: true }
   } catch (err) {
-    showNotice('warning', formatAPIError(err))
+    return { success: false, error: formatAPIError(err) }
   }
 }
 
@@ -213,49 +250,63 @@ async function toggleCatalogSource(entry: SourceCatalogEntry) {
     if (existing) {
       const nextStatus = existing.status === 'active' ? 'inactive' : 'active'
       const updated = await updateSourceStatus(existing.id, nextStatus)
+      let fetchResult: FetchNowResult = { success: true }
       if (updated.status === 'active') {
-        await fetchNow(updated)
+        fetchResult = await fetchNow(updated)
       }
-      showNotice('success', `${updated.name} 已${updated.status === 'active' ? '开启' : '关闭'}`)
+      if (updated.status === 'active' && !fetchResult.success) {
+        showNotice('warning', `${updated.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`)
+      } else {
+        showNotice('success', `${updated.name} 已${updated.status === 'active' ? '开启并抓取最新内容' : '关闭'}`)
+      }
       await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
       return
     }
 
     const result = await importCatalogSources([entry.id])
     const imported = result.sources[0]
+    let fetchResult: FetchNowResult = { success: true }
     if (imported) {
-      await fetchNow(imported)
+      fetchResult = await fetchNow(imported)
     }
-    showNotice('success', `${entry.name} 已开启`)
+    if (!fetchResult.success) {
+      showNotice('warning', `${entry.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`)
+    } else {
+      showNotice('success', `${entry.name} 已开启并抓取最新内容`)
+    }
     await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
   } catch (err) {
-    showNotice('warning', formatAPIError(err))
+    showNotice('warning', `操作失败：${entry.name} 状态未更新。详细原因：${formatAPIError(err)}`)
   } finally {
     actionLoading.value = false
   }
 }
 
 onMounted(() => {
-  loadSources()
-  loadCatalog()
+  void loadSources().catch(() => undefined)
+  void loadCatalog().catch(() => undefined)
 })
 
 onUnmounted(() => {
   window.clearTimeout(noticeTimer)
 })
+
+defineExpose({ refreshPage })
 </script>
 
 <template>
   <section class="sources-page">
-    <div
-      v-if="notice"
-      class="sources-toast"
-      :class="`sources-toast--${notice.type}`"
-      role="status"
-      aria-live="polite"
-    >
-      {{ notice.message }}
-    </div>
+    <Teleport to="body">
+      <div
+        v-if="notice"
+        class="sources-toast"
+        :class="`sources-toast--${notice.type}`"
+        role="status"
+        aria-live="polite"
+      >
+        {{ notice.message }}
+      </div>
+    </Teleport>
 
     <div class="sources-toolbar">
       <div class="sources-toolbar__group">

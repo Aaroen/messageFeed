@@ -137,6 +137,48 @@ func TestTriggerFetchStoresItemsAndUpdatesSource(t *testing.T) {
 	}
 }
 
+func TestTriggerFetchAllowsInactiveSource(t *testing.T) {
+	sourceRepository := newFakeSourceRepository()
+	itemRepository := &fakeItemRepository{}
+	service := NewSourceService(
+		sourceRepository,
+		WithItemRepository(itemRepository),
+		WithFeedFetcher(&fakeFeedFetcher{}),
+	)
+
+	source, err := service.CreateSource(context.Background(), CreateSourceInput{
+		UserID: 1,
+		URL:    "https://example.com/feed.xml",
+	})
+	if err != nil {
+		t.Fatalf("CreateSource returned error: %v", err)
+	}
+
+	status := domain.SourceStatusInactive
+	source, err = service.UpdateSource(context.Background(), UpdateSourceInput{
+		UserID: 1,
+		ID:     source.ID,
+		Status: &status,
+	})
+	if err != nil {
+		t.Fatalf("UpdateSource returned error: %v", err)
+	}
+
+	result, err := service.TriggerFetch(context.Background(), FetchSourceInput{
+		UserID: 1,
+		ID:     source.ID,
+	})
+	if err != nil {
+		t.Fatalf("TriggerFetch returned error: %v", err)
+	}
+	if result.ItemCount != 1 {
+		t.Fatalf("ItemCount = %d, want 1", result.ItemCount)
+	}
+	if got, want := len(itemRepository.items), 1; got != want {
+		t.Fatalf("stored items length = %d, want %d", got, want)
+	}
+}
+
 func TestTriggerFetchMarksSourceFailed(t *testing.T) {
 	sourceRepository := newFakeSourceRepository()
 	service := NewSourceService(
