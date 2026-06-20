@@ -267,6 +267,7 @@ const detailParkedBehindSource = computed(
   () =>
     hasDetailParkedBehindSource() && !readerBackDragging.value,
 )
+const sourceReturnDragOnlyDamping = computed(() => readerBackDragging.value && backSwipeTarget === 'source')
 const headerDetailLayoutActive = computed(
   () => detailChromeVisible.value || (detailReaderOpen.value && isFeedRoute.value && feedHeaderReturnProgress.value > 0.001),
 )
@@ -391,7 +392,7 @@ const detailReaderStyle = computed(() => ({
   transition: readerBackDragging.value ? 'none' : undefined,
   transformOrigin: stretchTransformOrigin(detailReaderStretch.value, detailStretchAnchor.value),
   pointerEvents: detailCommittedListReturn() ? ('none' as const) : ('auto' as const),
-  '--detail-overlay-opacity': detailCommittedListReturn() || detailReturningToFeed.value
+  '--detail-overlay-opacity': sourceReturnDragOnlyDamping.value || detailCommittedListReturn() || detailReturningToFeed.value
     ? '0'
     : clamp(
         detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value)),
@@ -453,6 +454,7 @@ const detailTransitionSurfaceStyle = computed(() => {
     (detailBackExitProgress.value > 0 || detailSourceExitProgress.value > 0) &&
     !(backSwipeTarget === 'source' && !sourceReturnTargetReady.value)
   const committedListReturn = detailCommittedListReturn()
+  const suppressSourceReturnPreview = sourceReturnDragOnlyDamping.value
 
   if (!collapsedTarget) {
     const opacity =
@@ -464,7 +466,7 @@ const detailTransitionSurfaceStyle = computed(() => {
     return {
       width: cssPx(expandedWidth),
       height: cssPx(targetHeight),
-      opacity: clamp(opacity).toFixed(3),
+      opacity: suppressSourceReturnPreview ? '0' : clamp(opacity).toFixed(3),
       transform: cssTranslate3d(expandedLeft, targetTop + exitProgress * 18),
       transition: readerBackDragging.value ? 'none' : undefined,
       borderRadius: cssPx(16 - exitProgress * 4),
@@ -487,7 +489,7 @@ const detailTransitionSurfaceStyle = computed(() => {
   return {
     width: cssPx(width),
     height: cssPx(height),
-    opacity: clamp(opacity).toFixed(3),
+    opacity: suppressSourceReturnPreview ? '0' : clamp(opacity).toFixed(3),
     transform: cssTranslate3d(x, y),
     borderRadius: cssPx(radius),
     transition: readerBackDragging.value ? 'none' : undefined,
@@ -644,6 +646,7 @@ const sourceNameMorphActive = computed(
   () =>
     Boolean(detailItem.value) &&
     sourceReaderVisible.value &&
+    !sourceReturnDragOnlyDamping.value &&
     !detailReturningToFeed.value &&
     sourceNameMorphProgress.value > 0.001 &&
     sourceNameMorphProgress.value < 0.985 &&
@@ -656,6 +659,7 @@ const sourceNameMorphVisible = computed(
   () =>
     Boolean(detailItem.value) &&
     sourceReaderVisible.value &&
+    !sourceReturnDragOnlyDamping.value &&
     !detailReturningToFeed.value &&
     sourceNameMorphProgress.value > 0.001 &&
     sourceNameMorphProgress.value < 0.995 &&
