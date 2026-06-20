@@ -2023,8 +2023,19 @@ function shouldGuardSystemBack() {
   return hasVirtualBackTarget() || isFeedRoute.value
 }
 
+function currentHistoryStateHasVirtualGuard() {
+  if (typeof window === 'undefined') {
+    return false
+  }
+  const currentState = window.history.state || {}
+  return Boolean(currentState.messagefeedVirtualLayer || currentState.messagefeedHomeGuard)
+}
+
 function syncVirtualHistoryState(forcePush = false) {
   if (typeof window === 'undefined') {
+    return
+  }
+  if (!route.name) {
     return
   }
 
@@ -3056,7 +3067,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   trackingBackSwipe = true
   detailEntrySettling.value = false
   sourceReturnTargetReady.value = false
-  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail()) {
+  if (backSwipeTarget === 'source' && deltaX < 0 && canReturnSourceReaderToDetail()) {
     prepareSourceReaderReturnDrag()
     backSwipeIntent = 'back'
     showTopChromeForSourceReturn()
@@ -3095,7 +3106,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail()) {
+  if (backSwipeTarget === 'source' && deltaX < 0 && canReturnSourceReaderToDetail()) {
     prepareSourceReaderReturnDrag()
     backSwipeIntent = 'back'
     showTopChromeForSourceReturn()
@@ -3135,8 +3146,8 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     detailReaderTouchOffset.value = 0
     detailBackExitProgress.value = clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
   } else if (intent === 'back' && backSwipeTarget === 'source') {
-    if (offset > 0 && canReturnSourceReaderToDetail()) {
-      const returnProgress = clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
+    if (offset < 0 && canReturnSourceReaderToDetail()) {
+      const returnProgress = clamp(Math.max(0, -offset) / Math.max(220, windowWidth.value * 0.52))
       detailRestoringFromSourceReader.value = true
       detailReaderTouchOffset.value = 0
       detailBackExitProgress.value = 0
@@ -3183,7 +3194,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
     intent === 'back' && target === 'detail'
       ? deltaX > 0 && (detailBackExitProgress.value >= 0.42 || deltaX >= viewSwitchDistance)
       : intent === 'back' && target === 'source'
-        ? deltaX > 0 && (detailSourceExitProgress.value <= 0.58 || deltaX >= viewSwitchDistance)
+        ? deltaX < 0 && (detailSourceExitProgress.value <= 0.58 || Math.abs(deltaX) >= viewSwitchDistance)
       : intent === 'source' && target === 'detail'
         ? deltaX < 0 && (detailSourceExitProgress.value >= 0.42 || Math.abs(deltaX) >= viewSwitchDistance)
         : intent === 'back'
@@ -3893,7 +3904,9 @@ function setTopChromeVisible(visible: boolean) {
       feedChromeSettleTimer = window.setTimeout(() => {
         setChromeSettling(false)
       }, motionDelay(topChromeSettleDuration))
+      return
     }
+    setChromeProgress(nextProgress, visible ? 'visible' : 'hidden')
     return
   }
 
@@ -4314,7 +4327,7 @@ onMounted(() => {
     darkTheme.value = true
   }
   removeSystemBackGuard = router.beforeEach(() => {
-    if (programmaticRouteNavigation || !shouldGuardSystemBack()) {
+    if (programmaticRouteNavigation || !currentHistoryStateHasVirtualGuard() || !shouldGuardSystemBack()) {
       return true
     }
 
@@ -4324,7 +4337,7 @@ onMounted(() => {
 
     return consumeSystemBack() ? false : true
   })
-  void restoreReaderSession().finally(() => {
+  void router.isReady().then(() => restoreReaderSession()).finally(() => {
     scheduleReaderURLAndHistorySync()
   })
   window.addEventListener('keydown', handleKeydown)
