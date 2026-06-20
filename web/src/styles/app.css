@@ -15,7 +15,10 @@
   --mf-header-bg: linear-gradient(180deg, rgba(246, 248, 251, 0.92), rgba(246, 248, 251, 0.64)), transparent;
   --mf-header-shadow: 0 12px 32px rgba(31, 45, 61, 0.08);
   --mf-viewport-height: 100vh;
+  --motion-micro: 90ms;
   --motion-fast: 160ms;
+  --motion-quick: 180ms;
+  --motion-short: 220ms;
   --motion-normal: 260ms;
   --motion-reader: 360ms;
   --motion-slow: 420ms;
@@ -236,7 +239,7 @@ body[arco-theme='dark'] .nav-scrim {
 }
 
 .nav-panel--settling {
-  transition: transform 220ms var(--ease-standard);
+  transition: transform var(--motion-short) var(--ease-standard);
 }
 
 body[arco-theme='dark'] .nav-panel {
@@ -521,10 +524,10 @@ body[arco-theme='dark'] .settings-icon-button--active {
   box-shadow: var(--mf-header-shadow);
   backdrop-filter: blur(16px) saturate(1.1);
   transition:
-    max-height 220ms var(--ease-standard),
-    min-height 220ms var(--ease-standard),
-    padding 220ms var(--ease-standard),
-    transform 220ms var(--ease-standard),
+    max-height var(--motion-short) var(--ease-standard),
+    min-height var(--motion-short) var(--ease-standard),
+    padding var(--motion-short) var(--ease-standard),
+    transform var(--motion-short) var(--ease-standard),
     opacity var(--motion-fast) ease;
 }
 
@@ -595,7 +598,7 @@ body[arco-theme='dark'] .settings-icon-button--active {
   transform: translate3d(0, 0, 0);
   transition:
     opacity 140ms ease,
-    transform 180ms var(--ease-standard);
+    transform var(--motion-quick) var(--ease-standard);
   will-change: opacity, transform;
 }
 
@@ -727,8 +730,8 @@ body[arco-theme='dark'] .feed-refresh-header__icon {
 .feed-status-swap-enter-active,
 .feed-status-swap-leave-active {
   transition:
-    opacity 180ms ease,
-    transform 220ms var(--ease-standard);
+    opacity var(--motion-quick) ease,
+    transform var(--motion-short) var(--ease-standard);
 }
 
 .feed-status-swap-enter-from,
@@ -776,8 +779,8 @@ body[arco-theme='dark'] .app-header {
   box-shadow: 0 12px 32px rgba(31, 45, 61, 0.1);
   backdrop-filter: blur(18px) saturate(1.16);
   transition:
-    opacity 180ms ease,
-    transform 220ms var(--ease-standard);
+    opacity var(--motion-quick) ease,
+    transform var(--motion-short) var(--ease-standard);
 }
 
 .feed-tabs--hidden {
@@ -1029,7 +1032,7 @@ body[arco-theme='dark'] .app-main--refreshing .app-header {
 }
 
 .feed-loading-dots span:nth-child(3) {
-  animation-delay: 220ms;
+  animation-delay: var(--motion-short);
 }
 
 .feed-load-more--end {
@@ -1283,15 +1286,15 @@ body[arco-theme='dark'] .reader-overlay {
 }
 
 .reader-overlay--detail {
-  transition: transform 180ms var(--ease-standard);
+  transition: transform var(--motion-quick) var(--ease-standard);
 }
 
 .reader-overlay--under-detail .reader-overlay__content {
   opacity: var(--source-underlay-opacity, 1);
   filter: blur(var(--source-underlay-blur, 0));
   transition:
-    opacity 180ms linear,
-    filter 180ms linear;
+    opacity var(--motion-quick) linear,
+    filter var(--motion-quick) linear;
 }
 
 .detail-source-morph {
@@ -1479,7 +1482,7 @@ body[arco-theme='dark'] .reader-back-button {
   transform: translate3d(0, 0, 0);
   transition:
     opacity var(--motion-fast) ease,
-    transform 220ms var(--ease-standard);
+    transform var(--motion-short) var(--ease-standard);
 }
 
 .reader-source-layer--hidden {
@@ -1509,7 +1512,7 @@ body[arco-theme='dark'] .reader-back-button {
   overflow-y: auto;
   padding: 14px 24px 18px;
   transition:
-    opacity 220ms ease,
+    opacity var(--motion-short) ease,
     transform var(--motion-normal) var(--ease-standard);
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
@@ -1533,7 +1536,7 @@ body[arco-theme='dark'] .reader-back-button {
   pointer-events: none;
   transition:
     opacity var(--motion-fast) linear,
-    transform 180ms var(--ease-standard);
+    transform var(--motion-quick) var(--ease-standard);
 }
 
 .reader-morph-text__meta {
@@ -1630,7 +1633,7 @@ body[arco-theme='dark'] .reader-back-button {
   font-size: 13px;
   line-height: 1.35;
   opacity: var(--detail-inline-meta-opacity, 1);
-  transition: opacity 140ms linear;
+  transition: opacity var(--motion-fast) linear;
 }
 
 .reader-detail__inline-source {
@@ -1684,7 +1687,7 @@ body[arco-theme='dark'] .reader-back-button {
   background: transparent;
   opacity: var(--detail-body-opacity, 1);
   pointer-events: none;
-  transition: opacity 160ms linear;
+  transition: opacity var(--motion-fast) linear;
 }
 
 .reader-detail-progress {
@@ -1699,7 +1702,7 @@ body[arco-theme='dark'] .reader-back-button {
   transition:
     top var(--motion-chrome) var(--ease-emphasized),
     bottom var(--motion-chrome) var(--ease-emphasized),
-    opacity 180ms ease;
+    opacity var(--motion-quick) ease;
   user-select: none;
 }
 
@@ -1725,7 +1728,7 @@ body[arco-theme='dark'] .reader-back-button {
   border-radius: inherit;
   background: var(--mf-primary);
   opacity: 1;
-  transition: height 90ms linear;
+  transition: height var(--motion-micro) linear;
 }
 
 .reader-detail-progress__thumb {
@@ -1753,7 +1756,7 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   display: flex;
   justify-content: flex-end;
   opacity: var(--detail-body-opacity, 1);
-  transition: opacity 160ms linear;
+  transition: opacity var(--motion-fast) linear;
 }
 
 .reader-detail__actions a {
@@ -1838,7 +1841,7 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   background: #ffffff;
   box-shadow: 0 4px 12px rgba(31, 45, 61, 0.18);
   content: '';
-  transition: transform 180ms var(--ease-standard);
+  transition: transform var(--motion-quick) var(--ease-standard);
 }
 
 .settings-switch input:checked + span {

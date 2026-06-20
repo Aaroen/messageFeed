@@ -753,7 +753,7 @@ const detailHeaderPreviousTextStyle = computed(() => {
     transform: cssTranslate3d(0, progress * -6),
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity 220ms ease, filter var(--motion-normal) ease, transform var(--motion-normal) var(--ease-emphasized)',
+      : 'opacity var(--motion-short) ease, filter var(--motion-normal) ease, transform var(--motion-normal) var(--ease-emphasized)',
   }
 })
 const detailInlineSourceStyle = computed(() => {
@@ -764,7 +764,7 @@ const detailInlineSourceStyle = computed(() => {
     opacity: opacity.toFixed(3),
     filter: `blur(${blur.toFixed(2)}px)`,
     transform: 'translate3d(0, 0, 0)',
-    transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease, filter 220ms ease',
+    transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) ease, filter var(--motion-short) ease',
   }
 })
 const detailMorphSourceLabelStyle = computed(() => {
@@ -774,7 +774,7 @@ const detailMorphSourceLabelStyle = computed(() => {
   return {
     opacity: opacity.toFixed(3),
     filter: `blur(${blur.toFixed(2)}px)`,
-    transition: readerBackDragging.value ? 'none' : 'opacity 220ms ease, filter 220ms ease',
+    transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) ease, filter var(--motion-short) ease',
   }
 })
 const sourceNameMorphProgress = computed(() =>
@@ -856,7 +856,7 @@ const sourceNameMorphStyle = computed(() => {
     transform: 'translate3d(0, 0, 0)',
     transition: readerBackDragging.value
       ? 'none'
-      : 'left var(--motion-reader) var(--ease-standard), top var(--motion-reader) var(--ease-standard), width var(--motion-reader) var(--ease-standard), font-size var(--motion-reader) var(--ease-standard), opacity 180ms ease, filter 180ms ease',
+      : 'left var(--motion-reader) var(--ease-standard), top var(--motion-reader) var(--ease-standard), width var(--motion-reader) var(--ease-standard), font-size var(--motion-reader) var(--ease-standard), opacity var(--motion-quick) ease, filter var(--motion-quick) ease',
   }
 })
 const sourceTitleLayerStyle = computed(() => {
@@ -869,7 +869,7 @@ const sourceTitleLayerStyle = computed(() => {
     filter: `blur(${(revealProgress * 2).toFixed(2)}px)`,
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity 220ms ease, filter 220ms ease, transform 220ms var(--ease-standard)',
+      : 'opacity var(--motion-short) ease, filter var(--motion-short) ease, transform var(--motion-short) var(--ease-standard)',
   }
 })
 const sourceTitleTextStyle = computed(() => ({
