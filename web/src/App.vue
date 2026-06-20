@@ -312,6 +312,17 @@ const feedTabsLayerStyle = computed(() => {
 
   return chromeLayerStyle(!feedPullActive.value, feedHeaderProgress.value)
 })
+const feedTabsTargetLayerStyle = computed(() =>
+  chromeLayerStyle(
+    viewSwipeTargetVisible.value && !feedPullActive.value,
+    feedHeaderProgress.value * viewSwipeTargetProgress.value,
+    {
+      shift: 6,
+      scaleStart: 0.985,
+      pointerEnabled: false,
+    },
+  ),
+)
 const sourcePullStatusStyle = computed(() => ({
   ...chromeLayerStyle(sourcePullActive.value, sourcePullProgress.value, { shift: -10, scaleStart: 0.96 }),
 }))
@@ -343,6 +354,24 @@ const navigationScrimStyle = computed(() => ({
 const feedTrackStyle = computed(() => ({
   transform: `translate3d(calc(${-activeFeedIndex.value * 100}% + ${cssPx(viewDragOffset.value)}), 0, 0)`,
 }))
+const viewSwipeProgress = computed(() =>
+  clamp(Math.abs(viewDragOffset.value) / Math.max(1, Math.min(windowWidth.value, 320))),
+)
+const viewSwipeTargetKey = computed(() => {
+  if (viewDragOffset.value < -viewDragThreshold && activeFeedIndex.value === 0) {
+    return 'recommendations'
+  }
+  if (viewDragOffset.value > viewDragThreshold && activeFeedIndex.value === 1) {
+    return 'subscriptions'
+  }
+  return ''
+})
+const viewSwipeTargetVisible = computed(
+  () => isFeedRoute.value && !detailReaderOpen.value && Boolean(viewSwipeTargetKey.value),
+)
+const viewSwipeTargetProgress = computed(() =>
+  viewSwipeTargetVisible.value ? clamp((viewSwipeProgress.value - 0.26) / 0.48) : 0,
+)
 const mainClass = computed(() => ({
   'app-main--feed': isFeedRoute.value,
   'app-main--page': !isFeedRoute.value,
@@ -1065,6 +1094,7 @@ const viewDirectionLockRatio = 1.35
 const topPullDirectionLockRatio = 1.18
 const viewDragThreshold = 8
 const viewSwipeChromeRevealDelay = 520
+const topChromeSettleDuration = 1000
 const pageRefreshThreshold = 52
 let touchStartX = 0
 let touchStartY = 0
@@ -2448,6 +2478,8 @@ function restoreDetailFromParkedSource(duration = 360) {
   const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 1
   readerBackDragging.value = false
   detailEntrySettling.value = true
+  setTopChromeVisible(true)
+  feedContentCollapsed.value = false
   detailRestoringFromSourceReader.value = true
   detailBackExitProgress.value = 0
   detailSourceExitProgress.value = startProgress
@@ -3634,7 +3666,7 @@ function setTopChromeVisible(visible: boolean) {
       window.clearTimeout(feedChromeSettleTimer)
       feedChromeSettleTimer = window.setTimeout(() => {
         feedChromeSettling.value = false
-      }, motionDelay(1000))
+      }, motionDelay(topChromeSettleDuration))
     }
     return
   }
@@ -3647,7 +3679,7 @@ function setTopChromeVisible(visible: boolean) {
   topChromeProgress.value = nextProgress
   feedChromeSettleTimer = window.setTimeout(() => {
     feedChromeSettling.value = false
-  }, motionDelay(1000))
+  }, motionDelay(topChromeSettleDuration))
 }
 
 function currentContentScrollTop() {
@@ -3840,7 +3872,7 @@ function settlePagePullOffset() {
   pagePullOffset.value = 0
   pagePullSettleTimer = window.setTimeout(() => {
     pagePullSettling.value = false
-  }, motionDelay(360))
+  }, motionDelay(topChromeSettleDuration))
 }
 
 function handlePageTouchStart(event: TouchEvent) {
@@ -4032,7 +4064,7 @@ watch(
       window.clearTimeout(feedRefreshSettleTimer)
       feedRefreshSettleTimer = window.setTimeout(() => {
         feedRefreshSettling.value = false
-      }, motionDelay(1000))
+      }, motionDelay(topChromeSettleDuration))
     }
 
     if (!active && !refreshWasActive.value) {
@@ -4247,6 +4279,26 @@ onUnmounted(() => {
                   @pointerdown.stop
                   @touchstart.stop
                   @click="navigateTo(tab.path)"
+                >
+                  {{ tab.label }}
+                </button>
+              </div>
+            </div>
+            <div
+              v-if="isFeedRoute"
+              class="feed-header-layer feed-header-layer--tabs feed-header-layer--view-target"
+              :class="{ 'feed-header-layer--hidden': !viewSwipeTargetVisible }"
+              :style="feedTabsTargetLayerStyle"
+              aria-hidden="true"
+            >
+              <div class="feed-tabs" role="presentation">
+                <button
+                  v-for="tab in feedTabs"
+                  :key="`target-${tab.key}`"
+                  class="feed-tab"
+                  :class="{ 'feed-tab--active': viewSwipeTargetKey === tab.key }"
+                  type="button"
+                  tabindex="-1"
                 >
                   {{ tab.label }}
                 </button>
