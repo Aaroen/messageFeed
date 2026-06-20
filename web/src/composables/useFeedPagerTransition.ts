@@ -24,6 +24,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   const dragOffset = ref(0)
   const settling = ref(false)
   let settlingTimer = 0
+  let delayedCommitTimer = 0
 
   const activeIndex = computed(() => (options.getActiveKey() === 'recommendations' ? 1 : 0))
 
@@ -60,11 +61,20 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     window.clearTimeout(settlingTimer)
   }
 
+  function clearDelayedCommitTimer() {
+    window.clearTimeout(delayedCommitTimer)
+  }
+
   function scheduleSettlingEnd(delay: number) {
     clearSettlingTimer()
     settlingTimer = window.setTimeout(() => {
       setSettling(false)
     }, Math.max(0, delay))
+  }
+
+  function scheduleDelayedCommit(delay: number, commit: () => void) {
+    clearDelayedCommitTimer()
+    delayedCommitTimer = window.setTimeout(commit, Math.max(0, delay))
   }
 
   function setDragDelta(deltaX: number) {
@@ -77,6 +87,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   function reset() {
     clearSettlingTimer()
+    clearDelayedCommitTimer()
     dragOffset.value = 0
     settling.value = false
   }
@@ -94,7 +105,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     setDragOffset,
     setSettling,
     clearSettlingTimer,
+    clearDelayedCommitTimer,
     scheduleSettlingEnd,
+    scheduleDelayedCommit,
     setDragDelta,
     reset,
   }

@@ -1208,7 +1208,6 @@ let trackingBackSwipe = false
 let navigationDragStarted = false
 let backSwipeTarget: 'detail' | 'source' | 'page' | null = null
 let backSwipeIntent: 'back' | 'source' | 'blocked' | null = null
-let viewSwipeTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
@@ -1307,7 +1306,7 @@ function navigateTo(path: string) {
   feedPagerTransition.setSettling(true)
   feedPagerTransition.setDragOffset(0)
   void pushRoute(path)
-  window.clearTimeout(viewSwipeTimer)
+  feedPagerTransition.clearDelayedCommitTimer()
   feedPagerTransition.scheduleSettlingEnd(motionDelay(260))
 }
 
@@ -2481,19 +2480,19 @@ function finishViewSwipe(nextPath: string | null) {
   const committed = Boolean(nextPath)
   feedPagerTransition.setSettling(true)
   swipeTransition.settle(committed, { progress: committed ? 1 : 0, isBlocked: false })
-  window.clearTimeout(viewSwipeTimer)
+  feedPagerTransition.clearDelayedCommitTimer()
   feedPagerTransition.clearSettlingTimer()
   const shouldRevealChromeFirst = Boolean(nextPath) && viewSwipeStartedWithHiddenChrome
   viewSwipeStartedWithHiddenChrome = false
   if (shouldRevealChromeFirst) {
     setTopChromeVisible(true)
-    viewSwipeTimer = window.setTimeout(() => {
+    feedPagerTransition.scheduleDelayedCommit(viewSwipeChromeRevealDelay, () => {
       if (nextPath) {
         void pushRoute(nextPath)
       }
       feedPagerTransition.setDragOffset(0)
       feedPagerTransition.scheduleSettlingEnd(motionDelay(260))
-    }, viewSwipeChromeRevealDelay)
+    })
     scheduleSwipeTransitionReset(viewSwipeChromeRevealDelay + 260)
     return
   }
@@ -3529,7 +3528,7 @@ onUnmounted(() => {
   window.removeEventListener('touchmove', handleTouchMove)
   window.removeEventListener('touchend', handleTouchEnd)
   window.removeEventListener('touchcancel', handleTouchCancel)
-  window.clearTimeout(viewSwipeTimer)
+  feedPagerTransition.clearDelayedCommitTimer()
   feedPagerTransition.clearSettlingTimer()
   swipeTransition.clearResetTimer()
   navigationDrawer.clearTimer()
