@@ -43,6 +43,11 @@ type OpenItemReaderTransitionOptions = BeginOpenItemReaderStateOptions & {
   afterEntry?: () => void
 }
 
+type FinishOpenItemReaderLoadOptions = {
+  item?: FeedItem
+  errorMessage?: string
+}
+
 type BeginDetailEntryStateResult = {
   shouldAnimate: boolean
 }
@@ -636,6 +641,14 @@ export function useReaderStackState() {
   function failOpenItemReaderLoadState(message: string) {
     detailError.value = message
     detailLoading.value = false
+  }
+
+  function finishOpenItemReaderLoad(options: FinishOpenItemReaderLoadOptions = {}) {
+    if (options.errorMessage) {
+      failOpenItemReaderLoadState(options.errorMessage)
+      return
+    }
+    completeOpenItemReaderLoadState(options.item)
   }
 
   function beginDetailHeaderTitleSwapState(nextItem: FeedItem): BeginDetailHeaderTitleSwapStateResult {
@@ -1281,8 +1294,7 @@ export function useReaderStackState() {
     closeVisibleSourceReaderState,
     clearSourceReaderState,
     clearDetailEntryTimer,
-    completeOpenItemReaderLoadState,
-    failOpenItemReaderLoadState,
+    finishOpenItemReaderLoad,
     clearDetailHeaderSwapTimer,
     openItemReaderWithTransition,
     applyDetailFeedOriginRectState,

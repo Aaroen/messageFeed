@@ -130,8 +130,7 @@ const {
   clearSourceReaderState,
   clearDetailEntryTimer,
   openItemReaderWithTransition,
-  completeOpenItemReaderLoadState,
-  failOpenItemReaderLoadState,
+  finishOpenItemReaderLoad,
   clearDetailHeaderSwapTimer,
   applyDetailFeedOriginRectState,
   applyDetailSourceTransitionRectsState,
@@ -1895,9 +1894,9 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
     if (sourceKind === 'subscriptions' && item.id > 0) {
       loadedItem = await getFeedItem(item.id)
     }
-    completeOpenItemReaderLoadState(loadedItem)
+    finishOpenItemReaderLoad({ item: loadedItem })
   } catch {
-    failOpenItemReaderLoadState('无法加载完整条目，已显示当前列表内容。')
+    finishOpenItemReaderLoad({ errorMessage: '无法加载完整条目，已显示当前列表内容。' })
   } finally {
     nextTick(() => {
       if (detailContentRef.value) {
