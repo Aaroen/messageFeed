@@ -26,57 +26,23 @@ import { formatAPIError } from '@/api/client'
 import ReaderStack from '@/components/ReaderStack.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
+import {
+  type FeedSourceKind,
+  type ParkedDetailSnapshot,
+  type ReaderSessionSnapshot,
+  type ReaderSource,
+  type RectSnapshot,
+  useReaderSession,
+} from '@/composables/useReaderSession'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 
-type FeedSourceKind = 'subscriptions' | 'recommendations'
 type SwipeSurface =
   | 'feed:subscriptions'
   | 'feed:recommendations'
   | 'reader:detail'
   | 'reader:source'
   | 'page:management'
-type ReaderSource = {
-  id: number
-  name: string
-  kind: FeedSourceKind
-}
-type RectSnapshot = {
-  left: number
-  top: number
-  width: number
-  height: number
-}
-type ParkedDetailSnapshot = {
-  item: FeedItem
-  sourceKind: FeedSourceKind
-  originRect: RectSnapshot | null
-  sourceItemTargetRect: RectSnapshot | null
-  sourceNameOriginRect: RectSnapshot | null
-  sourceNameTargetRect: RectSnapshot | null
-  morphingItemHeight: number | null
-  scrollTop: number
-}
-type ReaderSessionSnapshot = {
-  savedAt: number
-  routeFullPath: string
-  feedScrollTop: number
-  sourceReaderScrollTop: number
-  detailScrollTop: number
-  topChromeProgress: number
-  feedContentCollapsed: boolean
-  readerSource: ReaderSource | null
-  sourceReaderVisible: boolean
-  detailItem: FeedItem | null
-  detailSourceKind: FeedSourceKind
-  detailOpenedFromSourceReader: boolean
-  detailListReturnCommitted: boolean
-  detailSourceExitProgress: number
-  sourceReaderReturnMode: 'detail' | null
-  sourceReaderBackDetail: ParkedDetailSnapshot | null
-  morphingItemHeight: number | null
-  parkedDetailStack: ParkedDetailSnapshot[]
-}
 type PageViewExpose = {
   refreshPage?: (options?: { noticeDelayMS?: number; suppressStartNotice?: boolean }) => Promise<void> | void
 }
@@ -185,10 +151,18 @@ const readerMorphDuration = 360
 const readerMorphCleanupBuffer = 96
 const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
 const readerRectRetryDelay = 64
-const readerSessionStorageKey = 'messagefeed-reader-session-v1'
-const readerSessionMaxAgeMs = 24 * 60 * 60 * 1000
 const readerURLQueryKeys = ['item', 'itemKind', 'source', 'sourceKind'] as const
 const homeExitDoubleBackMs = 1600
+const readerSession = useReaderSession<ReaderSessionSnapshot>({
+  storageKey: 'messagefeed-reader-session-v1',
+  maxAgeMS: 24 * 60 * 60 * 1000,
+  saveDelayMS: 80,
+  createSnapshot: readerSessionSnapshot,
+  getCurrentRouteFullPath: () => route.fullPath,
+  matchesCurrentRoute: readerSessionRouteMatches,
+  restoreSnapshot: applyReaderSessionSnapshot,
+  afterRestore: scheduleReaderURLAndHistorySync,
+})
 
 const selectedKeys = computed(() => [route.name?.toString() ?? 'subscriptions'])
 const pageTitle = computed(() => route.meta.title?.toString() ?? '订阅')
@@ -1179,11 +1153,10 @@ let feedRefreshSettleTimer = 0
 let feedChromeSettleTimer = 0
 let sourceContentSettleTimer = 0
 let pagePullSettleTimer = 0
-let readerSessionSaveTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let programmaticRouteNavigation = false
 let readerURLSyncing = false
-let readerSessionRestoring = false
+let readerSessionInitialized = false
 let virtualBackHandledAt = 0
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
@@ -1271,6 +1244,26 @@ function readerQueryBase() {
   return query
 }
 
+function normalizeReaderRouteFullPath(fullPath: string) {
+  const url = new URL(fullPath, 'https://messagefeed.local')
+  for (const key of readerURLQueryKeys) {
+    url.searchParams.delete(key)
+  }
+  const query = url.searchParams.toString()
+  return `${url.pathname}${query ? `?${query}` : ''}${url.hash}`
+}
+
+function readerSessionRouteMatches(snapshotRouteFullPath: string) {
+  const locationFullPath =
+    typeof window === 'undefined' ? '' : `${window.location.pathname}${window.location.search}${window.location.hash}`
+  const currentRoutes = [route.fullPath, locationFullPath].filter(Boolean)
+  return currentRoutes.some(
+    (currentRoute) =>
+      currentRoute === snapshotRouteFullPath ||
+      normalizeReaderRouteFullPath(currentRoute) === normalizeReaderRouteFullPath(snapshotRouteFullPath),
+  )
+}
+
 function readerQueryValue(value: unknown) {
   if (Array.isArray(value)) {
     return value.map((item) => String(item ?? '')).join('\u0001')
@@ -1302,7 +1295,7 @@ function readerURLQuery() {
 }
 
 async function syncReaderURLToState() {
-  if (readerURLSyncing || readerSessionRestoring || !route.name) {
+  if (!readerSessionInitialized || readerURLSyncing || readerSession.restoring.value || !route.name) {
     return
   }
 
@@ -1890,20 +1883,17 @@ function readerSessionSnapshot(): ReaderSessionSnapshot {
 }
 
 function saveReaderSessionNow() {
-  if (readerSessionRestoring || typeof window === 'undefined') {
+  if (!readerSessionInitialized && !readerSession.restoring.value) {
     return
   }
-
-  window.sessionStorage.setItem(readerSessionStorageKey, JSON.stringify(readerSessionSnapshot()))
+  readerSession.saveNow()
 }
 
 function scheduleReaderSessionSave() {
-  if (readerSessionRestoring || typeof window === 'undefined') {
+  if (!readerSessionInitialized && !readerSession.restoring.value) {
     return
   }
-
-  window.clearTimeout(readerSessionSaveTimer)
-  readerSessionSaveTimer = window.setTimeout(saveReaderSessionNow, 80)
+  readerSession.scheduleSave()
 }
 
 function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
@@ -1927,82 +1917,50 @@ function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
   })
 }
 
+function applyReaderSessionSnapshot(snapshot: ReaderSessionSnapshot) {
+  feedScrollTop.value = snapshot.feedScrollTop || 0
+  sourceReaderScrollTop.value = snapshot.sourceReaderScrollTop || 0
+  lastSourceReaderScrollTop = sourceReaderScrollTop.value
+  detailScrollTop.value = snapshot.detailScrollTop || 0
+  lastDetailScrollTop = detailScrollTop.value
+  setChromeProgress(typeof snapshot.topChromeProgress === 'number' ? snapshot.topChromeProgress : 1)
+  setChromeContentCollapsed(Boolean(snapshot.feedContentCollapsed))
+  readerSource.value = snapshot.readerSource ? { ...snapshot.readerSource } : null
+  sourceReaderVisible.value = Boolean(snapshot.readerSource && snapshot.sourceReaderVisible)
+  detailItem.value = snapshot.detailItem ? { ...snapshot.detailItem } : null
+  detailSourceKind.value = snapshot.detailSourceKind || 'subscriptions'
+  detailOpenedFromSourceReader.value = Boolean(snapshot.detailOpenedFromSourceReader)
+  detailEntryProgress.value = 1
+  detailEntrySettling.value = false
+  detailBackExitProgress.value = 0
+  detailSourceExitProgress.value = snapshot.detailListReturnCommitted
+    ? 1
+    : clamp(snapshot.detailSourceExitProgress || 0)
+  sourceReaderReturnMode.value = snapshot.sourceReaderReturnMode === 'detail' ? 'detail' : null
+  sourceReaderBackDetail.value = snapshot.sourceReaderBackDetail
+    ? { ...snapshot.sourceReaderBackDetail, item: { ...snapshot.sourceReaderBackDetail.item } }
+    : null
+  detailReturningToFeed.value = false
+  detailListReturnCommitted.value = Boolean(snapshot.detailListReturnCommitted)
+  detailRestoringFromSourceReader.value = false
+  detailError.value = ''
+  detailLoading.value = false
+  detailFrameContentHeight.value = 0
+  morphingItemId.value = null
+  morphingHeightLockItemId.value = null
+  morphingItemHeight.value = snapshot.morphingItemHeight ?? null
+  parkedDetailStack.value = Array.isArray(snapshot.parkedDetailStack)
+    ? snapshot.parkedDetailStack.map((item) => ({ ...item, item: { ...item.item } }))
+    : []
+
+  if (readerSource.value) {
+    void loadSourceReaderSubscription(readerSource.value)
+  }
+  restoreSavedScrollPositions(snapshot)
+}
+
 async function restoreReaderSession() {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  const raw = window.sessionStorage.getItem(readerSessionStorageKey)
-  if (!raw) {
-    return
-  }
-
-  let snapshot: ReaderSessionSnapshot
-  try {
-    snapshot = JSON.parse(raw) as ReaderSessionSnapshot
-  } catch {
-    window.sessionStorage.removeItem(readerSessionStorageKey)
-    return
-  }
-
-  if (!snapshot.savedAt || Date.now() - snapshot.savedAt > readerSessionMaxAgeMs) {
-    window.sessionStorage.removeItem(readerSessionStorageKey)
-    return
-  }
-
-  readerSessionRestoring = true
-  try {
-    if (snapshot.routeFullPath && route.fullPath !== snapshot.routeFullPath) {
-      window.sessionStorage.removeItem(readerSessionStorageKey)
-      return
-    }
-
-    feedScrollTop.value = snapshot.feedScrollTop || 0
-    sourceReaderScrollTop.value = snapshot.sourceReaderScrollTop || 0
-    lastSourceReaderScrollTop = sourceReaderScrollTop.value
-    detailScrollTop.value = snapshot.detailScrollTop || 0
-    lastDetailScrollTop = detailScrollTop.value
-    setChromeProgress(typeof snapshot.topChromeProgress === 'number' ? snapshot.topChromeProgress : 1)
-    setChromeContentCollapsed(Boolean(snapshot.feedContentCollapsed))
-    readerSource.value = snapshot.readerSource ? { ...snapshot.readerSource } : null
-    sourceReaderVisible.value = Boolean(snapshot.readerSource && snapshot.sourceReaderVisible)
-    detailItem.value = snapshot.detailItem ? { ...snapshot.detailItem } : null
-    detailSourceKind.value = snapshot.detailSourceKind || 'subscriptions'
-    detailOpenedFromSourceReader.value = Boolean(snapshot.detailOpenedFromSourceReader)
-    detailEntryProgress.value = 1
-    detailEntrySettling.value = false
-    detailBackExitProgress.value = 0
-    detailSourceExitProgress.value = snapshot.detailListReturnCommitted
-      ? 1
-      : clamp(snapshot.detailSourceExitProgress || 0)
-    sourceReaderReturnMode.value = snapshot.sourceReaderReturnMode === 'detail' ? 'detail' : null
-    sourceReaderBackDetail.value = snapshot.sourceReaderBackDetail
-      ? { ...snapshot.sourceReaderBackDetail, item: { ...snapshot.sourceReaderBackDetail.item } }
-      : null
-    detailReturningToFeed.value = false
-    detailListReturnCommitted.value = Boolean(snapshot.detailListReturnCommitted)
-    detailRestoringFromSourceReader.value = false
-    detailError.value = ''
-    detailLoading.value = false
-    detailFrameContentHeight.value = 0
-    morphingItemId.value = null
-    morphingHeightLockItemId.value = null
-    morphingItemHeight.value = snapshot.morphingItemHeight ?? null
-    parkedDetailStack.value = Array.isArray(snapshot.parkedDetailStack)
-      ? snapshot.parkedDetailStack.map((item) => ({ ...item, item: { ...item.item } }))
-      : []
-
-    if (readerSource.value) {
-      void loadSourceReaderSubscription(readerSource.value)
-    }
-    restoreSavedScrollPositions(snapshot)
-  } finally {
-    nextTick(() => {
-      readerSessionRestoring = false
-      scheduleReaderSessionSave()
-      scheduleReaderURLAndHistorySync()
-    })
-  }
+  await readerSession.restore()
 }
 
 function detailCommittedListReturn() {
@@ -4327,7 +4285,12 @@ onMounted(() => {
     darkTheme.value = true
   }
   removeSystemBackGuard = router.beforeEach(() => {
-    if (programmaticRouteNavigation || !currentHistoryStateHasVirtualGuard() || !shouldGuardSystemBack()) {
+    if (
+      !readerSessionInitialized ||
+      programmaticRouteNavigation ||
+      !currentHistoryStateHasVirtualGuard() ||
+      !shouldGuardSystemBack()
+    ) {
       return true
     }
 
@@ -4338,6 +4301,7 @@ onMounted(() => {
     return consumeSystemBack() ? false : true
   })
   void router.isReady().then(() => restoreReaderSession()).finally(() => {
+    readerSessionInitialized = true
     scheduleReaderURLAndHistorySync()
   })
   window.addEventListener('keydown', handleKeydown)
@@ -4390,7 +4354,7 @@ onUnmounted(() => {
   window.clearTimeout(detailHeaderSwapTimer)
   window.clearTimeout(morphingHeightUnlockTimer)
   window.clearTimeout(hiddenSourceCleanupTimer)
-  window.clearTimeout(readerSessionSaveTimer)
+  readerSession.clearTimer()
 })
 </script>
 
