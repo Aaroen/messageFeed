@@ -19,6 +19,18 @@ type ApplyReaderStackSessionOptions = {
   onReaderSourceRestored?: (source: ReaderSource) => void
 }
 
+type OpenSourceReaderStateOptions = {
+  visible?: boolean
+}
+
+type OpenSourceReaderStateResult = {
+  nextVisible: boolean
+  sourceChanged: boolean
+  resetScroll: boolean
+  captureTransition: boolean
+  loadSubscription: boolean
+}
+
 type ReaderStackSessionSnapshot = Pick<
   ReaderSessionSnapshot,
   | 'sourceReaderScrollTop'
@@ -341,6 +353,55 @@ export function useReaderStackState() {
     return true
   }
 
+  function openSourceReaderState(
+    source: ReaderSource,
+    options: OpenSourceReaderStateOptions = {},
+  ): OpenSourceReaderStateResult {
+    const nextVisible = options.visible ?? true
+    const sameSource = readerSource.value?.id === source.id && readerSource.value.kind === source.kind
+
+    if (sameSource) {
+      if (nextVisible) {
+        sourceReaderRefreshNonce.value += 1
+        sourceReaderOffset.value = 0
+        sourceReaderStretch.value = 0
+        if (!detailReaderOpen.value) {
+          sourceReaderReturnMode.value = null
+          sourceReaderBackDetail.value = null
+        }
+      }
+      sourceReaderVisible.value = nextVisible
+      return {
+        nextVisible,
+        sourceChanged: false,
+        resetScroll: false,
+        captureTransition: nextVisible && detailReaderOpen.value,
+        loadSubscription: nextVisible,
+      }
+    }
+
+    readerSource.value = source
+    if (nextVisible) {
+      sourceReaderRefreshNonce.value += 1
+      sourceReaderOffset.value = 0
+      sourceReaderStretch.value = 0
+      if (!detailReaderOpen.value) {
+        sourceReaderReturnMode.value = null
+        sourceReaderBackDetail.value = null
+      }
+    }
+    sourceReaderVisible.value = nextVisible
+    sourceReaderScrollTop.value = 0
+
+    return {
+      nextVisible,
+      sourceChanged: true,
+      resetScroll: true,
+      captureTransition: nextVisible && detailReaderOpen.value,
+      loadSubscription: true,
+    }
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -418,6 +479,7 @@ export function useReaderStackState() {
     restorePreviousParkedDetail,
     resetDetailTransition,
     clearHiddenSourceReader,
+    openSourceReaderState,
     detailBlocksGestures,
   }
 }

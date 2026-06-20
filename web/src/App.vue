@@ -128,6 +128,7 @@ const {
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
   resetDetailTransition,
   clearHiddenSourceReader,
+  openSourceReaderState,
   detailBlocksGestures,
 } = useReaderStackState()
 const {
@@ -1910,49 +1911,32 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
     setTopChromeVisible(true)
   }
 
-  if (readerSource.value?.id === source.id && readerSource.value.kind === source.kind) {
-    if (nextVisible) {
-      sourceReaderRefreshNonce.value += 1
-      sourceReaderOffset.value = 0
-      sourceReaderStretch.value = 0
-      if (!detailReaderOpen.value) {
-        sourceReaderReturnMode.value = null
-        sourceReaderBackDetail.value = null
-      }
-    }
-    sourceReaderVisible.value = nextVisible
-    if (nextVisible && detailReaderOpen.value) {
+  const result = openSourceReaderState(source, { visible: nextVisible })
+  if (!result.sourceChanged) {
+    if (result.captureTransition) {
       captureDetailSourceTransitionRects(12, { lock: true })
     }
-    if (nextVisible) {
+    if (result.loadSubscription) {
       void loadSourceReaderSubscription(source)
     }
     return
   }
 
-  readerSource.value = source
-  if (nextVisible) {
-    sourceReaderRefreshNonce.value += 1
-    sourceReaderOffset.value = 0
-    sourceReaderStretch.value = 0
-    if (!detailReaderOpen.value) {
-      sourceReaderReturnMode.value = null
-      sourceReaderBackDetail.value = null
-    }
-  }
-  sourceReaderVisible.value = nextVisible
   resetSourceSubscriptionState()
-  sourceReaderScrollTop.value = 0
-  lastSourceReaderScrollTop = 0
+  if (result.resetScroll) {
+    lastSourceReaderScrollTop = 0
+  }
   nextTick(() => {
-    if (sourceReaderContentRef.value) {
+    if (result.resetScroll && sourceReaderContentRef.value) {
       sourceReaderContentRef.value.scrollTop = 0
     }
-    if (nextVisible && detailReaderOpen.value) {
+    if (result.captureTransition) {
       captureDetailSourceTransitionRects(12, { lock: true })
     }
   })
-  void loadSourceReaderSubscription(source)
+  if (result.loadSubscription) {
+    void loadSourceReaderSubscription(source)
+  }
 }
 
 async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
