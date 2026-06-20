@@ -15,6 +15,7 @@ import {
   getFeedItem,
   type FeedItem,
 } from '@/api/feed'
+import ReaderDetailProgress from '@/components/ReaderDetailProgress.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
@@ -62,8 +63,6 @@ const {
   detailFrameRef,
   detailInlineSourceRef,
   sourceTitleTextRef,
-  detailProgressTrackRef,
-  detailProgressBarRef,
   sourceReaderScrollTop,
   detailReaderTouchOffset,
   detailReaderStretch,
@@ -1269,7 +1268,6 @@ let pageTouchStartY = 0
 let pageTopPullDistance = 0
 let trackingPageTopPullCandidate = false
 let trackingPageTopPull = false
-let activeDetailProgressPointerId: number | null = null
 
 function resetGestureTracking() {
   trackingEdgeSwipeCandidate = false
@@ -1962,7 +1960,6 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   setChromeContentCollapsed(false)
   setChromeProgress(1, 'visible')
   window.clearTimeout(feedChromeSettleTimer)
-  activeDetailProgressPointerId = null
   lastDetailScrollTop = 0
   startDetailEntry(originRect)
   if (openedFromSourceReader) {
@@ -2074,7 +2071,6 @@ function closeItemReader() {
   window.clearTimeout(detailHeaderSwapTimer)
   restoreMorphingItemContent()
   const result = closeItemReaderState()
-  activeDetailProgressPointerId = null
   if (isFeedRoute.value) {
     setTopChromeVisible(true)
     setChromeContentCollapsed(false)
@@ -3107,53 +3103,23 @@ function scrollDetailContentTo(top: number) {
   syncDetailContainerMetrics()
 }
 
-function updateDetailProgressFromPointer(clientY: number) {
-  const track = detailProgressBarRef.value ?? detailProgressTrackRef.value
-  if (!track || detailScrollMax.value <= 0) {
+function handleDetailProgressChange(progress: number) {
+  if (detailScrollMax.value <= 0) {
     return
   }
 
-  const rect = track.getBoundingClientRect()
-  const progress = clamp((clientY - rect.top) / Math.max(1, rect.height))
-  const nextScrollTop = detailScrollMax.value * progress
+  const nextScrollTop = detailScrollMax.value * clamp(progress)
   updateDetailScrollTopState(nextScrollTop)
   lastDetailScrollTop = nextScrollTop
   scrollDetailContentTo(nextScrollTop)
 }
 
-function handleDetailProgressPointerDown(event: PointerEvent) {
-  if (!detailProgressVisible.value || event.pointerType === 'mouse' && event.button !== 0) {
-    return
-  }
-
-  event.preventDefault()
-  event.stopPropagation()
+function handleDetailProgressDragStart() {
   suppressFollowingClick()
   setDetailProgressDraggingState(true)
-  activeDetailProgressPointerId = event.pointerId
-  ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
-  updateDetailProgressFromPointer(event.clientY)
 }
 
-function handleDetailProgressPointerMove(event: PointerEvent) {
-  if (!detailProgressDragging.value || activeDetailProgressPointerId !== event.pointerId) {
-    return
-  }
-
-  event.preventDefault()
-  event.stopPropagation()
-  updateDetailProgressFromPointer(event.clientY)
-}
-
-function finishDetailProgressDrag(event?: PointerEvent) {
-  if (event && activeDetailProgressPointerId !== event.pointerId) {
-    return
-  }
-
-  if (event) {
-    ;(event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId)
-  }
-  activeDetailProgressPointerId = null
+function handleDetailProgressDragEnd() {
   setDetailProgressDraggingState(false)
 }
 
@@ -4220,28 +4186,17 @@ onUnmounted(() => {
             </section>
           </div>
         </div>
-        <div
-          ref="detailProgressTrackRef"
-          class="reader-detail-progress"
-          :class="{ 'reader-detail-progress--dragging': detailProgressDragging }"
-          role="scrollbar"
-          aria-label="正文阅读进度"
-          aria-orientation="vertical"
-          :aria-valuenow="Math.round(detailReadingProgress * 100)"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          :style="detailProgressStyle"
-          @pointerdown="handleDetailProgressPointerDown"
-          @pointermove="handleDetailProgressPointerMove"
-          @pointerup="finishDetailProgressDrag"
-          @pointercancel="finishDetailProgressDrag"
-          @touchstart.stop.prevent
-        >
-          <div ref="detailProgressBarRef" class="reader-detail-progress__track">
-            <div class="reader-detail-progress__fill" :style="detailProgressFillStyle" />
-            <div class="reader-detail-progress__thumb" :style="detailProgressThumbStyle" />
-          </div>
-        </div>
+        <ReaderDetailProgress
+          :visible="detailProgressVisible"
+          :dragging="detailProgressDragging"
+          :progress="detailReadingProgress"
+          :root-style="detailProgressStyle"
+          :fill-style="detailProgressFillStyle"
+          :thumb-style="detailProgressThumbStyle"
+          @drag-start="handleDetailProgressDragStart"
+          @drag-end="handleDetailProgressDragEnd"
+          @progress-change="handleDetailProgressChange"
+        />
       </template>
     </ReaderStack>
   </div>
