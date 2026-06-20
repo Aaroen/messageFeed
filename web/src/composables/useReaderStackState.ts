@@ -945,6 +945,21 @@ export function useReaderStackState() {
     detailListReturnCommitted.value = true
   }
 
+  function restoreParkedSourceReaderWithDelay(delay: number) {
+    if (!beginRestoreParkedSourceReaderState()) {
+      return false
+    }
+
+    clearDetailEntryTimer()
+    requestAnimationFrame(() => {
+      commitRestoreParkedSourceReaderState()
+    })
+    setDetailEntryTimer(() => {
+      finishRestoreParkedSourceReaderState()
+    }, delay)
+    return true
+  }
+
   function beginRestoreDetailFromParkedSourceState() {
     if (!detailReaderOpen.value) {
       return false
@@ -1197,6 +1212,7 @@ export function useReaderStackState() {
     beginRestoreParkedSourceReaderState,
     commitRestoreParkedSourceReaderState,
     finishRestoreParkedSourceReaderState,
+    restoreParkedSourceReaderWithDelay,
     beginRestoreDetailFromParkedSourceState,
     commitRestoreDetailFromParkedSourceState,
     finishRestoreDetailFromParkedSourceState,

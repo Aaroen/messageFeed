@@ -161,9 +161,7 @@ const {
   beginCompleteDetailToSourceReaderState,
   commitCompleteDetailToSourceReaderState,
   finishCompleteDetailToSourceReaderState,
-  beginRestoreParkedSourceReaderState,
-  commitRestoreParkedSourceReaderState,
-  finishRestoreParkedSourceReaderState,
+  restoreParkedSourceReaderWithDelay,
   beginRestoreDetailFromParkedSourceState,
   commitRestoreDetailFromParkedSourceState,
   finishRestoreDetailFromParkedSourceState,
@@ -1990,18 +1988,9 @@ function restoreDetailFromParkedSource(duration = 360) {
 }
 
 function restoreParkedSourceReader(duration = 260) {
-  if (!beginRestoreParkedSourceReaderState()) {
+  if (!restoreParkedSourceReaderWithDelay(motionDelay(duration))) {
     resetBackSwipeOffset()
-    return
   }
-
-  clearDetailEntryTimer()
-  requestAnimationFrame(() => {
-    commitRestoreParkedSourceReaderState()
-  })
-  setDetailEntryTimer(() => {
-    finishRestoreParkedSourceReaderState()
-  }, motionDelay(duration))
 }
 
 function closeItemReader() {
