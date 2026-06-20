@@ -674,6 +674,20 @@ export function useReaderStackState() {
     detailTransitionRectsLocked.value = false
   }
 
+  function resetReaderBackSwipeState() {
+    const keepDetailParkedBehindSource = hasParkedDetailSourceState()
+    detailReaderTouchOffset.value = 0
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = keepDetailParkedBehindSource ? 1 : 0
+    detailRestoringFromSourceReader.value = false
+    detailReturningToFeed.value = false
+    detailReaderStretch.value = 0
+    sourceReaderStretch.value = 0
+    sourceReaderOffset.value = 0
+    readerBackDragging.value = false
+    sourceReturnTargetReady.value = false
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -770,6 +784,7 @@ export function useReaderStackState() {
     beginRestoreDetailFromParkedSourceState,
     commitRestoreDetailFromParkedSourceState,
     finishRestoreDetailFromParkedSourceState,
+    resetReaderBackSwipeState,
     detailBlocksGestures,
   }
 }
