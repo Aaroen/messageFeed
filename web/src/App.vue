@@ -186,6 +186,7 @@ const sourcePullActive = computed(
     feedInteraction.pullViewKey.startsWith('source:') &&
     (feedInteraction.pullActive || feedInteraction.pullOffset > 1),
 )
+const feedOrSourcePullActive = computed(() => feedPullActive.value || sourcePullActive.value)
 const pullProgress = computed(() => Math.min(feedInteraction.pullOffset / 76, 1))
 const pagePullProgress = computed(() => Math.min(pagePullDistance.value / pageRefreshThreshold, 1))
 const sourcePullProgress = computed(() => Math.min(feedInteraction.pullOffset / 76, 1))
@@ -388,7 +389,7 @@ const sourceHeaderStyle = computed(() => ({
   transform: cssTranslate3d(0, (topChromeProgress.value - 1) * feedHeaderHeight.value),
   transition:
     feedChromeSettling.value || readerBackDragging.value
-      ? 'transform 1120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1120ms ease'
+      ? 'transform 1000ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1000ms ease'
       : undefined,
 }))
 const detailHeaderLayerStyle = computed(() => chromeLayerStyle(detailHeaderVisible.value, topChromeProgress.value))
@@ -784,7 +785,7 @@ const navOpenButtonStyle = computed(() => {
       progress * 0.08
     ).toFixed(3)})`,
     transition: settling
-      ? 'transform 1120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1120ms ease, visibility 1120ms ease, border-color 160ms ease, background 160ms ease'
+      ? 'transform 1000ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1000ms ease, visibility 1000ms ease, border-color 160ms ease, background 160ms ease'
       : undefined,
     visibility: progress > 0.01 && !feedCornerHidden.value ? ('visible' as const) : ('hidden' as const),
   }
@@ -1353,7 +1354,7 @@ function chromeLayerStyle(
     transition: options.disableTransition
       ? 'none'
       : feedChromeSettling.value || feedRefreshSettling.value
-        ? 'transform 1120ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1120ms ease, visibility 1120ms ease'
+        ? 'transform 1000ms cubic-bezier(0.16, 1, 0.3, 1), opacity 1000ms ease, visibility 1000ms ease'
         : undefined,
     visibility: safeProgress > 0.01 ? ('visible' as const) : ('hidden' as const),
   }
@@ -2980,6 +2981,9 @@ function finishViewSwipe(nextPath: string | null) {
   viewSettling.value = true
   window.clearTimeout(viewSwipeTimer)
   if (nextPath) {
+    if (topChromeProgress.value < 0.99) {
+      setTopChromeVisible(true)
+    }
     void pushRoute(nextPath)
   }
   viewDragOffset.value = 0
@@ -3599,7 +3603,7 @@ function setTopChromeVisible(visible: boolean) {
   topChromeProgress.value = nextProgress
   feedChromeSettleTimer = window.setTimeout(() => {
     feedChromeSettling.value = false
-  }, motionDelay(1120))
+  }, motionDelay(1000))
 }
 
 function currentContentScrollTop() {
@@ -3867,6 +3871,8 @@ async function refreshCurrentPageFromPull() {
   } finally {
     pagePullRefreshing.value = false
     pagePullDistance.value = 0
+    feedContentCollapsed.value = true
+    setTopChromeVisible(false)
   }
 }
 
@@ -3970,20 +3976,19 @@ watch(
 )
 
 watch(
-  feedPullActive,
+  feedOrSourcePullActive,
   (active) => {
     if (!active && refreshWasActive.value) {
-      const keepChromeVisible = refreshStartedWithChrome.value || feedTopPullStartedWithChrome.value
       refreshStartedWithChrome.value = false
       feedTopPullStartedWithChrome.value = false
-      feedContentCollapsed.value = !keepChromeVisible
-      setTopChromeVisible(keepChromeVisible)
+      feedContentCollapsed.value = true
+      setTopChromeVisible(false)
       refreshWasActive.value = false
       feedRefreshSettling.value = true
       window.clearTimeout(feedRefreshSettleTimer)
       feedRefreshSettleTimer = window.setTimeout(() => {
         feedRefreshSettling.value = false
-      }, motionDelay(1120))
+      }, motionDelay(1000))
     }
 
     if (!active && !refreshWasActive.value) {
