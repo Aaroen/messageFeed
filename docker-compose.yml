@@ -28,9 +28,9 @@ services:
       PGTZ: UTC
 
     # 端口映射（宿主机:容器）
-    # 映射到宿主机便于本地开发时直接连接数据库
+    # 仅绑定本机回环，避免数据库暴露到局域网。
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
     # 数据卷挂载
     # 持久化数据库数据，避免容器重启后数据丢失
@@ -90,8 +90,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-      otel-collector:
-        condition: service_started
 
     # 环境变量配置
     environment:
@@ -108,7 +106,7 @@ services:
       # 观测配置
       OTEL_SERVICE_NAME: messagefeed-api
       OTEL_SERVICE_VERSION: 0.2.0
-      OBSERVABILITY_TRACE_ENABLED: "true"
+      OBSERVABILITY_TRACE_ENABLED: "false"
       OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
       OTEL_EXPORTER_OTLP_INSECURE: "true"
       OTEL_TRACES_SAMPLER_ARG: "1.0"
@@ -121,7 +119,7 @@ services:
 
     # 端口映射
     ports:
-      - "60001:60001"
+      - "127.0.0.1:60001:60001"
 
     # 健康检查
     healthcheck:
@@ -138,6 +136,156 @@ services:
     # 日志配置
     logging: *default-logging
 
+  # ==================== 开发态 API 服务 ====================
+  api-dev:
+    image: golang:1.26.1-alpine
+    container_name: messagefeed-api-dev
+    profiles:
+      - dev
+    restart: unless-stopped
+    working_dir: /workspace
+    command: ["go", "run", "./cmd/api"]
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+    environment:
+      BIND_ADDR: 0.0.0.0:60001
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://localhost:8443}
+      APP_NODE_ID: docker-api-dev-1
+      DEPLOYMENT_MODE: single_node
+      ENVIRONMENT: development
+      LOG_LEVEL: debug
+      OBSERVABILITY_TRACE_ENABLED: "false"
+      DATABASE_URL: postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable
+      TZ: UTC
+
+    volumes:
+      - .:/workspace
+      - go_mod_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+
+    expose:
+      - "60001"
+
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:60001/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./cmd
+          target: /workspace/cmd
+        - action: sync+restart
+          path: ./internal
+          target: /workspace/internal
+        - action: sync+restart
+          path: ./go.mod
+          target: /workspace/go.mod
+        - action: sync+restart
+          path: ./go.sum
+          target: /workspace/go.sum
+
+    networks:
+      - messagefeed-network
+
+    logging: *default-logging
+
+  # ==================== 开发态 Web 服务 ====================
+  web-dev:
+    image: node:24-alpine
+    container_name: messagefeed-web-dev
+    profiles:
+      - dev
+    restart: unless-stopped
+    working_dir: /workspace/web
+    command: ["sh", "-c", "test -x node_modules/.bin/vite || npm ci; npm run dev -- --host 0.0.0.0"]
+
+    environment:
+      VITE_API_TARGET: http://api-dev:60001
+      VITE_HMR_CLIENT_PORT: ${VITE_HMR_CLIENT_PORT:-8443}
+      VITE_HMR_PROTOCOL: wss
+      VITE_HMR_HOST: ${VITE_HMR_HOST:-}
+
+    volumes:
+      - .:/workspace
+      - web_node_modules:/workspace/web/node_modules
+
+    expose:
+      - "5173"
+
+    depends_on:
+      api-dev:
+        condition: service_healthy
+
+    networks:
+      - messagefeed-network
+
+    logging: *default-logging
+
+  # ==================== 开发态统一入口 ====================
+  gateway-dev:
+    image: caddy:2.10.2-alpine
+    container_name: messagefeed-gateway-dev
+    profiles:
+      - dev
+    restart: unless-stopped
+    logging: *default-logging
+
+    environment:
+      GATEWAY_SITE_ADDRESS: ${GATEWAY_SITE_ADDRESS:-https://localhost:8443}
+      GATEWAY_DEFAULT_SNI: ${GATEWAY_DEFAULT_SNI:-localhost}
+
+    volumes:
+      - ./deploy/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - ./deploy/caddy/certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+    ports:
+      - "127.0.0.1:${GATEWAY_HTTPS_PORT:-8443}:8443"
+
+    depends_on:
+      api-dev:
+        condition: service_healthy
+      web-dev:
+        condition: service_started
+
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./deploy/caddy/Caddyfile.dev
+          target: /etc/caddy/Caddyfile
+
+    networks:
+      - messagefeed-network
+
+  # ==================== Cloudflare Tunnel 入口 ====================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: messagefeed-cloudflared
+    profiles:
+      - cloudflare
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      SSL_CERT_FILE: /etc/messagefeed-certs/cloudflared-ca-bundle.crt
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN:-}"]
+    volumes:
+      - ./deploy/caddy/certs:/etc/messagefeed-certs:ro
+    depends_on:
+      gateway-dev:
+        condition: service_started
+    networks:
+      - messagefeed-network
+
   # ==================== Prometheus 指标存储 ====================
   prometheus:
     image: prom/prometheus:v3.8.1
@@ -153,7 +301,7 @@ services:
       - ./ops/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     networks:
       - messagefeed-network
 
@@ -169,7 +317,7 @@ services:
       - ./ops/observability/loki/loki.yml:/etc/loki/loki.yml:ro
       - loki_data:/loki
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     networks:
       - messagefeed-network
 
@@ -202,8 +350,8 @@ services:
       - ./ops/observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
       - tempo_data:/var/tempo
     ports:
-      - "3200:3200"
-      - "4319:4317"
+      - "127.0.0.1:3200:3200"
+      - "127.0.0.1:4319:4317"
     networks:
       - messagefeed-network
 
@@ -218,9 +366,8 @@ services:
     volumes:
       - ./ops/observability/otel-collector/otel-collector.yml:/etc/otel-collector.yml:ro
     ports:
-      - "4317:4317"
-      - "4318:4318"
-      - "8888:8888"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
     depends_on:
       - tempo
     networks:
@@ -243,7 +390,7 @@ services:
       - ./ops/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./ops/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus
       - loki
@@ -275,3 +422,18 @@ volumes:
   grafana_data:
     driver: local
     name: messagefeed-grafana-data
+  go_mod_cache:
+    driver: local
+    name: messagefeed-go-mod-cache
+  go_build_cache:
+    driver: local
+    name: messagefeed-go-build-cache
+  web_node_modules:
+    driver: local
+    name: messagefeed-web-node-modules
+  caddy_data:
+    driver: local
+    name: messagefeed-caddy-data
+  caddy_config:
+    driver: local
+    name: messagefeed-caddy-config

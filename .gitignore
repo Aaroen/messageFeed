@@ -83,6 +83,7 @@ Desktop.ini
 config.local.yaml
 config.local.toml
 secrets/
+key
 
 # ==================== 数据库与存储 ====================
 # PostgreSQL 本地数据目录（如果挂载在项目内）
@@ -103,6 +104,7 @@ logs/
 
 # 本地 HTTPS 预览证书
 web/certs/
+deploy/caddy/certs/
 
 # 性能分析文件
 cpu.prof

@@ -115,7 +115,7 @@ func (r *ItemRepository) ListByUser(ctx context.Context, options domain.ItemList
 	var models []itemViewModel
 	if err := query.
 		Select(itemViewSelectColumns()).
-		Order("items.published_at DESC NULLS LAST, items.fetched_at DESC, items.id DESC").
+		Order(itemListOrderClause(options.SortOrder)).
 		Limit(options.Limit).
 		Offset(options.Offset).
 		Scan(&models).Error; err != nil {
@@ -187,6 +187,13 @@ func itemViewSelectColumns() string {
 		user_item_states.hidden_at,
 		items.created_at,
 		items.updated_at`
+}
+
+func itemListOrderClause(order domain.ItemSortOrder) string {
+	if order == domain.ItemSortOrderAsc {
+		return "items.published_at ASC NULLS LAST, items.fetched_at ASC, items.id ASC"
+	}
+	return "items.published_at DESC NULLS LAST, items.fetched_at DESC, items.id DESC"
 }
 
 func applyItemStateFilters(query *gorm.DB, options domain.ItemListOptions) *gorm.DB {

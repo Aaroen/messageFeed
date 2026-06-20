@@ -1,0 +1,19 @@
+[Unit]
+Description=messageFeed development deployment
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed
+EnvironmentFile=/etc/messagefeed/messagefeed.env
+EnvironmentFile=/etc/messagefeed/cloudflared.env
+ExecStart=/usr/local/bin/messageFeed-make cloudflare
+ExecStop=/usr/local/bin/messageFeed-make stop
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

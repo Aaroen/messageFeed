@@ -1,0 +1,96 @@
+#!/bin/sh
+set -eu
+
+PROJECT_DIR="/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed"
+PORT="${GATEWAY_HTTPS_PORT:-8443}"
+
+if [ -r /etc/messagefeed/messagefeed.env ]; then
+	# shellcheck disable=SC1091
+	. /etc/messagefeed/messagefeed.env
+fi
+
+run_compose() {
+	if [ "$(id -u)" -eq 0 ]; then
+		docker compose "$@"
+	else
+		sudo docker compose "$@"
+	fi
+}
+
+probe() {
+	name="$1"
+	url="$2"
+	if curl -fsk --max-time 3 -o /dev/null "$url" 2>/dev/null; then
+		printf '  %-10s %s  ok\n' "$name" "$url"
+	else
+		printf '  %-10s %s  unavailable\n' "$name" "$url"
+	fi
+}
+
+cd "$PROJECT_DIR"
+
+dev_containers="$(run_compose --profile dev ps --services --filter status=running 2>/dev/null | awk '/^(api-dev|web-dev|gateway-dev)$/ { print }' | wc -l | tr -d ' ')"
+standard_api="$(run_compose ps --services --filter status=running 2>/dev/null | awk '$0 == "api" { print }' | wc -l | tr -d ' ')"
+cloudflare_tunnel="$(run_compose --profile dev --profile cloudflare ps --services --filter status=running 2>/dev/null | awk '$0 == "cloudflared" { print }' | wc -l | tr -d ' ')"
+
+if [ "$dev_containers" -ge 3 ] && [ "$cloudflare_tunnel" -ge 1 ]; then
+	mode="development + cloudflare"
+elif [ "$dev_containers" -ge 3 ]; then
+	mode="development"
+elif [ "$standard_api" -ge 1 ]; then
+	mode="standard"
+else
+	mode="stopped or partial"
+fi
+
+printf '%s\n' "messageFeed status"
+printf '%s\n' "Mode: ${mode}"
+printf '%s\n' "Project: ${PROJECT_DIR}"
+if [ -n "${MESSAGEFEED_DOMAIN:-}" ]; then
+	printf '%s\n' "Domain: https://${MESSAGEFEED_DOMAIN}"
+fi
+printf '%s\n' ""
+
+printf '%s\n' "Detected addresses:"
+printf '%s\n' "  External entry:"
+if [ -n "${MESSAGEFEED_DOMAIN:-}" ]; then
+	printf '  %-10s %s\n' "domain" "https://${MESSAGEFEED_DOMAIN}"
+fi
+printf '  %-10s %s\n' "localhost" "https://localhost:${PORT}"
+printf '  %-10s %s\n' "lan" "direct access disabled"
+printf '  %-10s %s\n' "tailscale" "direct access disabled"
+printf '%s\n' "  Local-only services:"
+printf '  %-10s %s\n' "api" "http://127.0.0.1:60001"
+printf '  %-10s %s\n' "postgres" "127.0.0.1:5432"
+printf '  %-10s %s\n' "grafana" "http://127.0.0.1:3000"
+printf '  %-10s %s\n' "prometheus" "http://127.0.0.1:9090"
+printf '  %-10s %s\n' "loki" "http://127.0.0.1:3100"
+printf '  %-10s %s\n' "tempo" "http://127.0.0.1:3200"
+printf '  %-10s %s\n' "otel" "127.0.0.1:4317, 127.0.0.1:4318"
+printf '%s\n' ""
+
+printf '%s\n' "Health probes:"
+probe "localhost" "https://localhost:${PORT}/healthz"
+if [ -n "${MESSAGEFEED_DOMAIN:-}" ]; then
+	probe "domain" "https://${MESSAGEFEED_DOMAIN}/healthz"
+fi
+printf '%s\n' ""
+
+printf '%s\n' "Runtime node:"
+if curl -sk --max-time 3 "https://localhost:${PORT}/api/runtime/node"; then
+	printf '%s\n' ""
+else
+	printf '%s\n' "  unavailable"
+fi
+printf '%s\n' ""
+
+printf '%s\n' "Containers:"
+run_compose --profile dev ps
+printf '%s\n' ""
+
+printf '%s\n' "Listening ports:"
+if command -v ss >/dev/null 2>&1; then
+	ss -ltn | awk '$4 ~ /:(8443|60001|5173|5432|3000|9090|3100|3200|4317|4318|4319)$/ { print "  " $0 }'
+else
+	netstat -ltn 2>/dev/null | awk '$4 ~ /:(8443|60001|5173|5432|3000|9090|3100|3200|4317|4318|4319)$/ { print "  " $0 }'
+fi

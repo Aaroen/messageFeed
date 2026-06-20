@@ -1,6 +1,6 @@
 # messageFeed 实施文档
 
-**最后更新**：2026-06-19
+**最后更新**：2026-06-20
 
 ---
 
@@ -19,15 +19,57 @@
 | 阶段九 | 工程化增强 | 未开始 | 0% | - | - |
 | 阶段十 | 来源扩展与分布式升级验证 | 未开始 | 0% | - | - |
 
-当前状态基于 2026-06-19 代码审阅与本地验证：`go test ./...` 通过，`web` 目录下 `vue-tsc --noEmit` 通过。阶段四与原推荐 Feed 原型存在前置实现，但阶段五到阶段八已经重组为统一的 AI Agent 体系，详细方案见 `docs/agent-plan.md` 和 `docs/financial-agent-plan.md`。
+当前状态基于 2026-06-20 代码审阅、本地部署与 Cloudflare Tunnel 验证：开发态通过 `messageFeed-make cloudflare` 启动，`messageFeed-status` 显示 `development + cloudflare`，`https://localhost:8443/healthz` 与 `https://aroen.eu.cc/healthz` 均返回成功。阶段四与原推荐 Feed 原型存在前置实现，但阶段五到阶段八已经重组为统一的 AI Agent 体系，详细方案见 `docs/agent-plan.md` 和 `docs/financial-agent-plan.md`。
 
 ---
 
 ## 1. 实施目标
 
-以 `messageFeed` 作为 `Go_Pro` 首个完整项目，先完成本地单节点可运行、可部署、可观测、可验收的最小闭环，并通过 Tailscale 提供简单远程访问，再逐步扩展 `messageFeed AI Agent`、AI 内部源、主动网络采集、阅读行为画像、微信通知、金融市场监控和分布式部署能力。
+以 `messageFeed` 作为 `Go_Pro` 首个完整项目，先完成本地单节点可运行、可部署、可观测、可验收的最小闭环，并通过 Cloudflare Tunnel 提供受控域名访问，再逐步扩展 `messageFeed AI Agent`、AI 内部源、主动网络采集、阅读行为画像、微信通知、金融市场监控和分布式部署能力。
 
-当前第一部分只交付本地单节点部署，默认 `DEPLOYMENT_MODE=single_node`。该配置只表示部署拓扑，不表示监听范围；局域网或 Tailscale 访问由 `BIND_ADDR` 和 `PUBLIC_BASE_URL` 配置决定。分布式部署仅保留接口与运行时边界，包括节点标识、部署模式配置、就绪检查、任务锁接口、通知幂等键和无状态 API 约束。
+当前第一部分交付本地单节点部署，默认 `DEPLOYMENT_MODE=single_node`。该配置只表示部署拓扑，不表示监听范围；当前外部访问只通过 Cloudflare Tunnel 域名 `https://aroen.eu.cc`，本机访问为 `https://localhost:8443`，局域网 IP 与 Tailscale IP 直连关闭。分布式部署仅保留接口与运行时边界，包括节点标识、部署模式配置、就绪检查、任务锁接口、通知幂等键和无状态 API 约束。
+
+### 当前部署与开发调试基线
+
+当前开发部署已经收敛为“单一 HTTPS 入口 + Docker 内部 API/Web 服务 + Cloudflare Tunnel 域名访问”的准部署结构。
+
+| 项目 | 当前值 |
+| --- | --- |
+| 开发域名 | `https://aroen.eu.cc` |
+| 本机入口 | `https://localhost:8443` |
+| 宿主机网关监听 | `127.0.0.1:8443` |
+| API 直连 | 宿主机仅 `127.0.0.1:60001`；开发态 `api-dev:60001` 仅 Docker 网络内访问 |
+| Web dev server | `web-dev:5173` 仅 Docker 网络内访问 |
+| 数据库 | `127.0.0.1:5432` |
+| 观测组件 | Grafana、Prometheus、Loki、Tempo、OTel Collector 均绑定本机回环地址 |
+| 局域网直连 | 关闭 |
+| Tailscale 直连 | 关闭 |
+| 外部入口 | Cloudflare Tunnel -> `https://gateway-dev:8443` |
+| 开机自启 | `messagefeed-dev.service`，执行 `/usr/local/bin/messageFeed-make cloudflare` |
+
+Cloudflare 到本地源站的 TLS 不依赖 Cloudflare 控制台中的 `No TLS Verify`。本地部署生成 `gateway-dev` 专用证书和本地 CA，Caddy 使用该证书服务 `https://gateway-dev:8443`，`cloudflared` 通过挂载的 CA bundle 验证源站证书。证书目录 `deploy/caddy/certs/` 和 token 文件 `key` 均不得进入版本控制。
+
+当前命令约定：
+
+```text
+messageFeed-make cloudflare      启动开发态和 Cloudflare Tunnel
+messageFeed-make reload-api      重启开发态 Go API
+messageFeed-make reload-web      重启 Vite 开发服务
+messageFeed-make reload-gateway  重启 Caddy 网关
+messageFeed-make logs            查看开发态日志
+messageFeed-make stop            停止开发态入口和 Tunnel
+messageFeed-start                启动非开发模式
+messageFeed-status               查询部署模式、入口地址、健康检查、容器和监听端口
+```
+
+开发测试流程：
+
+1. 修改前端代码后，通过 `https://localhost:8443` 或 `https://aroen.eu.cc` 调试，Vite HMR 负责热更新。
+2. 修改后端 Go 代码后，执行 `messageFeed-make reload-api`。
+3. 修改网关配置后，执行 `messageFeed-make reload-gateway`。
+4. 状态核查使用 `messageFeed-status`。
+5. 基础健康检查使用 `curl -sk https://localhost:8443/healthz` 和 `curl -sk https://aroen.eu.cc/healthz`。
+6. 完整验证继续使用 `go test ./...` 与 `cd web && npm run build`。
 
 ## 2. 项目目录与职责规则
 
@@ -241,6 +283,11 @@ adapter modules -> domain
 - [x] Dockerfile (多阶段构建)
 - [x] docker-compose.yml
 - [x] .env.example
+- [x] Compose `dev` profile：`api-dev`、`web-dev`、`gateway-dev`
+- [x] Cloudflare Tunnel profile：`cloudflared`
+- [x] Caddy 统一入口：本机 `127.0.0.1:8443`，域名经 Tunnel 访问
+- [x] systemd 开机自启：`messagefeed-dev.service`
+- [x] 系统命令：`messageFeed-make`、`messageFeed-start`、`messageFeed-status`
 
 **文档（已完成）**
 - [x] docs/requirements.md
@@ -265,7 +312,7 @@ adapter modules -> domain
 - 暴露 `/healthz`、`/readyz`、`/metrics` 和 `/api/runtime/node`。
 - 提供 Docker Compose、`Makefile` 和最小 `make verify`。
 - 支持 `BIND_ADDR`、`PUBLIC_BASE_URL`、`APP_NODE_ID`、`DEPLOYMENT_MODE`、`TRUSTED_PROXY_CIDRS`。
-- 本地默认使用 `DEPLOYMENT_MODE=single_node`，远程访问通过 `BIND_ADDR` 暴露到局域网、Tailscale IP 或 MagicDNS 完成。
+- 本地默认使用 `DEPLOYMENT_MODE=single_node`。当前远程访问通过 Cloudflare Tunnel 域名完成，局域网 IP 与 Tailscale IP 直连入口关闭；宿主机统一入口只绑定 `127.0.0.1:8443`。
 - PostgreSQL 作为第一阶段唯一主存储；Redis 不进入第一阶段 Docker Compose 必需组件，但预留后续缓存、队列、限流和任务锁接口。
 
 实施步骤：
@@ -276,7 +323,7 @@ adapter modules -> domain
 4. 建立数据库连接、版本化迁移执行入口和 `/readyz` 依赖检查；迁移由 Compose/Makefile 显式执行，API 启动时只检查迁移状态，不自行修改 schema。
 5. 增加 Prometheus 指标注册，至少覆盖请求量、请求耗时、健康状态和数据库连接状态。
 6. 在 Docker Compose 中纳入服务本体、PostgreSQL 和一次性迁移服务，不在第一阶段引入 Redis；与缓存、队列、限流和任务锁相关的能力通过接口预留。
-7. 在 Tailscale 场景下将 `BIND_ADDR` 配置为 `0.0.0.0:8080` 或 Tailscale IP，并将 `PUBLIC_BASE_URL` 配置为 Tailscale IP 或 MagicDNS 访问地址。
+7. 开发态通过 Caddy 统一入口访问页面和 API；Cloudflare Tunnel 将 `aroen.eu.cc` 转发到 Docker 内部 `gateway-dev:8443`，`PUBLIC_BASE_URL` 配置为 `https://aroen.eu.cc`。
 
 验收标准：
 
@@ -284,7 +331,7 @@ adapter modules -> domain
 - `/healthz` 返回成功。
 - `/readyz` 能检查数据库连接和 `schema_migrations` 迁移状态。
 - `/metrics` 可以被 Prometheus 格式读取。
-- Tailscale 网络内设备可以访问 API。
+- Cloudflare 域名 `https://aroen.eu.cc/healthz` 可以访问 API 健康检查；局域网 IP 和 Tailscale IP 直连不可访问统一入口。
 - `make verify` 可以执行格式检查、构建和基础测试。
 - `/api/runtime/node` 能返回 `deployment_mode=single_node`、节点标识、监听配置和公开访问基址。
 
@@ -374,7 +421,7 @@ adapter modules -> domain
 - [x] 安装 Arco Design Vue
 - [x] 配置 Vue Router, Pinia, Axios
 - [x] 配置 TypeScript
-- [x] 配置 Vite 监听 `0.0.0.0:5173`，支持通过 Tailscale IP 访问开发服务
+- [x] 配置 Vite 监听容器内部 `0.0.0.0:5173`，由 Caddy 统一入口转发访问；宿主机不直接暴露 `5173`
 - [x] 建立无开发信息的 AppShell、覆盖式导航和基础页面入口
 
 **前端页面（进行中）**
@@ -562,11 +609,12 @@ API 与安全约束：
 
 开发态准部署入口：
 
-- 阶段二前端联调不应长期依赖手动分别启动 `docker compose`、后端 API、`vite preview` 和临时 HTTPS 证书。应逐步收敛为“单一 HTTPS 入口 + 后端内网服务 + 前端开发服务”的准部署结构。
-- 推荐开发拓扑为：浏览器访问固定 HTTPS 地址；Caddy 或 Nginx 作为统一入口；`/api`、`/healthz`、`/readyz` 转发到 `api:60001`；其余页面在开发态转发到 `web-dev:5173`，保留 Vite 热更新。
-- 开发态入口应尽量与最终生产入口保持一致，避免在验收时暴露 `5173` 与 `60001` 两套地址、HTTP/HTTPS 不一致、Tailscale IP 与局域网地址行为不一致等问题。
-- 阶段二可先保留当前本机 HTTPS 预览作为过渡方案；后续应新增 Compose `dev` profile，将 PostgreSQL、迁移、API、Web 开发服务和统一入口纳入同一启动路径。
-- 本阶段不要求每次前端改动都执行生产构建；开发态应使用 Vite dev server 或等价热更新服务，最终生产态再切换为静态 `web/dist`。
+- 当前已完成开发态准部署入口，不再依赖手动分别启动 `docker compose`、后端 API、`vite preview` 和临时 HTTPS 证书。
+- 当前开发拓扑为：浏览器访问 `https://localhost:8443` 或 `https://aroen.eu.cc`；Caddy 作为统一入口；`/api`、`/healthz`、`/readyz`、`/metrics` 转发到 `api-dev:60001`；其余页面转发到 `web-dev:5173`，保留 Vite HMR。
+- Compose `dev` profile 已纳入 PostgreSQL、迁移、`api-dev`、`web-dev` 和 `gateway-dev`；Cloudflare 访问通过 `cloudflare` profile 中的 `cloudflared` 提供。
+- 宿主机只暴露本机回环入口 `127.0.0.1:8443`，不直接暴露 `5173`、开发态 `60001`、局域网 IP 或 Tailscale IP。
+- Cloudflare Tunnel 远程路由为 `aroen.eu.cc -> https://gateway-dev:8443`。本地通过自签 CA 和专用 `gateway-dev` 证书完成源站 TLS 校验，不依赖 Cloudflare 控制台的 `No TLS Verify`。
+- 本阶段不要求每次前端改动都执行生产构建；开发态使用 Vite dev server，最终生产态再切换为静态 `web/dist`。
 
 实现顺序：
 
@@ -882,7 +930,7 @@ API 与安全约束：
 实施范围：
 
 - 在阶段三完整观测系统的基础上，增加 OpenAPI 契约、集成测试、业务指标扩展、Dashboard 迭代和更完整的部署配置。
-- 将阶段二的开发态准部署入口收敛为可长期运行的部署结构，减少手动启动步骤，并为生产部署提供同构路径。
+- 阶段二的开发态准部署入口已收敛为可长期运行的部署结构：Compose `dev` profile、Caddy 统一入口、Cloudflare Tunnel 域名访问和 systemd 开机自启已经落地。阶段九继续补齐契约检查、集成测试、生产静态前端入口和多节点验证。
 
 实施步骤：
 
@@ -891,18 +939,18 @@ API 与安全约束：
 3. 完善 Docker Compose，纳入可选 ntfy 和 Redis；Prometheus、Grafana、Loki、Tempo、OpenTelemetry Collector 沿用阶段三观测 profile 并按业务需要扩展。
 4. 扩展核心业务指标：摘要耗时、控制计划成功率、通知成功率、行情拉取成功率、告警触发次数。
 5. 迭代 Grafana Dashboard，按采集、摘要、设置控制、通知、行情和告警分类展示。
-6. 增加统一入口服务，优先评估 Caddy 或 Nginx：开发态将页面请求转发到 `web-dev:5173`，生产态直接服务 `web/dist`，两种模式都将 `/api` 转发到内部 `api:60001`。
-7. 拆分 Compose profile：`core` 至少包含 PostgreSQL、迁移、API 和统一入口；`dev` 增加 Web 热更新服务；`observability` 增加 Prometheus、Grafana、Loki、Tempo、OpenTelemetry Collector 等观测组件。
-8. 增加本机自恢复方案，优先使用 systemd 管理 `docker compose up -d`，确保机器重启后核心服务自动恢复。
-9. 将外部访问收敛到单一 HTTPS 地址。Tailscale 场景优先使用 MagicDNS、`tailscale serve` 或统一入口证书；不应长期依赖 `https://100.x.x.x:5173` 加自签证书作为正式入口。
-10. 后端 API 在最终部署中只暴露于内部网络，外部不直接访问 `60001`；浏览器只通过统一入口访问页面和 API。
+6. 已增加 Caddy 统一入口服务：开发态将页面请求转发到 `web-dev:5173`，将 `/api`、`/healthz`、`/readyz`、`/metrics` 转发到内部 `api-dev:60001`；生产态后续切换为直接服务 `web/dist`。
+7. 已拆分 Compose profile：`dev` 包含 Web 热更新服务和开发网关，`cloudflare` 包含 Tunnel，观测组件保持独立服务并仅绑定本机回环地址；后续继续整理 `core` 与 `observability` 的长期边界。
+8. 已增加本机自恢复方案：`messagefeed-dev.service` 开机自启并执行 `/usr/local/bin/messageFeed-make cloudflare`，确保机器重启后开发态与 Tunnel 自动恢复。
+9. 已将外部访问收敛到单一 HTTPS 域名 `https://aroen.eu.cc`，并关闭局域网 IP 与 Tailscale IP 直连入口；不再依赖 `https://100.x.x.x:5173` 或 `https://192.168.x.x:8443`。
+10. API、Web 开发服务、数据库和观测组件均不直接对外暴露；浏览器只通过 Caddy 统一入口和 Cloudflare Tunnel 访问页面与 API。
 
 验收标准：
 
 - `make verify` 覆盖格式检查、单元测试、集成测试、构建和契约检查。
 - 指标能在阶段三基础上继续展示摘要耗时、控制计划成功率、行情拉取成功率、告警触发次数和通知成功率。
 - `make compose-up` 后可访问服务、数据库和可选观测组件。
-- 开发态可以通过单一 HTTPS 地址访问前端和 API，前端改动可以热更新，不需要手动复制构建产物。
+- 开发态可以通过 `https://localhost:8443` 和 `https://aroen.eu.cc` 访问前端和 API，前端改动可以热更新，不需要手动复制构建产物。
 - 生产态可以通过同一统一入口服务访问静态前端和 API，外部只暴露 HTTPS 入口，不直接暴露 `5173` 或 `60001`。
 
 风险控制：

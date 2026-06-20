@@ -6,6 +6,9 @@ const apiTarget = process.env.VITE_API_TARGET || 'http://127.0.0.1:60001'
 const previewHttpsEnabled = process.env.MESSAGEFEED_PREVIEW_HTTPS === '1'
 const previewHttpsKey = process.env.MESSAGEFEED_PREVIEW_HTTPS_KEY || 'certs/messagefeed-preview.key'
 const previewHttpsCert = process.env.MESSAGEFEED_PREVIEW_HTTPS_CERT || 'certs/messagefeed-preview.crt'
+const hmrClientPort = Number(process.env.VITE_HMR_CLIENT_PORT || '')
+const hmrProtocol = process.env.VITE_HMR_PROTOCOL
+const hmrHost = process.env.VITE_HMR_HOST
 const previewHttps =
   previewHttpsEnabled && existsSync(previewHttpsKey) && existsSync(previewHttpsCert)
     ? {
@@ -44,6 +47,14 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     allowedHosts: true,
+    hmr:
+      hmrClientPort || hmrProtocol || hmrHost
+        ? {
+            ...(hmrClientPort ? { clientPort: hmrClientPort } : {}),
+            ...(hmrProtocol ? { protocol: hmrProtocol } : {}),
+            ...(hmrHost ? { host: hmrHost } : {}),
+          }
+        : undefined,
     proxy: apiProxy,
   },
   preview: {

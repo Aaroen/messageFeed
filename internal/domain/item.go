@@ -2,6 +2,13 @@ package domain
 
 import "time"
 
+type ItemSortOrder string
+
+const (
+	ItemSortOrderDesc ItemSortOrder = "desc"
+	ItemSortOrderAsc  ItemSortOrder = "asc"
+)
+
 type Item struct {
 	ID             int64
 	SourceID       int64
@@ -41,6 +48,7 @@ type ItemListOptions struct {
 	IncludeHidden bool
 	Limit         int
 	Offset        int
+	SortOrder     ItemSortOrder
 }
 
 type ItemListResult struct {

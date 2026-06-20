@@ -11,6 +11,15 @@ GOVET := $(GO) vet
 GOTEST := $(GO) test
 DOCKER_COMPOSE ?= docker compose
 
+# 开发态统一入口配置。可在命令行覆盖，例如：
+# PUBLIC_BASE_URL=https://100.x.x.x:8443 \
+# GATEWAY_SITE_ADDRESS="https://localhost:8443, https://100.x.x.x:8443" \
+# GATEWAY_DEFAULT_SNI=100.x.x.x make compose-dev
+GATEWAY_HTTPS_PORT ?= 8443
+PUBLIC_BASE_URL ?= https://localhost:$(GATEWAY_HTTPS_PORT)
+GATEWAY_SITE_ADDRESS ?= https://localhost:$(GATEWAY_HTTPS_PORT)
+GATEWAY_DEFAULT_SNI ?= localhost
+
 # 项目二进制名称
 BINARY_NAME := messagefeed
 BINARY_PATH := ./$(BINARY_NAME)
@@ -156,6 +165,39 @@ compose-logs: ## 查看 Docker Compose 日志
 .PHONY: compose-ps
 compose-ps: ## 查看 Docker Compose 服务状态
 	@$(DOCKER_COMPOSE) ps
+
+.PHONY: compose-dev
+compose-dev: ## 启动开发态准部署入口（HTTPS 统一入口 + API + Vite）
+	@echo "启动开发态准部署入口..."
+	@GATEWAY_HTTPS_PORT="$(GATEWAY_HTTPS_PORT)" PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" GATEWAY_SITE_ADDRESS="$(GATEWAY_SITE_ADDRESS)" GATEWAY_DEFAULT_SNI="$(GATEWAY_DEFAULT_SNI)" $(DOCKER_COMPOSE) --profile dev up -d api-dev web-dev gateway-dev
+	@echo "开发态服务已启动"
+	@echo ""
+	@echo "开发入口："
+	@echo "  Web/API: $(PUBLIC_BASE_URL)"
+	@echo "  健康检查: $(PUBLIC_BASE_URL)/healthz"
+	@echo "  证书站点: $(GATEWAY_SITE_ADDRESS)"
+	@echo ""
+
+.PHONY: compose-dev-watch
+compose-dev-watch: ## 监听开发态文件变化并自动同步/重载容器
+	@echo "监听开发态文件变化..."
+	@GATEWAY_HTTPS_PORT="$(GATEWAY_HTTPS_PORT)" PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" GATEWAY_SITE_ADDRESS="$(GATEWAY_SITE_ADDRESS)" GATEWAY_DEFAULT_SNI="$(GATEWAY_DEFAULT_SNI)" $(DOCKER_COMPOSE) --profile dev watch api-dev web-dev gateway-dev
+
+.PHONY: compose-dev-logs
+compose-dev-logs: ## 查看开发态服务日志
+	@GATEWAY_HTTPS_PORT="$(GATEWAY_HTTPS_PORT)" PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" GATEWAY_SITE_ADDRESS="$(GATEWAY_SITE_ADDRESS)" GATEWAY_DEFAULT_SNI="$(GATEWAY_DEFAULT_SNI)" $(DOCKER_COMPOSE) --profile dev logs -f api-dev web-dev gateway-dev
+
+.PHONY: compose-dev-reload-api
+compose-dev-reload-api: ## 手动重载开发态 API 服务
+	@GATEWAY_HTTPS_PORT="$(GATEWAY_HTTPS_PORT)" PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" GATEWAY_SITE_ADDRESS="$(GATEWAY_SITE_ADDRESS)" GATEWAY_DEFAULT_SNI="$(GATEWAY_DEFAULT_SNI)" $(DOCKER_COMPOSE) --profile dev restart api-dev
+
+.PHONY: compose-dev-reload-web
+compose-dev-reload-web: ## 手动重载开发态 Web 服务
+	@GATEWAY_HTTPS_PORT="$(GATEWAY_HTTPS_PORT)" PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" GATEWAY_SITE_ADDRESS="$(GATEWAY_SITE_ADDRESS)" GATEWAY_DEFAULT_SNI="$(GATEWAY_DEFAULT_SNI)" $(DOCKER_COMPOSE) --profile dev restart web-dev
+
+.PHONY: compose-dev-reload-gateway
+compose-dev-reload-gateway: ## 手动重载开发态统一入口服务
+	@GATEWAY_HTTPS_PORT="$(GATEWAY_HTTPS_PORT)" PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" GATEWAY_SITE_ADDRESS="$(GATEWAY_SITE_ADDRESS)" GATEWAY_DEFAULT_SNI="$(GATEWAY_DEFAULT_SNI)" $(DOCKER_COMPOSE) --profile dev restart gateway-dev
 
 # ==================== 依赖管理 ====================
 

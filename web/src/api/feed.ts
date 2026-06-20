@@ -131,10 +131,12 @@ export async function getFeedItem(id: number) {
   return response.data.data
 }
 
-export async function listTimelineItems(params: { limit?: number; offset?: number; source_id?: number } = {}) {
+export async function listTimelineItems(
+  params: { limit?: number; offset?: number; source_id?: number; order?: 'asc' | 'desc' } = {},
+) {
   const response = await apiClient.get<APIEnvelope<FeedItemList>>('/api/v1/feed/timeline', {
     params: {
-      limit: 30,
+      limit: 10,
       offset: 0,
       ...params,
     },
@@ -142,10 +144,12 @@ export async function listTimelineItems(params: { limit?: number; offset?: numbe
   return response.data.data
 }
 
-export async function listRecommendationItems(params: { limit?: number; offset?: number; source_id?: number } = {}) {
+export async function listRecommendationItems(
+  params: { limit?: number; offset?: number; source_id?: number; order?: 'asc' | 'desc' } = {},
+) {
   const response = await apiClient.get<APIEnvelope<FeedItemList>>('/api/v1/feed/recommendations', {
     params: {
-      limit: 30,
+      limit: 10,
       offset: 0,
       ...params,
     },

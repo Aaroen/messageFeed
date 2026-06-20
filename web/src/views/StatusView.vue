@@ -16,7 +16,7 @@ const frontendOrigin = window.location.origin
       show-icon
       class="status-alert"
       title="链路尚未完全可用"
-      content="请确认 Go API 已在 127.0.0.1:60001 运行，Vite 将通过本机代理访问后端。"
+      content="当前入口暂未完成后端健康检查。"
     />
 
     <div class="status-grid">

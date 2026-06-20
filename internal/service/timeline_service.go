@@ -36,6 +36,7 @@ type ListItemsInput struct {
 	IncludeHidden bool
 	Limit         int
 	Offset        int
+	Order         string
 }
 
 type ListItemsResult struct {
@@ -147,5 +148,13 @@ func normalizeItemListOptions(input ListItemsInput) (domain.ItemListOptions, err
 		IncludeHidden: input.IncludeHidden,
 		Limit:         limit,
 		Offset:        input.Offset,
+		SortOrder:     normalizeItemSortOrder(input.Order),
 	}, nil
+}
+
+func normalizeItemSortOrder(order string) domain.ItemSortOrder {
+	if order == string(domain.ItemSortOrderAsc) {
+		return domain.ItemSortOrderAsc
+	}
+	return domain.ItemSortOrderDesc
 }

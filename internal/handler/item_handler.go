@@ -159,6 +159,7 @@ func (h itemHandler) listItems(c *gin.Context) {
 		IncludeHidden: includeHidden != nil && *includeHidden,
 		Limit:         limit,
 		Offset:        offset,
+		Order:         c.Query("order"),
 	})
 	if err != nil {
 		writeItemError(c, err)
@@ -204,6 +205,7 @@ func (h itemHandler) listRecommendations(c *gin.Context) {
 		SourceID: sourceID,
 		Limit:    limit,
 		Offset:   offset,
+		Order:    c.Query("order"),
 	})
 	if err != nil {
 		writeItemError(c, err)

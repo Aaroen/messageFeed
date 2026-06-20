@@ -1,0 +1,27 @@
+{
+	local_certs
+	default_sni {$GATEWAY_DEFAULT_SNI:localhost}
+}
+
+(messagefeed_routes) {
+	encode zstd gzip
+
+	@api path /api /api/* /healthz /readyz /metrics
+	handle @api {
+		reverse_proxy api-dev:60001
+	}
+
+	handle {
+		reverse_proxy web-dev:5173
+	}
+}
+
+https://gateway-dev:8443 {
+	tls /etc/caddy/certs/gateway-dev.crt /etc/caddy/certs/gateway-dev.key
+	import messagefeed_routes
+}
+
+{$GATEWAY_SITE_ADDRESS:https://localhost:8443} {
+	tls internal
+	import messagefeed_routes
+}

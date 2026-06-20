@@ -740,7 +740,7 @@ body[arco-theme='dark'] .app-header {
 }
 
 .app-content {
-  padding: 10px 24px 32px;
+  padding: 10px 24px 18px;
 }
 
 .feed-tabs {
@@ -869,13 +869,13 @@ body[arco-theme='dark'] .feed-tab--active {
   padding: 0 24px;
 }
 
-.feed-list-page,
 .sources-page {
   min-height: calc(var(--mf-viewport-height) - 138px);
 }
 
 .feed-list-page {
   position: relative;
+  min-height: 0;
   overscroll-behavior-y: contain;
 }
 
@@ -959,6 +959,20 @@ body[arco-theme='dark'] .app-main--refreshing .app-header {
 .feed-item-list {
   display: grid;
   gap: 10px;
+  padding-bottom: 2px;
+}
+
+.feed-load-more {
+  display: grid;
+  min-height: 34px;
+  place-items: center;
+  color: var(--mf-text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.feed-load-more--end {
+  opacity: 0.72;
 }
 
 .feed-item {
@@ -1415,7 +1429,7 @@ body[arco-theme='dark'] .reader-back-button {
   z-index: 2;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 24px 28px;
+  padding: 14px 24px 18px;
   transition:
     opacity 220ms ease,
     transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -1494,7 +1508,7 @@ body[arco-theme='dark'] .reader-back-button {
 }
 
 .reader-overlay__content .feed-list-page {
-  min-height: calc(var(--mf-viewport-height) - 116px);
+  min-height: 0;
 }
 
 .reader-detail {
@@ -2057,7 +2071,7 @@ body[arco-theme='dark'] .empty-surface {
   }
 
   .app-content {
-    padding: 8px 14px 20px;
+    padding: 8px 14px 14px;
   }
 
   .app-content--feed,

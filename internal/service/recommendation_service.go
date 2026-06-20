@@ -53,6 +53,7 @@ type ListRecommendationsInput struct {
 	SourceID int64
 	Limit    int
 	Offset   int
+	Order    string
 }
 
 func (s *RecommendationService) ListRecommendations(ctx context.Context, input ListRecommendationsInput) (ListItemsResult, error) {
@@ -86,6 +87,7 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 		opErr = err
 		return ListItemsResult{}, opErr
 	}
+	order := normalizeItemSortOrder(input.Order)
 
 	var entries []domain.SourceCatalogEntry
 	if input.SourceID > 0 {
@@ -113,14 +115,15 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 		return ListItemsResult{Items: nil, Total: 0, Limit: limit, Offset: input.Offset}, nil
 	}
 
-	rng := rand.New(rand.NewSource(s.now().UnixNano()))
+	rng := rand.New(rand.NewSource(recommendationShuffleSeed(input.UserID, s.now())))
 	rng.Shuffle(len(candidates), func(i, j int) {
 		candidates[i], candidates[j] = candidates[j], candidates[i]
 	})
 
 	selected := candidates[:recommendationSourceLimit(limit, len(candidates))]
 	sourceItems := s.fetchRecommendationItems(ctx, input.UserID, selected)
-	items := interleaveRecommendationItems(sourceItems, limit+input.Offset)
+	items := sortedRecommendationItems(sourceItems, order)
+	total := len(items)
 	if input.Offset > 0 {
 		if input.Offset >= len(items) {
 			items = nil
@@ -139,7 +142,7 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 	)
 	return ListItemsResult{
 		Items:  items,
-		Total:  int64(len(items)),
+		Total:  int64(total),
 		Limit:  limit,
 		Offset: input.Offset,
 	}, nil
@@ -313,6 +316,34 @@ func recommendationItemTime(item domain.Item) time.Time {
 		return *item.PublishedAt
 	}
 	return item.FetchedAt
+}
+
+func sortedRecommendationItems(sourceItems []recommendationSourceItems, order domain.ItemSortOrder) []domain.Item {
+	items := make([]domain.Item, 0)
+	for _, group := range sourceItems {
+		items = append(items, group.items...)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		left := recommendationItemTime(items[i])
+		right := recommendationItemTime(items[j])
+		if left.Equal(right) {
+			if order == domain.ItemSortOrderAsc {
+				return items[i].ID < items[j].ID
+			}
+			return items[i].ID > items[j].ID
+		}
+		if order == domain.ItemSortOrderAsc {
+			return left.Before(right)
+		}
+		return left.After(right)
+	})
+	return items
+}
+
+func recommendationShuffleSeed(userID int64, now time.Time) int64 {
+	hash := fnv.New64a()
+	_, _ = fmt.Fprintf(hash, "%d:%s", userID, now.UTC().Format("2006-01-02"))
+	return int64(hash.Sum64() & ((1 << 63) - 1))
 }
 
 func syntheticRecommendationItemID(sourceID int64, normalizedURL string, index int) int64 {

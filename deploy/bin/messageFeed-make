@@ -1,0 +1,89 @@
+#!/bin/sh
+set -eu
+
+PROJECT_DIR="/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed"
+PORT="${GATEWAY_HTTPS_PORT:-8443}"
+DOMAIN="${MESSAGEFEED_DOMAIN:-}"
+PUBLIC_HOST="${MESSAGEFEED_PUBLIC_HOST:-${DOMAIN:-localhost}}"
+
+if [ -n "$DOMAIN" ]; then
+	PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://${PUBLIC_HOST}}"
+	VITE_HMR_CLIENT_PORT="${VITE_HMR_CLIENT_PORT:-443}"
+	VITE_HMR_HOST="${VITE_HMR_HOST:-${DOMAIN}}"
+else
+	PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://${PUBLIC_HOST}:${PORT}}"
+	VITE_HMR_CLIENT_PORT="${VITE_HMR_CLIENT_PORT:-${PORT}}"
+	VITE_HMR_HOST="${VITE_HMR_HOST:-}"
+fi
+GATEWAY_DEFAULT_SNI="${GATEWAY_DEFAULT_SNI:-${PUBLIC_HOST}}"
+
+GATEWAY_SITE_ADDRESS="${GATEWAY_SITE_ADDRESS:-https://localhost:${PORT}}"
+if [ -n "$DOMAIN" ]; then
+	GATEWAY_SITE_ADDRESS="${GATEWAY_SITE_ADDRESS}, https://${DOMAIN}:${PORT}"
+fi
+
+run_compose() {
+	if [ "$(id -u)" -eq 0 ]; then
+		docker compose "$@"
+	else
+		sudo docker compose "$@"
+	fi
+}
+
+cd "$PROJECT_DIR"
+
+export PUBLIC_BASE_URL
+export GATEWAY_HTTPS_PORT="$PORT"
+export GATEWAY_SITE_ADDRESS
+export GATEWAY_DEFAULT_SNI
+export VITE_HMR_CLIENT_PORT
+export VITE_HMR_HOST
+
+case "${1:-up}" in
+	up|start)
+		run_compose --profile dev up -d api-dev web-dev gateway-dev
+		printf '%s\n' "messageFeed development mode is running."
+		printf '%s\n' "Web/API: ${PUBLIC_BASE_URL}"
+		printf '%s\n' "Local: https://localhost:${PORT}"
+		if [ -n "$DOMAIN" ]; then
+			printf '%s\n' "Domain: https://${DOMAIN}"
+		fi
+		;;
+	cloudflare|cf)
+		if [ -z "${CLOUDFLARED_TUNNEL_TOKEN:-}" ]; then
+			printf '%s\n' "CLOUDFLARED_TUNNEL_TOKEN is required." >&2
+			exit 2
+		fi
+		run_compose --profile dev --profile cloudflare up -d api-dev web-dev gateway-dev cloudflared
+		printf '%s\n' "messageFeed Cloudflare development mode is running."
+		printf '%s\n' "Web/API: ${PUBLIC_BASE_URL}"
+		if [ -n "$DOMAIN" ]; then
+			printf '%s\n' "Domain: https://${DOMAIN}"
+		fi
+		;;
+	watch)
+		run_compose --profile dev watch api-dev web-dev gateway-dev
+		;;
+	logs)
+		run_compose --profile dev logs -f api-dev web-dev gateway-dev
+		;;
+	status|ps)
+		run_compose --profile dev ps
+		;;
+	reload-api)
+		run_compose --profile dev restart api-dev
+		;;
+	reload-web)
+		run_compose --profile dev restart web-dev
+		;;
+	reload-gateway)
+		run_compose --profile dev restart gateway-dev
+		;;
+	stop)
+		run_compose --profile dev --profile cloudflare stop cloudflared gateway-dev web-dev api-dev
+		;;
+	*)
+		printf '%s\n' "Usage: messageFeed-make [up|cloudflare|watch|logs|status|reload-api|reload-web|reload-gateway|stop]" >&2
+		exit 2
+		;;
+esac

@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+PROJECT_DIR="/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed"
+
+run_compose() {
+	if [ "$(id -u)" -eq 0 ]; then
+		docker compose "$@"
+	else
+		sudo docker compose "$@"
+	fi
+}
+
+cd "$PROJECT_DIR"
+
+case "${1:-up}" in
+	up|start)
+		run_compose up -d --build
+		printf '%s\n' "messageFeed standard mode is running."
+		printf '%s\n' "API: http://127.0.0.1:60001"
+		printf '%s\n' "Health: http://127.0.0.1:60001/healthz"
+		;;
+	logs)
+		run_compose logs -f
+		;;
+	status|ps)
+		run_compose ps
+		;;
+	stop)
+		run_compose stop
+		;;
+	*)
+		printf '%s\n' "Usage: messageFeed-start [up|logs|status|stop]" >&2
+		exit 2
+		;;
+esac

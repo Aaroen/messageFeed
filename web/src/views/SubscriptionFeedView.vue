@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { IconRefresh } from '@arco-design/web-vue/es/icon'
 
 import { formatAPIError } from '@/api/client'
@@ -51,15 +51,21 @@ const feedInteraction = useFeedInteractionStore()
 const items = ref<FeedItem[]>([])
 const loading = ref(false)
 const refreshing = ref(false)
+const loadingMore = ref(false)
 const error = ref('')
 const lastUpdatedAt = ref('')
+const totalCount = ref(0)
+const nextOffset = ref(0)
+const reachedEnd = ref(false)
 const pullOffset = ref(0)
 const pullDragging = ref(false)
 const pullSettling = ref(false)
 const pullStartedWithVisibleChrome = ref(false)
+const feedPageRef = ref<HTMLElement | null>(null)
 
 const pullThreshold = 76
 const pullMaxOffset = 116
+const pageSize = 10
 const verticalLockRatio = 1.18
 const motionCleanupBuffer = 96
 let touchStartY = 0
@@ -68,9 +74,15 @@ let touchStartChromeDistance = 0
 let trackingPullCandidate = false
 let trackingPull = false
 let pullSettleTimer = 0
+let loadMoreSyncTimer = 0
+let loadMoreObserver: IntersectionObserver | null = null
 
 const viewKey = computed(() => `${props.mode}:${props.sourceKind}:${props.sourceId}`)
 const hasItems = computed(() => items.value.length > 0)
+const canLoadMore = computed(
+  () => props.active && hasItems.value && !loading.value && !refreshing.value && !loadingMore.value && !reachedEnd.value,
+)
+const loadMoreTriggerIndex = computed(() => Math.max(items.value.length - 3, 0))
 const isRecommendations = computed(() => props.mode === 'recommendations')
 const isSourceMode = computed(() => props.mode === 'source')
 const usesGlobalPullState = computed(() => true)
@@ -200,6 +212,32 @@ function cssRotate(degrees: number) {
   return `rotate(${(Number.isFinite(degrees) ? degrees : 0).toFixed(2)}deg)`
 }
 
+function itemTime(item: FeedItem) {
+  const value = item.published_at || item.fetched_at
+  const timestamp = value ? new Date(value).getTime() : 0
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function compareItemsAscending(left: FeedItem, right: FeedItem) {
+  const timeDelta = itemTime(left) - itemTime(right)
+  return timeDelta === 0 ? left.id - right.id : timeDelta
+}
+
+function sortItemsAscending(nextItems: FeedItem[]) {
+  return [...nextItems].sort(compareItemsAscending)
+}
+
+function mergeItems(currentItems: FeedItem[], nextItems: FeedItem[]) {
+  const itemMap = new Map<number, FeedItem>()
+  for (const item of currentItems) {
+    itemMap.set(item.id, item)
+  }
+  for (const item of nextItems) {
+    itemMap.set(item.id, item)
+  }
+  return sortItemsAscending(Array.from(itemMap.values()))
+}
+
 function feedItemStyle(item: FeedItem) {
   const style: Record<string, string> = {}
   const locksHeight =
@@ -219,32 +257,42 @@ function feedItemStyle(item: FeedItem) {
   return Object.keys(style).length > 0 ? style : undefined
 }
 
-async function loadItems(options: { refresh?: boolean } = {}) {
-  if (loading.value || refreshing.value) {
+async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) {
+  const isRefresh = Boolean(options.refresh)
+  const isAppend = Boolean(options.append)
+  if (loading.value || refreshing.value || loadingMore.value || (isAppend && !canLoadMore.value)) {
     return
   }
   error.value = ''
-  const isRefresh = Boolean(options.refresh)
-  if (isRefresh) {
+  if (isAppend) {
+    loadingMore.value = true
+  } else if (isRefresh) {
     refreshing.value = true
   } else {
     loading.value = true
   }
   try {
     const loader = effectiveSourceKind.value === 'recommendations' ? listRecommendationItems : listTimelineItems
+    const requestOffset = isAppend ? nextOffset.value : 0
     const params = {
-      limit: 40,
-      offset: 0,
+      limit: pageSize,
+      offset: requestOffset,
+      order: 'asc' as const,
       ...(isSourceMode.value && props.sourceId > 0 ? { source_id: props.sourceId } : {}),
     }
     const result = await loader(params)
-    items.value = result.items
+    items.value = isAppend ? mergeItems(items.value, result.items) : sortItemsAscending(result.items)
+    totalCount.value = result.total
+    nextOffset.value = requestOffset + result.items.length
+    reachedEnd.value = result.items.length < pageSize || nextOffset.value >= result.total
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
   } catch (err) {
     error.value = formatAPIError(err)
   } finally {
     loading.value = false
+    loadingMore.value = false
     pullDragging.value = false
+    scheduleLoadMoreObserver()
 
     if (!isRefresh) {
       refreshing.value = false
@@ -270,6 +318,71 @@ async function loadItems(options: { refresh?: boolean } = {}) {
       }, 260 + motionCleanupBuffer)
     }, 120)
   }
+}
+
+function loadMoreRoot() {
+  const root = feedPageRef.value?.closest('.app-content, .reader-overlay__content')
+  return root instanceof HTMLElement ? root : null
+}
+
+function loadMoreTriggerElement() {
+  return feedPageRef.value?.querySelector<HTMLElement>('[data-load-more-trigger="true"]') ?? null
+}
+
+function stopLoadMoreObserver() {
+  loadMoreObserver?.disconnect()
+  loadMoreObserver = null
+}
+
+function maybeLoadMoreFromTrigger() {
+  if (!canLoadMore.value) {
+    return
+  }
+  const trigger = loadMoreTriggerElement()
+  if (!trigger) {
+    return
+  }
+
+  const root = loadMoreRoot()
+  const triggerRect = trigger.getBoundingClientRect()
+  const rootRect = root?.getBoundingClientRect()
+  const viewportBottom = rootRect?.bottom ?? window.innerHeight
+  if (triggerRect.top <= viewportBottom) {
+    void loadItems({ append: true })
+  }
+}
+
+function syncLoadMoreObserver() {
+  stopLoadMoreObserver()
+  if (!canLoadMore.value || typeof IntersectionObserver === 'undefined') {
+    return
+  }
+
+  const trigger = loadMoreTriggerElement()
+  if (!trigger) {
+    return
+  }
+
+  loadMoreObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        void loadItems({ append: true })
+      }
+    },
+    {
+      root: loadMoreRoot(),
+      threshold: 0.01,
+    },
+  )
+  loadMoreObserver.observe(trigger)
+  maybeLoadMoreFromTrigger()
+}
+
+function scheduleLoadMoreObserver() {
+  window.clearTimeout(loadMoreSyncTimer)
+  loadMoreSyncTimer = window.setTimeout(() => {
+    void nextTick(syncLoadMoreObserver)
+  }, 0)
 }
 
 function openItem(item: FeedItem, event: MouseEvent) {
@@ -390,11 +503,15 @@ function handleTouchCancel() {
 }
 
 onMounted(() => {
-  loadItems()
+  if (props.active) {
+    void loadItems()
+  }
 })
 
 onUnmounted(() => {
   window.clearTimeout(pullSettleTimer)
+  window.clearTimeout(loadMoreSyncTimer)
+  stopLoadMoreObserver()
   if (usesGlobalPullState.value && feedInteraction.pullViewKey === viewKey.value) {
     feedInteraction.resetPullState()
   }
@@ -405,6 +522,10 @@ watch(
   (active) => {
     if (!active) {
       resetPullGesture(true)
+      return
+    }
+    if (!hasItems.value && !loading.value) {
+      void loadItems()
     }
   },
 )
@@ -416,6 +537,21 @@ watch(
       void loadItems()
     }
   },
+)
+
+watch(
+  () => props.scrollTop,
+  () => {
+    maybeLoadMoreFromTrigger()
+  },
+)
+
+watch(
+  [() => items.value.length, () => props.active, loading, refreshing, loadingMore, reachedEnd],
+  () => {
+    scheduleLoadMoreObserver()
+  },
+  { flush: 'post' },
 )
 
 watch(
@@ -447,6 +583,7 @@ watch(
 
 <template>
   <section
+    ref="feedPageRef"
     class="feed-list-page"
     :class="pageClass"
     :data-feed-mode="mode"
@@ -490,11 +627,12 @@ watch(
 
       <div v-else class="feed-item-list">
         <article
-          v-for="item in items"
+          v-for="(item, index) in items"
           :key="item.id"
           class="feed-item"
           :class="{ 'feed-item--morphing': morphingItemId === item.id }"
           :data-feed-item-id="item.id"
+          :data-load-more-trigger="index === loadMoreTriggerIndex ? 'true' : undefined"
           :style="feedItemStyle(item)"
         >
           <div class="feed-item__meta">
@@ -511,6 +649,15 @@ watch(
             <a :href="item.url" target="_blank" rel="noreferrer">阅读原文</a>
           </div>
         </article>
+        <div v-if="loadingMore" class="feed-load-more" role="status" aria-live="polite">加载中</div>
+        <div
+          v-else-if="reachedEnd && hasItems && totalCount > pageSize"
+          class="feed-load-more feed-load-more--end"
+          role="status"
+          aria-live="polite"
+        >
+          已加载全部
+        </div>
       </div>
     </div>
   </section>
