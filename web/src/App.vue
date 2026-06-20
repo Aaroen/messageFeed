@@ -136,6 +136,9 @@ const {
   finishDetailEntryState,
   completeOpenItemReaderLoadState,
   failOpenItemReaderLoadState,
+  beginDetailHeaderTitleSwapState,
+  commitDetailHeaderTitleSwapState,
+  finishDetailHeaderTitleSwapState,
   closeItemReaderState,
   beginCollapseItemReaderState,
   beginRestoreItemReaderExpansionState,
@@ -1733,21 +1736,17 @@ function startDetailEntry(rect?: DOMRect) {
 }
 
 function startDetailHeaderTitleSwap(nextItem: FeedItem) {
-  if (!detailItem.value || detailItem.value.id === nextItem.id) {
-    detailHeaderPreviousTitle.value = ''
-    detailHeaderSwapProgress.value = 1
-    window.clearTimeout(detailHeaderSwapTimer)
+  const result = beginDetailHeaderTitleSwapState(nextItem)
+  window.clearTimeout(detailHeaderSwapTimer)
+  if (!result.shouldAnimate) {
     return
   }
 
-  detailHeaderPreviousTitle.value = detailItem.value.title
-  detailHeaderSwapProgress.value = 0
-  window.clearTimeout(detailHeaderSwapTimer)
   requestAnimationFrame(() => {
-    detailHeaderSwapProgress.value = 1
+    commitDetailHeaderTitleSwapState()
   })
   detailHeaderSwapTimer = window.setTimeout(() => {
-    detailHeaderPreviousTitle.value = ''
+    finishDetailHeaderTitleSwapState()
   }, motionDelay(320))
 }
 

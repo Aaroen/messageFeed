@@ -40,6 +40,10 @@ type BeginDetailEntryStateResult = {
   shouldAnimate: boolean
 }
 
+type BeginDetailHeaderTitleSwapStateResult = {
+  shouldAnimate: boolean
+}
+
 type CloseItemReaderStateResult = {
   shouldScheduleHiddenSourceCleanup: boolean
 }
@@ -561,6 +565,26 @@ export function useReaderStackState() {
     detailLoading.value = false
   }
 
+  function beginDetailHeaderTitleSwapState(nextItem: FeedItem): BeginDetailHeaderTitleSwapStateResult {
+    if (!detailItem.value || detailItem.value.id === nextItem.id) {
+      detailHeaderPreviousTitle.value = ''
+      detailHeaderSwapProgress.value = 1
+      return { shouldAnimate: false }
+    }
+
+    detailHeaderPreviousTitle.value = detailItem.value.title
+    detailHeaderSwapProgress.value = 0
+    return { shouldAnimate: true }
+  }
+
+  function commitDetailHeaderTitleSwapState() {
+    detailHeaderSwapProgress.value = 1
+  }
+
+  function finishDetailHeaderTitleSwapState() {
+    detailHeaderPreviousTitle.value = ''
+  }
+
   function closeItemReaderState(): CloseItemReaderStateResult {
     const previousSourceReturnMode = sourceReaderReturnMode.value
     detailItem.value = null
@@ -933,6 +957,9 @@ export function useReaderStackState() {
     finishDetailEntryState,
     completeOpenItemReaderLoadState,
     failOpenItemReaderLoadState,
+    beginDetailHeaderTitleSwapState,
+    commitDetailHeaderTitleSwapState,
+    finishDetailHeaderTitleSwapState,
     closeItemReaderState,
     beginCollapseItemReaderState,
     beginRestoreItemReaderExpansionState,
