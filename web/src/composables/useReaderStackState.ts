@@ -73,6 +73,12 @@ type CompleteDetailToSourceReaderTransitionOptions = {
   afterFinish?: () => void
 }
 
+type RestoreDetailFromParkedSourceTransitionOptions = {
+  beforeBegin?: () => void
+  afterBegin?: () => void
+  afterFinish?: () => void
+}
+
 type ReaderBackSwipeIntentState =
   | {
       intent: 'source-return'
@@ -1038,6 +1044,28 @@ export function useReaderStackState() {
     detailTransitionRectsLocked.value = false
   }
 
+  function restoreDetailFromParkedSourceWithDelay(
+    delay: number,
+    options: RestoreDetailFromParkedSourceTransitionOptions = {},
+  ) {
+    clearDetailEntryTimer()
+    options.beforeBegin?.()
+    if (!beginRestoreDetailFromParkedSourceState()) {
+      return false
+    }
+    options.afterBegin?.()
+
+    requestAnimationFrame(() => {
+      commitRestoreDetailFromParkedSourceState()
+    })
+
+    setDetailEntryTimer(() => {
+      finishRestoreDetailFromParkedSourceState()
+      options.afterFinish?.()
+    }, delay)
+    return true
+  }
+
   function resetReaderBackSwipeState() {
     const keepDetailParkedBehindSource = hasParkedDetailSourceState()
     detailReaderTouchOffset.value = 0
@@ -1242,6 +1270,7 @@ export function useReaderStackState() {
     beginRestoreDetailFromParkedSourceState,
     commitRestoreDetailFromParkedSourceState,
     finishRestoreDetailFromParkedSourceState,
+    restoreDetailFromParkedSourceWithDelay,
     resetReaderBackSwipeState,
     beginReaderBackSwipeTrackingState,
     prepareReaderBackSwipeIntentState,

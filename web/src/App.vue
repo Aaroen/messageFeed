@@ -158,9 +158,7 @@ const {
   restoreDetailFromSourceSwipeWithDelay,
   completeDetailToSourceReaderWithDelay,
   restoreParkedSourceReaderWithDelay,
-  beginRestoreDetailFromParkedSourceState,
-  commitRestoreDetailFromParkedSourceState,
-  finishRestoreDetailFromParkedSourceState,
+  restoreDetailFromParkedSourceWithDelay,
   resetReaderBackSwipeState,
   beginReaderBackSwipeTrackingState,
   prepareReaderBackSwipeIntentState,
@@ -1965,22 +1963,20 @@ function restoreDetailFromParkedSource(duration = 360) {
   }
 
   suppressFollowingClick()
-  clearDetailEntryTimer()
-  clearMorphingHeightUnlockTimer()
-  captureVisibleSourceReturnTarget()
-  beginRestoreDetailFromParkedSourceState()
-  setTopChromeVisible(true)
-  setChromeContentCollapsed(false)
-
-  requestAnimationFrame(() => {
-    commitRestoreDetailFromParkedSourceState()
+  restoreDetailFromParkedSourceWithDelay(motionDelay(duration), {
+    beforeBegin: () => {
+      clearMorphingHeightUnlockTimer()
+      captureVisibleSourceReturnTarget()
+    },
+    afterBegin: () => {
+      setTopChromeVisible(true)
+      setChromeContentCollapsed(false)
+    },
+    afterFinish: () => {
+      restoreMorphingItemContent()
+      scheduleHiddenSourceReaderCleanup()
+    },
   })
-
-  setDetailEntryTimer(() => {
-    finishRestoreDetailFromParkedSourceState()
-    restoreMorphingItemContent()
-    scheduleHiddenSourceReaderCleanup()
-  }, motionDelay(duration))
 }
 
 function restoreParkedSourceReader(duration = 260) {
