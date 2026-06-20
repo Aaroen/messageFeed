@@ -127,13 +127,15 @@ async function loadCatalog(options: { silent?: boolean; notify?: boolean } = {})
   }
 }
 
-async function refreshPage(options: { noticeDelayMS?: number } = {}) {
+async function refreshPage(options: { noticeDelayMS?: number; suppressStartNotice?: boolean } = {}) {
   if (loading.value || catalogLoading.value || actionLoading.value) {
     return
   }
   const query = catalogQuery.value.trim()
   try {
-    showNotice('success', query ? `抓取中：正在更新“${query}”的推荐源搜索结果` : '抓取中：正在更新订阅管理数据', 0)
+    if (!options.suppressStartNotice) {
+      showNotice('success', query ? `抓取中：正在更新“${query}”的推荐源搜索结果` : '抓取中：正在更新订阅管理数据', 0)
+    }
     await Promise.all([
       loadSources({ silent: true, notify: false }),
       loadCatalog({ silent: true, notify: false }),
@@ -150,7 +152,7 @@ async function refreshPage(options: { noticeDelayMS?: number } = {}) {
       )
       return
     }
-    showNotice('success', '刷新成功', undefined, options.noticeDelayMS)
+    showNotice('success', '刷新成功：已更新订阅管理数据', undefined, options.noticeDelayMS)
   } catch (err) {
     showNotice('warning', `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`, undefined, options.noticeDelayMS)
   }

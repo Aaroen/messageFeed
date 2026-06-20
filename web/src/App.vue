@@ -68,7 +68,7 @@ type ReaderSessionSnapshot = {
   parkedDetailStack: ParkedDetailSnapshot[]
 }
 type PageViewExpose = {
-  refreshPage?: (options?: { noticeDelayMS?: number }) => Promise<void> | void
+  refreshPage?: (options?: { noticeDelayMS?: number; suppressStartNotice?: boolean }) => Promise<void> | void
 }
 type FetchNowResult = {
   success: boolean
@@ -685,6 +685,19 @@ const detailMorphSourceLabelStyle = computed(() => {
 const sourceNameMorphProgress = computed(() =>
   clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
 )
+const sourceNameTransitionActive = computed(
+  () =>
+    Boolean(detailItem.value) &&
+    sourceReaderVisible.value &&
+    !sourceReaderBlockedDamping.value &&
+    !detailReturningToFeed.value &&
+    !detailCommittedListReturn() &&
+    (readerBackDragging.value ||
+      detailEntrySettling.value ||
+      detailRestoringFromSourceReader.value ||
+      detailSourceExitProgress.value > 0.001 ||
+      (detailOpenedFromSourceReader.value && detailBackExitProgress.value > 0.001)),
+)
 const sourceTitleProgress = computed(() =>
   detailReaderOpen.value && sourceReaderVisible.value && !detailCommittedListReturn()
     ? sourceNameMorphProgress.value
@@ -696,18 +709,14 @@ const sourceTitleRevealProgress = computed(() =>
 const sourceTitleRevealVisible = computed(
   () =>
     Boolean(readerSource.value) &&
-    detailReaderOpen.value &&
-    sourceReaderVisible.value &&
-    !detailCommittedListReturn() &&
+    sourceNameTransitionActive.value &&
+    sourceTitleRevealProgress.value > 0.001 &&
     !detailRestoringFromSourceReader.value &&
     !sourcePullActive.value,
 )
 const sourceNameMorphActive = computed(
   () =>
-    Boolean(detailItem.value) &&
-    sourceReaderVisible.value &&
-    !sourceReaderBlockedDamping.value &&
-    !detailReturningToFeed.value &&
+    sourceNameTransitionActive.value &&
     sourceNameMorphProgress.value > 0.001 &&
     sourceNameMorphProgress.value < 0.985 &&
     Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value) &&
@@ -717,14 +726,10 @@ const sourceNameMorphActive = computed(
 )
 const sourceNameMorphVisible = computed(
   () =>
-    Boolean(detailItem.value) &&
-    sourceReaderVisible.value &&
-    !sourceReaderBlockedDamping.value &&
-    !detailReturningToFeed.value &&
+    sourceNameTransitionActive.value &&
     sourceNameMorphProgress.value > 0.001 &&
     sourceNameMorphProgress.value < 0.995 &&
-    Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value) &&
-    !detailCommittedListReturn(),
+    Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value),
 )
 const sourceNameMorphStyle = computed(() => {
   const origin = detailSourceNameOriginRect.value
@@ -856,6 +861,20 @@ const detailPreviewSummary = computed(
 )
 const detailDisplayDate = computed(() => formatItemDate(detailItem.value?.published_at || detailItem.value?.fetched_at))
 const detailMorphSummaryVisible = computed(() => detailSurfaceProgress.value < 0.54)
+const detailMorphTextVisible = computed(() => {
+  if (!detailItem.value || detailCommittedListReturn()) {
+    return false
+  }
+
+  const inTransition =
+    detailEntrySettling.value ||
+    readerBackDragging.value ||
+    detailReturningToFeed.value ||
+    detailRestoringFromSourceReader.value ||
+    detailBackExitProgress.value > 0.001 ||
+    detailSourceExitProgress.value > 0.001
+  return inTransition
+})
 const detailFrameBody = computed(() => {
   const source = detailHTML.value || `<p>${escapeHTML(detailText.value || '暂无正文。')}</p>`
   return sanitizeDetailHTML(source)
@@ -3991,7 +4010,7 @@ async function refreshCurrentPageFromPull() {
   pagePullRefreshing.value = true
   pagePullDistance.value = pageRefreshThreshold
   try {
-    await refreshPage({ noticeDelayMS: 180 })
+    await refreshPage({ noticeDelayMS: 180, suppressStartNotice: true })
   } finally {
     pagePullRefreshing.value = false
     pagePullDistance.value = 0
@@ -4610,7 +4629,7 @@ onUnmounted(() => {
         }"
         :style="detailTransitionSurfaceStyle"
       >
-        <article v-if="detailItem" class="reader-morph-text" :style="detailMorphTextStyle">
+        <article v-if="detailItem && detailMorphTextVisible" class="reader-morph-text" :style="detailMorphTextStyle">
           <div class="reader-morph-text__meta">
             <span class="reader-morph-text__source-label" :style="detailMorphSourceLabelStyle">
               {{ detailItem.source_name || '未知来源' }}

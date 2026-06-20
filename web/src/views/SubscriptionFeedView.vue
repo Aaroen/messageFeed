@@ -380,6 +380,16 @@ function formatFetchErrors(errors: Array<{ source_name?: string; message: string
   return `${details.join('；')}${overflow}`
 }
 
+function refreshSuccessMessage() {
+  if (isSourceMode.value) {
+    return '刷新成功：已更新当前来源'
+  }
+  if (effectiveSourceKind.value === 'recommendations') {
+    return '刷新成功：已更新当前推荐来源'
+  }
+  return '刷新成功：已更新订阅内容'
+}
+
 async function refreshSubscriptionSources() {
   if (effectiveSourceKind.value !== 'subscriptions') {
     return null
@@ -387,7 +397,7 @@ async function refreshSubscriptionSources() {
   try {
     if (isSourceMode.value && props.sourceId > 0) {
       await fetchSource(props.sourceId)
-      return { type: 'success' as const, message: '刷新成功' }
+      return { type: 'success' as const, message: refreshSuccessMessage() }
     }
 
     const result = await fetchActiveSources()
@@ -401,7 +411,7 @@ async function refreshSubscriptionSources() {
         message: `${prefix}：已刷新 ${result.success_count} 个订阅源，${result.failure_count} 个失败。失败原因：${formatFetchErrors(result.errors)}`,
       }
     }
-    return { type: 'success' as const, message: '刷新成功' }
+    return { type: 'success' as const, message: refreshSuccessMessage() }
   } catch (err) {
     return { type: 'warning' as const, message: `刷新失败：${formatAPIError(err)}` }
   }
@@ -464,7 +474,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     } else if (!isBackgroundRefresh && autoFetchNotice && autoFetchNotice.type === 'warning') {
       showFeedNotice(autoFetchNotice.type, autoFetchNotice.message)
     } else if (!isBackgroundRefresh && isRefresh) {
-      showFeedNotice('success', '刷新成功', 180)
+      showFeedNotice('success', refreshSuccessMessage(), 180)
     }
   } catch (err) {
     const message = formatAPIError(err)
