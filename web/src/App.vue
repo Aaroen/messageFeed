@@ -142,6 +142,8 @@ const {
   applyDetailFeedOriginRectState,
   applyDetailSourceTransitionRectsState,
   applyVisibleSourceReturnTargetState,
+  beginRestoreMorphingItemContentState,
+  finishRestoreMorphingItemContentState,
   closeItemReaderState,
   beginCollapseItemReaderState,
   beginRestoreItemReaderExpansionState,
@@ -1648,13 +1650,10 @@ function detailFrameViewportOffset() {
 }
 
 function restoreMorphingItemContent(unlockDelay = 180) {
-  const lockedItemId = morphingItemId.value ?? morphingHeightLockItemId.value
-  morphingItemId.value = null
-  morphingHeightLockItemId.value = lockedItemId
+  beginRestoreMorphingItemContentState()
   window.clearTimeout(morphingHeightUnlockTimer)
   morphingHeightUnlockTimer = window.setTimeout(() => {
-    morphingHeightLockItemId.value = null
-    morphingItemHeight.value = null
+    finishRestoreMorphingItemContentState()
   }, unlockDelay)
 }
 

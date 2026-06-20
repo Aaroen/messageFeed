@@ -650,6 +650,17 @@ export function useReaderStackState() {
     return true
   }
 
+  function beginRestoreMorphingItemContentState() {
+    const lockedItemId = morphingItemId.value ?? morphingHeightLockItemId.value
+    morphingItemId.value = null
+    morphingHeightLockItemId.value = lockedItemId
+  }
+
+  function finishRestoreMorphingItemContentState() {
+    morphingHeightLockItemId.value = null
+    morphingItemHeight.value = null
+  }
+
   function closeItemReaderState(): CloseItemReaderStateResult {
     const previousSourceReturnMode = sourceReaderReturnMode.value
     detailItem.value = null
@@ -1028,6 +1039,8 @@ export function useReaderStackState() {
     applyDetailFeedOriginRectState,
     applyDetailSourceTransitionRectsState,
     applyVisibleSourceReturnTargetState,
+    beginRestoreMorphingItemContentState,
+    finishRestoreMorphingItemContentState,
     closeItemReaderState,
     beginCollapseItemReaderState,
     beginRestoreItemReaderExpansionState,
