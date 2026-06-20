@@ -44,6 +44,17 @@ type BeginDetailHeaderTitleSwapStateResult = {
   shouldAnimate: boolean
 }
 
+type ApplyDetailSourceTransitionRectsStateOptions = {
+  itemRect: RectSnapshot | null
+  sourceOriginRect: RectSnapshot | null
+  sourceTargetRect: RectSnapshot | null
+  lock?: boolean
+}
+
+type ApplyDetailSourceTransitionRectsStateResult = {
+  locked: boolean
+}
+
 type CloseItemReaderStateResult = {
   shouldScheduleHiddenSourceCleanup: boolean
 }
@@ -585,6 +596,60 @@ export function useReaderStackState() {
     detailHeaderPreviousTitle.value = ''
   }
 
+  function applyDetailFeedOriginRectState(itemRect: RectSnapshot, lock = false) {
+    detailOriginRect.value = itemRect
+    morphingItemHeight.value = itemRect.height
+    if (lock) {
+      detailFeedOriginLocked.value = true
+    }
+  }
+
+  function applyDetailSourceTransitionRectsState(
+    options: ApplyDetailSourceTransitionRectsStateOptions,
+  ): ApplyDetailSourceTransitionRectsStateResult {
+    const { itemRect, sourceOriginRect, sourceTargetRect, lock } = options
+
+    if (itemRect) {
+      detailSourceItemTargetRect.value = itemRect
+      morphingItemHeight.value = itemRect.height
+    }
+    if (sourceOriginRect) {
+      detailSourceNameOriginRect.value = sourceOriginRect
+    }
+    if (sourceTargetRect) {
+      detailSourceNameTargetRect.value = sourceTargetRect
+    }
+
+    const hasSourceOrigin = Boolean(sourceOriginRect || detailSourceNameOriginRect.value)
+    const shouldLock = Boolean(lock && itemRect && sourceTargetRect && hasSourceOrigin)
+    if (shouldLock) {
+      detailTransitionRectsLocked.value = true
+    }
+    return { locked: shouldLock }
+  }
+
+  function applyVisibleSourceReturnTargetState(
+    itemRect: RectSnapshot | null,
+    sourceOriginRect: RectSnapshot | null,
+    sourceTargetRect: RectSnapshot | null,
+  ) {
+    if (!itemRect) {
+      sourceReturnTargetReady.value = false
+      return false
+    }
+
+    detailSourceItemTargetRect.value = itemRect
+    morphingItemHeight.value = itemRect.height
+    if (sourceTargetRect) {
+      detailSourceNameTargetRect.value = sourceTargetRect
+    }
+    if (sourceOriginRect) {
+      detailSourceNameOriginRect.value = sourceOriginRect
+    }
+    sourceReturnTargetReady.value = true
+    return true
+  }
+
   function closeItemReaderState(): CloseItemReaderStateResult {
     const previousSourceReturnMode = sourceReaderReturnMode.value
     detailItem.value = null
@@ -960,6 +1025,9 @@ export function useReaderStackState() {
     beginDetailHeaderTitleSwapState,
     commitDetailHeaderTitleSwapState,
     finishDetailHeaderTitleSwapState,
+    applyDetailFeedOriginRectState,
+    applyDetailSourceTransitionRectsState,
+    applyVisibleSourceReturnTargetState,
     closeItemReaderState,
     beginCollapseItemReaderState,
     beginRestoreItemReaderExpansionState,

@@ -139,6 +139,9 @@ const {
   beginDetailHeaderTitleSwapState,
   commitDetailHeaderTitleSwapState,
   finishDetailHeaderTitleSwapState,
+  applyDetailFeedOriginRectState,
+  applyDetailSourceTransitionRectsState,
+  applyVisibleSourceReturnTargetState,
   closeItemReaderState,
   beginCollapseItemReaderState,
   beginRestoreItemReaderExpansionState,
@@ -1568,11 +1571,7 @@ function refreshDetailFeedOriginRect(lock = false) {
     return
   }
 
-  detailOriginRect.value = itemRect
-  morphingItemHeight.value = itemRect.height
-  if (lock) {
-    detailFeedOriginLocked.value = true
-  }
+  applyDetailFeedOriginRectState(itemRect, lock)
 }
 
 function findSourceFeedItemSourceElement(itemID?: number) {
@@ -1614,20 +1613,13 @@ function captureDetailSourceTransitionRects(
       const sourceTargetRect =
         snapshotElementRect(findSourceFeedItemSourceElement(detailItem.value?.id)) ?? sourceNameTargetFallback(itemRect)
 
-      if (itemRect) {
-        detailSourceItemTargetRect.value = itemRect
-        morphingItemHeight.value = itemRect.height
-      }
-      if (sourceOriginRect) {
-        detailSourceNameOriginRect.value = sourceOriginRect
-      }
-      if (sourceTargetRect) {
-        detailSourceNameTargetRect.value = sourceTargetRect
-      }
-
-      const hasSourceOrigin = Boolean(sourceOriginRect || detailSourceNameOriginRect.value)
-      if (options.lock && itemRect && sourceTargetRect && hasSourceOrigin) {
-        detailTransitionRectsLocked.value = true
+      const result = applyDetailSourceTransitionRectsState({
+        itemRect,
+        sourceOriginRect,
+        sourceTargetRect,
+        lock: options.lock,
+      })
+      if (result.locked) {
         return
       }
 
@@ -1640,25 +1632,11 @@ function captureDetailSourceTransitionRects(
 
 function captureVisibleSourceReturnTarget() {
   const itemRect = snapshotElementRect(findSourceFeedItemElement(detailItem.value?.id))
-  if (!itemRect) {
-    sourceReturnTargetReady.value = false
-    return false
-  }
-
   const sourceTargetRect =
     snapshotElementRect(findSourceFeedItemSourceElement(detailItem.value?.id)) ?? sourceNameTargetFallback(itemRect)
   const sourceOriginRect = snapshotElementRect(detailInlineSourceRef.value)
 
-  detailSourceItemTargetRect.value = itemRect
-  morphingItemHeight.value = itemRect.height
-  if (sourceTargetRect) {
-    detailSourceNameTargetRect.value = sourceTargetRect
-  }
-  if (sourceOriginRect) {
-    detailSourceNameOriginRect.value = sourceOriginRect
-  }
-  sourceReturnTargetReady.value = true
-  return true
+  return applyVisibleSourceReturnTargetState(itemRect, sourceOriginRect, sourceTargetRect)
 }
 
 function detailFrameViewportOffset() {
