@@ -135,9 +135,8 @@ const {
   finishDetailEntryState,
   completeOpenItemReaderLoadState,
   failOpenItemReaderLoadState,
-  beginDetailHeaderTitleSwapState,
-  commitDetailHeaderTitleSwapState,
-  finishDetailHeaderTitleSwapState,
+  clearDetailHeaderSwapTimer,
+  startDetailHeaderTitleSwapWithDelay,
   applyDetailFeedOriginRectState,
   applyDetailSourceTransitionRectsState,
   applyVisibleSourceReturnTargetState,
@@ -1219,7 +1218,6 @@ let backSwipeTarget: 'detail' | 'source' | 'page' | null = null
 let backSwipeIntent: 'back' | 'source' | 'blocked' | null = null
 let viewSwipeTimer = 0
 let detailEntryTimer = 0
-let detailHeaderSwapTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
@@ -1684,18 +1682,7 @@ function startDetailEntry(rect?: DOMRect) {
 }
 
 function startDetailHeaderTitleSwap(nextItem: FeedItem) {
-  const result = beginDetailHeaderTitleSwapState(nextItem)
-  window.clearTimeout(detailHeaderSwapTimer)
-  if (!result.shouldAnimate) {
-    return
-  }
-
-  requestAnimationFrame(() => {
-    commitDetailHeaderTitleSwapState()
-  })
-  detailHeaderSwapTimer = window.setTimeout(() => {
-    finishDetailHeaderTitleSwapState()
-  }, motionDelay(320))
+  startDetailHeaderTitleSwapWithDelay(nextItem, motionDelay(320))
 }
 
 function readerSessionSnapshot(): ReaderSessionSnapshot {
@@ -2032,7 +2019,7 @@ function restoreParkedSourceReader(duration = 260) {
 }
 
 function closeItemReader() {
-  window.clearTimeout(detailHeaderSwapTimer)
+  clearDetailHeaderSwapTimer()
   restoreMorphingItemContent()
   const result = closeItemReaderState()
   if (isFeedRoute.value) {
@@ -3601,7 +3588,7 @@ onUnmounted(() => {
   clearSourceNoticeTimer()
   clearReaderMotionTimer()
   window.clearTimeout(detailEntryTimer)
-  window.clearTimeout(detailHeaderSwapTimer)
+  clearDetailHeaderSwapTimer()
   clearMorphingHeightUnlockTimer()
   clearHiddenSourceCleanupTimer()
   readerSession.clearTimer()

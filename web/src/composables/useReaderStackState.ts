@@ -141,6 +141,7 @@ export function useReaderStackState() {
   let readerMotionTimer = 0
   let morphingHeightUnlockTimer = 0
   let hiddenSourceCleanupTimer = 0
+  let detailHeaderSwapTimer = 0
 
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
   const detailContentRef = ref<HTMLElement | null>(null)
@@ -606,6 +607,25 @@ export function useReaderStackState() {
 
   function finishDetailHeaderTitleSwapState() {
     detailHeaderPreviousTitle.value = ''
+  }
+
+  function clearDetailHeaderSwapTimer() {
+    window.clearTimeout(detailHeaderSwapTimer)
+  }
+
+  function startDetailHeaderTitleSwapWithDelay(nextItem: FeedItem, delay = 320) {
+    const result = beginDetailHeaderTitleSwapState(nextItem)
+    clearDetailHeaderSwapTimer()
+    if (!result.shouldAnimate) {
+      return
+    }
+
+    requestAnimationFrame(() => {
+      commitDetailHeaderTitleSwapState()
+    })
+    detailHeaderSwapTimer = window.setTimeout(() => {
+      finishDetailHeaderTitleSwapState()
+    }, delay)
   }
 
   function applyDetailFeedOriginRectState(itemRect: RectSnapshot, lock = false) {
@@ -1115,6 +1135,8 @@ export function useReaderStackState() {
     beginDetailHeaderTitleSwapState,
     commitDetailHeaderTitleSwapState,
     finishDetailHeaderTitleSwapState,
+    clearDetailHeaderSwapTimer,
+    startDetailHeaderTitleSwapWithDelay,
     applyDetailFeedOriginRectState,
     applyDetailSourceTransitionRectsState,
     applyVisibleSourceReturnTargetState,
