@@ -1,12 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import {
-  IconBook,
-  IconMenuUnfold,
-  IconMoonFill,
-  IconSettings,
-  IconSunFill,
-} from '@arco-design/web-vue/es/icon'
+import { IconBook } from '@arco-design/web-vue/es/icon'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
@@ -15,6 +9,7 @@ import {
   type FeedItem,
 } from '@/api/feed'
 import AppFeedHeaderContent from '@/components/AppFeedHeaderContent.vue'
+import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
 import AppPageHeaderContent from '@/components/AppPageHeaderContent.vue'
 import AppReaderStackContent from '@/components/AppReaderStackContent.vue'
 import FeedPager from '@/components/FeedPager.vue'
@@ -3736,94 +3731,26 @@ onUnmounted(() => {
 
 <template>
   <div class="app-shell" @click.capture="handleClickCapture">
-    <button
-      v-if="!navigationVisible"
-      class="nav-open-button"
-      :class="{ 'nav-open-button--hidden': feedCornerHidden, 'nav-open-button--detail': detailChromeVisible }"
-      :style="navOpenButtonStyle"
-      type="button"
-      :aria-label="cornerButtonLabel"
-      @pointerdown.stop
-      @touchstart.stop
-      @click="handleCornerButtonClick"
-    >
-      <IconMenuUnfold />
-    </button>
-
-    <button
-      v-show="navigationVisible"
-      class="nav-scrim"
-      type="button"
-      aria-label="关闭导航"
-      :style="navigationScrimStyle"
-      @click="closeNavigation"
+    <AppNavigationLayer
+      :navigation-visible="navigationVisible"
+      :navigation-settling="navigationSettling"
+      :feed-corner-hidden="feedCornerHidden"
+      :detail-chrome-visible="detailChromeVisible"
+      :nav-open-button-style="navOpenButtonStyle"
+      :corner-button-label="cornerButtonLabel"
+      :navigation-scrim-style="navigationScrimStyle"
+      :navigation-panel-style="navigationPanelStyle"
+      :management-items="managementItems"
+      :selected-keys="selectedKeys"
+      :dark-theme="darkTheme"
+      :settings-active="route.name === 'settings'"
+      @corner-click="handleCornerButtonClick"
+      @close-navigation="closeNavigation"
+      @go-home="goHome(true)"
+      @menu-click="handleMenuClick"
+      @toggle-theme="toggleTheme"
+      @open-settings="pushRoute('/settings'); closeNavigation()"
     />
-
-    <aside
-      v-show="navigationVisible"
-      class="nav-panel"
-      :class="{ 'nav-panel--settling': navigationSettling }"
-      :style="navigationPanelStyle"
-      aria-label="主导航"
-    >
-      <div class="nav-panel-glow" />
-
-      <div class="brand">
-        <div class="brand-mark">MF</div>
-        <button
-          class="brand-home-button"
-          type="button"
-          aria-label="返回主页"
-          @pointerdown.stop
-          @touchstart.stop
-          @click="goHome(true)"
-        >
-          <div class="brand-title">messageFeed</div>
-          <div class="brand-subtitle">信息阅读</div>
-        </button>
-      </div>
-
-      <nav class="app-menu" aria-label="管理导航">
-        <button
-          v-for="item in managementItems"
-          :key="item.key"
-          class="nav-item"
-          :class="{ 'nav-item--active': selectedKeys.includes(item.key) }"
-          type="button"
-          @pointerdown.stop
-          @touchstart.stop
-          @click="handleMenuClick(item.key)"
-        >
-          <component :is="item.icon" />
-          <span>{{ item.label }}</span>
-        </button>
-      </nav>
-
-      <div class="nav-panel-actions">
-        <button
-          class="theme-icon-button"
-          type="button"
-          aria-label="切换主题"
-          @pointerdown.stop
-          @touchstart.stop
-          @click="toggleTheme"
-        >
-          <component :is="darkTheme ? IconSunFill : IconMoonFill" />
-        </button>
-
-        <button
-          class="settings-icon-button"
-          :class="{ 'settings-icon-button--active': route.name === 'settings' }"
-          type="button"
-          aria-label="设置"
-          @pointerdown.stop
-          @touchstart.stop
-          @click="pushRoute('/settings'); closeNavigation()"
-        >
-          <IconSettings />
-        </button>
-      </div>
-    </aside>
 
     <main
       class="app-main"
