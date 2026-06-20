@@ -124,7 +124,8 @@ const {
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
   resetDetailTransition,
-  clearHiddenSourceReader,
+  clearHiddenSourceCleanupTimer,
+  scheduleHiddenSourceReaderCleanupWithDelay,
   openSourceReaderState,
   closeVisibleSourceReaderState,
   clearSourceReaderState,
@@ -1220,7 +1221,6 @@ let viewSwipeTimer = 0
 let readerMotionTimer = 0
 let detailEntryTimer = 0
 let detailHeaderSwapTimer = 0
-let hiddenSourceCleanupTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
@@ -1639,10 +1639,7 @@ function restoreMorphingItemContent(unlockDelay = 180) {
 }
 
 function scheduleHiddenSourceReaderCleanup(delay = 180) {
-  window.clearTimeout(hiddenSourceCleanupTimer)
-  hiddenSourceCleanupTimer = window.setTimeout(() => {
-    clearHiddenSourceReader()
-  }, delay)
+  scheduleHiddenSourceReaderCleanupWithDelay(delay)
 }
 
 function showSourceReaderUnderDetail() {
@@ -1884,7 +1881,7 @@ function finishCommittedListReturnForGesture() {
 }
 
 function openSourceReader(source: ReaderSource, options: { visible?: boolean } = {}) {
-  window.clearTimeout(hiddenSourceCleanupTimer)
+  clearHiddenSourceCleanupTimer()
   const nextVisible = options.visible ?? true
   if (nextVisible) {
     setTopChromeVisible(true)
@@ -1920,7 +1917,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
 
 async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
   clearMorphingHeightUnlockTimer()
-  window.clearTimeout(hiddenSourceCleanupTimer)
+  clearHiddenSourceCleanupTimer()
   const openedFromSourceReader =
     sourceReaderOpen.value && readerSource.value?.id === item.source_id && readerSource.value.kind === sourceKind
   startDetailHeaderTitleSwap(item)
@@ -3612,7 +3609,7 @@ onUnmounted(() => {
   window.clearTimeout(detailEntryTimer)
   window.clearTimeout(detailHeaderSwapTimer)
   clearMorphingHeightUnlockTimer()
-  window.clearTimeout(hiddenSourceCleanupTimer)
+  clearHiddenSourceCleanupTimer()
   readerSession.clearTimer()
 })
 </script>

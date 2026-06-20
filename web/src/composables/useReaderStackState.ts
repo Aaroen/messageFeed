@@ -139,6 +139,7 @@ function updateStretchAnchor(anchorRef: { value: 'left' | 'right' | null }, stre
 
 export function useReaderStackState() {
   let morphingHeightUnlockTimer = 0
+  let hiddenSourceCleanupTimer = 0
 
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
   const detailContentRef = ref<HTMLElement | null>(null)
@@ -432,6 +433,17 @@ export function useReaderStackState() {
     sourceSubscription.value = null
     sourceNotice.value = null
     return true
+  }
+
+  function clearHiddenSourceCleanupTimer() {
+    window.clearTimeout(hiddenSourceCleanupTimer)
+  }
+
+  function scheduleHiddenSourceReaderCleanupWithDelay(delay = 180) {
+    clearHiddenSourceCleanupTimer()
+    hiddenSourceCleanupTimer = window.setTimeout(() => {
+      clearHiddenSourceReader()
+    }, delay)
   }
 
   function openSourceReaderState(
@@ -1075,6 +1087,8 @@ export function useReaderStackState() {
     restorePreviousParkedDetail,
     resetDetailTransition,
     clearHiddenSourceReader,
+    clearHiddenSourceCleanupTimer,
+    scheduleHiddenSourceReaderCleanupWithDelay,
     openSourceReaderState,
     closeVisibleSourceReaderState,
     clearSourceReaderState,
