@@ -38,6 +38,7 @@ import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
 import { usePageContentMotion } from '@/composables/usePageContentMotion'
 import { useClickSuppression } from '@/composables/useClickSuppression'
+import { useSourceContentMotion } from '@/composables/useSourceContentMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -211,8 +212,6 @@ const darkTheme = ref(false)
 const refreshWasActive = ref(false)
 const refreshWasSource = ref(false)
 const feedRefreshSettling = ref(false)
-const sourceContentSettleOffset = ref(0)
-const sourceContentSettling = ref(false)
 const feedTopPulling = ref(false)
 const feedTopPullStartedWithChrome = ref(false)
 const refreshStartedWithChrome = ref(false)
@@ -475,6 +474,13 @@ const sourceReaderRevealProgress = computed(() =>
 const sourceHeaderSpace = computed(() =>
   feedContentCollapsed.value && topChromeProgress.value <= 0.01 ? 0 : feedHeaderHeight.value,
 )
+const sourceContentMotion = useSourceContentMotion({
+  headerSpace: sourceHeaderSpace,
+  headerHeight: feedHeaderHeight,
+  isVisible: () => sourceReaderVisible.value,
+  resolveDelay: motionDelay,
+})
+const sourceContentStyle = sourceContentMotion.contentStyle
 const sourceReaderStyle = computed(() => {
   const underlayBaseOpacity = darkTheme.value ? 0.74 : 0.54
   const overlayBaseOpacity = darkTheme.value ? 0.48 : 0.34
@@ -499,15 +505,6 @@ const sourceReaderStyle = computed(() => {
       : 'opacity var(--motion-normal) ease, transform var(--motion-normal) var(--ease-standard)',
   }
 })
-const sourceContentStyle = computed(() => ({
-  paddingTop: cssPx(sourceHeaderSpace.value + 14),
-  transform: cssTranslate3d(0, sourceContentSettleOffset.value),
-  transition: sourceContentSettling.value
-    ? 'padding-top var(--motion-chrome) var(--ease-emphasized), transform var(--motion-chrome) var(--ease-emphasized)'
-    : sourceContentSettleOffset.value > 0
-      ? 'none'
-      : undefined,
-}))
 const sourceHeaderStyle = computed(() => ({
   opacity: topChromeProgress.value.toFixed(3),
   pointerEvents: topChromeProgress.value > 0.86 ? ('auto' as const) : ('none' as const),
@@ -1226,7 +1223,6 @@ let detailHeaderSwapTimer = 0
 let morphingHeightUnlockTimer = 0
 let hiddenSourceCleanupTimer = 0
 let feedRefreshSettleTimer = 0
-let sourceContentSettleTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
@@ -2289,24 +2285,7 @@ function showTopChromeForSourceReturn() {
 }
 
 function settleSourceContentAfterRefresh() {
-  if (!sourceReaderVisible.value) {
-    sourceContentSettleOffset.value = 0
-    sourceContentSettling.value = false
-    return
-  }
-
-  window.clearTimeout(sourceContentSettleTimer)
-  sourceContentSettling.value = false
-  sourceContentSettleOffset.value = feedHeaderHeight.value
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      sourceContentSettling.value = true
-      sourceContentSettleOffset.value = 0
-    })
-  })
-  sourceContentSettleTimer = window.setTimeout(() => {
-    sourceContentSettling.value = false
-  }, motionDelay(topChromeSettleDuration))
+  sourceContentMotion.settleAfterRefresh(topChromeSettleDuration)
 }
 
 function prepareSourceReaderReturnDrag() {
@@ -3640,7 +3619,7 @@ onUnmounted(() => {
   navigationDrawer.clearTimer()
   window.clearTimeout(feedRefreshSettleTimer)
   chromeState.clearSettlingTimer()
-  window.clearTimeout(sourceContentSettleTimer)
+  sourceContentMotion.clearTimer()
   pagePullRefresh.clearSettleTimer()
   clickSuppression.clearTimer()
   clearSourceNoticeTimer()
