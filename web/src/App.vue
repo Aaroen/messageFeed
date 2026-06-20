@@ -152,6 +152,8 @@ const {
   updateDetailScrollTopState,
   updateDetailFrameContentHeightState,
   setDetailProgressDraggingState,
+  clearSourceReturnTargetReadyState,
+  clearSourceReaderReturnModeState,
   closeItemReaderState,
   beginCollapseItemReaderState,
   beginRestoreItemReaderExpansionState,
@@ -1282,7 +1284,7 @@ function resetGestureTracking() {
   navigationDragStarted = false
   backSwipeTarget = null
   backSwipeIntent = null
-  sourceReturnTargetReady.value = false
+  clearSourceReturnTargetReadyState()
 }
 
 function isInteractiveTarget(target: EventTarget | null) {
@@ -1878,7 +1880,7 @@ function restoreSourceReaderBackTarget() {
     return
   }
 
-  sourceReaderReturnMode.value = null
+  clearSourceReaderReturnModeState()
   closeSourceReader()
 }
 

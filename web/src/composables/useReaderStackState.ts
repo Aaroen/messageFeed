@@ -696,6 +696,14 @@ export function useReaderStackState() {
     detailProgressDragging.value = dragging
   }
 
+  function clearSourceReturnTargetReadyState() {
+    sourceReturnTargetReady.value = false
+  }
+
+  function clearSourceReaderReturnModeState() {
+    sourceReaderReturnMode.value = null
+  }
+
   function closeItemReaderState(): CloseItemReaderStateResult {
     const previousSourceReturnMode = sourceReaderReturnMode.value
     detailItem.value = null
@@ -1084,6 +1092,8 @@ export function useReaderStackState() {
     updateDetailScrollTopState,
     updateDetailFrameContentHeightState,
     setDetailProgressDraggingState,
+    clearSourceReturnTargetReadyState,
+    clearSourceReaderReturnModeState,
     closeItemReaderState,
     beginCollapseItemReaderState,
     beginRestoreItemReaderExpansionState,
