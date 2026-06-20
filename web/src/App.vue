@@ -140,6 +140,9 @@ const {
   beginCompleteDetailToSourceReaderState,
   commitCompleteDetailToSourceReaderState,
   finishCompleteDetailToSourceReaderState,
+  beginRestoreParkedSourceReaderState,
+  commitRestoreParkedSourceReaderState,
+  finishRestoreParkedSourceReaderState,
   detailBlocksGestures,
 } = useReaderStackState()
 const {
@@ -2081,27 +2084,17 @@ function restoreDetailFromParkedSource(duration = 360) {
 }
 
 function restoreParkedSourceReader(duration = 260) {
-  if (!detailReaderOpen.value || !sourceReaderVisible.value) {
+  if (!beginRestoreParkedSourceReaderState()) {
     resetBackSwipeOffset()
     return
   }
 
-  readerBackDragging.value = false
-  detailEntrySettling.value = true
-  detailRestoringFromSourceReader.value = true
-  detailBackExitProgress.value = 0
-  detailSourceExitProgress.value = Math.max(detailSourceExitProgress.value, 0.001)
-  detailReturningToFeed.value = false
-  detailListReturnCommitted.value = false
   window.clearTimeout(detailEntryTimer)
   requestAnimationFrame(() => {
-    detailSourceExitProgress.value = 1
+    commitRestoreParkedSourceReaderState()
   })
   detailEntryTimer = window.setTimeout(() => {
-    detailEntrySettling.value = false
-    detailRestoringFromSourceReader.value = false
-    detailSourceExitProgress.value = 1
-    detailListReturnCommitted.value = true
+    finishRestoreParkedSourceReaderState()
   }, motionDelay(duration))
 }
 

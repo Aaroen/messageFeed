@@ -609,6 +609,32 @@ export function useReaderStackState() {
     detailSourceExitProgress.value = 1
   }
 
+  function beginRestoreParkedSourceReaderState() {
+    if (!detailReaderOpen.value || !sourceReaderVisible.value) {
+      return false
+    }
+
+    readerBackDragging.value = false
+    detailEntrySettling.value = true
+    detailRestoringFromSourceReader.value = true
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = Math.max(detailSourceExitProgress.value, 0.001)
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = false
+    return true
+  }
+
+  function commitRestoreParkedSourceReaderState() {
+    detailSourceExitProgress.value = 1
+  }
+
+  function finishRestoreParkedSourceReaderState() {
+    detailEntrySettling.value = false
+    detailRestoringFromSourceReader.value = false
+    detailSourceExitProgress.value = 1
+    detailListReturnCommitted.value = true
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -699,6 +725,9 @@ export function useReaderStackState() {
     beginCompleteDetailToSourceReaderState,
     commitCompleteDetailToSourceReaderState,
     finishCompleteDetailToSourceReaderState,
+    beginRestoreParkedSourceReaderState,
+    commitRestoreParkedSourceReaderState,
+    finishRestoreParkedSourceReaderState,
     detailBlocksGestures,
   }
 }
