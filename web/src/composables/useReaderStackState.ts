@@ -635,6 +635,45 @@ export function useReaderStackState() {
     detailListReturnCommitted.value = true
   }
 
+  function beginRestoreDetailFromParkedSourceState() {
+    if (!detailReaderOpen.value) {
+      return false
+    }
+
+    if (detailItem.value?.id) {
+      morphingItemId.value = detailItem.value.id
+      morphingHeightLockItemId.value = detailItem.value.id
+      morphingItemHeight.value = detailSourceItemTargetRect.value?.height ?? morphingItemHeight.value
+    }
+
+    const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 1
+    readerBackDragging.value = false
+    detailEntrySettling.value = true
+    detailRestoringFromSourceReader.value = true
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = startProgress
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = false
+    return true
+  }
+
+  function commitRestoreDetailFromParkedSourceState() {
+    detailSourceExitProgress.value = 0
+  }
+
+  function finishRestoreDetailFromParkedSourceState() {
+    detailEntrySettling.value = false
+    detailRestoringFromSourceReader.value = false
+    sourceReaderReturnMode.value = null
+    sourceReaderBackDetail.value = null
+    parkedDetailStack.value = []
+    sourceReaderVisible.value = false
+    detailSourceItemTargetRect.value = null
+    detailSourceNameOriginRect.value = null
+    detailSourceNameTargetRect.value = null
+    detailTransitionRectsLocked.value = false
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -728,6 +767,9 @@ export function useReaderStackState() {
     beginRestoreParkedSourceReaderState,
     commitRestoreParkedSourceReaderState,
     finishRestoreParkedSourceReaderState,
+    beginRestoreDetailFromParkedSourceState,
+    commitRestoreDetailFromParkedSourceState,
+    finishRestoreDetailFromParkedSourceState,
     detailBlocksGestures,
   }
 }
