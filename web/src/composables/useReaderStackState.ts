@@ -575,6 +575,40 @@ export function useReaderStackState() {
     detailTransitionRectsLocked.value = false
   }
 
+  function beginCompleteDetailToSourceReaderState() {
+    if (!readerSource.value && detailItem.value?.source_id) {
+      readerSource.value = {
+        id: detailItem.value.source_id,
+        name: detailItem.value.source_name || '未知来源',
+        kind: detailSourceKind.value,
+      }
+    }
+
+    const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 0
+    if (!sourceReaderBackDetail.value) {
+      sourceReaderBackDetail.value = snapshotCurrentDetail()
+    }
+    sourceReaderReturnMode.value = 'detail'
+    sourceReaderVisible.value = true
+    readerBackDragging.value = false
+    detailEntrySettling.value = true
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = startProgress
+    detailRestoringFromSourceReader.value = false
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = false
+  }
+
+  function commitCompleteDetailToSourceReaderState() {
+    detailSourceExitProgress.value = 1
+  }
+
+  function finishCompleteDetailToSourceReaderState() {
+    detailEntrySettling.value = false
+    detailListReturnCommitted.value = true
+    detailSourceExitProgress.value = 1
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -662,6 +696,9 @@ export function useReaderStackState() {
     finishRestoreItemReaderExpansionState,
     beginRestoreDetailFromSourceSwipeState,
     finishRestoreDetailFromSourceSwipeState,
+    beginCompleteDetailToSourceReaderState,
+    commitCompleteDetailToSourceReaderState,
+    finishCompleteDetailToSourceReaderState,
     detailBlocksGestures,
   }
 }

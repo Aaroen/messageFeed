@@ -122,7 +122,6 @@ const {
   sourceReaderShouldReturnToDetail,
   createReaderStackSessionSnapshot,
   applyReaderStackSessionSnapshot,
-  snapshotCurrentDetail,
   pushParkedDetailSnapshot,
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
@@ -138,6 +137,9 @@ const {
   finishRestoreItemReaderExpansionState,
   beginRestoreDetailFromSourceSwipeState,
   finishRestoreDetailFromSourceSwipeState,
+  beginCompleteDetailToSourceReaderState,
+  commitCompleteDetailToSourceReaderState,
+  finishCompleteDetailToSourceReaderState,
   detailBlocksGestures,
 } = useReaderStackState()
 const {
@@ -2155,39 +2157,18 @@ function restoreDetailFromSourceSwipe(duration = 360) {
 }
 
 function completeDetailToSourceReader(duration = 360) {
-  if (!readerSource.value && detailItem.value?.source_id) {
-    readerSource.value = {
-      id: detailItem.value.source_id,
-      name: detailItem.value.source_name || '未知来源',
-      kind: detailSourceKind.value,
-    }
-  }
-  const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 0
-  if (!sourceReaderBackDetail.value) {
-    sourceReaderBackDetail.value = snapshotCurrentDetail()
-  }
-  sourceReaderReturnMode.value = 'detail'
+  beginCompleteDetailToSourceReaderState()
   setTopChromeVisible(true)
   setChromeContentCollapsed(false)
-  sourceReaderVisible.value = true
   captureDetailSourceTransitionRects(12, { lock: true })
-  readerBackDragging.value = false
-  detailEntrySettling.value = true
-  detailBackExitProgress.value = 0
-  detailSourceExitProgress.value = startProgress
-  detailRestoringFromSourceReader.value = false
-  detailReturningToFeed.value = false
-  detailListReturnCommitted.value = false
   window.clearTimeout(detailEntryTimer)
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      detailSourceExitProgress.value = 1
+      commitCompleteDetailToSourceReaderState()
     })
   })
   detailEntryTimer = window.setTimeout(() => {
-    detailEntrySettling.value = false
-    detailListReturnCommitted.value = true
-    detailSourceExitProgress.value = 1
+    finishCompleteDetailToSourceReaderState()
     restoreMorphingItemContent()
   }, motionDelay(duration))
 }
