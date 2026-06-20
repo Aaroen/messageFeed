@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { StyleValue } from 'vue'
-import { IconSync } from '@arco-design/web-vue/es/icon'
+
+import RefreshStatusLayer from '@/components/RefreshStatusLayer.vue'
 
 withDefaults(
   defineProps<{
@@ -65,23 +66,15 @@ const emit = defineEmits<{
         {{ toggleLabel }}
       </button>
     </div>
-    <div
-      class="reader-source-layer reader-source-layer--refresh"
-      :class="{ 'reader-source-layer--hidden': !pullActive }"
-      :style="pullStatusStyle"
-      aria-live="polite"
-    >
-      <span
-        class="feed-refresh-header__icon"
-        :class="{ 'feed-refresh-header__icon--refreshing': pullRefreshing }"
-        :style="pullIconStyle"
-      >
-        <IconSync />
-      </span>
-      <div class="feed-refresh-header__copy">
-        <div class="feed-refresh-header__title">{{ pullStatusText }}</div>
-        <div class="feed-refresh-header__meta">{{ pullStatusMeta }}</div>
-      </div>
-    </div>
+    <RefreshStatusLayer
+      root-class="reader-source-layer reader-source-layer--refresh"
+      hidden-class="reader-source-layer--hidden"
+      :hidden="!pullActive"
+      :root-style="pullStatusStyle"
+      :refreshing="pullRefreshing"
+      :icon-style="pullIconStyle"
+      :title="pullStatusText"
+      :meta="pullStatusMeta"
+    />
   </div>
 </template>

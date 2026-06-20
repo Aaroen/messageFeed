@@ -17,6 +17,7 @@ import {
 import ReaderDetailOverlayContent from '@/components/ReaderDetailOverlayContent.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
 import ReaderSourceOverlayContent from '@/components/ReaderSourceOverlayContent.vue'
+import RefreshStatusLayer from '@/components/RefreshStatusLayer.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
@@ -3906,25 +3907,17 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
-            <div
+            <RefreshStatusLayer
               v-if="isFeedRoute"
-              class="feed-header-layer feed-header-layer--refresh"
-              :class="{ 'feed-header-layer--hidden': detailReaderOpen || !feedPullActive }"
-              :style="pullStatusStyle"
-              aria-live="polite"
-            >
-              <span
-                class="feed-refresh-header__icon"
-                :class="{ 'feed-refresh-header__icon--refreshing': feedInteraction.pullRefreshing }"
-                :style="pullIconStyle"
-              >
-                <IconSync />
-              </span>
-              <div class="feed-refresh-header__copy">
-                <div class="feed-refresh-header__title">{{ pullStatusText }}</div>
-                <div class="feed-refresh-header__meta">{{ pullStatusMeta }}</div>
-              </div>
-            </div>
+              root-class="feed-header-layer feed-header-layer--refresh"
+              hidden-class="feed-header-layer--hidden"
+              :hidden="detailReaderOpen || !feedPullActive"
+              :root-style="pullStatusStyle"
+              :refreshing="feedInteraction.pullRefreshing"
+              :icon-style="pullIconStyle"
+              :title="pullStatusText"
+              :meta="pullStatusMeta"
+            />
           </div>
           <div v-else class="app-header-page-stack">
             <div
@@ -3934,24 +3927,16 @@ onUnmounted(() => {
             >
               <h1>{{ pageTitle }}</h1>
             </div>
-            <div
-              class="feed-header-layer feed-header-layer--refresh"
-              :class="{ 'feed-header-layer--hidden': !pagePullActive }"
-              :style="pagePullStatusStyle"
-              aria-live="polite"
-            >
-              <span
-                class="feed-refresh-header__icon"
-                :class="{ 'feed-refresh-header__icon--refreshing': pagePullRefreshing }"
-                :style="pagePullIconStyle"
-              >
-                <IconSync />
-              </span>
-              <div class="feed-refresh-header__copy">
-                <div class="feed-refresh-header__title">{{ pagePullStatusText }}</div>
-                <div class="feed-refresh-header__meta">{{ pagePullStatusMeta }}</div>
-              </div>
-            </div>
+            <RefreshStatusLayer
+              root-class="feed-header-layer feed-header-layer--refresh"
+              hidden-class="feed-header-layer--hidden"
+              :hidden="!pagePullActive"
+              :root-style="pagePullStatusStyle"
+              :refreshing="pagePullRefreshing"
+              :icon-style="pagePullIconStyle"
+              :title="pagePullStatusText"
+              :meta="pagePullStatusMeta"
+            />
           </div>
         </div>
       </TopChrome>
