@@ -147,6 +147,11 @@ const {
   revealSourceReaderUnderDetailState,
   beginReaderMotionSettlingState,
   finishReaderMotionSettlingState,
+  updateSourceReaderScrollTopState,
+  updateDetailScrollMetricsState,
+  updateDetailScrollTopState,
+  updateDetailFrameContentHeightState,
+  setDetailProgressDraggingState,
   closeItemReaderState,
   beginCollapseItemReaderState,
   beginRestoreItemReaderExpansionState,
@@ -3087,9 +3092,7 @@ function syncDetailContainerMetrics() {
     return
   }
 
-  detailScrollTop.value = container.scrollTop
-  detailScrollHeight.value = Math.max(0, container.scrollHeight)
-  detailScrollClientHeight.value = Math.max(0, container.clientHeight)
+  updateDetailScrollMetricsState(container.scrollTop, container.scrollHeight, container.clientHeight)
 }
 
 function scrollDetailContentTo(top: number) {
@@ -3111,7 +3114,7 @@ function updateDetailProgressFromPointer(clientY: number) {
   const rect = track.getBoundingClientRect()
   const progress = clamp((clientY - rect.top) / Math.max(1, rect.height))
   const nextScrollTop = detailScrollMax.value * progress
-  detailScrollTop.value = nextScrollTop
+  updateDetailScrollTopState(nextScrollTop)
   lastDetailScrollTop = nextScrollTop
   scrollDetailContentTo(nextScrollTop)
 }
@@ -3124,7 +3127,7 @@ function handleDetailProgressPointerDown(event: PointerEvent) {
   event.preventDefault()
   event.stopPropagation()
   suppressFollowingClick()
-  detailProgressDragging.value = true
+  setDetailProgressDraggingState(true)
   activeDetailProgressPointerId = event.pointerId
   ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
   updateDetailProgressFromPointer(event.clientY)
@@ -3149,7 +3152,7 @@ function finishDetailProgressDrag(event?: PointerEvent) {
     ;(event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId)
   }
   activeDetailProgressPointerId = null
-  detailProgressDragging.value = false
+  setDetailProgressDraggingState(false)
 }
 
 function handleDetailFrameLoad() {
@@ -3170,7 +3173,7 @@ function handleMessage(event: MessageEvent) {
     const payload = event.data as { scrollTop?: number; scrollHeight?: number; clientHeight?: number }
     const scrollHeight = Number(payload.scrollHeight ?? 0)
     if (Number.isFinite(scrollHeight)) {
-      detailFrameContentHeight.value = Math.max(0, scrollHeight)
+      updateDetailFrameContentHeightState(scrollHeight)
     }
     requestAnimationFrame(syncDetailContainerMetrics)
     return
@@ -3435,7 +3438,7 @@ function handleSourceReaderScroll(event: Event) {
   }
 
   const current = target.scrollTop
-  sourceReaderScrollTop.value = current
+  updateSourceReaderScrollTopState(current)
   updateTopTabsByScroll(current, lastSourceReaderScrollTop)
   lastSourceReaderScrollTop = current
   scheduleReaderSessionSave()
@@ -3448,9 +3451,7 @@ function handleDetailContentScroll(event: Event) {
   }
 
   const current = target.scrollTop
-  detailScrollTop.value = current
-  detailScrollHeight.value = Math.max(0, target.scrollHeight)
-  detailScrollClientHeight.value = Math.max(0, target.clientHeight)
+  updateDetailScrollMetricsState(current, target.scrollHeight, target.clientHeight)
   updateTopTabsByScroll(current, lastDetailScrollTop)
   lastDetailScrollTop = current
   scheduleReaderSessionSave()

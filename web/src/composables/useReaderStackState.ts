@@ -674,6 +674,28 @@ export function useReaderStackState() {
     readerMotionSettling.value = false
   }
 
+  function updateSourceReaderScrollTopState(scrollTop: number) {
+    sourceReaderScrollTop.value = Math.max(0, scrollTop)
+  }
+
+  function updateDetailScrollMetricsState(scrollTop: number, scrollHeight: number, clientHeight: number) {
+    detailScrollTop.value = Math.max(0, scrollTop)
+    detailScrollHeight.value = Math.max(0, scrollHeight)
+    detailScrollClientHeight.value = Math.max(0, clientHeight)
+  }
+
+  function updateDetailScrollTopState(scrollTop: number) {
+    detailScrollTop.value = Math.max(0, scrollTop)
+  }
+
+  function updateDetailFrameContentHeightState(scrollHeight: number) {
+    detailFrameContentHeight.value = Math.max(0, scrollHeight)
+  }
+
+  function setDetailProgressDraggingState(dragging: boolean) {
+    detailProgressDragging.value = dragging
+  }
+
   function closeItemReaderState(): CloseItemReaderStateResult {
     const previousSourceReturnMode = sourceReaderReturnMode.value
     detailItem.value = null
@@ -1057,6 +1079,11 @@ export function useReaderStackState() {
     revealSourceReaderUnderDetailState,
     beginReaderMotionSettlingState,
     finishReaderMotionSettlingState,
+    updateSourceReaderScrollTopState,
+    updateDetailScrollMetricsState,
+    updateDetailScrollTopState,
+    updateDetailFrameContentHeightState,
+    setDetailProgressDraggingState,
     closeItemReaderState,
     beginCollapseItemReaderState,
     beginRestoreItemReaderExpansionState,
