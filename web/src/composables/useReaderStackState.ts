@@ -138,6 +138,7 @@ function updateStretchAnchor(anchorRef: { value: 'left' | 'right' | null }, stre
 }
 
 export function useReaderStackState() {
+  let readerMotionTimer = 0
   let morphingHeightUnlockTimer = 0
   let hiddenSourceCleanupTimer = 0
 
@@ -697,6 +698,19 @@ export function useReaderStackState() {
     readerMotionSettling.value = false
   }
 
+  function clearReaderMotionTimer() {
+    window.clearTimeout(readerMotionTimer)
+  }
+
+  function settleReaderMotionWithDelay(delay = 260, done?: () => void) {
+    beginReaderMotionSettlingState()
+    clearReaderMotionTimer()
+    readerMotionTimer = window.setTimeout(() => {
+      finishReaderMotionSettlingState()
+      done?.()
+    }, delay)
+  }
+
   function updateSourceReaderScrollTopState(scrollTop: number) {
     sourceReaderScrollTop.value = Math.max(0, scrollTop)
   }
@@ -1111,6 +1125,8 @@ export function useReaderStackState() {
     revealSourceReaderUnderDetailState,
     beginReaderMotionSettlingState,
     finishReaderMotionSettlingState,
+    clearReaderMotionTimer,
+    settleReaderMotionWithDelay,
     updateSourceReaderScrollTopState,
     updateDetailScrollMetricsState,
     updateDetailScrollTopState,

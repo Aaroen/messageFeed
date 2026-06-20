@@ -144,8 +144,8 @@ const {
   clearMorphingHeightUnlockTimer,
   restoreMorphingItemContentWithDelay,
   revealSourceReaderUnderDetailState,
-  beginReaderMotionSettlingState,
-  finishReaderMotionSettlingState,
+  clearReaderMotionTimer,
+  settleReaderMotionWithDelay,
   updateSourceReaderScrollTopState,
   updateDetailScrollMetricsState,
   updateDetailScrollTopState,
@@ -1218,7 +1218,6 @@ let navigationDragStarted = false
 let backSwipeTarget: 'detail' | 'source' | 'page' | null = null
 let backSwipeIntent: 'back' | 'source' | 'blocked' | null = null
 let viewSwipeTimer = 0
-let readerMotionTimer = 0
 let detailEntryTimer = 0
 let detailHeaderSwapTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
@@ -1664,12 +1663,7 @@ function showSourceReaderUnderDetail() {
 }
 
 function settleReaderMotion(duration = 260, done?: () => void) {
-  beginReaderMotionSettlingState()
-  window.clearTimeout(readerMotionTimer)
-  readerMotionTimer = window.setTimeout(() => {
-    finishReaderMotionSettlingState()
-    done?.()
-  }, motionDelay(duration))
+  settleReaderMotionWithDelay(motionDelay(duration), done)
 }
 
 function startDetailEntry(rect?: DOMRect) {
@@ -3605,7 +3599,7 @@ onUnmounted(() => {
   pagePullRefresh.clearSettleTimer()
   clickSuppression.clearTimer()
   clearSourceNoticeTimer()
-  window.clearTimeout(readerMotionTimer)
+  clearReaderMotionTimer()
   window.clearTimeout(detailEntryTimer)
   window.clearTimeout(detailHeaderSwapTimer)
   clearMorphingHeightUnlockTimer()
