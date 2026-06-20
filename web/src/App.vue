@@ -30,6 +30,7 @@ import {
   readerRouteMatchesCurrent,
   useReaderRouteSync,
 } from '@/composables/useReaderRouteSync'
+import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 
@@ -46,9 +47,6 @@ type PageViewExpose = {
 const route = useRoute()
 const router = useRouter()
 const feedInteraction = useFeedInteractionStore()
-const navigationOpen = ref(false)
-const navigationProgress = ref(0)
-const navigationSettling = ref(false)
 const feedContentRef = ref<HTMLElement | null>(null)
 const pageContentRef = ref<HTMLElement | null>(null)
 const pageViewRef = ref<PageViewExpose | null>(null)
@@ -200,6 +198,14 @@ const swipeProgress = swipeTransition.progress
 const swipeIsBlocked = swipeTransition.isBlocked
 const windowWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
 const windowHeight = ref(typeof window === 'undefined' ? 900 : window.innerHeight)
+const navigationDrawer = useNavigationDrawer({ windowWidth, resolveDelay: motionDelay })
+const navigationOpen = navigationDrawer.open
+const navigationProgress = navigationDrawer.progress
+const navigationSettling = navigationDrawer.settling
+const navigationWidth = navigationDrawer.width
+const navigationVisible = navigationDrawer.visible
+const navigationPanelStyle = navigationDrawer.panelStyle
+const navigationScrimStyle = navigationDrawer.scrimStyle
 const darkTheme = ref(false)
 const refreshWasActive = ref(false)
 const refreshWasSource = ref(false)
@@ -427,21 +433,6 @@ const sourceToggleLabel = computed(() => {
   return sourceSubscription.value?.status === 'active' ? '关闭' : '开启'
 })
 const sourceToggleActive = computed(() => sourceSubscription.value?.status === 'active')
-const navigationWidth = computed(() => {
-  if (windowWidth.value <= 420) {
-    return Math.round(windowWidth.value * 0.8)
-  }
-  return Math.round(Math.min(Math.max(304, windowWidth.value * 0.32), Math.min(440, windowWidth.value * 0.8)))
-})
-const navigationVisible = computed(() => navigationOpen.value || navigationProgress.value > 0 || navigationSettling.value)
-const navigationPanelStyle = computed(() => ({
-  width: `${navigationWidth.value}px`,
-  transform: cssTranslate3d((navigationProgress.value - 1) * (navigationWidth.value + 28), 0),
-}))
-const navigationScrimStyle = computed(() => ({
-  opacity: navigationProgress.value,
-  pointerEvents: navigationProgress.value > 0.2 ? ('auto' as const) : ('none' as const),
-}))
 const feedTrackStyle = computed(() => ({
   transform: `translate3d(calc(${-activeFeedIndex.value * 100}% + ${cssPx(viewDragOffset.value)}), 0, 0)`,
 }))
@@ -1239,7 +1230,6 @@ let suppressNextClick = false
 let suppressClickTimer = 0
 let viewSwipeTimer = 0
 let swipeTransitionTimer = 0
-let navigationTimer = 0
 let readerMotionTimer = 0
 let detailEntryTimer = 0
 let detailHeaderSwapTimer = 0
@@ -2145,40 +2135,16 @@ function completeDetailToSourceReader(duration = 360) {
 }
 
 function settleNavigation(open: boolean) {
-  window.clearTimeout(navigationTimer)
-  navigationSettling.value = true
-  navigationOpen.value = open
-  navigationProgress.value = open ? 1 : 0
-  navigationTimer = window.setTimeout(() => {
-    navigationSettling.value = false
-    if (!open) {
-      navigationProgress.value = 0
-    }
-  }, motionDelay(220))
+  navigationDrawer.settle(open)
 }
 
 function openNavigation() {
   resetGestureTracking()
-  window.clearTimeout(navigationTimer)
-  navigationOpen.value = true
-  navigationSettling.value = true
-  navigationProgress.value = 0
-  requestAnimationFrame(() => {
-    navigationProgress.value = 1
-  })
-  navigationTimer = window.setTimeout(() => {
-    navigationSettling.value = false
-  }, motionDelay(220))
+  navigationDrawer.openPanel()
 }
 
 function closeNavigation() {
-  if (!navigationVisible.value) {
-    navigationOpen.value = false
-    navigationProgress.value = 0
-    navigationSettling.value = false
-    return
-  }
-  settleNavigation(false)
+  navigationDrawer.closePanel()
 }
 
 function isHorizontalSwipe(deltaX: number, deltaY: number) {
@@ -3713,7 +3679,7 @@ onUnmounted(() => {
   window.removeEventListener('touchcancel', handleTouchCancel)
   window.clearTimeout(viewSwipeTimer)
   window.clearTimeout(swipeTransitionTimer)
-  window.clearTimeout(navigationTimer)
+  navigationDrawer.clearTimer()
   window.clearTimeout(feedRefreshSettleTimer)
   window.clearTimeout(feedChromeSettleTimer)
   window.clearTimeout(sourceContentSettleTimer)
