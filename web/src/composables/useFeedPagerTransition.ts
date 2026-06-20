@@ -25,6 +25,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   const settling = ref(false)
   let settlingTimer = 0
   let delayedCommitTimer = 0
+  let startedWithHiddenChrome = false
 
   const activeIndex = computed(() => (options.getActiveKey() === 'recommendations' ? 1 : 0))
 
@@ -55,6 +56,20 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   function setSettling(nextSettling: boolean) {
     settling.value = nextSettling
+  }
+
+  function markStartedWithHiddenChrome() {
+    startedWithHiddenChrome = true
+  }
+
+  function clearStartedWithHiddenChrome() {
+    startedWithHiddenChrome = false
+  }
+
+  function consumeStartedWithHiddenChrome() {
+    const started = startedWithHiddenChrome
+    startedWithHiddenChrome = false
+    return started
   }
 
   function clearSettlingTimer() {
@@ -88,6 +103,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   function reset() {
     clearSettlingTimer()
     clearDelayedCommitTimer()
+    clearStartedWithHiddenChrome()
     dragOffset.value = 0
     settling.value = false
   }
@@ -104,6 +120,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     targetProgress,
     setDragOffset,
     setSettling,
+    markStartedWithHiddenChrome,
+    clearStartedWithHiddenChrome,
+    consumeStartedWithHiddenChrome,
     clearSettlingTimer,
     clearDelayedCommitTimer,
     scheduleSettlingEnd,

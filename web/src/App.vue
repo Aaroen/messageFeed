@@ -1203,7 +1203,6 @@ let trackingBackSwipeCandidate = false
 let trackingEdgeSwipe = false
 let trackingNavigationClose = false
 let trackingViewSwipe = false
-let viewSwipeStartedWithHiddenChrome = false
 let trackingBackSwipe = false
 let navigationDragStarted = false
 let backSwipeTarget: 'detail' | 'source' | 'page' | null = null
@@ -1226,7 +1225,7 @@ function resetGestureTracking() {
   trackingEdgeSwipeCandidate = false
   trackingNavigationCloseCandidate = false
   trackingViewSwipeCandidate = false
-  viewSwipeStartedWithHiddenChrome = false
+  feedPagerTransition.clearStartedWithHiddenChrome()
   trackingBackSwipeCandidate = false
   trackingEdgeSwipe = false
   trackingNavigationClose = false
@@ -2482,8 +2481,8 @@ function finishViewSwipe(nextPath: string | null) {
   swipeTransition.settle(committed, { progress: committed ? 1 : 0, isBlocked: false })
   feedPagerTransition.clearDelayedCommitTimer()
   feedPagerTransition.clearSettlingTimer()
-  const shouldRevealChromeFirst = Boolean(nextPath) && viewSwipeStartedWithHiddenChrome
-  viewSwipeStartedWithHiddenChrome = false
+  const startedWithHiddenChrome = feedPagerTransition.consumeStartedWithHiddenChrome()
+  const shouldRevealChromeFirst = Boolean(nextPath) && startedWithHiddenChrome
   if (shouldRevealChromeFirst) {
     setTopChromeVisible(true)
     feedPagerTransition.scheduleDelayedCommit(viewSwipeChromeRevealDelay, () => {
@@ -2507,7 +2506,7 @@ function finishViewSwipe(nextPath: string | null) {
 function showTopChromeForViewSwipe() {
   const shouldRevealChrome = topChromeProgress.value < 0.99 || feedContentCollapsed.value
   if (shouldRevealChrome) {
-    viewSwipeStartedWithHiddenChrome = true
+    feedPagerTransition.markStartedWithHiddenChrome()
     setTopChromeVisible(true)
   }
 }
