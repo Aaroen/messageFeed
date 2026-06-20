@@ -16,9 +16,7 @@ import {
 } from '@/api/feed'
 import ReaderDetailOverlayContent from '@/components/ReaderDetailOverlayContent.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
-import ReaderSourceChromeContent from '@/components/ReaderSourceChromeContent.vue'
-import ReaderSourceFeed from '@/components/ReaderSourceFeed.vue'
-import ReaderSourceNotice from '@/components/ReaderSourceNotice.vue'
+import ReaderSourceOverlayContent from '@/components/ReaderSourceOverlayContent.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
@@ -1551,6 +1549,10 @@ function snapshotRect(rect?: DOMRect): RectSnapshot | null {
 
 function snapshotElementRect(element: Element | null) {
   return element instanceof HTMLElement ? snapshotRect(element.getBoundingClientRect()) : null
+}
+
+function setSourceReaderContentElement(element: HTMLElement | null) {
+  sourceReaderContentRef.value = element
 }
 
 function findSourceFeedItemElement(itemID?: number) {
@@ -4046,57 +4048,44 @@ onUnmounted(() => {
       :detail-style="detailReaderStyle"
     >
       <template #source>
-        <ReaderSourceNotice :notice="sourceNotice" />
-        <TopChrome
-          variant="source"
-          :phase="topChromePhase"
-          :progress="topChromeProgress"
-          :root-style="sourceHeaderStyle"
-        >
-          <button class="reader-back-button" type="button" aria-label="打开导航" @click="openNavigation">
-            <IconMenuUnfold />
-          </button>
-          <ReaderSourceChromeContent
-            :source-name="readerSource?.name || ''"
-            :source-meta="sourceToggleActive ? '已订阅' : '未订阅'"
-            :title-text-style="sourceTitleTextStyle"
-            :title-layer-style="sourceTitleLayerStyle"
-            :main-layer-style="sourceMainLayerStyle"
-            :pull-status-style="sourcePullStatusStyle"
-            :pull-icon-style="sourcePullIconStyle"
-            :pull-active="sourcePullActive"
-            :pull-refreshing="feedInteraction.pullRefreshing"
-            :pull-status-text="pullStatusText"
-            :pull-status-meta="pullStatusMeta"
-            :toggle-active="sourceToggleActive"
-            :toggle-label="sourceToggleLabel"
-            :toggle-disabled="sourceSubscriptionLoading"
-            @toggle-subscription="toggleSourceReaderSubscription"
-          />
-        </TopChrome>
-        <div
-          ref="sourceReaderContentRef"
-          class="reader-overlay__content reader-overlay__content--source"
-          :style="sourceContentStyle"
-          @scroll.passive="handleSourceReaderScroll"
-        >
-          <ReaderSourceFeed
-            :reader-source="readerSource"
-            :refresh-nonce="sourceReaderRefreshNonce"
-            :scroll-top="sourceReaderScrollTop"
-            :top-chrome-progress="topChromeProgress"
-            :header-height="feedHeaderHeight"
-            :morphing-item-id="morphingItemId"
-            :morphing-height-lock-item-id="morphingHeightLockItemId"
-            :morphing-item-height="morphingItemHeight"
-            :morphing-preview-progress="feedItemPreviewProgress"
-            :background-refresh="!sourceReaderVisible"
-            @top-pull-start="handleFeedTopPullStart"
-            @top-pull-move="handleFeedTopPullMove"
-            @top-pull-end="handleFeedTopPullEnd"
-            @open-item="openItemReader"
-          />
-        </div>
+        <ReaderSourceOverlayContent
+          :notice="sourceNotice"
+          :top-chrome-phase="topChromePhase"
+          :top-chrome-progress="topChromeProgress"
+          :header-style="sourceHeaderStyle"
+          :source-name="readerSource?.name || ''"
+          :source-meta="sourceToggleActive ? '已订阅' : '未订阅'"
+          :title-text-style="sourceTitleTextStyle"
+          :title-layer-style="sourceTitleLayerStyle"
+          :main-layer-style="sourceMainLayerStyle"
+          :pull-status-style="sourcePullStatusStyle"
+          :pull-icon-style="sourcePullIconStyle"
+          :pull-active="sourcePullActive"
+          :pull-refreshing="feedInteraction.pullRefreshing"
+          :pull-status-text="pullStatusText"
+          :pull-status-meta="pullStatusMeta"
+          :toggle-active="sourceToggleActive"
+          :toggle-label="sourceToggleLabel"
+          :toggle-disabled="sourceSubscriptionLoading"
+          :content-style="sourceContentStyle"
+          :reader-source="readerSource"
+          :refresh-nonce="sourceReaderRefreshNonce"
+          :scroll-top="sourceReaderScrollTop"
+          :header-height="feedHeaderHeight"
+          :morphing-item-id="morphingItemId"
+          :morphing-height-lock-item-id="morphingHeightLockItemId"
+          :morphing-item-height="morphingItemHeight"
+          :morphing-preview-progress="feedItemPreviewProgress"
+          :background-refresh="!sourceReaderVisible"
+          @content-ref="setSourceReaderContentElement"
+          @content-scroll="handleSourceReaderScroll"
+          @open-navigation="openNavigation"
+          @toggle-subscription="toggleSourceReaderSubscription"
+          @top-pull-start="handleFeedTopPullStart"
+          @top-pull-move="handleFeedTopPullMove"
+          @top-pull-end="handleFeedTopPullEnd"
+          @open-item="openItemReader"
+        />
       </template>
 
       <template #detail>
