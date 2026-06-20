@@ -76,6 +76,7 @@ const pageSize = 10
 const cacheTTLMS = 60 * 1000
 const verticalLockRatio = 1.18
 const motionCleanupBuffer = 96
+const pullSettleDuration = 1000
 let touchStartY = 0
 let touchStartX = 0
 let touchStartChromeDistance = 0
@@ -511,7 +512,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       pullStartedWithVisibleChrome.value = false
       pullSettleTimer = window.setTimeout(() => {
         pullSettling.value = false
-      }, 260 + motionCleanupBuffer)
+      }, pullSettleDuration + motionCleanupBuffer)
     }, 120)
   }
 }

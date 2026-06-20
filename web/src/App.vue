@@ -392,14 +392,16 @@ const sourceReaderUnderDetail = computed(
 const sourceReaderRevealProgress = computed(() =>
   clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
 )
+const sourceHeaderSpace = computed(() =>
+  feedContentCollapsed.value && topChromeProgress.value <= 0.01 ? 0 : feedHeaderHeight.value,
+)
 const sourceReaderStyle = computed(() => {
   const underlayBaseOpacity = darkTheme.value ? 0.74 : 0.54
   const overlayBaseOpacity = darkTheme.value ? 0.48 : 0.34
   const sourceStretch = sourceReaderStretch.value
-  const sourceHeaderSpace = feedContentCollapsed.value && topChromeProgress.value <= 0.01 ? 0 : feedHeaderHeight.value
   return {
     '--feed-header-height': `${feedHeaderHeight.value}px`,
-    '--source-header-space': cssPx(sourceHeaderSpace),
+    '--source-header-space': cssPx(sourceHeaderSpace.value),
     zIndex: sourceReaderUnderDetail.value ? 96 : sourceReaderVisible.value ? 110 : 90,
     opacity: !sourceReaderVisible.value
       ? '0'
@@ -417,6 +419,9 @@ const sourceReaderStyle = computed(() => {
       : 'opacity 320ms ease, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1)',
   }
 })
+const sourceContentStyle = computed(() => ({
+  paddingTop: cssPx(sourceHeaderSpace.value + 14),
+}))
 const sourceHeaderStyle = computed(() => ({
   opacity: topChromeProgress.value.toFixed(3),
   pointerEvents: topChromeProgress.value > 0.86 ? ('auto' as const) : ('none' as const),
@@ -685,6 +690,7 @@ const sourceTitleRevealVisible = computed(
     detailReaderOpen.value &&
     sourceReaderVisible.value &&
     !detailCommittedListReturn() &&
+    !detailRestoringFromSourceReader.value &&
     !sourcePullActive.value,
 )
 const sourceNameMorphActive = computed(
@@ -2754,6 +2760,13 @@ function canReturnSourceReaderToDetail() {
   return sourceReaderShouldReturnToDetail() || hasParkedDetailSourceState() || detailRestoringFromSourceReader.value
 }
 
+function showTopChromeForSourceReturn() {
+  if (topChromeProgress.value < 0.99 || feedContentCollapsed.value) {
+    setTopChromeVisible(true)
+  }
+  feedContentCollapsed.value = false
+}
+
 function prepareSourceReaderReturnDrag() {
   if (detailReaderOpen.value) {
     return captureVisibleSourceReturnTarget()
@@ -2852,6 +2865,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   sourceReturnTargetReady.value = false
   if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
     backSwipeIntent = 'back'
+    showTopChromeForSourceReturn()
     detailRestoringFromSourceReader.value = true
     detailReturningToFeed.value = false
   } else if (deltaX > 0) {
@@ -2888,6 +2902,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   suppressFollowingClick()
   if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
     backSwipeIntent = 'back'
+    showTopChromeForSourceReturn()
     detailRestoringFromSourceReader.value = true
     detailReturningToFeed.value = false
   } else if (deltaX > 0) {
@@ -4491,6 +4506,7 @@ onUnmounted(() => {
       <div
         ref="sourceReaderContentRef"
         class="reader-overlay__content reader-overlay__content--source"
+        :style="sourceContentStyle"
         @scroll.passive="handleSourceReaderScroll"
       >
         <SubscriptionFeedView
