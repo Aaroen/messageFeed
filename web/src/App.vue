@@ -6,7 +6,6 @@ import {
   IconMoonFill,
   IconSettings,
   IconSunFill,
-  IconSync,
 } from '@arco-design/web-vue/es/icon'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -18,6 +17,7 @@ import {
 import ReaderDetailMorphText from '@/components/ReaderDetailMorphText.vue'
 import ReaderDetailProgress from '@/components/ReaderDetailProgress.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
+import ReaderSourceChromeContent from '@/components/ReaderSourceChromeContent.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
@@ -63,7 +63,6 @@ const {
   detailContentRef,
   detailFrameRef,
   detailInlineSourceRef,
-  sourceTitleTextRef,
   sourceReaderScrollTop,
   detailReaderTouchOffset,
   detailReaderStretch,
@@ -4052,47 +4051,23 @@ onUnmounted(() => {
           <button class="reader-back-button" type="button" aria-label="打开导航" @click="openNavigation">
             <IconMenuUnfold />
           </button>
-          <div class="reader-overlay__source-stack">
-            <div
-              class="reader-source-layer"
-              :class="{ 'reader-source-layer--hidden': sourcePullActive }"
-              :style="sourceMainLayerStyle"
-            >
-              <div class="reader-overlay__title" :style="sourceTitleLayerStyle">
-                <span ref="sourceTitleTextRef" :style="sourceTitleTextStyle">{{ readerSource?.name }}</span>
-                <small>{{ sourceToggleActive ? '已订阅' : '未订阅' }}</small>
-              </div>
-              <button
-                class="sources-button reader-source-toggle"
-                :class="{ 'sources-button--active': sourceToggleActive }"
-                type="button"
-                :disabled="sourceSubscriptionLoading"
-                @pointerdown.stop
-                @touchstart.stop
-                @click="toggleSourceReaderSubscription"
-              >
-                {{ sourceToggleLabel }}
-              </button>
-            </div>
-            <div
-              class="reader-source-layer reader-source-layer--refresh"
-              :class="{ 'reader-source-layer--hidden': !sourcePullActive }"
-              :style="sourcePullStatusStyle"
-              aria-live="polite"
-            >
-              <span
-                class="feed-refresh-header__icon"
-                :class="{ 'feed-refresh-header__icon--refreshing': feedInteraction.pullRefreshing }"
-                :style="sourcePullIconStyle"
-              >
-                <IconSync />
-              </span>
-              <div class="feed-refresh-header__copy">
-                <div class="feed-refresh-header__title">{{ pullStatusText }}</div>
-                <div class="feed-refresh-header__meta">{{ pullStatusMeta }}</div>
-              </div>
-            </div>
-          </div>
+          <ReaderSourceChromeContent
+            :source-name="readerSource?.name || ''"
+            :source-meta="sourceToggleActive ? '已订阅' : '未订阅'"
+            :title-text-style="sourceTitleTextStyle"
+            :title-layer-style="sourceTitleLayerStyle"
+            :main-layer-style="sourceMainLayerStyle"
+            :pull-status-style="sourcePullStatusStyle"
+            :pull-icon-style="sourcePullIconStyle"
+            :pull-active="sourcePullActive"
+            :pull-refreshing="feedInteraction.pullRefreshing"
+            :pull-status-text="pullStatusText"
+            :pull-status-meta="pullStatusMeta"
+            :toggle-active="sourceToggleActive"
+            :toggle-label="sourceToggleLabel"
+            :toggle-disabled="sourceSubscriptionLoading"
+            @toggle-subscription="toggleSourceReaderSubscription"
+          />
         </TopChrome>
         <div
           ref="sourceReaderContentRef"

@@ -142,7 +142,6 @@ export function useReaderStackState() {
   const detailContentRef = ref<HTMLElement | null>(null)
   const detailFrameRef = ref<HTMLIFrameElement | null>(null)
   const detailInlineSourceRef = ref<HTMLElement | null>(null)
-  const sourceTitleTextRef = ref<HTMLElement | null>(null)
 
   const sourceReaderScrollTop = ref(0)
   const detailReaderTouchOffset = ref(0)
@@ -997,7 +996,6 @@ export function useReaderStackState() {
     detailContentRef,
     detailFrameRef,
     detailInlineSourceRef,
-    sourceTitleTextRef,
     sourceReaderScrollTop,
     detailReaderTouchOffset,
     detailReaderStretch,
