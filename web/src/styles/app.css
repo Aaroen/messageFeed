@@ -16,13 +16,19 @@
   --mf-header-shadow: 0 12px 32px rgba(31, 45, 61, 0.08);
   --mf-viewport-height: 100vh;
   --motion-micro: 90ms;
+  --motion-stagger: 110ms;
+  --motion-brief: 140ms;
   --motion-fast: 160ms;
   --motion-quick: 180ms;
   --motion-short: 220ms;
   --motion-normal: 260ms;
   --motion-reader: 360ms;
   --motion-slow: 420ms;
+  --motion-refresh-spin: 760ms;
+  --motion-loading-cycle: 820ms;
   --motion-chrome: 1000ms;
+  --motion-ambient: 12s;
+  --motion-reduced: 1ms;
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --nav-panel-min-width: 304px;
@@ -264,7 +270,7 @@ body[arco-theme='dark'] .nav-panel {
     );
   filter: blur(24px);
   opacity: 0.95;
-  animation: fluid-panel 12s ease-in-out infinite alternate;
+  animation: fluid-panel var(--motion-ambient) ease-in-out infinite alternate;
   pointer-events: none;
 }
 
@@ -347,8 +353,8 @@ body[arco-theme='dark'] .nav-panel-glow {
   cursor: pointer;
   text-align: left;
   transition:
-    background 160ms ease,
-    transform 160ms ease;
+    background var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
 }
 
 .brand-home-button:hover {
@@ -415,10 +421,10 @@ body[arco-theme='dark'] .theme-icon-button {
   font-weight: 600;
   text-align: left;
   transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    background var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
 }
 
 .nav-item svg {
@@ -463,10 +469,10 @@ body[arco-theme='dark'] .nav-item--active {
   color: var(--mf-text);
   cursor: pointer;
   transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    background var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
 }
 
 .nav-panel-actions {
@@ -551,8 +557,8 @@ body[arco-theme='dark'] .settings-icon-button--active {
   opacity: var(--detail-underlay-opacity);
   filter: blur(var(--detail-underlay-blur));
   transition:
-    opacity 160ms linear,
-    filter 160ms linear;
+    opacity var(--motion-fast) linear,
+    filter var(--motion-fast) linear;
 }
 
 .app-header--feed-inactive {
@@ -597,7 +603,7 @@ body[arco-theme='dark'] .settings-icon-button--active {
   opacity: 1;
   transform: translate3d(0, 0, 0);
   transition:
-    opacity 140ms ease,
+    opacity var(--motion-brief) ease,
     transform var(--motion-quick) var(--ease-standard);
   will-change: opacity, transform;
 }
@@ -690,7 +696,7 @@ body[arco-theme='dark'] .feed-refresh-header__icon {
 }
 
 .feed-refresh-header__icon--refreshing {
-  animation: refresh-spin 760ms linear infinite;
+  animation: refresh-spin var(--motion-refresh-spin) linear infinite;
 }
 
 .feed-refresh-header__icon svg {
@@ -1024,11 +1030,11 @@ body[arco-theme='dark'] .app-main--refreshing .app-header {
   border-radius: 999px;
   background: var(--mf-primary-strong);
   opacity: 0.48;
-  animation: feed-loading-dot-bounce 820ms ease-in-out infinite;
+  animation: feed-loading-dot-bounce var(--motion-loading-cycle) ease-in-out infinite;
 }
 
 .feed-loading-dots span:nth-child(2) {
-  animation-delay: 110ms;
+  animation-delay: var(--motion-stagger);
 }
 
 .feed-loading-dots span:nth-child(3) {
@@ -1204,7 +1210,7 @@ body[arco-theme='dark'] .feed-local-refresh__icon {
 }
 
 .feed-local-refresh--refreshing .feed-local-refresh__icon {
-  animation: refresh-spin 760ms linear infinite;
+  animation: refresh-spin var(--motion-refresh-spin) linear infinite;
 }
 
 .feed-local-refresh__icon svg {
@@ -1827,8 +1833,8 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   border-radius: 999px;
   background: rgba(117, 132, 153, 0.22);
   transition:
-    background 160ms ease,
-    border-color 160ms ease;
+    background var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
 }
 
 .settings-switch span::after {
@@ -2009,9 +2015,9 @@ body[arco-theme='dark'] .sources-toast--warning {
 .source-row--clickable {
   cursor: pointer;
   transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    background 160ms ease;
+    transform var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    background var(--motion-fast) ease;
 }
 
 .source-row--clickable:hover {
@@ -2141,10 +2147,10 @@ body[arco-theme='dark'] .empty-surface {
   *,
   *::before,
   *::after {
-    animation-duration: 1ms !important;
+    animation-duration: var(--motion-reduced) !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
-    transition-duration: 1ms !important;
+    transition-duration: var(--motion-reduced) !important;
   }
 }
 
