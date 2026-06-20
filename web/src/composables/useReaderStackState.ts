@@ -8,6 +8,10 @@ import type {
   RectSnapshot,
 } from '@/composables/useReaderSession'
 
+type RestoreParkedDetailOptions = {
+  onDetailScrollTop?: (scrollTop: number) => void
+}
+
 export function useReaderStackState() {
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
   const detailContentRef = ref<HTMLElement | null>(null)
@@ -162,6 +166,47 @@ export function useReaderStackState() {
     return true
   }
 
+  function restoreParkedDetailSnapshot(
+    snapshot: ParkedDetailSnapshot | null,
+    options: RestoreParkedDetailOptions = {},
+  ) {
+    if (!snapshot) {
+      return false
+    }
+
+    detailItem.value = snapshot.item
+    detailError.value = ''
+    detailLoading.value = false
+    detailSourceKind.value = snapshot.sourceKind
+    detailOpenedFromSourceReader.value = false
+    detailOriginRect.value = snapshot.originRect
+    detailSourceItemTargetRect.value = snapshot.sourceItemTargetRect
+    detailSourceNameOriginRect.value = snapshot.sourceNameOriginRect
+    detailSourceNameTargetRect.value = snapshot.sourceNameTargetRect
+    detailScrollTop.value = snapshot.scrollTop
+    options.onDetailScrollTop?.(snapshot.scrollTop)
+    detailFrameContentHeight.value = 0
+    morphingItemId.value = null
+    morphingHeightLockItemId.value = null
+    morphingItemHeight.value = snapshot.morphingItemHeight
+    detailEntryProgress.value = 1
+    detailEntrySettling.value = false
+    detailReaderTouchOffset.value = 0
+    detailReaderStretch.value = 0
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = 1
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = true
+    detailRestoringFromSourceReader.value = false
+    sourceReaderReturnMode.value = 'detail'
+    sourceReaderVisible.value = true
+    return true
+  }
+
+  function restorePreviousParkedDetail(options: RestoreParkedDetailOptions = {}) {
+    return restoreParkedDetailSnapshot(parkedDetailStack.value.pop() ?? null, options)
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -233,6 +278,8 @@ export function useReaderStackState() {
     snapshotCurrentDetail,
     snapshotParkedDetail,
     pushParkedDetailSnapshot,
+    restoreParkedDetailSnapshot,
+    restorePreviousParkedDetail,
     detailBlocksGestures,
   }
 }

@@ -132,6 +132,8 @@ const {
   sourceReaderShouldReturnToDetail,
   snapshotCurrentDetail,
   pushParkedDetailSnapshot,
+  restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
+  restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
   detailBlocksGestures,
 } = useReaderStackState()
 const feedScrollTop = ref(0)
@@ -2007,41 +2009,19 @@ function restoreSourceReaderBackTarget() {
 }
 
 function restoreParkedDetailSnapshot(snapshot: ParkedDetailSnapshot | null) {
-  if (!snapshot) {
-    return false
-  }
-
-  detailItem.value = snapshot.item
-  detailError.value = ''
-  detailLoading.value = false
-  detailSourceKind.value = snapshot.sourceKind
-  detailOpenedFromSourceReader.value = false
-  detailOriginRect.value = snapshot.originRect
-  detailSourceItemTargetRect.value = snapshot.sourceItemTargetRect
-  detailSourceNameOriginRect.value = snapshot.sourceNameOriginRect
-  detailSourceNameTargetRect.value = snapshot.sourceNameTargetRect
-  detailScrollTop.value = snapshot.scrollTop
-  lastDetailScrollTop = snapshot.scrollTop
-  detailFrameContentHeight.value = 0
-  morphingItemId.value = null
-  morphingHeightLockItemId.value = null
-  morphingItemHeight.value = snapshot.morphingItemHeight
-  detailEntryProgress.value = 1
-  detailEntrySettling.value = false
-  detailReaderTouchOffset.value = 0
-  detailReaderStretch.value = 0
-  detailBackExitProgress.value = 0
-  detailSourceExitProgress.value = 1
-  detailReturningToFeed.value = false
-  detailListReturnCommitted.value = true
-  detailRestoringFromSourceReader.value = false
-  sourceReaderReturnMode.value = 'detail'
-  sourceReaderVisible.value = true
-  return true
+  return restoreReaderStackParkedDetailSnapshot(snapshot, {
+    onDetailScrollTop: (scrollTop) => {
+      lastDetailScrollTop = scrollTop
+    },
+  })
 }
 
 function restorePreviousParkedDetail() {
-  return restoreParkedDetailSnapshot(parkedDetailStack.value.pop() ?? null)
+  return restoreReaderStackPreviousParkedDetail({
+    onDetailScrollTop: (scrollTop) => {
+      lastDetailScrollTop = scrollTop
+    },
+  })
 }
 
 function finishCommittedListReturnForGesture() {
