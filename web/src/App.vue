@@ -12,19 +12,13 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import {
-  fetchSource,
   getFeedItem,
-  importCatalogSources,
-  listSourceCatalog,
-  listSources,
-  updateSourceStatus,
   type FeedItem,
-  type Source,
 } from '@/api/feed'
-import { formatAPIError } from '@/api/client'
 import ReaderStack from '@/components/ReaderStack.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
+import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
 import {
   type FeedSourceKind,
   type ParkedDetailSnapshot,
@@ -51,10 +45,6 @@ type SwipeSurface =
   | 'page:management'
 type PageViewExpose = {
   refreshPage?: (options?: { noticeDelayMS?: number; suppressStartNotice?: boolean }) => Promise<void> | void
-}
-type FetchNowResult = {
-  success: boolean
-  error?: string
 }
 
 const route = useRoute()
@@ -138,6 +128,18 @@ const {
   clearHiddenSourceReader,
   detailBlocksGestures,
 } = useReaderStackState()
+const {
+  clearNoticeTimer: clearSourceNoticeTimer,
+  resetSourceSubscriptionState,
+  loadSourceReaderSubscription,
+  toggleSourceReaderSubscription,
+} = useReaderSourceSubscription({
+  sourceCatalogEntry,
+  sourceSubscription,
+  sourceSubscriptionLoading,
+  sourceNotice,
+  getReaderSource: () => readerSource.value,
+})
 const feedScrollTop = ref(0)
 const pageSideOffset = ref(0)
 const pageSideStretch = ref(0)
@@ -1196,7 +1198,6 @@ let suppressClickTimer = 0
 let viewSwipeTimer = 0
 let swipeTransitionTimer = 0
 let navigationTimer = 0
-let sourceNoticeTimer = 0
 let readerMotionTimer = 0
 let detailEntryTimer = 0
 let detailHeaderSwapTimer = 0
@@ -1486,57 +1487,6 @@ function formatItemDate(value?: string) {
     minute: '2-digit',
     hour12: false,
   }).format(new Date(value))
-}
-
-function showSourceNotice(type: 'success' | 'warning', message: string, durationMS?: number) {
-  const normalized = message.trim()
-  if (!normalized) {
-    sourceNotice.value = null
-    return
-  }
-  sourceNotice.value = { type, message: normalized }
-  window.clearTimeout(sourceNoticeTimer)
-  const duration = durationMS ?? (type === 'success' ? 1000 : 3000)
-  if (duration > 0) {
-    sourceNoticeTimer = window.setTimeout(() => {
-      sourceNotice.value = null
-    }, duration)
-  }
-}
-
-async function fetchNow(source: Source): Promise<FetchNowResult> {
-  showSourceNotice('success', `抓取中：正在抓取 ${source.name} 的最新内容`, 0)
-  try {
-    await fetchSource(source.id)
-    return { success: true }
-  } catch (err) {
-    return { success: false, error: formatAPIError(err) }
-  }
-}
-
-async function loadSourceReaderSubscription(source: ReaderSource) {
-  sourceSubscriptionLoading.value = true
-  try {
-    const [sources, catalogResult] = await Promise.all([
-      listSources(),
-      listSourceCatalog({ limit: 200, offset: 0 }),
-    ])
-    const directSource = sources.find((item) => item.id === source.id)
-    const catalogEntry =
-      catalogResult.entries.find((entry) => entry.id === source.id) ??
-      catalogResult.entries.find((entry) => entry.source_id === source.id) ??
-      catalogResult.entries.find((entry) => entry.name === source.name)
-    const catalogSource = catalogEntry?.source_id
-      ? sources.find((item) => item.id === catalogEntry.source_id)
-      : undefined
-
-    sourceCatalogEntry.value = catalogEntry ?? null
-    sourceSubscription.value = directSource ?? catalogSource ?? null
-  } catch (err) {
-    showSourceNotice('warning', `加载失败：来源状态未同步。详细原因：${formatAPIError(err)}`)
-  } finally {
-    sourceSubscriptionLoading.value = false
-  }
 }
 
 function snapshotRect(rect?: DOMRect): RectSnapshot | null {
@@ -2009,58 +1959,6 @@ function finishCommittedListReturnForGesture() {
   closeItemReader()
 }
 
-async function toggleSourceReaderSubscription() {
-  if (!readerSource.value || sourceSubscriptionLoading.value) {
-    return
-  }
-
-  sourceSubscriptionLoading.value = true
-  try {
-    if (sourceSubscription.value) {
-      const nextStatus = sourceSubscription.value.status === 'active' ? 'inactive' : 'active'
-      const updated = await updateSourceStatus(sourceSubscription.value.id, nextStatus)
-      sourceSubscription.value = updated
-      let fetchResult: FetchNowResult = { success: true }
-      if (updated.status === 'active') {
-        fetchResult = await fetchNow(updated)
-      }
-      if (updated.status === 'active' && !fetchResult.success) {
-        showSourceNotice('warning', `${updated.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`)
-      } else {
-        showSourceNotice('success', `${updated.name} 已${updated.status === 'active' ? '开启并抓取最新内容' : '关闭'}`)
-      }
-      await loadSourceReaderSubscription(readerSource.value)
-      return
-    }
-
-    if (!sourceCatalogEntry.value) {
-      showSourceNotice('warning', '该来源不在官方目录中，暂不支持直接开启')
-      return
-    }
-
-    const result = await importCatalogSources([sourceCatalogEntry.value.id])
-    const imported = result.sources[0]
-    let fetchResult: FetchNowResult = { success: true }
-    if (imported) {
-      sourceSubscription.value = imported
-      fetchResult = await fetchNow(imported)
-    }
-    if (!fetchResult.success) {
-      showSourceNotice(
-        'warning',
-        `${sourceCatalogEntry.value.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`,
-      )
-    } else {
-      showSourceNotice('success', `${sourceCatalogEntry.value.name} 已开启并抓取最新内容`)
-    }
-    await loadSourceReaderSubscription(readerSource.value)
-  } catch (err) {
-    showSourceNotice('warning', `操作失败：来源订阅状态未更新。详细原因：${formatAPIError(err)}`)
-  } finally {
-    sourceSubscriptionLoading.value = false
-  }
-}
-
 function openSourceReader(source: ReaderSource, options: { visible?: boolean } = {}) {
   window.clearTimeout(hiddenSourceCleanupTimer)
   const nextVisible = options.visible ?? true
@@ -2099,9 +1997,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
     }
   }
   sourceReaderVisible.value = nextVisible
-  sourceCatalogEntry.value = null
-  sourceSubscription.value = null
-  sourceNotice.value = null
+  resetSourceSubscriptionState()
   sourceReaderScrollTop.value = 0
   lastSourceReaderScrollTop = 0
   nextTick(() => {
@@ -2227,9 +2123,7 @@ function closeSourceReader() {
   sourceReaderBackDetail.value = null
   sourceReaderOffset.value = 0
   sourceReaderStretch.value = 0
-  sourceCatalogEntry.value = null
-  sourceSubscription.value = null
-  sourceNotice.value = null
+  resetSourceSubscriptionState()
   parkedDetailStack.value = []
   if (isFeedRoute.value && !detailReaderOpen.value) {
     setTopChromeVisible(true)
@@ -4077,7 +3971,7 @@ onUnmounted(() => {
   window.clearTimeout(sourceContentSettleTimer)
   window.clearTimeout(pagePullSettleTimer)
   window.clearTimeout(suppressClickTimer)
-  window.clearTimeout(sourceNoticeTimer)
+  clearSourceNoticeTimer()
   window.clearTimeout(readerMotionTimer)
   window.clearTimeout(detailEntryTimer)
   window.clearTimeout(detailHeaderSwapTimer)

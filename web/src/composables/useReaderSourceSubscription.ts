@@ -1,0 +1,167 @@
+import type { Ref } from 'vue'
+
+import { formatAPIError } from '@/api/client'
+import {
+  fetchSource,
+  importCatalogSources,
+  listSourceCatalog,
+  listSources,
+  updateSourceStatus,
+  type Source,
+  type SourceCatalogEntry,
+} from '@/api/feed'
+import type { ReaderSource } from '@/composables/useReaderSession'
+
+type SourceNotice = {
+  type: 'success' | 'warning'
+  message: string
+}
+
+type FetchNowResult = {
+  success: boolean
+  error?: string
+}
+
+type ReaderSourceSubscriptionOptions = {
+  sourceCatalogEntry: Ref<SourceCatalogEntry | null>
+  sourceSubscription: Ref<Source | null>
+  sourceSubscriptionLoading: Ref<boolean>
+  sourceNotice: Ref<SourceNotice | null>
+  getReaderSource: () => ReaderSource | null
+}
+
+export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
+  let sourceNoticeTimer = 0
+
+  function clearNoticeTimer() {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.clearTimeout(sourceNoticeTimer)
+  }
+
+  function showSourceNotice(type: SourceNotice['type'], message: string, durationMS?: number) {
+    const normalized = message.trim()
+    if (!normalized) {
+      clearNoticeTimer()
+      options.sourceNotice.value = null
+      return
+    }
+    options.sourceNotice.value = { type, message: normalized }
+    clearNoticeTimer()
+    const duration = durationMS ?? (type === 'success' ? 1000 : 3000)
+    if (duration > 0 && typeof window !== 'undefined') {
+      sourceNoticeTimer = window.setTimeout(() => {
+        options.sourceNotice.value = null
+      }, duration)
+    }
+  }
+
+  function resetSourceSubscriptionState() {
+    clearNoticeTimer()
+    options.sourceCatalogEntry.value = null
+    options.sourceSubscription.value = null
+    options.sourceNotice.value = null
+  }
+
+  async function fetchNow(source: Source): Promise<FetchNowResult> {
+    showSourceNotice('success', `抓取中：正在抓取 ${source.name} 的最新内容`, 0)
+    try {
+      await fetchSource(source.id)
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: formatAPIError(err) }
+    }
+  }
+
+  async function loadSourceReaderSubscription(source: ReaderSource) {
+    options.sourceSubscriptionLoading.value = true
+    try {
+      const [sources, catalogResult] = await Promise.all([
+        listSources(),
+        listSourceCatalog({ limit: 200, offset: 0 }),
+      ])
+      const directSource = sources.find((item) => item.id === source.id)
+      const catalogEntry =
+        catalogResult.entries.find((entry) => entry.id === source.id) ??
+        catalogResult.entries.find((entry) => entry.source_id === source.id) ??
+        catalogResult.entries.find((entry) => entry.name === source.name)
+      const catalogSource = catalogEntry?.source_id
+        ? sources.find((item) => item.id === catalogEntry.source_id)
+        : undefined
+
+      options.sourceCatalogEntry.value = catalogEntry ?? null
+      options.sourceSubscription.value = directSource ?? catalogSource ?? null
+    } catch (err) {
+      showSourceNotice('warning', `加载失败：来源状态未同步。详细原因：${formatAPIError(err)}`)
+    } finally {
+      options.sourceSubscriptionLoading.value = false
+    }
+  }
+
+  async function toggleSourceReaderSubscription() {
+    const readerSource = options.getReaderSource()
+    if (!readerSource || options.sourceSubscriptionLoading.value) {
+      return
+    }
+
+    options.sourceSubscriptionLoading.value = true
+    try {
+      if (options.sourceSubscription.value) {
+        const nextStatus = options.sourceSubscription.value.status === 'active' ? 'inactive' : 'active'
+        const updated = await updateSourceStatus(options.sourceSubscription.value.id, nextStatus)
+        options.sourceSubscription.value = updated
+        let fetchResult: FetchNowResult = { success: true }
+        if (updated.status === 'active') {
+          fetchResult = await fetchNow(updated)
+        }
+        if (updated.status === 'active' && !fetchResult.success) {
+          showSourceNotice(
+            'warning',
+            `${updated.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`,
+          )
+        } else {
+          showSourceNotice('success', `${updated.name} 已${updated.status === 'active' ? '开启并抓取最新内容' : '关闭'}`)
+        }
+        await loadSourceReaderSubscription(readerSource)
+        return
+      }
+
+      if (!options.sourceCatalogEntry.value) {
+        showSourceNotice('warning', '该来源不在官方目录中，暂不支持直接开启')
+        return
+      }
+
+      const result = await importCatalogSources([options.sourceCatalogEntry.value.id])
+      const imported = result.sources[0]
+      let fetchResult: FetchNowResult = { success: true }
+      if (imported) {
+        options.sourceSubscription.value = imported
+        fetchResult = await fetchNow(imported)
+      }
+      if (!fetchResult.success) {
+        showSourceNotice(
+          'warning',
+          `${options.sourceCatalogEntry.value.name} 已开启，但抓取失败。详细原因：${
+            fetchResult.error || '服务未返回具体错误原因'
+          }`,
+        )
+      } else {
+        showSourceNotice('success', `${options.sourceCatalogEntry.value.name} 已开启并抓取最新内容`)
+      }
+      await loadSourceReaderSubscription(readerSource)
+    } catch (err) {
+      showSourceNotice('warning', `操作失败：来源订阅状态未更新。详细原因：${formatAPIError(err)}`)
+    } finally {
+      options.sourceSubscriptionLoading.value = false
+    }
+  }
+
+  return {
+    clearNoticeTimer,
+    showSourceNotice,
+    resetSourceSubscriptionState,
+    loadSourceReaderSubscription,
+    toggleSourceReaderSubscription,
+  }
+}
