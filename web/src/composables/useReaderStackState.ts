@@ -227,6 +227,8 @@ export function useReaderStackState() {
   const detailProgressDragging = ref(false)
   const parkedDetailStack = ref<ParkedDetailSnapshot[]>([])
   const sourceReaderBackDetail = ref<ParkedDetailSnapshot | null>(null)
+  const parkedDetailStackDepth = computed(() => parkedDetailStack.value.length)
+  const sourceReaderBackDetailItemId = computed(() => sourceReaderBackDetail.value?.item.id ?? 0)
   const sourceCatalogEntry = ref<SourceCatalogEntry | null>(null)
   const sourceSubscription = ref<Source | null>(null)
   const sourceSubscriptionLoading = ref(false)
@@ -1316,8 +1318,8 @@ export function useReaderStackState() {
     detailScrollClientHeight,
     detailFrameContentHeight,
     detailProgressDragging,
-    parkedDetailStack,
-    sourceReaderBackDetail,
+    parkedDetailStackDepth,
+    sourceReaderBackDetailItemId,
     sourceCatalogEntry,
     sourceSubscription,
     sourceSubscriptionLoading,

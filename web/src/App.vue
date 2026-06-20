@@ -101,8 +101,8 @@ const {
   detailScrollClientHeight,
   detailFrameContentHeight,
   detailProgressDragging,
-  parkedDetailStack,
-  sourceReaderBackDetail,
+  parkedDetailStackDepth,
+  sourceReaderBackDetailItemId,
   sourceCatalogEntry,
   sourceSubscription,
   sourceSubscriptionLoading,
@@ -3408,8 +3408,8 @@ watch(
     detailOpenedFromSourceReader.value,
     detailListReturnCommitted.value,
     sourceReaderReturnMode.value,
-    sourceReaderBackDetail.value?.item.id ?? 0,
-    parkedDetailStack.value.length,
+    sourceReaderBackDetailItemId.value,
+    parkedDetailStackDepth.value,
   ],
   () => {
     scheduleReaderSessionSave()
