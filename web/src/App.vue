@@ -111,9 +111,12 @@ const windowWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth
 const windowHeight = ref(typeof window === 'undefined' ? 900 : window.innerHeight)
 const darkTheme = ref(false)
 const refreshWasActive = ref(false)
+const refreshWasSource = ref(false)
 const feedRefreshSettling = ref(false)
 const feedChromeSettling = ref(false)
 const feedContentCollapsed = ref(false)
+const sourceContentSettleOffset = ref(0)
+const sourceContentSettling = ref(false)
 const feedTopPulling = ref(false)
 const feedTopPullStartedWithChrome = ref(false)
 const refreshStartedWithChrome = ref(false)
@@ -421,6 +424,12 @@ const sourceReaderStyle = computed(() => {
 })
 const sourceContentStyle = computed(() => ({
   paddingTop: cssPx(sourceHeaderSpace.value + 14),
+  transform: cssTranslate3d(0, sourceContentSettleOffset.value),
+  transition: sourceContentSettling.value
+    ? 'padding-top 1000ms cubic-bezier(0.16, 1, 0.3, 1), transform 1000ms cubic-bezier(0.16, 1, 0.3, 1)'
+    : sourceContentSettleOffset.value > 0
+      ? 'none'
+      : undefined,
 }))
 const sourceHeaderStyle = computed(() => ({
   opacity: topChromeProgress.value.toFixed(3),
@@ -1131,6 +1140,7 @@ let morphingHeightUnlockTimer = 0
 let hiddenSourceCleanupTimer = 0
 let feedRefreshSettleTimer = 0
 let feedChromeSettleTimer = 0
+let sourceContentSettleTimer = 0
 let pagePullSettleTimer = 0
 let readerSessionSaveTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
@@ -2767,6 +2777,27 @@ function showTopChromeForSourceReturn() {
   feedContentCollapsed.value = false
 }
 
+function settleSourceContentAfterRefresh() {
+  if (!sourceReaderVisible.value) {
+    sourceContentSettleOffset.value = 0
+    sourceContentSettling.value = false
+    return
+  }
+
+  window.clearTimeout(sourceContentSettleTimer)
+  sourceContentSettling.value = false
+  sourceContentSettleOffset.value = feedHeaderHeight.value
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      sourceContentSettling.value = true
+      sourceContentSettleOffset.value = 0
+    })
+  })
+  sourceContentSettleTimer = window.setTimeout(() => {
+    sourceContentSettling.value = false
+  }, motionDelay(topChromeSettleDuration))
+}
+
 function prepareSourceReaderReturnDrag() {
   if (detailReaderOpen.value) {
     return captureVisibleSourceReturnTarget()
@@ -2863,7 +2894,8 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   trackingBackSwipe = true
   detailEntrySettling.value = false
   sourceReturnTargetReady.value = false
-  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
+  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail()) {
+    prepareSourceReaderReturnDrag()
     backSwipeIntent = 'back'
     showTopChromeForSourceReturn()
     detailRestoringFromSourceReader.value = true
@@ -2900,7 +2932,8 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
+  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail()) {
+    prepareSourceReaderReturnDrag()
     backSwipeIntent = 'back'
     showTopChromeForSourceReturn()
     detailRestoringFromSourceReader.value = true
@@ -4059,6 +4092,7 @@ watch(
   (refreshing) => {
     if (refreshing) {
       refreshWasActive.value = true
+      refreshWasSource.value = feedInteraction.pullViewKey.startsWith('source:')
       if (feedTopPullStartedWithChrome.value) {
         refreshStartedWithChrome.value = true
       }
@@ -4070,11 +4104,16 @@ watch(
   feedOrSourcePullActive,
   (active) => {
     if (!active && refreshWasActive.value) {
+      const shouldSettleSourceContent = refreshWasSource.value
+      if (shouldSettleSourceContent) {
+        settleSourceContentAfterRefresh()
+      }
       refreshStartedWithChrome.value = false
       feedTopPullStartedWithChrome.value = false
       feedContentCollapsed.value = true
       setTopChromeVisible(false)
       refreshWasActive.value = false
+      refreshWasSource.value = false
       feedRefreshSettling.value = true
       window.clearTimeout(feedRefreshSettleTimer)
       feedRefreshSettleTimer = window.setTimeout(() => {
@@ -4085,6 +4124,7 @@ watch(
     if (!active && !refreshWasActive.value) {
       refreshStartedWithChrome.value = false
       feedTopPullStartedWithChrome.value = false
+      refreshWasSource.value = false
     }
   },
 )
@@ -4149,6 +4189,7 @@ onUnmounted(() => {
   window.clearTimeout(navigationTimer)
   window.clearTimeout(feedRefreshSettleTimer)
   window.clearTimeout(feedChromeSettleTimer)
+  window.clearTimeout(sourceContentSettleTimer)
   window.clearTimeout(pagePullSettleTimer)
   window.clearTimeout(suppressClickTimer)
   window.clearTimeout(sourceNoticeTimer)
