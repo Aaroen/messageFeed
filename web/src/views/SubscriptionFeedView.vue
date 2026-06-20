@@ -23,6 +23,7 @@ const props = withDefaults(
     morphingHeightLockItemId?: number | null
     morphingItemHeight?: number | null
     morphingPreviewProgress?: number
+    backgroundRefresh?: boolean
   }>(),
   {
     mode: 'subscriptions',
@@ -37,6 +38,7 @@ const props = withDefaults(
     morphingHeightLockItemId: null,
     morphingItemHeight: null,
     morphingPreviewProgress: 0,
+    backgroundRefresh: false,
   },
 )
 
@@ -89,7 +91,7 @@ const canLoadMore = computed(
 const loadMoreTriggerIndex = computed(() => Math.max(items.value.length - 3, 0))
 const isRecommendations = computed(() => props.mode === 'recommendations')
 const isSourceMode = computed(() => props.mode === 'source')
-const usesGlobalPullState = computed(() => true)
+const usesGlobalPullState = computed(() => !props.backgroundRefresh)
 const effectiveSourceKind = computed<SourceKind>(() => {
   if (isSourceMode.value) {
     return props.sourceKind
@@ -384,17 +386,21 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
     nextOffset.value = requestOffset + nextItems.length
     reachedEnd.value = nextItems.length < pageSize || nextOffset.value >= nextTotal
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    if (refreshNotice) {
+    if (!props.backgroundRefresh && refreshNotice) {
       showFeedNotice(refreshNotice.type, refreshNotice.message, 180)
-    } else if (autoFetchNotice && autoFetchNotice.type === 'warning') {
+    } else if (!props.backgroundRefresh && autoFetchNotice && autoFetchNotice.type === 'warning') {
       showFeedNotice(autoFetchNotice.type, autoFetchNotice.message)
-    } else if (isRefresh) {
+    } else if (!props.backgroundRefresh && isRefresh) {
       showFeedNotice('success', '刷新成功', 180)
     }
   } catch (err) {
     const message = formatAPIError(err)
     if (isRefresh) {
-      showFeedNotice('warning', `刷新失败：${message}`, 180)
+      if (props.backgroundRefresh) {
+        error.value = `刷新失败：${message}`
+      } else {
+        showFeedNotice('warning', `刷新失败：${message}`, 180)
+      }
     } else {
       error.value = `加载失败：${message}`
     }
@@ -406,6 +412,14 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
 
     if (!isRefresh) {
       refreshing.value = false
+      return
+    }
+
+    if (props.backgroundRefresh) {
+      pullOffset.value = 0
+      refreshing.value = false
+      pullStartedWithVisibleChrome.value = false
+      pullSettling.value = false
       return
     }
 

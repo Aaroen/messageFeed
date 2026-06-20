@@ -4313,6 +4313,7 @@ onUnmounted(() => {
           :morphing-height-lock-item-id="morphingHeightLockItemId"
           :morphing-item-height="morphingItemHeight"
           :morphing-preview-progress="feedItemPreviewProgress"
+          :background-refresh="!sourceReaderVisible"
           @top-pull-start="noopTopPullStart"
           @top-pull-move="noopTopPullMove"
           @top-pull-end="noopTopPullEnd"
