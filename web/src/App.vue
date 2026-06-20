@@ -215,6 +215,10 @@ const feedContentSpace = computed(() => {
     return feedHeaderHeight.value * Math.max(topChromeProgress.value, pullProgress.value)
   }
 
+  if (feedContentCollapsed.value && topChromeProgress.value <= 0.01) {
+    return 0
+  }
+
   return feedHeaderHeight.value
 })
 const freezeFeedBodyDuringTopRefresh = computed(
@@ -363,9 +367,10 @@ const sourceReaderStyle = computed(() => {
   const underlayBaseOpacity = darkTheme.value ? 0.74 : 0.54
   const overlayBaseOpacity = darkTheme.value ? 0.48 : 0.34
   const sourceStretch = sourceReaderStretch.value
+  const sourceHeaderSpace = feedContentCollapsed.value && topChromeProgress.value <= 0.01 ? 0 : feedHeaderHeight.value
   return {
     '--feed-header-height': `${feedHeaderHeight.value}px`,
-    '--source-header-space': cssPx(feedHeaderHeight.value),
+    '--source-header-space': cssPx(sourceHeaderSpace),
     zIndex: sourceReaderUnderDetail.value ? 96 : sourceReaderVisible.value ? 110 : 90,
     opacity: !sourceReaderVisible.value
       ? '0'
@@ -2981,15 +2986,18 @@ function finishViewSwipe(nextPath: string | null) {
   viewSettling.value = true
   window.clearTimeout(viewSwipeTimer)
   if (nextPath) {
-    if (topChromeProgress.value < 0.99) {
-      setTopChromeVisible(true)
-    }
     void pushRoute(nextPath)
   }
   viewDragOffset.value = 0
   viewSwipeTimer = window.setTimeout(() => {
     viewSettling.value = false
   }, motionDelay(260))
+}
+
+function showTopChromeForViewSwipe() {
+  if (topChromeProgress.value < 0.99 || feedContentCollapsed.value) {
+    setTopChromeVisible(true)
+  }
 }
 
 function handleTouchStart(event: TouchEvent) {
@@ -3101,6 +3109,7 @@ function handleTouchMove(event: TouchEvent) {
       trackingViewSwipeCandidate = false
       trackingEdgeSwipeCandidate = false
       trackingNavigationCloseCandidate = false
+      showTopChromeForViewSwipe()
     } else {
       return
     }
@@ -3307,6 +3316,7 @@ function handleFeedPointerMove(event: PointerEvent) {
       trackingViewSwipe = true
       suppressFollowingClick()
       trackingViewSwipeCandidate = false
+      showTopChromeForViewSwipe()
       ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
     } else {
       return
@@ -3592,6 +3602,16 @@ function handleReaderSettingsChanged(event: Event) {
 function setTopChromeVisible(visible: boolean) {
   const nextProgress = visible ? 1 : 0
   if (topChromeProgress.value === nextProgress) {
+    if (visible && feedContentCollapsed.value) {
+      feedContentCollapsed.value = false
+    }
+    if (!visible && feedContentCollapsed.value) {
+      feedChromeSettling.value = true
+      window.clearTimeout(feedChromeSettleTimer)
+      feedChromeSettleTimer = window.setTimeout(() => {
+        feedChromeSettling.value = false
+      }, motionDelay(1000))
+    }
     return
   }
 
