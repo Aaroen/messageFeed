@@ -36,6 +36,13 @@ type BeginOpenItemReaderStateOptions = {
   originRect: RectSnapshot | null
 }
 
+type OpenItemReaderTransitionOptions = BeginOpenItemReaderStateOptions & {
+  detailEntryDelay: number
+  headerSwapDelay: number
+  afterBegin?: () => void
+  afterEntry?: () => void
+}
+
 type BeginDetailEntryStateResult = {
   shouldAnimate: boolean
 }
@@ -670,6 +677,23 @@ export function useReaderStackState() {
     }, delay)
   }
 
+  function openItemReaderWithTransition(
+    item: FeedItem,
+    sourceKind: FeedSourceKind,
+    options: OpenItemReaderTransitionOptions,
+  ) {
+    clearMorphingHeightUnlockTimer()
+    clearHiddenSourceCleanupTimer()
+    startDetailHeaderTitleSwapWithDelay(item, options.headerSwapDelay)
+    beginOpenItemReaderState(item, sourceKind, {
+      openedFromSourceReader: options.openedFromSourceReader,
+      originRect: options.originRect,
+    })
+    options.afterBegin?.()
+    startDetailEntryWithDelay(options.originRect, options.detailEntryDelay)
+    options.afterEntry?.()
+  }
+
   function applyDetailFeedOriginRectState(itemRect: RectSnapshot, lock = false) {
     detailOriginRect.value = itemRect
     morphingItemHeight.value = itemRect.height
@@ -1250,13 +1274,11 @@ export function useReaderStackState() {
     openSourceReaderState,
     closeVisibleSourceReaderState,
     clearSourceReaderState,
-    beginOpenItemReaderState,
     clearDetailEntryTimer,
-    startDetailEntryWithDelay,
     completeOpenItemReaderLoadState,
     failOpenItemReaderLoadState,
     clearDetailHeaderSwapTimer,
-    startDetailHeaderTitleSwapWithDelay,
+    openItemReaderWithTransition,
     applyDetailFeedOriginRectState,
     applyDetailSourceTransitionRectsState,
     applyVisibleSourceReturnTargetState,

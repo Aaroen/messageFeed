@@ -128,13 +128,11 @@ const {
   openSourceReaderState,
   closeVisibleSourceReaderState,
   clearSourceReaderState,
-  beginOpenItemReaderState,
   clearDetailEntryTimer,
-  startDetailEntryWithDelay,
+  openItemReaderWithTransition,
   completeOpenItemReaderLoadState,
   failOpenItemReaderLoadState,
   clearDetailHeaderSwapTimer,
-  startDetailHeaderTitleSwapWithDelay,
   applyDetailFeedOriginRectState,
   applyDetailSourceTransitionRectsState,
   applyVisibleSourceReturnTargetState,
@@ -1649,14 +1647,6 @@ function settleReaderMotion(duration = 260, done?: () => void) {
   settleReaderMotionWithDelay(motionDelay(duration), done)
 }
 
-function startDetailEntry(rect?: DOMRect) {
-  startDetailEntryWithDelay(snapshotRect(rect), motionDelay(readerMorphDuration))
-}
-
-function startDetailHeaderTitleSwap(nextItem: FeedItem) {
-  startDetailHeaderTitleSwapWithDelay(nextItem, motionDelay(320))
-}
-
 function readerSessionSnapshot(): ReaderSessionSnapshot {
   return {
     savedAt: Date.now(),
@@ -1869,25 +1859,27 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
 }
 
 async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
-  clearMorphingHeightUnlockTimer()
-  clearHiddenSourceCleanupTimer()
   const openedFromSourceReader =
     sourceReaderOpen.value && readerSource.value?.id === item.source_id && readerSource.value.kind === sourceKind
-  startDetailHeaderTitleSwap(item)
-  beginOpenItemReaderState(item, sourceKind, {
+  openItemReaderWithTransition(item, sourceKind, {
     openedFromSourceReader,
     originRect: snapshotRect(originRect),
+    headerSwapDelay: motionDelay(320),
+    detailEntryDelay: motionDelay(readerMorphDuration),
+    afterBegin: () => {
+      setChromeSettling(false, 'visible')
+      feedTopPulling.value = false
+      setChromeContentCollapsed(false)
+      setChromeProgress(1, 'visible')
+      chromeState.clearSettlingTimer()
+      lastDetailScrollTop = 0
+    },
+    afterEntry: () => {
+      if (openedFromSourceReader) {
+        captureDetailSourceTransitionRects(12, { lock: true })
+      }
+    },
   })
-  setChromeSettling(false, 'visible')
-  feedTopPulling.value = false
-  setChromeContentCollapsed(false)
-  setChromeProgress(1, 'visible')
-  chromeState.clearSettlingTimer()
-  lastDetailScrollTop = 0
-  startDetailEntry(originRect)
-  if (openedFromSourceReader) {
-    captureDetailSourceTransitionRects(12, { lock: true })
-  }
   if (!openedFromSourceReader && sourceTimelinePreloadEnabled.value && item.source_id) {
     openSourceReader(
       {
