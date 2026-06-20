@@ -4,6 +4,7 @@ import type { FeedItem, Source, SourceCatalogEntry } from '@/api/feed'
 import type {
   FeedSourceKind,
   ParkedDetailSnapshot,
+  ReaderSessionSnapshot,
   ReaderSource,
   RectSnapshot,
 } from '@/composables/useReaderSession'
@@ -11,6 +12,23 @@ import type {
 type RestoreParkedDetailOptions = {
   onDetailScrollTop?: (scrollTop: number) => void
 }
+
+type ReaderStackSessionSnapshot = Pick<
+  ReaderSessionSnapshot,
+  | 'sourceReaderScrollTop'
+  | 'detailScrollTop'
+  | 'readerSource'
+  | 'sourceReaderVisible'
+  | 'detailItem'
+  | 'detailSourceKind'
+  | 'detailOpenedFromSourceReader'
+  | 'detailListReturnCommitted'
+  | 'detailSourceExitProgress'
+  | 'sourceReaderReturnMode'
+  | 'sourceReaderBackDetail'
+  | 'morphingItemHeight'
+  | 'parkedDetailStack'
+>
 
 export function useReaderStackState() {
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
@@ -141,6 +159,37 @@ export function useReaderStackState() {
       sourceNameTargetRect: detailSourceNameTargetRect.value ? { ...detailSourceNameTargetRect.value } : null,
       morphingItemHeight: morphingItemHeight.value,
       scrollTop: detailScrollTop.value,
+    }
+  }
+
+  function cloneParkedDetailSnapshot(snapshot: ParkedDetailSnapshot) {
+    return {
+      ...snapshot,
+      item: { ...snapshot.item },
+      originRect: snapshot.originRect ? { ...snapshot.originRect } : null,
+      sourceItemTargetRect: snapshot.sourceItemTargetRect ? { ...snapshot.sourceItemTargetRect } : null,
+      sourceNameOriginRect: snapshot.sourceNameOriginRect ? { ...snapshot.sourceNameOriginRect } : null,
+      sourceNameTargetRect: snapshot.sourceNameTargetRect ? { ...snapshot.sourceNameTargetRect } : null,
+    }
+  }
+
+  function createReaderStackSessionSnapshot(): ReaderStackSessionSnapshot {
+    return {
+      sourceReaderScrollTop: sourceReaderScrollTop.value,
+      detailScrollTop: detailScrollTop.value,
+      readerSource: readerSource.value ? { ...readerSource.value } : null,
+      sourceReaderVisible: sourceReaderVisible.value,
+      detailItem: detailItem.value ? { ...detailItem.value } : null,
+      detailSourceKind: detailSourceKind.value,
+      detailOpenedFromSourceReader: detailOpenedFromSourceReader.value,
+      detailListReturnCommitted: detailListReturnCommitted.value,
+      detailSourceExitProgress: detailSourceExitProgress.value,
+      sourceReaderReturnMode: sourceReaderReturnMode.value,
+      sourceReaderBackDetail: sourceReaderBackDetail.value
+        ? cloneParkedDetailSnapshot(sourceReaderBackDetail.value)
+        : null,
+      morphingItemHeight: morphingItemHeight.value,
+      parkedDetailStack: parkedDetailStack.value.map(cloneParkedDetailSnapshot),
     }
   }
 
@@ -306,6 +355,7 @@ export function useReaderStackState() {
     hasDetailParkedBehindSource,
     hasParkedDetailSourceState,
     sourceReaderShouldReturnToDetail,
+    createReaderStackSessionSnapshot,
     snapshotCurrentDetail,
     snapshotParkedDetail,
     pushParkedDetailSnapshot,

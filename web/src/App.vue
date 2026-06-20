@@ -120,6 +120,7 @@ const {
   hasDetailParkedBehindSource,
   hasParkedDetailSourceState,
   sourceReaderShouldReturnToDetail,
+  createReaderStackSessionSnapshot,
   snapshotCurrentDetail,
   pushParkedDetailSnapshot,
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
@@ -1730,43 +1731,9 @@ function readerSessionSnapshot(): ReaderSessionSnapshot {
     savedAt: Date.now(),
     routeFullPath: route.fullPath,
     feedScrollTop: feedScrollTop.value,
-    sourceReaderScrollTop: sourceReaderScrollTop.value,
-    detailScrollTop: detailScrollTop.value,
     topChromeProgress: topChromeProgress.value,
     feedContentCollapsed: feedContentCollapsed.value,
-    readerSource: readerSource.value ? { ...readerSource.value } : null,
-    sourceReaderVisible: sourceReaderVisible.value,
-    detailItem: detailItem.value ? { ...detailItem.value } : null,
-    detailSourceKind: detailSourceKind.value,
-    detailOpenedFromSourceReader: detailOpenedFromSourceReader.value,
-    detailListReturnCommitted: detailListReturnCommitted.value,
-    detailSourceExitProgress: detailSourceExitProgress.value,
-    sourceReaderReturnMode: sourceReaderReturnMode.value,
-    sourceReaderBackDetail: sourceReaderBackDetail.value
-      ? {
-          ...sourceReaderBackDetail.value,
-          item: { ...sourceReaderBackDetail.value.item },
-          originRect: sourceReaderBackDetail.value.originRect ? { ...sourceReaderBackDetail.value.originRect } : null,
-          sourceItemTargetRect: sourceReaderBackDetail.value.sourceItemTargetRect
-            ? { ...sourceReaderBackDetail.value.sourceItemTargetRect }
-            : null,
-          sourceNameOriginRect: sourceReaderBackDetail.value.sourceNameOriginRect
-            ? { ...sourceReaderBackDetail.value.sourceNameOriginRect }
-            : null,
-          sourceNameTargetRect: sourceReaderBackDetail.value.sourceNameTargetRect
-            ? { ...sourceReaderBackDetail.value.sourceNameTargetRect }
-            : null,
-        }
-      : null,
-    morphingItemHeight: morphingItemHeight.value,
-    parkedDetailStack: parkedDetailStack.value.map((item) => ({
-      ...item,
-      item: { ...item.item },
-      originRect: item.originRect ? { ...item.originRect } : null,
-      sourceItemTargetRect: item.sourceItemTargetRect ? { ...item.sourceItemTargetRect } : null,
-      sourceNameOriginRect: item.sourceNameOriginRect ? { ...item.sourceNameOriginRect } : null,
-      sourceNameTargetRect: item.sourceNameTargetRect ? { ...item.sourceNameTargetRect } : null,
-    })),
+    ...createReaderStackSessionSnapshot(),
   }
 }
 
