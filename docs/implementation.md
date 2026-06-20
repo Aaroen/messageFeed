@@ -560,6 +560,14 @@ API 与安全约束：
 - 阶段二默认不使用 `v-html`。如确需展示 HTML，必须引入 DOMPurify 或等价净化流程，并保留纯文本兜底。
 - 前端不得直接访问数据库，不复刻后端去重、抓取和业务状态规则。
 
+开发态准部署入口：
+
+- 阶段二前端联调不应长期依赖手动分别启动 `docker compose`、后端 API、`vite preview` 和临时 HTTPS 证书。应逐步收敛为“单一 HTTPS 入口 + 后端内网服务 + 前端开发服务”的准部署结构。
+- 推荐开发拓扑为：浏览器访问固定 HTTPS 地址；Caddy 或 Nginx 作为统一入口；`/api`、`/healthz`、`/readyz` 转发到 `api:60001`；其余页面在开发态转发到 `web-dev:5173`，保留 Vite 热更新。
+- 开发态入口应尽量与最终生产入口保持一致，避免在验收时暴露 `5173` 与 `60001` 两套地址、HTTP/HTTPS 不一致、Tailscale IP 与局域网地址行为不一致等问题。
+- 阶段二可先保留当前本机 HTTPS 预览作为过渡方案；后续应新增 Compose `dev` profile，将 PostgreSQL、迁移、API、Web 开发服务和统一入口纳入同一启动路径。
+- 本阶段不要求每次前端改动都执行生产构建；开发态应使用 Vite dev server 或等价热更新服务，最终生产态再切换为静态 `web/dist`。
+
 实现顺序：
 
 1. 补齐 `web` 工程：Vue 3、Vite、TypeScript、Arco Design Vue、Pinia、Vue Router、Axios 和基础样式令牌。
@@ -874,6 +882,7 @@ API 与安全约束：
 实施范围：
 
 - 在阶段三完整观测系统的基础上，增加 OpenAPI 契约、集成测试、业务指标扩展、Dashboard 迭代和更完整的部署配置。
+- 将阶段二的开发态准部署入口收敛为可长期运行的部署结构，减少手动启动步骤，并为生产部署提供同构路径。
 
 实施步骤：
 
@@ -882,17 +891,26 @@ API 与安全约束：
 3. 完善 Docker Compose，纳入可选 ntfy 和 Redis；Prometheus、Grafana、Loki、Tempo、OpenTelemetry Collector 沿用阶段三观测 profile 并按业务需要扩展。
 4. 扩展核心业务指标：摘要耗时、控制计划成功率、通知成功率、行情拉取成功率、告警触发次数。
 5. 迭代 Grafana Dashboard，按采集、摘要、设置控制、通知、行情和告警分类展示。
+6. 增加统一入口服务，优先评估 Caddy 或 Nginx：开发态将页面请求转发到 `web-dev:5173`，生产态直接服务 `web/dist`，两种模式都将 `/api` 转发到内部 `api:60001`。
+7. 拆分 Compose profile：`core` 至少包含 PostgreSQL、迁移、API 和统一入口；`dev` 增加 Web 热更新服务；`observability` 增加 Prometheus、Grafana、Loki、Tempo、OpenTelemetry Collector 等观测组件。
+8. 增加本机自恢复方案，优先使用 systemd 管理 `docker compose up -d`，确保机器重启后核心服务自动恢复。
+9. 将外部访问收敛到单一 HTTPS 地址。Tailscale 场景优先使用 MagicDNS、`tailscale serve` 或统一入口证书；不应长期依赖 `https://100.x.x.x:5173` 加自签证书作为正式入口。
+10. 后端 API 在最终部署中只暴露于内部网络，外部不直接访问 `60001`；浏览器只通过统一入口访问页面和 API。
 
 验收标准：
 
 - `make verify` 覆盖格式检查、单元测试、集成测试、构建和契约检查。
 - 指标能在阶段三基础上继续展示摘要耗时、控制计划成功率、行情拉取成功率、告警触发次数和通知成功率。
 - `make compose-up` 后可访问服务、数据库和可选观测组件。
+- 开发态可以通过单一 HTTPS 地址访问前端和 API，前端改动可以热更新，不需要手动复制构建产物。
+- 生产态可以通过同一统一入口服务访问静态前端和 API，外部只暴露 HTTPS 入口，不直接暴露 `5173` 或 `60001`。
 
 风险控制：
 
 - 测试应复用正式迁移文件，不维护第二套测试 schema。
 - Dashboard 不应依赖固定本机绝对路径。
+- PostgreSQL 数据卷不得因重建入口服务或前端开发服务而丢失；迁移前应保留备份或可恢复快照。
+- 统一入口与 HTTPS 证书配置不得将本地私钥提交到仓库；本地证书目录应保持在忽略列表中。
 
 ### <a id="phase-10"></a>阶段十：来源扩展与分布式升级验证
 
