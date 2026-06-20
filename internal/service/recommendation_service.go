@@ -21,7 +21,7 @@ const (
 	recommendationCatalogLimit      = 200
 	maxRecommendationFetchSources   = 10
 	minRecommendationFetchSources   = 6
-	recommendationFetchConcurrency  = 8
+	recommendationFetchConcurrency  = 10
 	recommendationFetchTimeout      = 2 * time.Second
 	recommendationCacheTTL          = 5 * time.Minute
 	recommendationRefreshTimeout    = 6 * time.Second
@@ -124,7 +124,11 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 	}
 
 	now := s.now()
-	rng := rand.New(rand.NewSource(recommendationShuffleSeed(input.UserID, now)))
+	shuffleSeed := recommendationShuffleSeed(input.UserID, now)
+	if input.Refresh {
+		shuffleSeed = recommendationRefreshShuffleSeed(input.UserID, input.SourceID, now)
+	}
+	rng := rand.New(rand.NewSource(shuffleSeed))
 	rng.Shuffle(len(candidates), func(i, j int) {
 		candidates[i], candidates[j] = candidates[j], candidates[i]
 	})
@@ -136,10 +140,8 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 		order:    order,
 		day:      recommendationCacheDay(now),
 	}
-	if cachedItems, ok := s.getRecommendationCache(cacheKey, now); ok {
-		if input.Refresh {
-			s.refreshRecommendationCacheAsync(cacheKey, input.UserID, selected, order)
-		}
+	cachedItems, cachedOK := s.getRecommendationCache(cacheKey, now)
+	if cachedOK && !input.Refresh {
 		items := paginateRecommendationItems(cachedItems, limit, input.Offset)
 		span.SetAttributes(
 			attribute.Bool("recommendation.cache_hit", true),
@@ -157,10 +159,16 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 	}
 
 	items := s.buildRecommendationItems(ctx, input.UserID, selected, order)
-	s.setRecommendationCache(cacheKey, items, now)
+	usedCacheFallback := false
+	if len(items) == 0 && input.Refresh && cachedOK {
+		items = cachedItems
+		usedCacheFallback = true
+	} else {
+		s.setRecommendationCache(cacheKey, items, now)
+	}
 	pagedItems := paginateRecommendationItems(items, limit, input.Offset)
 	span.SetAttributes(
-		attribute.Bool("recommendation.cache_hit", false),
+		attribute.Bool("recommendation.cache_hit", usedCacheFallback),
 		attribute.Bool("recommendation.refresh_requested", input.Refresh),
 		attribute.Int("recommendation.catalog_candidates", len(candidates)),
 		attribute.Int("recommendation.sources_selected", len(selected)),
@@ -466,6 +474,12 @@ func sortedRecommendationItems(sourceItems []recommendationSourceItems, order do
 func recommendationShuffleSeed(userID int64, now time.Time) int64 {
 	hash := fnv.New64a()
 	_, _ = fmt.Fprintf(hash, "%d:%s", userID, now.UTC().Format("2006-01-02"))
+	return int64(hash.Sum64() & ((1 << 63) - 1))
+}
+
+func recommendationRefreshShuffleSeed(userID int64, sourceID int64, now time.Time) int64 {
+	hash := fnv.New64a()
+	_, _ = fmt.Fprintf(hash, "%d:%d:%d", userID, sourceID, now.UTC().UnixNano())
 	return int64(hash.Sum64() & ((1 << 63) - 1))
 }
 

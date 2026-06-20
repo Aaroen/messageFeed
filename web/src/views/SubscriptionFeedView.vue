@@ -66,6 +66,7 @@ const feedPageRef = ref<HTMLElement | null>(null)
 
 const pullThreshold = 76
 const pullMaxOffset = 116
+const emptyPullMaxOffset = 88
 const pageSize = 10
 const verticalLockRatio = 1.18
 const motionCleanupBuffer = 96
@@ -129,10 +130,15 @@ const pageClass = computed(() => ({
 const freezeBodyForTopChromePull = computed(
   () => props.freezeBodyDuringTopRefresh || pullStartedWithVisibleChrome.value,
 )
+const feedBodyShift = computed(() => {
+  const shiftRatio = hasItems.value ? 0.34 : 0.2
+  const maxShift = hasItems.value ? 38 : 18
+  return Math.min(pullOffset.value * shiftRatio, maxShift)
+})
 const feedBodyStyle = computed(() => ({
   transform: freezeBodyForTopChromePull.value
     ? 'translate3d(0, 0, 0)'
-    : `translate3d(0, ${cssPx(Math.min(pullOffset.value * 0.34, 38))}, 0)`,
+    : `translate3d(0, ${cssPx(feedBodyShift.value)}, 0)`,
 }))
 const safeMorphingPreviewProgress = computed(() => Math.min(Math.max(props.morphingPreviewProgress, 0), 1))
 
@@ -454,16 +460,16 @@ function resetPullGesture(force = false) {
 }
 
 function rubberBandPullDistance(distance: number) {
+  const maxOffset = hasItems.value ? pullMaxOffset : emptyPullMaxOffset
   if (distance <= pullThreshold) {
     return distance
   }
-  return Math.min(pullThreshold + (distance - pullThreshold) * 0.42, pullMaxOffset)
+  return Math.min(pullThreshold + (distance - pullThreshold) * 0.18, maxOffset)
 }
 
 function handleTouchStart(event: TouchEvent) {
   if (
     !props.active ||
-    (!hasItems.value && !loading.value) ||
     props.scrollTop > 0 ||
     event.touches.length !== 1 ||
     loading.value ||
