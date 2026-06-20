@@ -23,6 +23,7 @@ import {
   type SourceCatalogEntry,
 } from '@/api/feed'
 import { formatAPIError } from '@/api/client'
+import ReaderStack from '@/components/ReaderStack.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
@@ -4675,208 +4676,203 @@ onUnmounted(() => {
       </section>
     </main>
 
-    <section
-      v-if="sourceReaderMounted && readerSource"
-      class="reader-overlay reader-overlay--source"
-      :class="{ 'reader-overlay--under-detail': sourceReaderUnderDetail }"
-      :style="sourceReaderStyle"
-    >
-      <div
-        v-if="sourceNotice"
-        class="sources-toast reader-toast"
-        :class="`sources-toast--${sourceNotice.type}`"
-        role="status"
-        aria-live="polite"
-      >
-        {{ sourceNotice.message }}
-      </div>
-      <TopChrome
-        variant="source"
-        :phase="topChromePhase"
-        :progress="topChromeProgress"
-        :root-style="sourceHeaderStyle"
-      >
-        <button class="reader-back-button" type="button" aria-label="打开导航" @click="openNavigation">
-          <IconMenuUnfold />
-        </button>
-        <div class="reader-overlay__source-stack">
-          <div
-            class="reader-source-layer"
-            :class="{ 'reader-source-layer--hidden': sourcePullActive }"
-            :style="sourceMainLayerStyle"
-          >
-            <div class="reader-overlay__title" :style="sourceTitleLayerStyle">
-              <span ref="sourceTitleTextRef" :style="sourceTitleTextStyle">{{ readerSource.name }}</span>
-              <small>{{ sourceToggleActive ? '已订阅' : '未订阅' }}</small>
-            </div>
-            <button
-              class="sources-button reader-source-toggle"
-              :class="{ 'sources-button--active': sourceToggleActive }"
-              type="button"
-              :disabled="sourceSubscriptionLoading"
-              @pointerdown.stop
-              @touchstart.stop
-              @click="toggleSourceReaderSubscription"
-            >
-              {{ sourceToggleLabel }}
-            </button>
-          </div>
-          <div
-            class="reader-source-layer reader-source-layer--refresh"
-            :class="{ 'reader-source-layer--hidden': !sourcePullActive }"
-            :style="sourcePullStatusStyle"
-            aria-live="polite"
-          >
-            <span
-              class="feed-refresh-header__icon"
-              :class="{ 'feed-refresh-header__icon--refreshing': feedInteraction.pullRefreshing }"
-              :style="sourcePullIconStyle"
-            >
-              <IconSync />
-            </span>
-            <div class="feed-refresh-header__copy">
-              <div class="feed-refresh-header__title">{{ pullStatusText }}</div>
-              <div class="feed-refresh-header__meta">{{ pullStatusMeta }}</div>
-            </div>
-          </div>
-        </div>
-      </TopChrome>
-      <div
-        ref="sourceReaderContentRef"
-        class="reader-overlay__content reader-overlay__content--source"
-        :style="sourceContentStyle"
-        @scroll.passive="handleSourceReaderScroll"
-      >
-        <SubscriptionFeedView
-          :key="`${readerSource.kind}:${readerSource.id}:${sourceReaderRefreshNonce}`"
-          mode="source"
-          :source-kind="readerSource.kind"
-          :source-id="readerSource.id"
-          :active="true"
-          :scroll-top="sourceReaderScrollTop"
-          :top-chrome-progress="topChromeProgress"
-          :header-height="feedHeaderHeight"
-          :freeze-body-during-top-refresh="true"
-          :morphing-item-id="morphingItemId"
-          :morphing-height-lock-item-id="morphingHeightLockItemId"
-          :morphing-item-height="morphingItemHeight"
-          :morphing-preview-progress="feedItemPreviewProgress"
-          :background-refresh="!sourceReaderVisible"
-          @top-pull-start="handleFeedTopPullStart"
-          @top-pull-move="handleFeedTopPullMove"
-          @top-pull-end="handleFeedTopPullEnd"
-          @open-item="openItemReader"
-        />
-      </div>
-    </section>
-
-    <div
-      v-if="readerSource"
-      v-show="sourceTitleRevealVisible"
-      class="source-title-reveal"
-      :style="sourceTitleRevealStyle"
-      aria-hidden="true"
-    >
-      <span>{{ readerSource.name }}</span>
-      <small>{{ sourceToggleActive ? '已订阅' : '未订阅' }}</small>
-    </div>
-
-    <div
-      v-if="detailItem"
-      v-show="sourceNameMorphVisible"
-      class="detail-source-morph"
-      :style="sourceNameMorphStyle"
-    >
-      {{ detailItem.source_name || '未知来源' }}
-    </div>
-
-    <section
-      v-if="detailReaderOpen"
-      class="reader-overlay reader-overlay--detail"
-      :class="{
+    <ReaderStack
+      :source-mounted="sourceReaderMounted && Boolean(readerSource)"
+      :source-under-detail="sourceReaderUnderDetail"
+      :source-style="sourceReaderStyle"
+      :source-title-reveal-mounted="Boolean(readerSource)"
+      :source-title-reveal-visible="sourceTitleRevealVisible"
+      :source-title-reveal-style="sourceTitleRevealStyle"
+      :source-name-morph-mounted="Boolean(detailItem)"
+      :source-name-morph-visible="sourceNameMorphVisible"
+      :source-name-morph-style="sourceNameMorphStyle"
+      :detail-open="detailReaderOpen"
+      :detail-class="{
         'reader-overlay--motion-settling': readerMotionSettling,
         'reader-overlay--returning-feed': detailReturningToFeed,
       }"
-      :style="detailReaderStyle"
+      :detail-style="detailReaderStyle"
     >
-      <div
-        class="reader-transition-surface"
-        :class="{
-          'reader-transition-surface--entry-settling': detailEntrySettling,
-          'reader-transition-surface--chrome-settling': feedChromeSettling,
-        }"
-        :style="detailTransitionSurfaceStyle"
-      >
-        <article v-if="detailItem && detailMorphTextVisible" class="reader-morph-text" :style="detailMorphTextStyle">
-          <div class="reader-morph-text__meta">
-            <span class="reader-morph-text__source-label" :style="detailMorphSourceLabelStyle">
-              {{ detailItem.source_name || '未知来源' }}
-            </span>
-            <span>{{ detailDisplayDate }}</span>
-            <span v-if="detailItem.author">{{ detailItem.author }}</span>
-          </div>
-          <h2>{{ detailItem.title }}</h2>
-          <p v-if="detailMorphSummaryVisible">{{ detailPreviewSummary }}</p>
-        </article>
+      <template #source>
         <div
-          ref="detailContentRef"
-          class="reader-overlay__content reader-detail"
-          :style="detailContentStyle"
-          @scroll.passive="handleDetailContentScroll"
+          v-if="sourceNotice"
+          class="sources-toast reader-toast"
+          :class="`sources-toast--${sourceNotice.type}`"
+          role="status"
+          aria-live="polite"
         >
-          <a-alert v-if="detailError" type="warning" show-icon :content="detailError" />
-          <section v-if="detailItem" class="reader-detail__surface">
-            <div class="reader-detail__inline-meta">
-              <span
-                ref="detailInlineSourceRef"
-                class="reader-detail__inline-source"
-                :style="detailInlineSourceStyle"
+          {{ sourceNotice.message }}
+        </div>
+        <TopChrome
+          variant="source"
+          :phase="topChromePhase"
+          :progress="topChromeProgress"
+          :root-style="sourceHeaderStyle"
+        >
+          <button class="reader-back-button" type="button" aria-label="打开导航" @click="openNavigation">
+            <IconMenuUnfold />
+          </button>
+          <div class="reader-overlay__source-stack">
+            <div
+              class="reader-source-layer"
+              :class="{ 'reader-source-layer--hidden': sourcePullActive }"
+              :style="sourceMainLayerStyle"
+            >
+              <div class="reader-overlay__title" :style="sourceTitleLayerStyle">
+                <span ref="sourceTitleTextRef" :style="sourceTitleTextStyle">{{ readerSource?.name }}</span>
+                <small>{{ sourceToggleActive ? '已订阅' : '未订阅' }}</small>
+              </div>
+              <button
+                class="sources-button reader-source-toggle"
+                :class="{ 'sources-button--active': sourceToggleActive }"
+                type="button"
+                :disabled="sourceSubscriptionLoading"
+                @pointerdown.stop
+                @touchstart.stop
+                @click="toggleSourceReaderSubscription"
               >
+                {{ sourceToggleLabel }}
+              </button>
+            </div>
+            <div
+              class="reader-source-layer reader-source-layer--refresh"
+              :class="{ 'reader-source-layer--hidden': !sourcePullActive }"
+              :style="sourcePullStatusStyle"
+              aria-live="polite"
+            >
+              <span
+                class="feed-refresh-header__icon"
+                :class="{ 'feed-refresh-header__icon--refreshing': feedInteraction.pullRefreshing }"
+                :style="sourcePullIconStyle"
+              >
+                <IconSync />
+              </span>
+              <div class="feed-refresh-header__copy">
+                <div class="feed-refresh-header__title">{{ pullStatusText }}</div>
+                <div class="feed-refresh-header__meta">{{ pullStatusMeta }}</div>
+              </div>
+            </div>
+          </div>
+        </TopChrome>
+        <div
+          ref="sourceReaderContentRef"
+          class="reader-overlay__content reader-overlay__content--source"
+          :style="sourceContentStyle"
+          @scroll.passive="handleSourceReaderScroll"
+        >
+          <SubscriptionFeedView
+            v-if="readerSource"
+            :key="`${readerSource.kind}:${readerSource.id}:${sourceReaderRefreshNonce}`"
+            mode="source"
+            :source-kind="readerSource.kind"
+            :source-id="readerSource.id"
+            :active="true"
+            :scroll-top="sourceReaderScrollTop"
+            :top-chrome-progress="topChromeProgress"
+            :header-height="feedHeaderHeight"
+            :freeze-body-during-top-refresh="true"
+            :morphing-item-id="morphingItemId"
+            :morphing-height-lock-item-id="morphingHeightLockItemId"
+            :morphing-item-height="morphingItemHeight"
+            :morphing-preview-progress="feedItemPreviewProgress"
+            :background-refresh="!sourceReaderVisible"
+            @top-pull-start="handleFeedTopPullStart"
+            @top-pull-move="handleFeedTopPullMove"
+            @top-pull-end="handleFeedTopPullEnd"
+            @open-item="openItemReader"
+          />
+        </div>
+      </template>
+
+      <template #source-title-reveal>
+        <span>{{ readerSource?.name }}</span>
+        <small>{{ sourceToggleActive ? '已订阅' : '未订阅' }}</small>
+      </template>
+
+      <template #source-name-morph>
+        {{ detailItem?.source_name || '未知来源' }}
+      </template>
+
+      <template #detail>
+        <div
+          class="reader-transition-surface"
+          :class="{
+            'reader-transition-surface--entry-settling': detailEntrySettling,
+            'reader-transition-surface--chrome-settling': feedChromeSettling,
+          }"
+          :style="detailTransitionSurfaceStyle"
+        >
+          <article v-if="detailItem && detailMorphTextVisible" class="reader-morph-text" :style="detailMorphTextStyle">
+            <div class="reader-morph-text__meta">
+              <span class="reader-morph-text__source-label" :style="detailMorphSourceLabelStyle">
                 {{ detailItem.source_name || '未知来源' }}
               </span>
               <span>{{ detailDisplayDate }}</span>
+              <span v-if="detailItem.author">{{ detailItem.author }}</span>
             </div>
-            <iframe
-              ref="detailFrameRef"
-              class="reader-detail__frame"
-              title="条目正文"
-              sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-              :srcdoc="detailSrcdoc"
-              @load="handleDetailFrameLoad"
-            />
-            <div class="reader-detail__actions">
-              <a :href="detailItem.url" target="_blank" rel="noreferrer">阅读原文</a>
-            </div>
-          </section>
-          <section v-else class="empty-surface">
-            <div class="empty-surface__mark">读</div>
-            <h2>{{ detailLoading ? '正在加载条目' : '暂无条目内容' }}</h2>
-            <p>请稍候。</p>
-          </section>
+            <h2>{{ detailItem.title }}</h2>
+            <p v-if="detailMorphSummaryVisible">{{ detailPreviewSummary }}</p>
+          </article>
+          <div
+            ref="detailContentRef"
+            class="reader-overlay__content reader-detail"
+            :style="detailContentStyle"
+            @scroll.passive="handleDetailContentScroll"
+          >
+            <a-alert v-if="detailError" type="warning" show-icon :content="detailError" />
+            <section v-if="detailItem" class="reader-detail__surface">
+              <div class="reader-detail__inline-meta">
+                <span
+                  ref="detailInlineSourceRef"
+                  class="reader-detail__inline-source"
+                  :style="detailInlineSourceStyle"
+                >
+                  {{ detailItem.source_name || '未知来源' }}
+                </span>
+                <span>{{ detailDisplayDate }}</span>
+              </div>
+              <iframe
+                ref="detailFrameRef"
+                class="reader-detail__frame"
+                title="条目正文"
+                sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+                :srcdoc="detailSrcdoc"
+                @load="handleDetailFrameLoad"
+              />
+              <div class="reader-detail__actions">
+                <a :href="detailItem.url" target="_blank" rel="noreferrer">阅读原文</a>
+              </div>
+            </section>
+            <section v-else class="empty-surface">
+              <div class="empty-surface__mark">读</div>
+              <h2>{{ detailLoading ? '正在加载条目' : '暂无条目内容' }}</h2>
+              <p>请稍候。</p>
+            </section>
+          </div>
         </div>
-      </div>
-      <div
-        ref="detailProgressTrackRef"
-        class="reader-detail-progress"
-        :class="{ 'reader-detail-progress--dragging': detailProgressDragging }"
-        role="scrollbar"
-        aria-label="正文阅读进度"
-        aria-orientation="vertical"
-        :aria-valuenow="Math.round(detailReadingProgress * 100)"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        :style="detailProgressStyle"
-        @pointerdown="handleDetailProgressPointerDown"
-        @pointermove="handleDetailProgressPointerMove"
-        @pointerup="finishDetailProgressDrag"
-        @pointercancel="finishDetailProgressDrag"
-        @touchstart.stop.prevent
-      >
-        <div ref="detailProgressBarRef" class="reader-detail-progress__track">
-          <div class="reader-detail-progress__fill" :style="detailProgressFillStyle" />
-          <div class="reader-detail-progress__thumb" :style="detailProgressThumbStyle" />
+        <div
+          ref="detailProgressTrackRef"
+          class="reader-detail-progress"
+          :class="{ 'reader-detail-progress--dragging': detailProgressDragging }"
+          role="scrollbar"
+          aria-label="正文阅读进度"
+          aria-orientation="vertical"
+          :aria-valuenow="Math.round(detailReadingProgress * 100)"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :style="detailProgressStyle"
+          @pointerdown="handleDetailProgressPointerDown"
+          @pointermove="handleDetailProgressPointerMove"
+          @pointerup="finishDetailProgressDrag"
+          @pointercancel="finishDetailProgressDrag"
+          @touchstart.stop.prevent
+        >
+          <div ref="detailProgressBarRef" class="reader-detail-progress__track">
+            <div class="reader-detail-progress__fill" :style="detailProgressFillStyle" />
+            <div class="reader-detail-progress__thumb" :style="detailProgressThumbStyle" />
+          </div>
         </div>
-      </div>
-    </section>
+      </template>
+    </ReaderStack>
   </div>
 </template>
