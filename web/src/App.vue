@@ -37,6 +37,7 @@ import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
 import { usePageContentMotion } from '@/composables/usePageContentMotion'
+import { useClickSuppression } from '@/composables/useClickSuppression'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -195,6 +196,7 @@ const swipePhase = swipeTransition.phase
 const swipeDirection = swipeTransition.direction
 const swipeProgress = swipeTransition.progress
 const swipeIsBlocked = swipeTransition.isBlocked
+const clickSuppression = useClickSuppression()
 const windowWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
 const windowHeight = ref(typeof window === 'undefined' ? 900 : window.innerHeight)
 const navigationDrawer = useNavigationDrawer({ windowWidth, resolveDelay: motionDelay })
@@ -1217,8 +1219,6 @@ let trackingBackSwipe = false
 let navigationDragStarted = false
 let backSwipeTarget: 'detail' | 'source' | 'page' | null = null
 let backSwipeIntent: 'back' | 'source' | 'blocked' | null = null
-let suppressNextClick = false
-let suppressClickTimer = 0
 let viewSwipeTimer = 0
 let readerMotionTimer = 0
 let detailEntryTimer = 0
@@ -1266,21 +1266,11 @@ function isPageTopPullControlTarget(target: EventTarget | null) {
 }
 
 function handleClickCapture(event: MouseEvent) {
-  if (!suppressNextClick) {
-    return
-  }
-  event.preventDefault()
-  event.stopPropagation()
-  suppressNextClick = false
-  window.clearTimeout(suppressClickTimer)
+  clickSuppression.consume(event)
 }
 
 function suppressFollowingClick() {
-  suppressNextClick = true
-  window.clearTimeout(suppressClickTimer)
-  suppressClickTimer = window.setTimeout(() => {
-    suppressNextClick = false
-  }, 420)
+  clickSuppression.suppressNext()
 }
 
 async function pushRoute(path: string) {
@@ -3652,7 +3642,7 @@ onUnmounted(() => {
   chromeState.clearSettlingTimer()
   window.clearTimeout(sourceContentSettleTimer)
   pagePullRefresh.clearSettleTimer()
-  window.clearTimeout(suppressClickTimer)
+  clickSuppression.clearTimer()
   clearSourceNoticeTimer()
   window.clearTimeout(readerMotionTimer)
   window.clearTimeout(detailEntryTimer)
