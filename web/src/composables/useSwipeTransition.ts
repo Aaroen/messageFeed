@@ -26,6 +26,7 @@ export function useSwipeTransition<TSurface extends string = string>() {
   const direction = ref<SwipeDirection>(null)
   const progress = ref(0)
   const isBlocked = ref(false)
+  let resetTimer = 0
 
   const snapshot = computed<SwipeTransitionSnapshot<TSurface>>(() => ({
     from: from.value,
@@ -91,6 +92,19 @@ export function useSwipeTransition<TSurface extends string = string>() {
     isBlocked.value = false
   }
 
+  function clearResetTimer() {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(resetTimer)
+    }
+  }
+
+  function scheduleReset(delayMS: number) {
+    clearResetTimer()
+    resetTimer = window.setTimeout(() => {
+      reset()
+    }, Math.max(0, delayMS))
+  }
+
   return {
     from,
     to,
@@ -103,5 +117,7 @@ export function useSwipeTransition<TSurface extends string = string>() {
     update,
     settle,
     reset,
+    scheduleReset,
+    clearResetTimer,
   }
 }

@@ -1220,7 +1220,6 @@ let backSwipeIntent: 'back' | 'source' | 'blocked' | null = null
 let suppressNextClick = false
 let suppressClickTimer = 0
 let viewSwipeTimer = 0
-let swipeTransitionTimer = 0
 let readerMotionTimer = 0
 let detailEntryTimer = 0
 let detailHeaderSwapTimer = 0
@@ -2226,10 +2225,7 @@ function readerSwipeTargetSurface(
 }
 
 function scheduleSwipeTransitionReset(duration = 260) {
-  window.clearTimeout(swipeTransitionTimer)
-  swipeTransitionTimer = window.setTimeout(() => {
-    swipeTransition.reset()
-  }, motionDelay(duration))
+  swipeTransition.scheduleReset(motionDelay(duration))
 }
 
 function beginViewSwipeTransition(offset: number) {
@@ -3663,7 +3659,7 @@ onUnmounted(() => {
   window.removeEventListener('touchend', handleTouchEnd)
   window.removeEventListener('touchcancel', handleTouchCancel)
   window.clearTimeout(viewSwipeTimer)
-  window.clearTimeout(swipeTransitionTimer)
+  swipeTransition.clearResetTimer()
   navigationDrawer.clearTimer()
   window.clearTimeout(feedRefreshSettleTimer)
   window.clearTimeout(feedChromeSettleTimer)
