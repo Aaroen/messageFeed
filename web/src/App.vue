@@ -133,6 +133,8 @@ const {
   beginDetailEntryState,
   commitDetailEntryState,
   finishDetailEntryState,
+  clearDetailEntryTimer,
+  setDetailEntryTimer,
   completeOpenItemReaderLoadState,
   failOpenItemReaderLoadState,
   clearDetailHeaderSwapTimer,
@@ -1217,7 +1219,6 @@ let navigationDragStarted = false
 let backSwipeTarget: 'detail' | 'source' | 'page' | null = null
 let backSwipeIntent: 'back' | 'source' | 'blocked' | null = null
 let viewSwipeTimer = 0
-let detailEntryTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
@@ -1665,7 +1666,7 @@ function settleReaderMotion(duration = 260, done?: () => void) {
 }
 
 function startDetailEntry(rect?: DOMRect) {
-  window.clearTimeout(detailEntryTimer)
+  clearDetailEntryTimer()
   const result = beginDetailEntryState(snapshotRect(rect))
   if (!result.shouldAnimate) {
     return
@@ -1674,7 +1675,7 @@ function startDetailEntry(rect?: DOMRect) {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       commitDetailEntryState()
-      detailEntryTimer = window.setTimeout(() => {
+      setDetailEntryTimer(() => {
         finishDetailEntryState()
       }, motionDelay(readerMorphDuration))
     })
@@ -1857,7 +1858,7 @@ function finishCommittedListReturnForGesture() {
     return
   }
 
-  window.clearTimeout(detailEntryTimer)
+  clearDetailEntryTimer()
   closeItemReader()
 }
 
@@ -1985,7 +1986,7 @@ function restoreDetailFromParkedSource(duration = 360) {
   }
 
   suppressFollowingClick()
-  window.clearTimeout(detailEntryTimer)
+  clearDetailEntryTimer()
   clearMorphingHeightUnlockTimer()
   captureVisibleSourceReturnTarget()
   beginRestoreDetailFromParkedSourceState()
@@ -1996,7 +1997,7 @@ function restoreDetailFromParkedSource(duration = 360) {
     commitRestoreDetailFromParkedSourceState()
   })
 
-  detailEntryTimer = window.setTimeout(() => {
+  setDetailEntryTimer(() => {
     finishRestoreDetailFromParkedSourceState()
     restoreMorphingItemContent()
     scheduleHiddenSourceReaderCleanup()
@@ -2009,11 +2010,11 @@ function restoreParkedSourceReader(duration = 260) {
     return
   }
 
-  window.clearTimeout(detailEntryTimer)
+  clearDetailEntryTimer()
   requestAnimationFrame(() => {
     commitRestoreParkedSourceReaderState()
   })
-  detailEntryTimer = window.setTimeout(() => {
+  setDetailEntryTimer(() => {
     finishRestoreParkedSourceReaderState()
   }, motionDelay(duration))
 }
@@ -2041,8 +2042,8 @@ function collapseItemReader(duration = 360) {
   if (result.shouldRefreshFeedOrigin) {
     refreshDetailFeedOriginRect(true)
   }
-  window.clearTimeout(detailEntryTimer)
-  detailEntryTimer = window.setTimeout(() => {
+  clearDetailEntryTimer()
+  setDetailEntryTimer(() => {
     if (result.shouldRestorePreviousParkedDetail && restorePreviousParkedDetail()) {
       scheduleReaderURLAndHistorySync(true)
       return
@@ -2054,16 +2055,16 @@ function collapseItemReader(duration = 360) {
 
 function restoreItemReaderExpansion(duration = 360) {
   const result = beginRestoreItemReaderExpansionState()
-  window.clearTimeout(detailEntryTimer)
-  detailEntryTimer = window.setTimeout(() => {
+  clearDetailEntryTimer()
+  setDetailEntryTimer(() => {
     finishRestoreItemReaderExpansionState(result.shouldHideSourceAfterRestore)
   }, motionDelay(duration))
 }
 
 function restoreDetailFromSourceSwipe(duration = 360) {
   beginRestoreDetailFromSourceSwipeState()
-  window.clearTimeout(detailEntryTimer)
-  detailEntryTimer = window.setTimeout(() => {
+  clearDetailEntryTimer()
+  setDetailEntryTimer(() => {
     finishRestoreDetailFromSourceSwipeState()
   }, motionDelay(duration))
 }
@@ -2073,13 +2074,13 @@ function completeDetailToSourceReader(duration = 360) {
   setTopChromeVisible(true)
   setChromeContentCollapsed(false)
   captureDetailSourceTransitionRects(12, { lock: true })
-  window.clearTimeout(detailEntryTimer)
+  clearDetailEntryTimer()
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       commitCompleteDetailToSourceReaderState()
     })
   })
-  detailEntryTimer = window.setTimeout(() => {
+  setDetailEntryTimer(() => {
     finishCompleteDetailToSourceReaderState()
     restoreMorphingItemContent()
   }, motionDelay(duration))
@@ -3587,7 +3588,7 @@ onUnmounted(() => {
   clickSuppression.clearTimer()
   clearSourceNoticeTimer()
   clearReaderMotionTimer()
-  window.clearTimeout(detailEntryTimer)
+  clearDetailEntryTimer()
   clearDetailHeaderSwapTimer()
   clearMorphingHeightUnlockTimer()
   clearHiddenSourceCleanupTimer()

@@ -142,6 +142,7 @@ export function useReaderStackState() {
   let morphingHeightUnlockTimer = 0
   let hiddenSourceCleanupTimer = 0
   let detailHeaderSwapTimer = 0
+  let detailEntryTimer = 0
 
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
   const detailContentRef = ref<HTMLElement | null>(null)
@@ -575,6 +576,14 @@ export function useReaderStackState() {
 
   function finishDetailEntryState() {
     detailEntrySettling.value = false
+  }
+
+  function clearDetailEntryTimer() {
+    window.clearTimeout(detailEntryTimer)
+  }
+
+  function setDetailEntryTimer(handler: () => void, delay?: number) {
+    detailEntryTimer = window.setTimeout(handler, delay)
   }
 
   function completeOpenItemReaderLoadState(item?: FeedItem) {
@@ -1130,6 +1139,8 @@ export function useReaderStackState() {
     beginDetailEntryState,
     commitDetailEntryState,
     finishDetailEntryState,
+    clearDetailEntryTimer,
+    setDetailEntryTimer,
     completeOpenItemReaderLoadState,
     failOpenItemReaderLoadState,
     beginDetailHeaderTitleSwapState,
