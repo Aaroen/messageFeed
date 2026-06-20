@@ -35,6 +35,7 @@ import {
 import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
+import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -186,8 +187,6 @@ const feedScrollTop = ref(0)
 const pageSideOffset = ref(0)
 const pageSideStretch = ref(0)
 const pageStretchAnchor = ref<'left' | 'right' | null>(null)
-const viewDragOffset = ref(0)
-const viewSettling = ref(false)
 const chromeState = useChromeState()
 const topChromeProgress = chromeState.progress
 const topChromePhase = chromeState.phase
@@ -278,7 +277,15 @@ const readerRouteSync = useReaderRouteSync({
 })
 const isFeedRoute = computed(() => ['subscriptions', 'recommendations'].includes(route.name?.toString() ?? ''))
 const cornerButtonLabel = computed(() => '打开导航')
-const activeFeedIndex = computed(() => (route.name === 'recommendations' ? 1 : 0))
+const feedPagerTransition = useFeedPagerTransition({
+  getActiveKey: () => route.name,
+  getWindowWidth: () => windowWidth.value,
+  isFeedRoute: () => isFeedRoute.value,
+  isDetailReaderOpen: () => detailReaderOpen.value,
+})
+const viewDragOffset = feedPagerTransition.dragOffset
+const viewSettling = feedPagerTransition.settling
+const activeFeedIndex = feedPagerTransition.activeIndex
 const feedPullActive = computed(() => isFeedRoute.value && (feedInteraction.pullActive || feedInteraction.pullOffset > 1))
 const pagePullActive = computed(() => !isFeedRoute.value && (pagePullRefreshing.value || pagePullOffset.value > 1))
 const sourcePullActive = computed(
@@ -437,27 +444,11 @@ const sourceToggleLabel = computed(() => {
   return sourceSubscription.value?.status === 'active' ? '关闭' : '开启'
 })
 const sourceToggleActive = computed(() => sourceSubscription.value?.status === 'active')
-const feedTrackStyle = computed(() => ({
-  transform: `translate3d(calc(${-activeFeedIndex.value * 100}% + ${cssPx(viewDragOffset.value)}), 0, 0)`,
-}))
-const viewSwipeProgress = computed(() =>
-  clamp(Math.abs(viewDragOffset.value) / Math.max(1, Math.min(windowWidth.value, 320))),
-)
-const viewSwipeTargetKey = computed(() => {
-  if (viewDragOffset.value < -viewDragThreshold && activeFeedIndex.value === 0) {
-    return 'recommendations'
-  }
-  if (viewDragOffset.value > viewDragThreshold && activeFeedIndex.value === 1) {
-    return 'subscriptions'
-  }
-  return ''
-})
-const viewSwipeTargetVisible = computed(
-  () => isFeedRoute.value && !detailReaderOpen.value && Boolean(viewSwipeTargetKey.value),
-)
-const viewSwipeTargetProgress = computed(() =>
-  viewSwipeTargetVisible.value ? clamp((viewSwipeProgress.value - 0.26) / 0.48) : 0,
-)
+const feedTrackStyle = feedPagerTransition.trackStyle
+const viewSwipeProgress = feedPagerTransition.swipeProgress
+const viewSwipeTargetKey = feedPagerTransition.targetKey
+const viewSwipeTargetVisible = feedPagerTransition.targetVisible
+const viewSwipeTargetProgress = feedPagerTransition.targetProgress
 const mainClass = computed(() => ({
   'app-main--feed': isFeedRoute.value,
   'app-main--page': !isFeedRoute.value,
@@ -1209,7 +1200,7 @@ const directionLockRatio = 1.25
 const navigationDragRatio = 1.1
 const viewDirectionLockRatio = 1.35
 const topPullDirectionLockRatio = 1.18
-const viewDragThreshold = 8
+const viewDragThreshold = feedPagerTransition.dragThreshold
 const viewSwipeChromeRevealDelay = 520
 const topChromeSettleDuration = 1000
 let touchStartX = 0
@@ -1336,8 +1327,7 @@ function goHome(closePanel = navigationVisible.value) {
   void pushRoute('/recommendations')
   setChromeProgress(1, 'visible')
   setChromeContentCollapsed(false)
-  viewDragOffset.value = 0
-  viewSettling.value = false
+  feedPagerTransition.reset()
   if (closePanel) {
     closeNavigation()
   }
@@ -1348,12 +1338,12 @@ function handleCornerButtonClick() {
 }
 
 function navigateTo(path: string) {
-  viewSettling.value = true
-  viewDragOffset.value = 0
+  feedPagerTransition.setSettling(true)
+  feedPagerTransition.setDragOffset(0)
   void pushRoute(path)
   window.clearTimeout(viewSwipeTimer)
   viewSwipeTimer = window.setTimeout(() => {
-    viewSettling.value = false
+    feedPagerTransition.setSettling(false)
   }, motionDelay(260))
 }
 
@@ -2607,7 +2597,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
 
 function finishViewSwipe(nextPath: string | null) {
   const committed = Boolean(nextPath)
-  viewSettling.value = true
+  feedPagerTransition.setSettling(true)
   swipeTransition.settle(committed, { progress: committed ? 1 : 0, isBlocked: false })
   window.clearTimeout(viewSwipeTimer)
   const shouldRevealChromeFirst = Boolean(nextPath) && viewSwipeStartedWithHiddenChrome
@@ -2618,9 +2608,9 @@ function finishViewSwipe(nextPath: string | null) {
       if (nextPath) {
         void pushRoute(nextPath)
       }
-      viewDragOffset.value = 0
+      feedPagerTransition.setDragOffset(0)
       viewSwipeTimer = window.setTimeout(() => {
-        viewSettling.value = false
+        feedPagerTransition.setSettling(false)
       }, motionDelay(260))
     }, viewSwipeChromeRevealDelay)
     scheduleSwipeTransitionReset(viewSwipeChromeRevealDelay + 260)
@@ -2629,9 +2619,9 @@ function finishViewSwipe(nextPath: string | null) {
   if (nextPath) {
     void pushRoute(nextPath)
   }
-  viewDragOffset.value = 0
+  feedPagerTransition.setDragOffset(0)
   viewSwipeTimer = window.setTimeout(() => {
-    viewSettling.value = false
+    feedPagerTransition.setSettling(false)
   }, motionDelay(260))
   scheduleSwipeTransitionReset(260)
 }
@@ -2762,11 +2752,7 @@ function handleTouchMove(event: TouchEvent) {
 
   if (trackingViewSwipe) {
     trackingViewSwipe = true
-    if (activeFeedIndex.value === 0) {
-      viewDragOffset.value = Math.min(0, Math.max(deltaX, -windowWidth.value))
-    } else {
-      viewDragOffset.value = Math.max(0, Math.min(deltaX, windowWidth.value))
-    }
+    feedPagerTransition.setDragDelta(deltaX)
     syncViewSwipeTransition(viewDragOffset.value)
     return
   }
@@ -2933,7 +2919,7 @@ function handleFeedPointerDown(event: PointerEvent) {
   trackingEdgeSwipe = false
   trackingNavigationClose = false
   activeFeedPointerId = event.pointerId
-  viewSettling.value = false
+  feedPagerTransition.setSettling(false)
 }
 
 function handleFeedPointerMove(event: PointerEvent) {
@@ -2975,15 +2961,11 @@ function handleFeedPointerMove(event: PointerEvent) {
   }
 
   if ((activeFeedIndex.value === 0 && deltaX > 0) || (activeFeedIndex.value === 1 && deltaX < 0)) {
-    viewDragOffset.value = 0
+    feedPagerTransition.setDragOffset(0)
     return
   }
 
-  if (activeFeedIndex.value === 0) {
-    viewDragOffset.value = Math.min(0, Math.max(deltaX, -windowWidth.value))
-  } else {
-    viewDragOffset.value = Math.max(0, Math.min(deltaX, windowWidth.value))
-  }
+  feedPagerTransition.setDragDelta(deltaX)
   syncViewSwipeTransition(viewDragOffset.value)
 }
 
@@ -3545,7 +3527,7 @@ watch(
     pagePullRefresh.setOffset(0)
     pagePullRefresh.setDistance(0)
     pagePullRefresh.setSettling(false)
-    viewDragOffset.value = 0
+    feedPagerTransition.setDragOffset(0)
     if (isFeedRoute.value) {
       setTopChromeVisible(true)
       nextTick(() => {
