@@ -8,7 +8,7 @@ import {
   IconSunFill,
   IconSync,
 } from '@arco-design/web-vue/es/icon'
-import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import {
@@ -34,6 +34,11 @@ import {
   type RectSnapshot,
   useReaderSession,
 } from '@/composables/useReaderSession'
+import {
+  browserRouteFullPath,
+  readerRouteMatchesCurrent,
+  useReaderRouteSync,
+} from '@/composables/useReaderRouteSync'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 
@@ -151,15 +156,17 @@ const readerMorphDuration = 360
 const readerMorphCleanupBuffer = 96
 const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
 const readerRectRetryDelay = 64
-const readerURLQueryKeys = ['item', 'itemKind', 'source', 'sourceKind'] as const
 const homeExitDoubleBackMs = 1600
+let programmaticRouteNavigation = false
+let readerSessionInitialized = false
 const readerSession = useReaderSession<ReaderSessionSnapshot>({
   storageKey: 'messagefeed-reader-session-v1',
   maxAgeMS: 24 * 60 * 60 * 1000,
   saveDelayMS: 80,
   createSnapshot: readerSessionSnapshot,
   getCurrentRouteFullPath: () => route.fullPath,
-  matchesCurrentRoute: readerSessionRouteMatches,
+  matchesCurrentRoute: (snapshotRouteFullPath) =>
+    readerRouteMatchesCurrent([route.fullPath, browserRouteFullPath()], snapshotRouteFullPath),
   restoreSnapshot: applyReaderSessionSnapshot,
   afterRestore: scheduleReaderURLAndHistorySync,
 })
@@ -169,6 +176,19 @@ const pageTitle = computed(() => route.meta.title?.toString() ?? '订阅')
 const sourceReaderMounted = computed(() => readerSource.value !== null)
 const sourceReaderOpen = computed(() => readerSource.value !== null && sourceReaderVisible.value)
 const detailReaderOpen = computed(() => detailItem.value !== null || detailLoading.value || detailError.value !== '')
+const readerRouteSync = useReaderRouteSync({
+  route,
+  router,
+  canSync: () => readerSessionInitialized && !readerSession.restoring.value,
+  getReaderSource: () => readerSource.value,
+  isSourceReaderOpen: () => sourceReaderOpen.value,
+  getDetailItemID: () => detailItem.value?.id,
+  getDetailSourceKind: () => detailSourceKind.value,
+  setProgrammaticRouteNavigation: (active) => {
+    programmaticRouteNavigation = active
+  },
+  syncVirtualHistoryState,
+})
 const isFeedRoute = computed(() => ['subscriptions', 'recommendations'].includes(route.name?.toString() ?? ''))
 const cornerButtonLabel = computed(() => '打开导航')
 const activeFeedIndex = computed(() => (route.name === 'recommendations' ? 1 : 0))
@@ -1154,9 +1174,6 @@ let feedChromeSettleTimer = 0
 let sourceContentSettleTimer = 0
 let pagePullSettleTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
-let programmaticRouteNavigation = false
-let readerURLSyncing = false
-let readerSessionInitialized = false
 let virtualBackHandledAt = 0
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
@@ -1236,90 +1253,8 @@ async function replaceRoute(path: string) {
   }
 }
 
-function readerQueryBase() {
-  const query: LocationQueryRaw = { ...route.query }
-  for (const key of readerURLQueryKeys) {
-    delete query[key]
-  }
-  return query
-}
-
-function normalizeReaderRouteFullPath(fullPath: string) {
-  const url = new URL(fullPath, 'https://messagefeed.local')
-  for (const key of readerURLQueryKeys) {
-    url.searchParams.delete(key)
-  }
-  const query = url.searchParams.toString()
-  return `${url.pathname}${query ? `?${query}` : ''}${url.hash}`
-}
-
-function readerSessionRouteMatches(snapshotRouteFullPath: string) {
-  const locationFullPath =
-    typeof window === 'undefined' ? '' : `${window.location.pathname}${window.location.search}${window.location.hash}`
-  const currentRoutes = [route.fullPath, locationFullPath].filter(Boolean)
-  return currentRoutes.some(
-    (currentRoute) =>
-      currentRoute === snapshotRouteFullPath ||
-      normalizeReaderRouteFullPath(currentRoute) === normalizeReaderRouteFullPath(snapshotRouteFullPath),
-  )
-}
-
-function readerQueryValue(value: unknown) {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item ?? '')).join('\u0001')
-  }
-  return value == null ? '' : String(value)
-}
-
-function readerQueriesEqual(left: Record<string, unknown>, right: Record<string, unknown>) {
-  const keys = new Set([...Object.keys(left), ...Object.keys(right)])
-  for (const key of keys) {
-    if (readerQueryValue(left[key]) !== readerQueryValue(right[key])) {
-      return false
-    }
-  }
-  return true
-}
-
-function readerURLQuery() {
-  const query = readerQueryBase()
-  if (sourceReaderOpen.value && readerSource.value) {
-    query.source = String(readerSource.value.id)
-    query.sourceKind = readerSource.value.kind
-  }
-  if (detailItem.value?.id) {
-    query.item = String(detailItem.value.id)
-    query.itemKind = detailSourceKind.value
-  }
-  return query
-}
-
-async function syncReaderURLToState() {
-  if (!readerSessionInitialized || readerURLSyncing || readerSession.restoring.value || !route.name) {
-    return
-  }
-
-  const query = readerURLQuery()
-  if (readerQueriesEqual(route.query, query)) {
-    return
-  }
-
-  readerURLSyncing = true
-  programmaticRouteNavigation = true
-  try {
-    await router.replace({ name: route.name, query })
-  } finally {
-    window.setTimeout(() => {
-      readerURLSyncing = false
-      programmaticRouteNavigation = false
-    }, 0)
-  }
-}
-
 function scheduleReaderURLAndHistorySync(forcePush = false) {
-  void syncReaderURLToState().finally(() => {
-    nextTick(() => syncVirtualHistoryState(forcePush))
-  })
+  readerRouteSync.scheduleSync(forcePush)
 }
 
 function handleMenuClick(key: string) {
