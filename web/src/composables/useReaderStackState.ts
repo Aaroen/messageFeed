@@ -1244,7 +1244,6 @@ export function useReaderStackState() {
     pushParkedDetailSnapshot,
     restoreParkedDetailSnapshot,
     restorePreviousParkedDetail,
-    resetDetailTransition,
     clearHiddenSourceReader,
     clearHiddenSourceCleanupTimer,
     scheduleHiddenSourceReaderCleanupWithDelay,

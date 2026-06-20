@@ -123,7 +123,6 @@ const {
   pushParkedDetailSnapshot,
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
-  resetDetailTransition,
   clearHiddenSourceCleanupTimer,
   scheduleHiddenSourceReaderCleanupWithDelay,
   openSourceReaderState,
