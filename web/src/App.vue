@@ -18,6 +18,7 @@ import ReaderDetailMorphText from '@/components/ReaderDetailMorphText.vue'
 import ReaderDetailProgress from '@/components/ReaderDetailProgress.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
 import ReaderSourceChromeContent from '@/components/ReaderSourceChromeContent.vue'
+import ReaderSourceNotice from '@/components/ReaderSourceNotice.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
@@ -4033,15 +4034,7 @@ onUnmounted(() => {
       :detail-style="detailReaderStyle"
     >
       <template #source>
-        <div
-          v-if="sourceNotice"
-          class="sources-toast reader-toast"
-          :class="`sources-toast--${sourceNotice.type}`"
-          role="status"
-          aria-live="polite"
-        >
-          {{ sourceNotice.message }}
-        </div>
+        <ReaderSourceNotice :notice="sourceNotice" />
         <TopChrome
           variant="source"
           :phase="topChromePhase"
