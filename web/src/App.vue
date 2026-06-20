@@ -14,10 +14,7 @@ import {
   getFeedItem,
   type FeedItem,
 } from '@/api/feed'
-import ReaderDetailContentInner from '@/components/ReaderDetailContentInner.vue'
-import ReaderDetailMorphText from '@/components/ReaderDetailMorphText.vue'
-import ReaderDetailProgress from '@/components/ReaderDetailProgress.vue'
-import ReaderDetailTransitionSurface from '@/components/ReaderDetailTransitionSurface.vue'
+import ReaderDetailOverlayContent from '@/components/ReaderDetailOverlayContent.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
 import ReaderSourceChromeContent from '@/components/ReaderSourceChromeContent.vue'
 import ReaderSourceFeed from '@/components/ReaderSourceFeed.vue'
@@ -1659,6 +1656,10 @@ function detailFrameViewportOffset() {
     left: rect?.left ?? 0,
     top: rect?.top ?? 0,
   }
+}
+
+function setDetailContentElement(element: HTMLElement | null) {
+  detailContentRef.value = element
 }
 
 function setDetailInlineSourceElement(element: HTMLElement | null) {
@@ -4099,48 +4100,35 @@ onUnmounted(() => {
       </template>
 
       <template #detail>
-        <ReaderDetailTransitionSurface
+        <ReaderDetailOverlayContent
           :entry-settling="detailEntrySettling"
           :chrome-settling="feedChromeSettling"
-          :root-style="detailTransitionSurfaceStyle"
-        >
-          <ReaderDetailMorphText
-            :item="detailItem"
-            :visible="detailMorphTextVisible"
-            :root-style="detailMorphTextStyle"
-            :source-label-style="detailMorphSourceLabelStyle"
-            :display-date="detailDisplayDate"
-            :summary-visible="detailMorphSummaryVisible"
-            :summary="detailPreviewSummary"
-          />
-          <div
-            ref="detailContentRef"
-            class="reader-overlay__content reader-detail"
-            :style="detailContentStyle"
-            @scroll.passive="handleDetailContentScroll"
-          >
-            <ReaderDetailContentInner
-              :item="detailItem"
-              :loading="detailLoading"
-              :error="detailError"
-              :display-date="detailDisplayDate"
-              :srcdoc="detailSrcdoc"
-              :inline-source-style="detailInlineSourceStyle"
-              @inline-source-ref="setDetailInlineSourceElement"
-              @frame-ref="setDetailFrameElement"
-              @frame-load="handleDetailFrameLoad"
-            />
-          </div>
-        </ReaderDetailTransitionSurface>
-        <ReaderDetailProgress
-          :visible="detailProgressVisible"
-          :dragging="detailProgressDragging"
-          :progress="detailReadingProgress"
-          :root-style="detailProgressStyle"
-          :fill-style="detailProgressFillStyle"
-          :thumb-style="detailProgressThumbStyle"
-          @drag-start="handleDetailProgressDragStart"
-          @drag-end="handleDetailProgressDragEnd"
+          :transition-style="detailTransitionSurfaceStyle"
+          :item="detailItem"
+          :morph-visible="detailMorphTextVisible"
+          :morph-text-style="detailMorphTextStyle"
+          :morph-source-label-style="detailMorphSourceLabelStyle"
+          :display-date="detailDisplayDate"
+          :morph-summary-visible="detailMorphSummaryVisible"
+          :preview-summary="detailPreviewSummary"
+          :content-style="detailContentStyle"
+          :loading="detailLoading"
+          :error="detailError"
+          :srcdoc="detailSrcdoc"
+          :inline-source-style="detailInlineSourceStyle"
+          :progress-visible="detailProgressVisible"
+          :progress-dragging="detailProgressDragging"
+          :reading-progress="detailReadingProgress"
+          :progress-style="detailProgressStyle"
+          :progress-fill-style="detailProgressFillStyle"
+          :progress-thumb-style="detailProgressThumbStyle"
+          @content-ref="setDetailContentElement"
+          @content-scroll="handleDetailContentScroll"
+          @inline-source-ref="setDetailInlineSourceElement"
+          @frame-ref="setDetailFrameElement"
+          @frame-load="handleDetailFrameLoad"
+          @progress-drag-start="handleDetailProgressDragStart"
+          @progress-drag-end="handleDetailProgressDragEnd"
           @progress-change="handleDetailProgressChange"
         />
       </template>
