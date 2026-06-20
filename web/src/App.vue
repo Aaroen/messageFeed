@@ -134,6 +134,7 @@ const {
   pushParkedDetailSnapshot,
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
+  resetDetailTransition,
   detailBlocksGestures,
 } = useReaderStackState()
 const feedScrollTop = ref(0)
@@ -1783,23 +1784,6 @@ function startDetailHeaderTitleSwap(nextItem: FeedItem) {
   detailHeaderSwapTimer = window.setTimeout(() => {
     detailHeaderPreviousTitle.value = ''
   }, motionDelay(320))
-}
-
-function resetDetailTransition() {
-  detailEntryProgress.value = 1
-  detailEntrySettling.value = false
-  detailBackExitProgress.value = 0
-  detailSourceExitProgress.value = 0
-  detailReturningToFeed.value = false
-  detailListReturnCommitted.value = false
-  detailRestoringFromSourceReader.value = false
-  sourceReaderReturnMode.value = null
-  detailSourceItemTargetRect.value = null
-  detailSourceNameOriginRect.value = null
-  detailSourceNameTargetRect.value = null
-  detailTransitionRectsLocked.value = false
-  detailFeedOriginLocked.value = false
-  sourceReturnTargetReady.value = false
 }
 
 function readerSessionSnapshot(): ReaderSessionSnapshot {

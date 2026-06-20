@@ -207,6 +207,23 @@ export function useReaderStackState() {
     return restoreParkedDetailSnapshot(parkedDetailStack.value.pop() ?? null, options)
   }
 
+  function resetDetailTransition() {
+    detailEntryProgress.value = 1
+    detailEntrySettling.value = false
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = 0
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = false
+    detailRestoringFromSourceReader.value = false
+    sourceReaderReturnMode.value = null
+    detailSourceItemTargetRect.value = null
+    detailSourceNameOriginRect.value = null
+    detailSourceNameTargetRect.value = null
+    detailTransitionRectsLocked.value = false
+    detailFeedOriginLocked.value = false
+    sourceReturnTargetReady.value = false
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -280,6 +297,7 @@ export function useReaderStackState() {
     pushParkedDetailSnapshot,
     restoreParkedDetailSnapshot,
     restorePreviousParkedDetail,
+    resetDetailTransition,
     detailBlocksGestures,
   }
 }
