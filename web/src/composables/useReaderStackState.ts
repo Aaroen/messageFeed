@@ -13,6 +13,12 @@ type RestoreParkedDetailOptions = {
   onDetailScrollTop?: (scrollTop: number) => void
 }
 
+type ApplyReaderStackSessionOptions = {
+  onSourceScrollTop?: (scrollTop: number) => void
+  onDetailScrollTop?: (scrollTop: number) => void
+  onReaderSourceRestored?: (source: ReaderSource) => void
+}
+
 type ReaderStackSessionSnapshot = Pick<
   ReaderSessionSnapshot,
   | 'sourceReaderScrollTop'
@@ -29,6 +35,13 @@ type ReaderStackSessionSnapshot = Pick<
   | 'morphingItemHeight'
   | 'parkedDetailStack'
 >
+
+function clampProgress(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  return Math.min(Math.max(value, 0), 1)
+}
 
 export function useReaderStackState() {
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
@@ -190,6 +203,47 @@ export function useReaderStackState() {
         : null,
       morphingItemHeight: morphingItemHeight.value,
       parkedDetailStack: parkedDetailStack.value.map(cloneParkedDetailSnapshot),
+    }
+  }
+
+  function applyReaderStackSessionSnapshot(
+    snapshot: ReaderSessionSnapshot,
+    options: ApplyReaderStackSessionOptions = {},
+  ) {
+    sourceReaderScrollTop.value = snapshot.sourceReaderScrollTop || 0
+    options.onSourceScrollTop?.(sourceReaderScrollTop.value)
+    detailScrollTop.value = snapshot.detailScrollTop || 0
+    options.onDetailScrollTop?.(detailScrollTop.value)
+    readerSource.value = snapshot.readerSource ? { ...snapshot.readerSource } : null
+    sourceReaderVisible.value = Boolean(snapshot.readerSource && snapshot.sourceReaderVisible)
+    detailItem.value = snapshot.detailItem ? { ...snapshot.detailItem } : null
+    detailSourceKind.value = snapshot.detailSourceKind || 'subscriptions'
+    detailOpenedFromSourceReader.value = Boolean(snapshot.detailOpenedFromSourceReader)
+    detailEntryProgress.value = 1
+    detailEntrySettling.value = false
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = snapshot.detailListReturnCommitted
+      ? 1
+      : clampProgress(snapshot.detailSourceExitProgress || 0)
+    sourceReaderReturnMode.value = snapshot.sourceReaderReturnMode === 'detail' ? 'detail' : null
+    sourceReaderBackDetail.value = snapshot.sourceReaderBackDetail
+      ? cloneParkedDetailSnapshot(snapshot.sourceReaderBackDetail)
+      : null
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = Boolean(snapshot.detailListReturnCommitted)
+    detailRestoringFromSourceReader.value = false
+    detailError.value = ''
+    detailLoading.value = false
+    detailFrameContentHeight.value = 0
+    morphingItemId.value = null
+    morphingHeightLockItemId.value = null
+    morphingItemHeight.value = snapshot.morphingItemHeight ?? null
+    parkedDetailStack.value = Array.isArray(snapshot.parkedDetailStack)
+      ? snapshot.parkedDetailStack.map(cloneParkedDetailSnapshot)
+      : []
+
+    if (readerSource.value) {
+      options.onReaderSourceRestored?.(readerSource.value)
     }
   }
 
@@ -356,6 +410,7 @@ export function useReaderStackState() {
     hasParkedDetailSourceState,
     sourceReaderShouldReturnToDetail,
     createReaderStackSessionSnapshot,
+    applyReaderStackSessionSnapshot,
     snapshotCurrentDetail,
     snapshotParkedDetail,
     pushParkedDetailSnapshot,

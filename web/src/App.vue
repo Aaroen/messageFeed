@@ -121,6 +121,7 @@ const {
   hasParkedDetailSourceState,
   sourceReaderShouldReturnToDetail,
   createReaderStackSessionSnapshot,
+  applyReaderStackSessionSnapshot,
   snapshotCurrentDetail,
   pushParkedDetailSnapshot,
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
@@ -1774,43 +1775,19 @@ function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
 
 function applyReaderSessionSnapshot(snapshot: ReaderSessionSnapshot) {
   feedScrollTop.value = snapshot.feedScrollTop || 0
-  sourceReaderScrollTop.value = snapshot.sourceReaderScrollTop || 0
-  lastSourceReaderScrollTop = sourceReaderScrollTop.value
-  detailScrollTop.value = snapshot.detailScrollTop || 0
-  lastDetailScrollTop = detailScrollTop.value
   setChromeProgress(typeof snapshot.topChromeProgress === 'number' ? snapshot.topChromeProgress : 1)
   setChromeContentCollapsed(Boolean(snapshot.feedContentCollapsed))
-  readerSource.value = snapshot.readerSource ? { ...snapshot.readerSource } : null
-  sourceReaderVisible.value = Boolean(snapshot.readerSource && snapshot.sourceReaderVisible)
-  detailItem.value = snapshot.detailItem ? { ...snapshot.detailItem } : null
-  detailSourceKind.value = snapshot.detailSourceKind || 'subscriptions'
-  detailOpenedFromSourceReader.value = Boolean(snapshot.detailOpenedFromSourceReader)
-  detailEntryProgress.value = 1
-  detailEntrySettling.value = false
-  detailBackExitProgress.value = 0
-  detailSourceExitProgress.value = snapshot.detailListReturnCommitted
-    ? 1
-    : clamp(snapshot.detailSourceExitProgress || 0)
-  sourceReaderReturnMode.value = snapshot.sourceReaderReturnMode === 'detail' ? 'detail' : null
-  sourceReaderBackDetail.value = snapshot.sourceReaderBackDetail
-    ? { ...snapshot.sourceReaderBackDetail, item: { ...snapshot.sourceReaderBackDetail.item } }
-    : null
-  detailReturningToFeed.value = false
-  detailListReturnCommitted.value = Boolean(snapshot.detailListReturnCommitted)
-  detailRestoringFromSourceReader.value = false
-  detailError.value = ''
-  detailLoading.value = false
-  detailFrameContentHeight.value = 0
-  morphingItemId.value = null
-  morphingHeightLockItemId.value = null
-  morphingItemHeight.value = snapshot.morphingItemHeight ?? null
-  parkedDetailStack.value = Array.isArray(snapshot.parkedDetailStack)
-    ? snapshot.parkedDetailStack.map((item) => ({ ...item, item: { ...item.item } }))
-    : []
-
-  if (readerSource.value) {
-    void loadSourceReaderSubscription(readerSource.value)
-  }
+  applyReaderStackSessionSnapshot(snapshot, {
+    onSourceScrollTop: (scrollTop) => {
+      lastSourceReaderScrollTop = scrollTop
+    },
+    onDetailScrollTop: (scrollTop) => {
+      lastDetailScrollTop = scrollTop
+    },
+    onReaderSourceRestored: (source) => {
+      void loadSourceReaderSubscription(source)
+    },
+  })
   restoreSavedScrollPositions(snapshot)
 }
 
