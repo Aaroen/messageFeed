@@ -131,15 +131,14 @@ const {
   clearDetailEntryTimer,
   openItemReaderWithTransition,
   finishOpenItemReaderLoad,
-  clearDetailHeaderSwapTimer,
   applyDetailFeedOriginRectState,
   applyDetailSourceTransitionRectsState,
   applyVisibleSourceReturnTargetState,
   clearMorphingHeightUnlockTimer,
   restoreMorphingItemContentWithDelay,
   revealSourceReaderUnderDetailState,
-  clearReaderMotionTimer,
   settleReaderMotionWithDelay,
+  clearReaderStackTimers,
   updateSourceReaderScrollTopState,
   updateDetailScrollMetricsState,
   updateDetailScrollTopState,
@@ -3524,11 +3523,7 @@ onUnmounted(() => {
   pagePullRefresh.clearSettleTimer()
   clickSuppression.clearTimer()
   clearSourceNoticeTimer()
-  clearReaderMotionTimer()
-  clearDetailEntryTimer()
-  clearDetailHeaderSwapTimer()
-  clearMorphingHeightUnlockTimer()
-  clearHiddenSourceCleanupTimer()
+  clearReaderStackTimers()
   readerSession.clearTimer()
 })
 </script>

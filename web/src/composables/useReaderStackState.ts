@@ -810,6 +810,14 @@ export function useReaderStackState() {
     }, delay)
   }
 
+  function clearReaderStackTimers() {
+    clearReaderMotionTimer()
+    clearDetailEntryTimer()
+    clearDetailHeaderSwapTimer()
+    clearMorphingHeightUnlockTimer()
+    clearHiddenSourceCleanupTimer()
+  }
+
   function updateSourceReaderScrollTopState(scrollTop: number) {
     sourceReaderScrollTop.value = Math.max(0, scrollTop)
   }
@@ -1295,7 +1303,6 @@ export function useReaderStackState() {
     clearSourceReaderState,
     clearDetailEntryTimer,
     finishOpenItemReaderLoad,
-    clearDetailHeaderSwapTimer,
     openItemReaderWithTransition,
     applyDetailFeedOriginRectState,
     applyDetailSourceTransitionRectsState,
@@ -1307,8 +1314,8 @@ export function useReaderStackState() {
     revealSourceReaderUnderDetailState,
     beginReaderMotionSettlingState,
     finishReaderMotionSettlingState,
-    clearReaderMotionTimer,
     settleReaderMotionWithDelay,
+    clearReaderStackTimers,
     updateSourceReaderScrollTopState,
     updateDetailScrollMetricsState,
     updateDetailScrollTopState,
