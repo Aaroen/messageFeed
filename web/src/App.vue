@@ -23,6 +23,8 @@ import {
   type SourceCatalogEntry,
 } from '@/api/feed'
 import { formatAPIError } from '@/api/client'
+import TopChrome from '@/components/TopChrome.vue'
+import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
 import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 
 type FeedSourceKind = 'subscriptions' | 'recommendations'
@@ -106,15 +108,17 @@ const readerBackDragging = ref(false)
 const readerMotionSettling = ref(false)
 const viewDragOffset = ref(0)
 const viewSettling = ref(false)
-const topChromeProgress = ref(1)
+const chromeState = useChromeState()
+const topChromeProgress = chromeState.progress
+const topChromePhase = chromeState.phase
+const feedContentCollapsed = chromeState.contentCollapsed
+const feedChromeSettling = chromeState.settling
 const windowWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
 const windowHeight = ref(typeof window === 'undefined' ? 900 : window.innerHeight)
 const darkTheme = ref(false)
 const refreshWasActive = ref(false)
 const refreshWasSource = ref(false)
 const feedRefreshSettling = ref(false)
-const feedChromeSettling = ref(false)
-const feedContentCollapsed = ref(false)
 const sourceContentSettleOffset = ref(0)
 const sourceContentSettling = ref(false)
 const feedTopPulling = ref(false)
@@ -1321,8 +1325,8 @@ function handleMenuClick(key: string) {
 
 function goHome(closePanel = navigationVisible.value) {
   void pushRoute('/recommendations')
-  topChromeProgress.value = 1
-  feedContentCollapsed.value = false
+  setChromeProgress(1, 'visible')
+  setChromeContentCollapsed(false)
   viewDragOffset.value = 0
   viewSettling.value = false
   if (closePanel) {
@@ -1346,6 +1350,18 @@ function navigateTo(path: string) {
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.min(Math.max(value, min), max)
+}
+
+function setChromeProgress(progress: number, phase?: ChromePhase) {
+  chromeState.setProgress(progress, phase)
+}
+
+function setChromeContentCollapsed(collapsed: boolean) {
+  chromeState.setContentCollapsed(collapsed)
+}
+
+function setChromeSettling(settling: boolean, phase?: ChromePhase) {
+  chromeState.setSettling(settling, phase)
 }
 
 function motionDelay(duration = readerMorphDuration) {
@@ -1741,7 +1757,7 @@ function showSourceReaderUnderDetail() {
   }
 
   setTopChromeVisible(true)
-  feedContentCollapsed.value = false
+  setChromeContentCollapsed(false)
   sourceReaderVisible.value = true
   captureDetailSourceTransitionRects(12, { lock: true })
 }
@@ -1932,8 +1948,8 @@ async function restoreReaderSession() {
     lastSourceReaderScrollTop = sourceReaderScrollTop.value
     detailScrollTop.value = snapshot.detailScrollTop || 0
     lastDetailScrollTop = detailScrollTop.value
-    topChromeProgress.value = typeof snapshot.topChromeProgress === 'number' ? snapshot.topChromeProgress : 1
-    feedContentCollapsed.value = Boolean(snapshot.feedContentCollapsed)
+    setChromeProgress(typeof snapshot.topChromeProgress === 'number' ? snapshot.topChromeProgress : 1)
+    setChromeContentCollapsed(Boolean(snapshot.feedContentCollapsed))
     readerSource.value = snapshot.readerSource ? { ...snapshot.readerSource } : null
     sourceReaderVisible.value = Boolean(snapshot.readerSource && snapshot.sourceReaderVisible)
     detailItem.value = snapshot.detailItem ? { ...snapshot.detailItem } : null
@@ -2390,10 +2406,10 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   detailOpenedFromSourceReader.value = openedFromSourceReader
   morphingItemId.value = item.id
   morphingHeightLockItemId.value = item.id
-  feedChromeSettling.value = false
+  setChromeSettling(false, 'visible')
   feedTopPulling.value = false
-  feedContentCollapsed.value = false
-  topChromeProgress.value = 1
+  setChromeContentCollapsed(false)
+  setChromeProgress(1, 'visible')
   window.clearTimeout(feedChromeSettleTimer)
   detailReaderTouchOffset.value = 0
   detailReaderStretch.value = 0
@@ -2472,7 +2488,7 @@ function closeSourceReader() {
     parkedDetailStack.value = []
     if (isFeedRoute.value && !detailReaderOpen.value) {
       setTopChromeVisible(true)
-      feedContentCollapsed.value = false
+      setChromeContentCollapsed(false)
     }
     scheduleHiddenSourceReaderCleanup(340)
     return
@@ -2490,7 +2506,7 @@ function closeSourceReader() {
   parkedDetailStack.value = []
   if (isFeedRoute.value && !detailReaderOpen.value) {
     setTopChromeVisible(true)
-    feedContentCollapsed.value = false
+    setChromeContentCollapsed(false)
   }
 }
 
@@ -2514,7 +2530,7 @@ function restoreDetailFromParkedSource(duration = 360) {
   readerBackDragging.value = false
   detailEntrySettling.value = true
   setTopChromeVisible(true)
-  feedContentCollapsed.value = false
+  setChromeContentCollapsed(false)
   detailRestoringFromSourceReader.value = true
   detailBackExitProgress.value = 0
   detailSourceExitProgress.value = startProgress
@@ -2588,7 +2604,7 @@ function closeItemReader() {
   resetDetailTransition()
   if (isFeedRoute.value) {
     setTopChromeVisible(true)
-    feedContentCollapsed.value = false
+    setChromeContentCollapsed(false)
   }
   if (sourceReaderVisible.value && previousSourceReturnMode === 'detail') {
     sourceReaderReturnMode.value = 'detail'
@@ -2687,7 +2703,7 @@ function completeDetailToSourceReader(duration = 360) {
   }
   sourceReaderReturnMode.value = 'detail'
   setTopChromeVisible(true)
-  feedContentCollapsed.value = false
+  setChromeContentCollapsed(false)
   sourceReaderVisible.value = true
   captureDetailSourceTransitionRects(12, { lock: true })
   readerBackDragging.value = false
@@ -2793,7 +2809,7 @@ function showTopChromeForSourceReturn() {
   if (topChromeProgress.value < 0.99 || feedContentCollapsed.value) {
     setTopChromeVisible(true)
   }
-  feedContentCollapsed.value = false
+  setChromeContentCollapsed(false)
 }
 
 function settleSourceContentAfterRefresh() {
@@ -3726,26 +3742,26 @@ function setTopChromeVisible(visible: boolean) {
   const nextProgress = visible ? 1 : 0
   if (topChromeProgress.value === nextProgress) {
     if (visible && feedContentCollapsed.value) {
-      feedContentCollapsed.value = false
+      setChromeContentCollapsed(false)
     }
     if (!visible && feedContentCollapsed.value) {
-      feedChromeSettling.value = true
+      setChromeSettling(true, 'hiding')
       window.clearTimeout(feedChromeSettleTimer)
       feedChromeSettleTimer = window.setTimeout(() => {
-        feedChromeSettling.value = false
+        setChromeSettling(false)
       }, motionDelay(topChromeSettleDuration))
     }
     return
   }
 
-  feedChromeSettling.value = true
+  setChromeSettling(true, visible ? 'revealing' : 'hiding')
   window.clearTimeout(feedChromeSettleTimer)
   if (visible) {
-    feedContentCollapsed.value = false
+    setChromeContentCollapsed(false)
   }
-  topChromeProgress.value = nextProgress
+  setChromeProgress(nextProgress, visible ? 'revealing' : 'hiding')
   feedChromeSettleTimer = window.setTimeout(() => {
-    feedChromeSettling.value = false
+    setChromeSettling(false)
   }, motionDelay(topChromeSettleDuration))
 }
 
@@ -3768,7 +3784,7 @@ function handleFeedTopPullStart(startedWithVisibleChrome = false) {
 
   feedTopPulling.value = true
   feedTopPullStartedWithChrome.value = startedWithVisibleChrome || feedTopChromeIsVisiblyOpen.value
-  feedChromeSettling.value = false
+  setChromeSettling(false, 'refreshing')
   window.clearTimeout(feedChromeSettleTimer)
   topPullStartProgress = topChromeProgress.value
 }
@@ -3787,12 +3803,12 @@ function handleFeedTopPullMove(distance: number) {
   }
 
   if (feedTopPullStartedWithChrome.value) {
-    topChromeProgress.value = 1
-    feedContentCollapsed.value = false
+    setChromeProgress(1, 'refreshing')
+    setChromeContentCollapsed(false)
     return
   }
 
-  topChromeProgress.value = clamp(topPullStartProgress - distance / feedHeaderHeight.value)
+  setChromeProgress(clamp(topPullStartProgress - distance / feedHeaderHeight.value), 'refreshing')
 }
 
 function handleFeedTopPullEnd(shouldRefresh = false) {
@@ -3806,15 +3822,15 @@ function handleFeedTopPullEnd(shouldRefresh = false) {
 
   if (shouldRefresh) {
     refreshStartedWithChrome.value = startedWithChrome
-    feedContentCollapsed.value = !startedWithChrome
+    setChromeContentCollapsed(!startedWithChrome)
     if (startedWithChrome) {
-      topChromeProgress.value = 1
+      setChromeProgress(1, 'refreshing')
     }
     return
   }
 
   if (topChromeProgress.value <= 0.04) {
-    feedContentCollapsed.value = true
+    setChromeContentCollapsed(true)
     setTopChromeVisible(false)
     feedTopPullStartedWithChrome.value = false
     return
@@ -4014,7 +4030,7 @@ async function refreshCurrentPageFromPull() {
   } finally {
     pagePullRefreshing.value = false
     pagePullDistance.value = 0
-    feedContentCollapsed.value = true
+    setChromeContentCollapsed(true)
     setTopChromeVisible(false)
   }
 }
@@ -4129,7 +4145,7 @@ watch(
       }
       refreshStartedWithChrome.value = false
       feedTopPullStartedWithChrome.value = false
-      feedContentCollapsed.value = true
+      setChromeContentCollapsed(true)
       setTopChromeVisible(false)
       refreshWasActive.value = false
       refreshWasSource.value = false
@@ -4313,7 +4329,13 @@ onUnmounted(() => {
     </aside>
 
     <main class="app-main" :class="mainClass" :style="mainStyle">
-      <header class="app-header" :class="headerClass" :style="headerStyle">
+      <TopChrome
+        variant="app"
+        :phase="topChromePhase"
+        :progress="feedHeaderProgress"
+        :root-class="headerClass"
+        :root-style="headerStyle"
+      >
         <div class="app-header-slot" :class="{ 'app-header-slot--feed': isFeedRoute || detailChromeVisible }">
           <div v-if="isFeedRoute || detailChromeVisible" class="app-header-feed-stack">
             <div
@@ -4427,7 +4449,7 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-      </header>
+      </TopChrome>
 
       <section
         v-if="isFeedRoute"
@@ -4517,7 +4539,12 @@ onUnmounted(() => {
       >
         {{ sourceNotice.message }}
       </div>
-      <header class="reader-overlay__header reader-overlay__header--source" :style="sourceHeaderStyle">
+      <TopChrome
+        variant="source"
+        :phase="topChromePhase"
+        :progress="topChromeProgress"
+        :root-style="sourceHeaderStyle"
+      >
         <button class="reader-back-button" type="button" aria-label="打开导航" @click="openNavigation">
           <IconMenuUnfold />
         </button>
@@ -4562,7 +4589,7 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-      </header>
+      </TopChrome>
       <div
         ref="sourceReaderContentRef"
         class="reader-overlay__content reader-overlay__content--source"
