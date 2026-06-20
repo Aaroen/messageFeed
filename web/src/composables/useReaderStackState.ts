@@ -45,6 +45,10 @@ type BeginCollapseItemReaderStateResult = {
   shouldRestorePreviousParkedDetail: boolean
 }
 
+type BeginRestoreItemReaderExpansionStateResult = {
+  shouldHideSourceAfterRestore: boolean
+}
+
 type ReaderStackSessionSnapshot = Pick<
   ReaderSessionSnapshot,
   | 'sourceReaderScrollTop'
@@ -530,6 +534,47 @@ export function useReaderStackState() {
     }
   }
 
+  function beginRestoreItemReaderExpansionState(): BeginRestoreItemReaderExpansionStateResult {
+    const shouldHideSourceAfterRestore =
+      detailOpenedFromSourceReader.value && sourceReaderVisible.value
+    readerBackDragging.value = false
+    detailEntrySettling.value = true
+    detailReaderTouchOffset.value = 0
+    detailReaderStretch.value = 0
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = 0
+    detailRestoringFromSourceReader.value = false
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = false
+    detailFeedOriginLocked.value = false
+    return { shouldHideSourceAfterRestore }
+  }
+
+  function finishRestoreItemReaderExpansionState(shouldHideSourceAfterRestore: boolean) {
+    detailEntrySettling.value = false
+    if (shouldHideSourceAfterRestore) {
+      sourceReaderVisible.value = false
+    }
+  }
+
+  function beginRestoreDetailFromSourceSwipeState() {
+    readerBackDragging.value = false
+    detailEntrySettling.value = true
+    detailSourceExitProgress.value = 0
+    detailRestoringFromSourceReader.value = false
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = false
+  }
+
+  function finishRestoreDetailFromSourceSwipeState() {
+    detailEntrySettling.value = false
+    sourceReaderVisible.value = false
+    detailSourceItemTargetRect.value = null
+    detailSourceNameOriginRect.value = null
+    detailSourceNameTargetRect.value = null
+    detailTransitionRectsLocked.value = false
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -613,6 +658,10 @@ export function useReaderStackState() {
     beginOpenItemReaderState,
     closeItemReaderState,
     beginCollapseItemReaderState,
+    beginRestoreItemReaderExpansionState,
+    finishRestoreItemReaderExpansionState,
+    beginRestoreDetailFromSourceSwipeState,
+    finishRestoreDetailFromSourceSwipeState,
     detailBlocksGestures,
   }
 }

@@ -134,6 +134,10 @@ const {
   beginOpenItemReaderState,
   closeItemReaderState,
   beginCollapseItemReaderState,
+  beginRestoreItemReaderExpansionState,
+  finishRestoreItemReaderExpansionState,
+  beginRestoreDetailFromSourceSwipeState,
+  finishRestoreDetailFromSourceSwipeState,
   detailBlocksGestures,
 } = useReaderStackState()
 const {
@@ -2135,42 +2139,18 @@ function collapseItemReader(duration = 360) {
 }
 
 function restoreItemReaderExpansion(duration = 360) {
-  const shouldHideSourceAfterRestore =
-    detailOpenedFromSourceReader.value && sourceReaderVisible.value
-  readerBackDragging.value = false
-  detailEntrySettling.value = true
-  detailReaderTouchOffset.value = 0
-  detailReaderStretch.value = 0
-  detailBackExitProgress.value = 0
-  detailSourceExitProgress.value = 0
-  detailRestoringFromSourceReader.value = false
-  detailReturningToFeed.value = false
-  detailListReturnCommitted.value = false
-  detailFeedOriginLocked.value = false
+  const result = beginRestoreItemReaderExpansionState()
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
-    detailEntrySettling.value = false
-    if (shouldHideSourceAfterRestore) {
-      sourceReaderVisible.value = false
-    }
+    finishRestoreItemReaderExpansionState(result.shouldHideSourceAfterRestore)
   }, motionDelay(duration))
 }
 
 function restoreDetailFromSourceSwipe(duration = 360) {
-  readerBackDragging.value = false
-  detailEntrySettling.value = true
-  detailSourceExitProgress.value = 0
-  detailRestoringFromSourceReader.value = false
-  detailReturningToFeed.value = false
-  detailListReturnCommitted.value = false
+  beginRestoreDetailFromSourceSwipeState()
   window.clearTimeout(detailEntryTimer)
   detailEntryTimer = window.setTimeout(() => {
-    detailEntrySettling.value = false
-    sourceReaderVisible.value = false
-    detailSourceItemTargetRect.value = null
-    detailSourceNameOriginRect.value = null
-    detailSourceNameTargetRect.value = null
-    detailTransitionRectsLocked.value = false
+    finishRestoreDetailFromSourceSwipeState()
   }, motionDelay(duration))
 }
 
