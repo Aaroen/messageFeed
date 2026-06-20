@@ -7,6 +7,7 @@ import {
   IconRefresh,
   IconSettings,
   IconSunFill,
+  IconSync,
 } from '@arco-design/web-vue/es/icon'
 import { type LocationQueryRaw, useRoute, useRouter } from 'vue-router'
 
@@ -4038,7 +4039,7 @@ onUnmounted(() => {
                 :class="{ 'feed-refresh-header__icon--refreshing': feedInteraction.pullRefreshing }"
                 :style="pullIconStyle"
               >
-                <IconRefresh />
+                <IconSync />
               </span>
               <div class="feed-refresh-header__copy">
                 <div class="feed-refresh-header__title">{{ pullStatusText }}</div>

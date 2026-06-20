@@ -53,6 +53,7 @@ const loading = ref(false)
 const refreshing = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
+const feedNotice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
 const lastUpdatedAt = ref('')
 const totalCount = ref(0)
 const nextOffset = ref(0)
@@ -75,6 +76,7 @@ let trackingPullCandidate = false
 let trackingPull = false
 let pullSettleTimer = 0
 let loadMoreSyncTimer = 0
+let feedNoticeTimer = 0
 let loadMoreObserver: IntersectionObserver | null = null
 
 const viewKey = computed(() => `${props.mode}:${props.sourceKind}:${props.sourceId}`)
@@ -117,10 +119,12 @@ const pullStatusText = computed(() => {
   return pullProgress.value >= 1 ? '释放刷新' : '下拉刷新'
 })
 const pullStatusMeta = computed(() => (lastUpdatedAt.value ? `最近更新 ${lastUpdatedAt.value}` : '尚未更新'))
+const errorMessage = computed(() => error.value.trim())
 const pageClass = computed(() => ({
   'feed-list-page--pulling': pullActive.value,
   'feed-list-page--dragging': pullDragging.value,
   'feed-list-page--settling': !pullDragging.value && pullOffset.value > 0,
+  'feed-list-page--empty': !hasItems.value && !loading.value,
 }))
 const freezeBodyForTopChromePull = computed(
   () => props.freezeBodyDuringTopRefresh || pullStartedWithVisibleChrome.value,
@@ -257,23 +261,39 @@ function feedItemStyle(item: FeedItem) {
   return Object.keys(style).length > 0 ? style : undefined
 }
 
+function showFeedNotice(type: 'success' | 'warning', message: string) {
+  const normalized = message.trim()
+  if (!normalized) {
+    feedNotice.value = null
+    return
+  }
+  feedNotice.value = { type, message: normalized }
+  window.clearTimeout(feedNoticeTimer)
+  feedNoticeTimer = window.setTimeout(() => {
+    feedNotice.value = null
+  }, 2600)
+}
+
 async function refreshSubscriptionSources() {
   if (effectiveSourceKind.value !== 'subscriptions') {
-    return ''
+    return null
   }
   try {
     if (isSourceMode.value && props.sourceId > 0) {
       await fetchSource(props.sourceId)
-      return ''
+      return { type: 'success' as const, message: '已刷新当前订阅源' }
     }
 
     const result = await fetchActiveSources()
-    if (result.failure_count > 0) {
-      return `已抓取 ${result.success_count} 个订阅源，${result.failure_count} 个失败`
+    if (result.requested_count === 0) {
+      return { type: 'warning' as const, message: '没有可抓取的订阅源' }
     }
-    return ''
+    if (result.failure_count > 0) {
+      return { type: 'warning' as const, message: `已刷新 ${result.success_count} 个订阅源，${result.failure_count} 个失败` }
+    }
+    return { type: 'success' as const, message: `已刷新 ${result.success_count} 个订阅源` }
   } catch (err) {
-    return formatAPIError(err)
+    return { type: 'warning' as const, message: formatAPIError(err) }
   }
 }
 
@@ -292,7 +312,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
     loading.value = true
   }
   try {
-    const refreshError = isRefresh ? await refreshSubscriptionSources() : ''
+    const refreshNotice = isRefresh ? await refreshSubscriptionSources() : null
     const loader = effectiveSourceKind.value === 'recommendations' ? listRecommendationItems : listTimelineItems
     const requestOffset = isAppend ? nextOffset.value : 0
     const params = {
@@ -308,8 +328,8 @@ async function loadItems(options: { refresh?: boolean; append?: boolean } = {}) 
     nextOffset.value = requestOffset + result.items.length
     reachedEnd.value = result.items.length < pageSize || nextOffset.value >= result.total
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    if (refreshError) {
-      error.value = refreshError
+    if (refreshNotice) {
+      showFeedNotice(refreshNotice.type, refreshNotice.message)
     }
   } catch (err) {
     error.value = formatAPIError(err)
@@ -443,6 +463,7 @@ function rubberBandPullDistance(distance: number) {
 function handleTouchStart(event: TouchEvent) {
   if (
     !props.active ||
+    (!hasItems.value && !loading.value) ||
     props.scrollTop > 0 ||
     event.touches.length !== 1 ||
     loading.value ||
@@ -536,6 +557,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.clearTimeout(pullSettleTimer)
   window.clearTimeout(loadMoreSyncTimer)
+  window.clearTimeout(feedNoticeTimer)
   stopLoadMoreObserver()
   if (usesGlobalPullState.value && feedInteraction.pullViewKey === viewKey.value) {
     feedInteraction.resetPullState()
@@ -636,7 +658,8 @@ watch(
         </span>
       </div>
 
-      <a-alert v-if="error" class="feed-alert" type="warning" :content="error" show-icon />
+      <a-alert v-if="feedNotice?.message" class="feed-alert" :type="feedNotice.type" :content="feedNotice.message" show-icon />
+      <a-alert v-if="errorMessage" class="feed-alert" type="warning" :content="errorMessage" show-icon />
 
       <section v-if="loading && !hasItems" class="empty-surface">
         <div class="empty-surface__mark">{{ copy.mark }}</div>
@@ -674,7 +697,13 @@ watch(
             <a :href="item.url" target="_blank" rel="noreferrer">阅读原文</a>
           </div>
         </article>
-        <div v-if="loadingMore" class="feed-load-more" role="status" aria-live="polite">加载中</div>
+        <div v-if="loadingMore" class="feed-load-more" role="status" aria-label="加载更多">
+          <span class="feed-loading-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+        </div>
         <div
           v-else-if="reachedEnd && hasItems && totalCount > pageSize"
           class="feed-load-more feed-load-more--end"

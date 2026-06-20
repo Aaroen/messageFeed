@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mmcdole/gofeed"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -282,12 +283,21 @@ func contentHash(parts ...string) string {
 }
 
 func normalizeWhitespace(value string) string {
-	return strings.Join(strings.Fields(value), " ")
+	return strings.Join(strings.Fields(strings.ToValidUTF8(value, "")), " ")
 }
 
 func truncate(value string, maxLength int) string {
+	value = strings.ToValidUTF8(value, "")
 	if maxLength < 1 || len(value) <= maxLength {
 		return value
 	}
-	return value[:maxLength]
+	end := 0
+	for end < len(value) {
+		_, size := utf8.DecodeRuneInString(value[end:])
+		if size == 0 || end+size > maxLength {
+			break
+		}
+		end += size
+	}
+	return value[:end]
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestFetchParsesRSSItems(t *testing.T) {
@@ -78,5 +79,16 @@ func TestFetchRejectsLargeResponse(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Fetch returned nil error")
+	}
+}
+
+func TestTruncatePreservesUTF8(t *testing.T) {
+	value := "消息流刷新测试，包含中文全角字符：，。"
+	got := truncate(value, 40)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncate returned invalid UTF-8: %q", got)
+	}
+	if len(got) > 40 {
+		t.Fatalf("truncate length = %d, want <= 40", len(got))
 	}
 }
