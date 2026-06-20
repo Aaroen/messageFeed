@@ -49,6 +49,43 @@ type BeginRestoreItemReaderExpansionStateResult = {
   shouldHideSourceAfterRestore: boolean
 }
 
+type ReaderBackSwipeIntentState =
+  | {
+      intent: 'source-return'
+    }
+  | {
+      intent: 'detail-back'
+      returningToFeed: boolean
+      revealSourceReader: boolean
+      resetSourceExit?: boolean
+    }
+  | {
+      intent: 'blocked'
+      clearReturningToFeed?: boolean
+    }
+
+type ReaderBackSwipeVisualState =
+  | {
+      target: 'detail-back'
+      progress: number
+    }
+  | {
+      target: 'source-return'
+      returnProgress: number
+    }
+  | {
+      target: 'source-blocked'
+      stretch: number
+    }
+  | {
+      target: 'detail-source'
+      progress: number
+    }
+  | {
+      target: 'detail-blocked'
+      stretch: number
+    }
+
 type ReaderStackSessionSnapshot = Pick<
   ReaderSessionSnapshot,
   | 'sourceReaderScrollTop'
@@ -71,6 +108,14 @@ function clampProgress(value: number) {
     return 0
   }
   return Math.min(Math.max(value, 0), 1)
+}
+
+function updateStretchAnchor(anchorRef: { value: 'left' | 'right' | null }, stretch: number) {
+  if (stretch > 0) {
+    anchorRef.value = 'left'
+  } else if (stretch < 0) {
+    anchorRef.value = 'right'
+  }
 }
 
 export function useReaderStackState() {
@@ -688,6 +733,81 @@ export function useReaderStackState() {
     sourceReturnTargetReady.value = false
   }
 
+  function beginReaderBackSwipeTrackingState() {
+    detailEntrySettling.value = false
+    sourceReturnTargetReady.value = false
+  }
+
+  function prepareReaderBackSwipeIntentState(state: ReaderBackSwipeIntentState) {
+    if (state.intent === 'source-return') {
+      detailRestoringFromSourceReader.value = true
+      detailReturningToFeed.value = false
+      return
+    }
+
+    if (state.intent === 'detail-back') {
+      if (state.resetSourceExit) {
+        detailSourceExitProgress.value = 0
+      }
+      detailReturningToFeed.value = state.returningToFeed
+      if (state.revealSourceReader) {
+        sourceReaderVisible.value = true
+      }
+      return
+    }
+
+    if (state.intent === 'blocked' && state.clearReturningToFeed) {
+      detailReturningToFeed.value = false
+    }
+  }
+
+  function startReaderBackSwipeDragState() {
+    readerBackDragging.value = true
+  }
+
+  function resetReaderBackSwipeStretchState() {
+    detailReaderStretch.value = 0
+    sourceReaderStretch.value = 0
+  }
+
+  function applyReaderBackSwipeVisualState(state: ReaderBackSwipeVisualState) {
+    if (state.target === 'detail-back') {
+      detailReaderTouchOffset.value = 0
+      detailBackExitProgress.value = clampProgress(state.progress)
+      return
+    }
+
+    if (state.target === 'source-return') {
+      detailRestoringFromSourceReader.value = true
+      detailReaderTouchOffset.value = 0
+      detailBackExitProgress.value = 0
+      sourceReaderOffset.value = 0
+      detailSourceExitProgress.value = 1 - clampProgress(state.returnProgress)
+      return
+    }
+
+    if (state.target === 'source-blocked') {
+      detailSourceExitProgress.value = hasParkedDetailSourceState() ? 1 : 0
+      sourceReaderStretch.value = state.stretch
+      sourceReaderOffset.value = 0
+      updateStretchAnchor(sourceStretchAnchor, state.stretch)
+      return
+    }
+
+    if (state.target === 'detail-source') {
+      detailReaderTouchOffset.value = 0
+      detailBackExitProgress.value = 0
+      detailSourceExitProgress.value = clampProgress(state.progress)
+      return
+    }
+
+    detailReaderTouchOffset.value = 0
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = 0
+    detailReaderStretch.value = state.stretch
+    updateStretchAnchor(detailStretchAnchor, state.stretch)
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -785,6 +905,11 @@ export function useReaderStackState() {
     commitRestoreDetailFromParkedSourceState,
     finishRestoreDetailFromParkedSourceState,
     resetReaderBackSwipeState,
+    beginReaderBackSwipeTrackingState,
+    prepareReaderBackSwipeIntentState,
+    startReaderBackSwipeDragState,
+    resetReaderBackSwipeStretchState,
+    applyReaderBackSwipeVisualState,
     detailBlocksGestures,
   }
 }
