@@ -30,6 +30,7 @@ export function useChromeState() {
   const phase = ref<ChromePhase>('visible')
   const contentCollapsed = ref(false)
   const settling = ref(false)
+  let settlingTimer = 0
 
   function setPhase(nextPhase: ChromePhase) {
     phase.value = nextPhase
@@ -57,6 +58,19 @@ export function useChromeState() {
     }
   }
 
+  function clearSettlingTimer() {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(settlingTimer)
+    }
+  }
+
+  function scheduleSettlingEnd(delayMS: number) {
+    clearSettlingTimer()
+    settlingTimer = window.setTimeout(() => {
+      setSettling(false)
+    }, Math.max(0, delayMS))
+  }
+
   return {
     progress,
     phase,
@@ -66,5 +80,7 @@ export function useChromeState() {
     setProgress,
     setContentCollapsed,
     setSettling,
+    clearSettlingTimer,
+    scheduleSettlingEnd,
   }
 }

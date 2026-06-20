@@ -1226,7 +1226,6 @@ let detailHeaderSwapTimer = 0
 let morphingHeightUnlockTimer = 0
 let hiddenSourceCleanupTimer = 0
 let feedRefreshSettleTimer = 0
-let feedChromeSettleTimer = 0
 let sourceContentSettleTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
@@ -1953,7 +1952,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   feedTopPulling.value = false
   setChromeContentCollapsed(false)
   setChromeProgress(1, 'visible')
-  window.clearTimeout(feedChromeSettleTimer)
+  chromeState.clearSettlingTimer()
   lastDetailScrollTop = 0
   startDetailEntry(originRect)
   if (openedFromSourceReader) {
@@ -3192,10 +3191,7 @@ function setTopChromeVisible(visible: boolean) {
     }
     if (!visible && feedContentCollapsed.value) {
       setChromeSettling(true, 'hiding')
-      window.clearTimeout(feedChromeSettleTimer)
-      feedChromeSettleTimer = window.setTimeout(() => {
-        setChromeSettling(false)
-      }, motionDelay(topChromeSettleDuration))
+      chromeState.scheduleSettlingEnd(motionDelay(topChromeSettleDuration))
       return
     }
     setChromeProgress(nextProgress, visible ? 'visible' : 'hidden')
@@ -3203,14 +3199,11 @@ function setTopChromeVisible(visible: boolean) {
   }
 
   setChromeSettling(true, visible ? 'revealing' : 'hiding')
-  window.clearTimeout(feedChromeSettleTimer)
   if (visible) {
     setChromeContentCollapsed(false)
   }
   setChromeProgress(nextProgress, visible ? 'revealing' : 'hiding')
-  feedChromeSettleTimer = window.setTimeout(() => {
-    setChromeSettling(false)
-  }, motionDelay(topChromeSettleDuration))
+  chromeState.scheduleSettlingEnd(motionDelay(topChromeSettleDuration))
 }
 
 function currentContentScrollTop() {
@@ -3233,7 +3226,7 @@ function handleFeedTopPullStart(startedWithVisibleChrome = false) {
   feedTopPulling.value = true
   feedTopPullStartedWithChrome.value = startedWithVisibleChrome || feedTopChromeIsVisiblyOpen.value
   setChromeSettling(false, 'refreshing')
-  window.clearTimeout(feedChromeSettleTimer)
+  chromeState.clearSettlingTimer()
   topPullStartProgress = topChromeProgress.value
 }
 
@@ -3656,7 +3649,7 @@ onUnmounted(() => {
   swipeTransition.clearResetTimer()
   navigationDrawer.clearTimer()
   window.clearTimeout(feedRefreshSettleTimer)
-  window.clearTimeout(feedChromeSettleTimer)
+  chromeState.clearSettlingTimer()
   window.clearTimeout(sourceContentSettleTimer)
   pagePullRefresh.clearSettleTimer()
   window.clearTimeout(suppressClickTimer)
