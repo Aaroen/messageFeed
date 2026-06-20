@@ -14,6 +14,7 @@ import {
   getFeedItem,
   type FeedItem,
 } from '@/api/feed'
+import ReaderDetailContentInner from '@/components/ReaderDetailContentInner.vue'
 import ReaderDetailMorphText from '@/components/ReaderDetailMorphText.vue'
 import ReaderDetailProgress from '@/components/ReaderDetailProgress.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
@@ -1657,6 +1658,14 @@ function detailFrameViewportOffset() {
     left: rect?.left ?? 0,
     top: rect?.top ?? 0,
   }
+}
+
+function setDetailInlineSourceElement(element: HTMLElement | null) {
+  detailInlineSourceRef.value = element
+}
+
+function setDetailFrameElement(element: HTMLIFrameElement | null) {
+  detailFrameRef.value = element
 }
 
 function restoreMorphingItemContent(unlockDelay = 180) {
@@ -4112,35 +4121,17 @@ onUnmounted(() => {
             :style="detailContentStyle"
             @scroll.passive="handleDetailContentScroll"
           >
-            <a-alert v-if="detailError" type="warning" show-icon :content="detailError" />
-            <section v-if="detailItem" class="reader-detail__surface">
-              <div class="reader-detail__inline-meta">
-                <span
-                  ref="detailInlineSourceRef"
-                  class="reader-detail__inline-source"
-                  :style="detailInlineSourceStyle"
-                >
-                  {{ detailItem.source_name || '未知来源' }}
-                </span>
-                <span>{{ detailDisplayDate }}</span>
-              </div>
-              <iframe
-                ref="detailFrameRef"
-                class="reader-detail__frame"
-                title="条目正文"
-                sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-                :srcdoc="detailSrcdoc"
-                @load="handleDetailFrameLoad"
-              />
-              <div class="reader-detail__actions">
-                <a :href="detailItem.url" target="_blank" rel="noreferrer">阅读原文</a>
-              </div>
-            </section>
-            <section v-else class="empty-surface">
-              <div class="empty-surface__mark">读</div>
-              <h2>{{ detailLoading ? '正在加载条目' : '暂无条目内容' }}</h2>
-              <p>请稍候。</p>
-            </section>
+            <ReaderDetailContentInner
+              :item="detailItem"
+              :loading="detailLoading"
+              :error="detailError"
+              :display-date="detailDisplayDate"
+              :srcdoc="detailSrcdoc"
+              :inline-source-style="detailInlineSourceStyle"
+              @inline-source-ref="setDetailInlineSourceElement"
+              @frame-ref="setDetailFrameElement"
+              @frame-load="handleDetailFrameLoad"
+            />
           </div>
         </div>
         <ReaderDetailProgress
