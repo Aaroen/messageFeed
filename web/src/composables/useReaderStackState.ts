@@ -13,6 +13,14 @@ type RestoreParkedDetailOptions = {
   onDetailScrollTop?: (scrollTop: number) => void
 }
 
+type RestoreSourceReaderBackTargetStateResult =
+  | {
+      action: 'restore-detail'
+    }
+  | {
+      action: 'close-source'
+    }
+
 type ApplyReaderStackSessionOptions = {
   onSourceScrollTop?: (scrollTop: number) => void
   onDetailScrollTop?: (scrollTop: number) => void
@@ -433,6 +441,25 @@ export function useReaderStackState() {
 
   function restorePreviousParkedDetail(options: RestoreParkedDetailOptions = {}) {
     return restoreParkedDetailSnapshot(parkedDetailStack.value.pop() ?? null, options)
+  }
+
+  function restoreSourceReaderBackTargetState(
+    options: RestoreParkedDetailOptions = {},
+  ): RestoreSourceReaderBackTargetStateResult {
+    if (detailReaderOpen.value) {
+      return { action: 'restore-detail' }
+    }
+
+    if (parkedDetailStack.value.length > 0 && restorePreviousParkedDetail(options)) {
+      return { action: 'restore-detail' }
+    }
+
+    if (sourceReaderBackDetail.value && restoreParkedDetailSnapshot(sourceReaderBackDetail.value, options)) {
+      return { action: 'restore-detail' }
+    }
+
+    clearSourceReaderReturnModeState()
+    return { action: 'close-source' }
   }
 
   function resetDetailTransition() {
@@ -1295,6 +1322,7 @@ export function useReaderStackState() {
     pushParkedDetailSnapshot,
     restoreParkedDetailSnapshot,
     restorePreviousParkedDetail,
+    restoreSourceReaderBackTargetState,
     clearHiddenSourceReader,
     clearHiddenSourceCleanupTimer,
     scheduleHiddenSourceReaderCleanupWithDelay,
@@ -1322,7 +1350,6 @@ export function useReaderStackState() {
     updateDetailFrameContentHeightState,
     setDetailProgressDraggingState,
     clearSourceReturnTargetReadyState,
-    clearSourceReaderReturnModeState,
     closeItemReaderWithTransition,
     collapseItemReaderWithDelay,
     restoreItemReaderExpansionWithDelay,

@@ -123,6 +123,7 @@ const {
   pushParkedDetailSnapshot,
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
+  restoreSourceReaderBackTargetState,
   clearHiddenSourceCleanupTimer,
   scheduleHiddenSourceReaderCleanupWithDelay,
   openSourceReaderState,
@@ -145,7 +146,6 @@ const {
   updateDetailFrameContentHeightState,
   setDetailProgressDraggingState,
   clearSourceReturnTargetReadyState,
-  clearSourceReaderReturnModeState,
   closeItemReaderWithTransition,
   collapseItemReaderWithDelay,
   restoreItemReaderExpansionWithDelay,
@@ -1774,22 +1774,16 @@ function runVirtualBackAnimation() {
 }
 
 function restoreSourceReaderBackTarget() {
-  if (detailReaderOpen.value) {
+  const result = restoreSourceReaderBackTargetState({
+    onDetailScrollTop: (scrollTop) => {
+      lastDetailScrollTop = scrollTop
+    },
+  })
+  if (result.action === 'restore-detail') {
     restoreDetailFromParkedSource()
     return
   }
 
-  if (parkedDetailStack.value.length > 0 && restorePreviousParkedDetail()) {
-    restoreDetailFromParkedSource()
-    return
-  }
-
-  if (sourceReaderBackDetail.value && restoreParkedDetailSnapshot(sourceReaderBackDetail.value)) {
-    restoreDetailFromParkedSource()
-    return
-  }
-
-  clearSourceReaderReturnModeState()
   closeSourceReader()
 }
 
