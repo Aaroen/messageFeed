@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { formatAPIError } from '@/api/client'
 import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
+import { usePullRefresh } from '@/composables/usePullRefresh'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
 
@@ -54,7 +55,6 @@ const feedInteraction = useFeedInteractionStore()
 const feedListCache = useFeedListCacheStore()
 const items = ref<FeedItem[]>([])
 const loading = ref(false)
-const refreshing = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
 const feedNotice = ref<FeedNotice | null>(null)
@@ -62,16 +62,22 @@ const lastUpdatedAt = ref('')
 const totalCount = ref(0)
 const nextOffset = ref(0)
 const reachedEnd = ref(false)
-const pullOffset = ref(0)
-const pullDragging = ref(false)
-const pullSettling = ref(false)
-const pullStartedWithVisibleChrome = ref(false)
 const feedPageRef = ref<HTMLElement | null>(null)
 const initialSubscriptionFetchAttempted = ref(false)
 
 const pullThreshold = 76
 const pullMaxOffset = 116
 const emptyPullMaxOffset = 88
+const pullRefresh = usePullRefresh({
+  threshold: pullThreshold,
+  maxOffset: pullMaxOffset,
+  emptyMaxOffset: emptyPullMaxOffset,
+})
+const pullOffset = pullRefresh.offset
+const pullDragging = pullRefresh.dragging
+const pullSettling = pullRefresh.settling
+const refreshing = pullRefresh.refreshing
+const pullStartedWithVisibleChrome = pullRefresh.startedWithVisibleChrome
 const pageSize = 10
 const cacheTTLMS = 60 * 1000
 const verticalLockRatio = 1.18
@@ -126,8 +132,8 @@ const copy = computed(() => {
     emptyDescription: '请先在订阅管理中启用来源并执行抓取。',
   }
 })
-const pullProgress = computed(() => Math.min(pullOffset.value / pullThreshold, 1))
-const pullActive = computed(() => pullOffset.value > 0 || refreshing.value)
+const pullProgress = pullRefresh.progress
+const pullActive = pullRefresh.active
 const pullStatusText = computed(() => {
   if (refreshing.value) {
     return isSourceMode.value ? '抓取中' : '正在刷新'
@@ -429,7 +435,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   if (isAppend) {
     loadingMore.value = true
   } else if (isRefresh && !isBackgroundRefresh) {
-    refreshing.value = true
+    pullRefresh.setRefreshing(true)
   } else if (!isBackgroundRefresh) {
     loading.value = true
   }
@@ -490,23 +496,23 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   } finally {
     loading.value = false
     loadingMore.value = false
-    pullDragging.value = false
+    pullRefresh.stopDragging()
     scheduleLoadMoreObserver()
 
     if (!isRefresh) {
-      refreshing.value = false
+      pullRefresh.setRefreshing(false)
       return
     }
 
     if (isBackgroundRefresh) {
-      pullOffset.value = 0
-      refreshing.value = false
-      pullStartedWithVisibleChrome.value = false
-      pullSettling.value = false
+      pullRefresh.setOffset(0)
+      pullRefresh.setRefreshing(false)
+      pullRefresh.resetGesture()
+      pullRefresh.setSettling(false)
       return
     }
 
-    pullSettling.value = true
+    pullRefresh.setSettling(true)
     window.clearTimeout(pullSettleTimer)
     setPullState({
       offset: pullOffset.value,
@@ -516,12 +522,12 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       statusMeta: pullStatusMeta.value,
     })
     window.setTimeout(() => {
-      pullOffset.value = 0
-      refreshing.value = false
+      pullRefresh.setOffset(0)
+      pullRefresh.setRefreshing(false)
       clearPullState()
-      pullStartedWithVisibleChrome.value = false
+      pullRefresh.resetGesture()
       pullSettleTimer = window.setTimeout(() => {
-        pullSettling.value = false
+        pullRefresh.setSettling(false)
       }, pullSettleDuration + motionCleanupBuffer)
     }, 120)
   }
@@ -605,22 +611,14 @@ function isInteractiveTarget(target: EventTarget | null) {
 function resetPullTracking() {
   trackingPullCandidate = false
   trackingPull = false
-  pullDragging.value = false
+  pullRefresh.stopDragging()
 }
 
 function resetPullGesture(force = false) {
   resetPullTracking()
-  pullOffset.value = 0
+  pullRefresh.setOffset(0)
   clearPullState(force)
-  pullStartedWithVisibleChrome.value = false
-}
-
-function rubberBandPullDistance(distance: number) {
-  const maxOffset = hasItems.value ? pullMaxOffset : emptyPullMaxOffset
-  if (distance <= pullThreshold) {
-    return distance
-  }
-  return Math.min(pullThreshold + (distance - pullThreshold) * 0.18, maxOffset)
+  pullRefresh.resetGesture()
 }
 
 function handleTouchStart(event: TouchEvent) {
@@ -632,7 +630,7 @@ function handleTouchStart(event: TouchEvent) {
     refreshing.value
   ) {
     resetPullTracking()
-    pullStartedWithVisibleChrome.value = false
+    pullRefresh.resetGesture()
     return
   }
 
@@ -640,8 +638,7 @@ function handleTouchStart(event: TouchEvent) {
   touchStartX = touch.clientX
   touchStartY = touch.clientY
   touchStartChromeDistance = props.headerHeight * props.topChromeProgress
-  pullStartedWithVisibleChrome.value =
-    props.freezeBodyDuringTopRefresh || props.topChromeProgress > 0.04
+  pullRefresh.begin(props.freezeBodyDuringTopRefresh || props.topChromeProgress > 0.04)
   trackingPullCandidate = true
   trackingPull = false
   emit('topPullStart', pullStartedWithVisibleChrome.value)
@@ -668,7 +665,7 @@ function handleTouchMove(event: TouchEvent) {
 
     trackingPull = true
     trackingPullCandidate = false
-    pullDragging.value = true
+    pullRefresh.startDragging()
   }
 
   if (trackingPull) {
@@ -676,11 +673,11 @@ function handleTouchMove(event: TouchEvent) {
     emit('topPullMove', Math.max(0, deltaY))
     const refreshDistance = Math.max(0, deltaY - touchStartChromeDistance)
     if (refreshDistance <= 0) {
-      pullOffset.value = 0
+      pullRefresh.setOffset(0)
       clearPullState()
       return
     }
-    pullOffset.value = rubberBandPullDistance(refreshDistance)
+    pullRefresh.setOffset(pullRefresh.rubberBandDistance(refreshDistance, hasItems.value))
   }
 }
 
@@ -695,7 +692,7 @@ function handleTouchEnd() {
   resetPullTracking()
 
   if (shouldRefresh) {
-    pullOffset.value = pullThreshold
+    pullRefresh.setOffset(pullRefresh.threshold)
     emit('topPullEnd', true)
     void loadItems({ refresh: true })
     return
