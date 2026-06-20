@@ -36,6 +36,7 @@ import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
+import { usePageContentMotion } from '@/composables/usePageContentMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -184,9 +185,6 @@ const {
   getReaderSource: () => readerSource.value,
 })
 const feedScrollTop = ref(0)
-const pageSideOffset = ref(0)
-const pageSideStretch = ref(0)
-const pageStretchAnchor = ref<'left' | 'right' | null>(null)
 const chromeState = useChromeState()
 const topChromeProgress = chromeState.progress
 const topChromePhase = chromeState.phase
@@ -222,6 +220,9 @@ const pagePullOffset = pagePullRefresh.offset
 const pagePullDistance = pagePullRefresh.distance
 const pagePullSettling = pagePullRefresh.settling
 const pagePullRefreshing = pagePullRefresh.refreshing
+const pageContentMotion = usePageContentMotion({ pullOffset: pagePullOffset })
+const pageSideStretch = pageContentMotion.sideStretch
+const pageContentInnerStyle = pageContentMotion.contentStyle
 const readerMorphDuration = 360
 const readerMorphCleanupBuffer = 96
 const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
@@ -918,10 +919,6 @@ const navOpenButtonStyle = computed(() => {
     visibility: progress > 0.01 && !feedCornerHidden.value ? ('visible' as const) : ('hidden' as const),
   }
 })
-const pageContentInnerStyle = computed(() => ({
-  transform: `${cssTranslate3d(pageSideOffset.value, pagePullOffset.value)} scaleX(${(1 + Math.abs(pageSideStretch.value)).toFixed(4)})`,
-  transformOrigin: stretchTransformOrigin(pageSideStretch.value, pageStretchAnchor.value),
-}))
 const detailHTML = computed(() => detailItem.value?.content_html || detailItem.value?.content_snippet || '')
 const detailText = computed(() => detailItem.value?.content_text || detailItem.value?.summary || detailItem.value?.content_snippet || '')
 const detailPreviewSummary = computed(
@@ -1408,9 +1405,7 @@ function clearStretchAnchors(delay = 280) {
     if (!readerBackDragging.value && sourceReaderStretch.value === 0) {
       sourceStretchAnchor.value = null
     }
-    if (!readerBackDragging.value && pageSideStretch.value === 0) {
-      pageStretchAnchor.value = null
-    }
+    pageContentMotion.clearStretchAnchorIfIdle(readerBackDragging.value)
   }, delay)
 }
 
@@ -2371,8 +2366,7 @@ function backSwipeVisualOffset(deltaX: number) {
 
 function resetBackSwipeOffset() {
   resetReaderBackSwipeState()
-  pageSideOffset.value = 0
-  pageSideStretch.value = 0
+  pageContentMotion.resetSideMotion()
   clearStretchAnchors()
 }
 
@@ -2495,7 +2489,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   const stretch = blockedSwipeStretch(deltaX, currentX)
 
   resetReaderBackSwipeStretchState()
-  pageSideStretch.value = 0
+  pageContentMotion.setSideStretch(0)
 
   if (intent === 'back' && backSwipeTarget === 'detail') {
     applyReaderBackSwipeVisualState({
@@ -2510,9 +2504,8 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
       applyReaderBackSwipeVisualState({ target: 'source-blocked', stretch })
     }
   } else if (intent === 'back' && backSwipeTarget === 'page') {
-    pageSideOffset.value = 0
-    pageSideStretch.value = stretch
-    updateStretchAnchor(pageStretchAnchor, stretch)
+    pageContentMotion.setSideOffset(0)
+    pageContentMotion.setSideStretch(stretch)
   } else if (intent === 'source' && backSwipeTarget === 'detail') {
     applyReaderBackSwipeVisualState({
       target: 'detail-source',
@@ -2523,9 +2516,8 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   } else if (intent === 'blocked' && backSwipeTarget === 'source') {
     applyReaderBackSwipeVisualState({ target: 'source-blocked', stretch })
   } else if (intent === 'blocked' && backSwipeTarget === 'page') {
-    pageSideOffset.value = 0
-    pageSideStretch.value = stretch
-    updateStretchAnchor(pageStretchAnchor, stretch)
+    pageContentMotion.setSideOffset(0)
+    pageContentMotion.setSideStretch(stretch)
   }
 
   syncBackSwipeTransition(deltaX)
