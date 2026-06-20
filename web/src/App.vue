@@ -124,6 +124,7 @@ const {
   restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
   restoreSourceReaderBackTargetState,
+  prepareSourceReaderReturnDragState,
   clearHiddenSourceCleanupTimer,
   scheduleHiddenSourceReaderCleanupWithDelay,
   openSourceReaderState,
@@ -2194,19 +2195,15 @@ function settleSourceContentAfterRefresh() {
 }
 
 function prepareSourceReaderReturnDrag() {
-  if (detailReaderOpen.value) {
-    return captureVisibleSourceReturnTarget()
-  }
-
-  const parkedSnapshot = parkedDetailStack.value[parkedDetailStack.value.length - 1] ?? null
-  const snapshot = sourceReaderBackDetail.value ?? parkedSnapshot
-  if (!snapshot) {
+  const ready = prepareSourceReaderReturnDragState({
+    onDetailScrollTop: (scrollTop) => {
+      lastDetailScrollTop = scrollTop
+    },
+  })
+  if (!ready) {
     return false
   }
 
-  if (!restoreParkedDetailSnapshot(snapshot)) {
-    return false
-  }
   return captureVisibleSourceReturnTarget()
 }
 

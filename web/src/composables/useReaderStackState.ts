@@ -462,6 +462,20 @@ export function useReaderStackState() {
     return { action: 'close-source' }
   }
 
+  function prepareSourceReaderReturnDragState(options: RestoreParkedDetailOptions = {}) {
+    if (detailReaderOpen.value) {
+      return true
+    }
+
+    const parkedSnapshot = parkedDetailStack.value[parkedDetailStack.value.length - 1] ?? null
+    const snapshot = sourceReaderBackDetail.value ?? parkedSnapshot
+    if (!snapshot) {
+      return false
+    }
+
+    return restoreParkedDetailSnapshot(snapshot, options)
+  }
+
   function resetDetailTransition() {
     detailEntryProgress.value = 1
     detailEntrySettling.value = false
@@ -1323,6 +1337,7 @@ export function useReaderStackState() {
     restoreParkedDetailSnapshot,
     restorePreviousParkedDetail,
     restoreSourceReaderBackTargetState,
+    prepareSourceReaderReturnDragState,
     clearHiddenSourceReader,
     clearHiddenSourceCleanupTimer,
     scheduleHiddenSourceReaderCleanupWithDelay,
