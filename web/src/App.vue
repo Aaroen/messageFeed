@@ -39,6 +39,7 @@ import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
 import { usePageContentMotion } from '@/composables/usePageContentMotion'
 import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useSourceContentMotion } from '@/composables/useSourceContentMotion'
+import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -209,12 +210,11 @@ const navigationVisible = navigationDrawer.visible
 const navigationPanelStyle = navigationDrawer.panelStyle
 const navigationScrimStyle = navigationDrawer.scrimStyle
 const darkTheme = ref(false)
-const refreshWasActive = ref(false)
-const refreshWasSource = ref(false)
-const feedRefreshSettling = ref(false)
+const refreshCompletion = useRefreshCompletionState()
+const refreshStartedWithChrome = refreshCompletion.startedWithChrome
+const feedRefreshSettling = refreshCompletion.settling
 const feedTopPulling = ref(false)
 const feedTopPullStartedWithChrome = ref(false)
-const refreshStartedWithChrome = ref(false)
 const pagePullRefresh = usePullRefresh({ threshold: 52 })
 const pageRefreshThreshold = pagePullRefresh.threshold
 const pagePullOffset = pagePullRefresh.offset
@@ -1222,7 +1222,6 @@ let detailEntryTimer = 0
 let detailHeaderSwapTimer = 0
 let morphingHeightUnlockTimer = 0
 let hiddenSourceCleanupTimer = 0
-let feedRefreshSettleTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
@@ -3529,11 +3528,10 @@ watch(
   () => feedInteraction.pullRefreshing,
   (refreshing) => {
     if (refreshing) {
-      refreshWasActive.value = true
-      refreshWasSource.value = feedInteraction.pullViewKey.startsWith('source:')
-      if (feedTopPullStartedWithChrome.value) {
-        refreshStartedWithChrome.value = true
-      }
+      refreshCompletion.begin({
+        viewKey: feedInteraction.pullViewKey,
+        startedWithVisibleChrome: feedTopPullStartedWithChrome.value,
+      })
     }
   },
 )
@@ -3541,28 +3539,20 @@ watch(
 watch(
   feedOrSourcePullActive,
   (active) => {
-    if (!active && refreshWasActive.value) {
-      const shouldSettleSourceContent = refreshWasSource.value
+    if (!active && refreshCompletion.wasActive.value) {
+      const refreshResult = refreshCompletion.finish(motionDelay(topChromeSettleDuration))
+      const shouldSettleSourceContent = refreshResult.wasSource
       if (shouldSettleSourceContent) {
         settleSourceContentAfterRefresh()
       }
-      refreshStartedWithChrome.value = false
       feedTopPullStartedWithChrome.value = false
       setChromeContentCollapsed(true)
       setTopChromeVisible(false)
-      refreshWasActive.value = false
-      refreshWasSource.value = false
-      feedRefreshSettling.value = true
-      window.clearTimeout(feedRefreshSettleTimer)
-      feedRefreshSettleTimer = window.setTimeout(() => {
-        feedRefreshSettling.value = false
-      }, motionDelay(topChromeSettleDuration))
     }
 
-    if (!active && !refreshWasActive.value) {
-      refreshStartedWithChrome.value = false
+    if (!active && !refreshCompletion.wasActive.value) {
+      refreshCompletion.resetInactive()
       feedTopPullStartedWithChrome.value = false
-      refreshWasSource.value = false
     }
   },
 )
@@ -3617,7 +3607,7 @@ onUnmounted(() => {
   window.clearTimeout(viewSwipeTimer)
   swipeTransition.clearResetTimer()
   navigationDrawer.clearTimer()
-  window.clearTimeout(feedRefreshSettleTimer)
+  refreshCompletion.clearTimer()
   chromeState.clearSettlingTimer()
   sourceContentMotion.clearTimer()
   pagePullRefresh.clearSettleTimer()
