@@ -25,9 +25,16 @@ import {
 import { formatAPIError } from '@/api/client'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
+import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 
 type FeedSourceKind = 'subscriptions' | 'recommendations'
+type SwipeSurface =
+  | 'feed:subscriptions'
+  | 'feed:recommendations'
+  | 'reader:detail'
+  | 'reader:source'
+  | 'page:management'
 type ReaderSource = {
   id: number
   name: string
@@ -113,6 +120,11 @@ const topChromeProgress = chromeState.progress
 const topChromePhase = chromeState.phase
 const feedContentCollapsed = chromeState.contentCollapsed
 const feedChromeSettling = chromeState.settling
+const swipeTransition = useSwipeTransition<SwipeSurface>()
+const swipePhase = swipeTransition.phase
+const swipeDirection = swipeTransition.direction
+const swipeProgress = swipeTransition.progress
+const swipeIsBlocked = swipeTransition.isBlocked
 const windowWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
 const windowHeight = ref(typeof window === 'undefined' ? 900 : window.innerHeight)
 const darkTheme = ref(false)
@@ -1154,6 +1166,7 @@ let backSwipeIntent: 'back' | 'source' | 'blocked' | null = null
 let suppressNextClick = false
 let suppressClickTimer = 0
 let viewSwipeTimer = 0
+let swipeTransitionTimer = 0
 let navigationTimer = 0
 let sourceNoticeTimer = 0
 let readerMotionTimer = 0
@@ -2793,6 +2806,119 @@ function canStartNavigationOpen(_clientX: number) {
   )
 }
 
+function activeFeedSurface(): SwipeSurface {
+  return activeFeedIndex.value === 0 ? 'feed:subscriptions' : 'feed:recommendations'
+}
+
+function feedSurfaceFromPath(path: string | null): SwipeSurface | null {
+  if (path === '/subscriptions') {
+    return 'feed:subscriptions'
+  }
+  if (path === '/recommendations') {
+    return 'feed:recommendations'
+  }
+  return null
+}
+
+function feedSurfaceFromSwipeOffset(offset: number): SwipeSurface | null {
+  if (offset < -viewDragThreshold && activeFeedIndex.value === 0) {
+    return 'feed:recommendations'
+  }
+  if (offset > viewDragThreshold && activeFeedIndex.value === 1) {
+    return 'feed:subscriptions'
+  }
+  return null
+}
+
+function readerSurfaceForTarget(target: typeof backSwipeTarget): SwipeSurface {
+  if (target === 'source') {
+    return 'reader:source'
+  }
+  if (target === 'page') {
+    return 'page:management'
+  }
+  return 'reader:detail'
+}
+
+function readerSwipeTargetSurface(
+  target: typeof backSwipeTarget,
+  intent: typeof backSwipeIntent,
+): SwipeSurface | null {
+  if (intent === 'blocked' || !target) {
+    return null
+  }
+  if (intent === 'source') {
+    return 'reader:source'
+  }
+  if (target === 'source') {
+    return 'reader:detail'
+  }
+  if (target === 'page') {
+    return 'feed:recommendations'
+  }
+  return detailOpenedFromSourceReader.value ? 'reader:source' : activeFeedSurface()
+}
+
+function scheduleSwipeTransitionReset(duration = 260) {
+  window.clearTimeout(swipeTransitionTimer)
+  swipeTransitionTimer = window.setTimeout(() => {
+    swipeTransition.reset()
+  }, motionDelay(duration))
+}
+
+function beginViewSwipeTransition(offset: number) {
+  swipeTransition.begin({
+    from: activeFeedSurface(),
+    to: feedSurfaceFromSwipeOffset(offset),
+    direction: offset < 0 ? 'left' : 'right',
+    progress: viewSwipeProgress.value,
+  })
+}
+
+function syncViewSwipeTransition(offset: number) {
+  swipeTransition.update({
+    to: feedSurfaceFromSwipeOffset(offset),
+    direction: offset < 0 ? 'left' : 'right',
+    progress: viewSwipeProgress.value,
+    isBlocked: feedSurfaceFromSwipeOffset(offset) === null,
+  })
+}
+
+function beginBackSwipeTransition(deltaX: number) {
+  const target = backSwipeTarget
+  const intent = backSwipeIntent
+  swipeTransition.begin({
+    from: readerSurfaceForTarget(target),
+    to: readerSwipeTargetSurface(target, intent),
+    direction: deltaX < 0 ? 'left' : 'right',
+    isBlocked: intent === 'blocked',
+  })
+}
+
+function backSwipeTransitionProgress() {
+  if (backSwipeIntent === 'source' && backSwipeTarget === 'detail') {
+    return detailSourceExitProgress.value
+  }
+  if (backSwipeIntent === 'back' && backSwipeTarget === 'source') {
+    return 1 - detailSourceExitProgress.value
+  }
+  if (backSwipeIntent === 'back' && backSwipeTarget === 'detail') {
+    return detailBackExitProgress.value
+  }
+  return clamp(Math.abs(detailReaderStretch.value || sourceReaderStretch.value || pageSideStretch.value) / 0.07)
+}
+
+function syncBackSwipeTransition(deltaX: number) {
+  const target = backSwipeTarget
+  const intent = backSwipeIntent
+  swipeTransition.update({
+    to: readerSwipeTargetSurface(target, intent),
+    direction: deltaX < 0 ? 'left' : 'right',
+    progress: backSwipeTransitionProgress(),
+    isBlocked: intent === 'blocked',
+  })
+}
+
 function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
   return Math.abs(deltaX) > viewDragThreshold && Math.abs(deltaX) > Math.abs(deltaY) * viewDirectionLockRatio
 }
@@ -2952,6 +3078,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
     backSwipeIntent = 'blocked'
   }
   readerBackDragging.value = true
+  beginBackSwipeTransition(deltaX)
   trackingBackSwipeCandidate = false
   trackingEdgeSwipeCandidate = false
   trackingNavigationCloseCandidate = false
@@ -3044,6 +3171,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     updateStretchAnchor(pageStretchAnchor, stretch)
   }
 
+  syncBackSwipeTransition(deltaX)
   return true
 }
 
@@ -3060,6 +3188,12 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
         : intent === 'back'
           ? deltaX > 0 && Math.abs(deltaX) >= viewSwitchDistance
           : false
+
+  swipeTransition.settle(shouldCommit, {
+    progress: shouldCommit ? 1 : backSwipeTransitionProgress(),
+    isBlocked: intent === 'blocked',
+  })
+  scheduleSwipeTransitionReset(360)
 
   if (!shouldCommit) {
     if (intent === 'back' && target === 'detail') {
@@ -3105,7 +3239,9 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
 }
 
 function finishViewSwipe(nextPath: string | null) {
+  const committed = Boolean(nextPath)
   viewSettling.value = true
+  swipeTransition.settle(committed, { progress: committed ? 1 : 0, isBlocked: false })
   window.clearTimeout(viewSwipeTimer)
   const shouldRevealChromeFirst = Boolean(nextPath) && viewSwipeStartedWithHiddenChrome
   viewSwipeStartedWithHiddenChrome = false
@@ -3120,6 +3256,7 @@ function finishViewSwipe(nextPath: string | null) {
         viewSettling.value = false
       }, motionDelay(260))
     }, viewSwipeChromeRevealDelay)
+    scheduleSwipeTransitionReset(viewSwipeChromeRevealDelay + 260)
     return
   }
   if (nextPath) {
@@ -3129,6 +3266,7 @@ function finishViewSwipe(nextPath: string | null) {
   viewSwipeTimer = window.setTimeout(() => {
     viewSettling.value = false
   }, motionDelay(260))
+  scheduleSwipeTransitionReset(260)
 }
 
 function showTopChromeForViewSwipe() {
@@ -3249,6 +3387,7 @@ function handleTouchMove(event: TouchEvent) {
       trackingEdgeSwipeCandidate = false
       trackingNavigationCloseCandidate = false
       showTopChromeForViewSwipe()
+      beginViewSwipeTransition(deltaX)
     } else {
       return
     }
@@ -3261,6 +3400,7 @@ function handleTouchMove(event: TouchEvent) {
     } else {
       viewDragOffset.value = Math.max(0, Math.min(deltaX, windowWidth.value))
     }
+    syncViewSwipeTransition(viewDragOffset.value)
     return
   }
 }
@@ -3456,6 +3596,7 @@ function handleFeedPointerMove(event: PointerEvent) {
       suppressFollowingClick()
       trackingViewSwipeCandidate = false
       showTopChromeForViewSwipe()
+      beginViewSwipeTransition(deltaX)
       ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
     } else {
       return
@@ -3476,6 +3617,7 @@ function handleFeedPointerMove(event: PointerEvent) {
   } else {
     viewDragOffset.value = Math.max(0, Math.min(deltaX, windowWidth.value))
   }
+  syncViewSwipeTransition(viewDragOffset.value)
 }
 
 function handleFeedPointerUp(event: PointerEvent) {
@@ -4221,6 +4363,7 @@ onUnmounted(() => {
   window.removeEventListener('touchend', handleTouchEnd)
   window.removeEventListener('touchcancel', handleTouchCancel)
   window.clearTimeout(viewSwipeTimer)
+  window.clearTimeout(swipeTransitionTimer)
   window.clearTimeout(navigationTimer)
   window.clearTimeout(feedRefreshSettleTimer)
   window.clearTimeout(feedChromeSettleTimer)
@@ -4328,7 +4471,15 @@ onUnmounted(() => {
       </div>
     </aside>
 
-    <main class="app-main" :class="mainClass" :style="mainStyle">
+    <main
+      class="app-main"
+      :class="mainClass"
+      :style="mainStyle"
+      :data-swipe-phase="swipePhase"
+      :data-swipe-direction="swipeDirection || undefined"
+      :data-swipe-progress="swipeProgress.toFixed(3)"
+      :data-swipe-blocked="swipeIsBlocked ? 'true' : undefined"
+    >
       <TopChrome
         variant="app"
         :phase="topChromePhase"
