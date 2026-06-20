@@ -1228,7 +1228,6 @@ let hiddenSourceCleanupTimer = 0
 let feedRefreshSettleTimer = 0
 let feedChromeSettleTimer = 0
 let sourceContentSettleTimer = 0
-let pagePullSettleTimer = 0
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
@@ -3397,12 +3396,7 @@ function pageRubberBandOffset(distance: number) {
 }
 
 function settlePagePullOffset() {
-  window.clearTimeout(pagePullSettleTimer)
-  pagePullRefresh.setSettling(true)
-  pagePullRefresh.setOffset(0)
-  pagePullSettleTimer = window.setTimeout(() => {
-    pagePullRefresh.setSettling(false)
-  }, motionDelay(topChromeSettleDuration))
+  pagePullRefresh.settleOffset(motionDelay(topChromeSettleDuration))
 }
 
 function handlePageTouchStart(event: TouchEvent) {
@@ -3459,7 +3453,7 @@ function handlePageTouchMove(event: TouchEvent) {
     pageTopPullDistance = Math.max(pageTopPullDistance, deltaY)
     pagePullRefresh.setDistance(pageTopPullDistance)
     pagePullRefresh.setSettling(false)
-    window.clearTimeout(pagePullSettleTimer)
+    pagePullRefresh.clearSettleTimer()
     pagePullRefresh.setOffset(pageRubberBandOffset(deltaY))
   }
 }
@@ -3664,7 +3658,7 @@ onUnmounted(() => {
   window.clearTimeout(feedRefreshSettleTimer)
   window.clearTimeout(feedChromeSettleTimer)
   window.clearTimeout(sourceContentSettleTimer)
-  window.clearTimeout(pagePullSettleTimer)
+  pagePullRefresh.clearSettleTimer()
   window.clearTimeout(suppressClickTimer)
   clearSourceNoticeTimer()
   window.clearTimeout(readerMotionTimer)

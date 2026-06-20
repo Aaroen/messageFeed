@@ -16,6 +16,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   const settling = ref(false)
   const refreshing = ref(false)
   const startedWithVisibleChrome = ref(false)
+  let settleTimer = 0
 
   const progress = computed(() => Math.min(offset.value / threshold, 1))
   const distanceProgress = computed(() => Math.min(distance.value / threshold, 1))
@@ -58,6 +59,21 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     settling.value = nextSettling
   }
 
+  function clearSettleTimer() {
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(settleTimer)
+    }
+  }
+
+  function settleOffset(delayMS: number) {
+    clearSettleTimer()
+    settling.value = true
+    offset.value = 0
+    settleTimer = window.setTimeout(() => {
+      settling.value = false
+    }, Math.max(0, delayMS))
+  }
+
   function reset() {
     offset.value = 0
     distance.value = 0
@@ -93,6 +109,8 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     setDistance,
     setRefreshing,
     setSettling,
+    clearSettleTimer,
+    settleOffset,
     reset,
     resetGesture,
   }
