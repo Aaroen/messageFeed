@@ -1,5 +1,7 @@
 import { apiClient } from '@/api/client'
 
+const sourceFetchTimeoutMS = 25000
+
 interface APIEnvelope<T> {
   data: T
 }
@@ -94,7 +96,9 @@ export async function updateSourceStatus(id: number, status: Source['status']) {
 }
 
 export async function fetchSource(id: number) {
-  const response = await apiClient.post<APIEnvelope<{ source: Source }>>(`/api/v1/sources/${id}/fetch`)
+  const response = await apiClient.post<APIEnvelope<{ source: Source }>>(`/api/v1/sources/${id}/fetch`, undefined, {
+    timeout: sourceFetchTimeoutMS,
+  })
   return response.data.data
 }
 

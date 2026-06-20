@@ -11,6 +11,7 @@ import {
   listSources,
   fetchSource,
   updateSourceStatus,
+  type ImportSourcesResult,
   type Source,
   type SourceCatalogEntry,
 } from '@/api/feed'
@@ -25,6 +26,13 @@ const catalogLoading = ref(false)
 const actionLoading = ref(false)
 const notice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
 let noticeTimer = 0
+const importFetchConcurrency = 3
+
+type ImportFetchSummary = {
+  requestedCount: number
+  successCount: number
+  failureCount: number
+}
 
 const emit = defineEmits<{
   openSource: [source: { id: number; name: string; kind: 'subscriptions' | 'recommendations' }]
@@ -77,6 +85,54 @@ async function loadCatalog(options: { silent?: boolean } = {}) {
   }
 }
 
+async function fetchImportedSources(importedSources: Source[]): Promise<ImportFetchSummary> {
+  const activeSources = importedSources.filter((source) => source.status === 'active')
+  const summary: ImportFetchSummary = {
+    requestedCount: activeSources.length,
+    successCount: 0,
+    failureCount: 0,
+  }
+  if (!activeSources.length) {
+    return summary
+  }
+
+  let cursor = 0
+  const workerCount = Math.min(importFetchConcurrency, activeSources.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (cursor < activeSources.length) {
+        const source = activeSources[cursor]
+        cursor += 1
+        try {
+          await fetchSource(source.id)
+          summary.successCount += 1
+        } catch {
+          summary.failureCount += 1
+        }
+      }
+    }),
+  )
+  return summary
+}
+
+function importNoticeType(result: ImportSourcesResult, fetchSummary: ImportFetchSummary) {
+  return result.failure_count > 0 || fetchSummary.failureCount > 0 ? 'warning' : 'success'
+}
+
+function importNoticeMessage(prefix: string, result: ImportSourcesResult, fetchSummary: ImportFetchSummary) {
+  const parts = [`${prefix} ${result.success_count} 个来源`]
+  if (result.failure_count > 0) {
+    parts.push(`${result.failure_count} 个导入失败`)
+  }
+  if (fetchSummary.requestedCount > 0) {
+    parts.push(`已抓取 ${fetchSummary.successCount} 个`)
+  }
+  if (fetchSummary.failureCount > 0) {
+    parts.push(`${fetchSummary.failureCount} 个抓取失败`)
+  }
+  return parts.join('，')
+}
+
 async function handleImportURLs() {
   const urls = urlInput.value
     .split(/\r?\n/)
@@ -88,7 +144,8 @@ async function handleImportURLs() {
   actionLoading.value = true
   try {
     const result = await importURLSources(urls)
-    showNotice('success', `已导入 ${result.success_count} 个来源`)
+    const fetchSummary = await fetchImportedSources(result.sources)
+    showNotice(importNoticeType(result, fetchSummary), importNoticeMessage('已导入', result, fetchSummary))
     urlInput.value = ''
     await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
   } catch (err) {
@@ -108,7 +165,8 @@ async function handleImportOPML(event: Event) {
   actionLoading.value = true
   try {
     const result = await importOPMLSource(file)
-    showNotice('success', `已从 OPML 导入 ${result.success_count} 个来源`)
+    const fetchSummary = await fetchImportedSources(result.sources)
+    showNotice(importNoticeType(result, fetchSummary), importNoticeMessage('已从 OPML 导入', result, fetchSummary))
     await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
   } catch (err) {
     showNotice('warning', formatAPIError(err))
