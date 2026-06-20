@@ -11,12 +11,14 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   const maxOffset = options.maxOffset ?? 116
   const emptyMaxOffset = options.emptyMaxOffset ?? 88
   const offset = ref(0)
+  const distance = ref(0)
   const dragging = ref(false)
   const settling = ref(false)
   const refreshing = ref(false)
   const startedWithVisibleChrome = ref(false)
 
   const progress = computed(() => Math.min(offset.value / threshold, 1))
+  const distanceProgress = computed(() => Math.min(distance.value / threshold, 1))
   const active = computed(() => offset.value > 0 || refreshing.value)
 
   function rubberBandDistance(distance: number, hasItems: boolean) {
@@ -44,6 +46,10 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     offset.value = Math.max(0, nextOffset)
   }
 
+  function setDistance(nextDistance: number) {
+    distance.value = Math.max(0, nextDistance)
+  }
+
   function setRefreshing(nextRefreshing: boolean) {
     refreshing.value = nextRefreshing
   }
@@ -54,6 +60,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
 
   function reset() {
     offset.value = 0
+    distance.value = 0
     dragging.value = false
     settling.value = false
     refreshing.value = false
@@ -70,17 +77,20 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     maxOffset,
     emptyMaxOffset,
     offset,
+    distance,
     dragging,
     settling,
     refreshing,
     startedWithVisibleChrome,
     progress,
+    distanceProgress,
     active,
     rubberBandDistance,
     begin,
     startDragging,
     stopDragging,
     setOffset,
+    setDistance,
     setRefreshing,
     setSettling,
     reset,

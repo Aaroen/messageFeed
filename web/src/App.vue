@@ -17,6 +17,7 @@ import FeedPager from '@/components/FeedPager.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
+import { usePullRefresh } from '@/composables/usePullRefresh'
 import {
   type FeedSourceKind,
   type ParkedDetailSnapshot,
@@ -216,10 +217,12 @@ const sourceContentSettling = ref(false)
 const feedTopPulling = ref(false)
 const feedTopPullStartedWithChrome = ref(false)
 const refreshStartedWithChrome = ref(false)
-const pagePullOffset = ref(0)
-const pagePullDistance = ref(0)
-const pagePullSettling = ref(false)
-const pagePullRefreshing = ref(false)
+const pagePullRefresh = usePullRefresh({ threshold: 52 })
+const pageRefreshThreshold = pagePullRefresh.threshold
+const pagePullOffset = pagePullRefresh.offset
+const pagePullDistance = pagePullRefresh.distance
+const pagePullSettling = pagePullRefresh.settling
+const pagePullRefreshing = pagePullRefresh.refreshing
 const readerMorphDuration = 360
 const readerMorphCleanupBuffer = 96
 const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
@@ -286,7 +289,7 @@ const sourcePullActive = computed(
 )
 const feedOrSourcePullActive = computed(() => feedPullActive.value || sourcePullActive.value)
 const pullProgress = computed(() => Math.min(feedInteraction.pullOffset / 76, 1))
-const pagePullProgress = computed(() => Math.min(pagePullDistance.value / pageRefreshThreshold, 1))
+const pagePullProgress = pagePullRefresh.distanceProgress
 const sourcePullProgress = computed(() => Math.min(feedInteraction.pullOffset / 76, 1))
 const feedHeaderHeight = computed(() => (windowWidth.value <= 720 ? 78 : 86))
 const feedHeaderProgress = computed(() => {
@@ -1209,7 +1212,6 @@ const topPullDirectionLockRatio = 1.18
 const viewDragThreshold = 8
 const viewSwipeChromeRevealDelay = 520
 const topChromeSettleDuration = 1000
-const pageRefreshThreshold = 52
 let touchStartX = 0
 let touchStartY = 0
 let touchStartNavigationProgress = 0
@@ -3412,7 +3414,7 @@ function handleDetailContentScroll(event: Event) {
 
 function resetPageTopPullTracking() {
   pageTopPullDistance = 0
-  pagePullDistance.value = pagePullRefreshing.value ? pageRefreshThreshold : 0
+  pagePullRefresh.setDistance(pagePullRefreshing.value ? pageRefreshThreshold : 0)
   trackingPageTopPullCandidate = false
   trackingPageTopPull = false
 }
@@ -3426,10 +3428,10 @@ function pageRubberBandOffset(distance: number) {
 
 function settlePagePullOffset() {
   window.clearTimeout(pagePullSettleTimer)
-  pagePullSettling.value = true
-  pagePullOffset.value = 0
+  pagePullRefresh.setSettling(true)
+  pagePullRefresh.setOffset(0)
   pagePullSettleTimer = window.setTimeout(() => {
-    pagePullSettling.value = false
+    pagePullRefresh.setSettling(false)
   }, motionDelay(topChromeSettleDuration))
 }
 
@@ -3485,10 +3487,10 @@ function handlePageTouchMove(event: TouchEvent) {
   if (trackingPageTopPull) {
     event.preventDefault()
     pageTopPullDistance = Math.max(pageTopPullDistance, deltaY)
-    pagePullDistance.value = pageTopPullDistance
-    pagePullSettling.value = false
+    pagePullRefresh.setDistance(pageTopPullDistance)
+    pagePullRefresh.setSettling(false)
     window.clearTimeout(pagePullSettleTimer)
-    pagePullOffset.value = pageRubberBandOffset(deltaY)
+    pagePullRefresh.setOffset(pageRubberBandOffset(deltaY))
   }
 }
 
@@ -3498,13 +3500,13 @@ async function refreshCurrentPageFromPull() {
     return
   }
 
-  pagePullRefreshing.value = true
-  pagePullDistance.value = pageRefreshThreshold
+  pagePullRefresh.setRefreshing(true)
+  pagePullRefresh.setDistance(pageRefreshThreshold)
   try {
     await refreshPage({ noticeDelayMS: 180, suppressStartNotice: true })
   } finally {
-    pagePullRefreshing.value = false
-    pagePullDistance.value = 0
+    pagePullRefresh.setRefreshing(false)
+    pagePullRefresh.setDistance(0)
     setChromeContentCollapsed(true)
     setTopChromeVisible(false)
   }
@@ -3540,9 +3542,9 @@ watch(
     resetGestureTracking()
     resetPageTopPullTracking()
     feedTopPulling.value = false
-    pagePullOffset.value = 0
-    pagePullDistance.value = 0
-    pagePullSettling.value = false
+    pagePullRefresh.setOffset(0)
+    pagePullRefresh.setDistance(0)
+    pagePullRefresh.setSettling(false)
     viewDragOffset.value = 0
     if (isFeedRoute.value) {
       setTopChromeVisible(true)
