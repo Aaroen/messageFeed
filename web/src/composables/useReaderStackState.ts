@@ -31,6 +31,11 @@ type OpenSourceReaderStateResult = {
   loadSubscription: boolean
 }
 
+type BeginOpenItemReaderStateOptions = {
+  openedFromSourceReader: boolean
+  originRect: RectSnapshot | null
+}
+
 type ReaderStackSessionSnapshot = Pick<
   ReaderSessionSnapshot,
   | 'sourceReaderScrollTop'
@@ -422,6 +427,43 @@ export function useReaderStackState() {
     parkedDetailStack.value = []
   }
 
+  function beginOpenItemReaderState(
+    item: FeedItem,
+    sourceKind: FeedSourceKind,
+    options: BeginOpenItemReaderStateOptions,
+  ) {
+    const { openedFromSourceReader, originRect } = options
+    if (openedFromSourceReader && (hasParkedDetailSourceState() || sourceReaderReturnMode.value === 'detail')) {
+      pushParkedDetailSnapshot()
+    } else if (!openedFromSourceReader) {
+      parkedDetailStack.value = []
+    }
+    detailError.value = ''
+    detailLoading.value = true
+    detailItem.value = item
+    detailSourceKind.value = sourceKind
+    detailOpenedFromSourceReader.value = openedFromSourceReader
+    morphingItemId.value = item.id
+    morphingHeightLockItemId.value = item.id
+    detailReaderTouchOffset.value = 0
+    detailReaderStretch.value = 0
+    detailBackExitProgress.value = 0
+    detailSourceExitProgress.value = 0
+    detailReturningToFeed.value = false
+    detailListReturnCommitted.value = false
+    detailSourceItemTargetRect.value = openedFromSourceReader ? originRect : null
+    detailSourceNameOriginRect.value = null
+    detailSourceNameTargetRect.value = null
+    detailTransitionRectsLocked.value = false
+    detailFeedOriginLocked.value = false
+    detailScrollTop.value = 0
+    detailScrollHeight.value = 0
+    detailScrollClientHeight.value = 0
+    detailFrameContentHeight.value = 0
+    detailProgressDragging.value = false
+    sourceReaderVisible.value = openedFromSourceReader
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -502,6 +544,7 @@ export function useReaderStackState() {
     openSourceReaderState,
     closeVisibleSourceReaderState,
     clearSourceReaderState,
+    beginOpenItemReaderState,
     detailBlocksGestures,
   }
 }
