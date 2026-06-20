@@ -131,6 +131,11 @@ const {
   closeVisibleSourceReaderState,
   clearSourceReaderState,
   beginOpenItemReaderState,
+  beginDetailEntryState,
+  commitDetailEntryState,
+  finishDetailEntryState,
+  completeOpenItemReaderLoadState,
+  failOpenItemReaderLoadState,
   closeItemReaderState,
   beginCollapseItemReaderState,
   beginRestoreItemReaderExpansionState,
@@ -1712,21 +1717,16 @@ function settleReaderMotion(duration = 260, done?: () => void) {
 
 function startDetailEntry(rect?: DOMRect) {
   window.clearTimeout(detailEntryTimer)
-  detailOriginRect.value = snapshotRect(rect)
-
-  if (!detailOriginRect.value) {
-    detailEntryProgress.value = 1
-    detailEntrySettling.value = false
+  const result = beginDetailEntryState(snapshotRect(rect))
+  if (!result.shouldAnimate) {
     return
   }
 
-  detailEntryProgress.value = 0
-  detailEntrySettling.value = true
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      detailEntryProgress.value = 1
+      commitDetailEntryState()
       detailEntryTimer = window.setTimeout(() => {
-        detailEntrySettling.value = false
+        finishDetailEntryState()
       }, motionDelay(readerMorphDuration))
     })
   })
@@ -1980,7 +1980,6 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   activeDetailProgressPointerId = null
   lastDetailScrollTop = 0
   startDetailEntry(originRect)
-  morphingItemHeight.value = detailOriginRect.value?.height ?? null
   if (openedFromSourceReader) {
     captureDetailSourceTransitionRects(12, { lock: true })
   }
@@ -1995,13 +1994,14 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
     )
   }
   try {
+    let loadedItem: FeedItem | undefined
     if (sourceKind === 'subscriptions' && item.id > 0) {
-      detailItem.value = await getFeedItem(item.id)
+      loadedItem = await getFeedItem(item.id)
     }
+    completeOpenItemReaderLoadState(loadedItem)
   } catch {
-    detailError.value = '无法加载完整条目，已显示当前列表内容。'
+    failOpenItemReaderLoadState('无法加载完整条目，已显示当前列表内容。')
   } finally {
-    detailLoading.value = false
     nextTick(() => {
       if (detailContentRef.value) {
         detailContentRef.value.scrollTop = 0

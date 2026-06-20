@@ -36,6 +36,10 @@ type BeginOpenItemReaderStateOptions = {
   originRect: RectSnapshot | null
 }
 
+type BeginDetailEntryStateResult = {
+  shouldAnimate: boolean
+}
+
 type CloseItemReaderStateResult = {
   shouldScheduleHiddenSourceCleanup: boolean
 }
@@ -522,6 +526,41 @@ export function useReaderStackState() {
     sourceReaderVisible.value = openedFromSourceReader
   }
 
+  function beginDetailEntryState(originRect: RectSnapshot | null): BeginDetailEntryStateResult {
+    detailOriginRect.value = originRect
+    morphingItemHeight.value = originRect?.height ?? null
+
+    if (!detailOriginRect.value) {
+      detailEntryProgress.value = 1
+      detailEntrySettling.value = false
+      return { shouldAnimate: false }
+    }
+
+    detailEntryProgress.value = 0
+    detailEntrySettling.value = true
+    return { shouldAnimate: true }
+  }
+
+  function commitDetailEntryState() {
+    detailEntryProgress.value = 1
+  }
+
+  function finishDetailEntryState() {
+    detailEntrySettling.value = false
+  }
+
+  function completeOpenItemReaderLoadState(item?: FeedItem) {
+    if (item) {
+      detailItem.value = item
+    }
+    detailLoading.value = false
+  }
+
+  function failOpenItemReaderLoadState(message: string) {
+    detailError.value = message
+    detailLoading.value = false
+  }
+
   function closeItemReaderState(): CloseItemReaderStateResult {
     const previousSourceReturnMode = sourceReaderReturnMode.value
     detailItem.value = null
@@ -889,6 +928,11 @@ export function useReaderStackState() {
     closeVisibleSourceReaderState,
     clearSourceReaderState,
     beginOpenItemReaderState,
+    beginDetailEntryState,
+    commitDetailEntryState,
+    finishDetailEntryState,
+    completeOpenItemReaderLoadState,
+    failOpenItemReaderLoadState,
     closeItemReaderState,
     beginCollapseItemReaderState,
     beginRestoreItemReaderExpansionState,
