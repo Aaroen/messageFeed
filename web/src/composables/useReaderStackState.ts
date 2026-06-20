@@ -586,6 +586,23 @@ export function useReaderStackState() {
     detailEntryTimer = window.setTimeout(handler, delay)
   }
 
+  function startDetailEntryWithDelay(originRect: RectSnapshot | null, delay: number) {
+    clearDetailEntryTimer()
+    const result = beginDetailEntryState(originRect)
+    if (!result.shouldAnimate) {
+      return
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        commitDetailEntryState()
+        setDetailEntryTimer(() => {
+          finishDetailEntryState()
+        }, delay)
+      })
+    })
+  }
+
   function completeOpenItemReaderLoadState(item?: FeedItem) {
     if (item) {
       detailItem.value = item
@@ -1141,6 +1158,7 @@ export function useReaderStackState() {
     finishDetailEntryState,
     clearDetailEntryTimer,
     setDetailEntryTimer,
+    startDetailEntryWithDelay,
     completeOpenItemReaderLoadState,
     failOpenItemReaderLoadState,
     beginDetailHeaderTitleSwapState,

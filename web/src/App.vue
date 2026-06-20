@@ -130,11 +130,9 @@ const {
   closeVisibleSourceReaderState,
   clearSourceReaderState,
   beginOpenItemReaderState,
-  beginDetailEntryState,
-  commitDetailEntryState,
-  finishDetailEntryState,
   clearDetailEntryTimer,
   setDetailEntryTimer,
+  startDetailEntryWithDelay,
   completeOpenItemReaderLoadState,
   failOpenItemReaderLoadState,
   clearDetailHeaderSwapTimer,
@@ -1666,20 +1664,7 @@ function settleReaderMotion(duration = 260, done?: () => void) {
 }
 
 function startDetailEntry(rect?: DOMRect) {
-  clearDetailEntryTimer()
-  const result = beginDetailEntryState(snapshotRect(rect))
-  if (!result.shouldAnimate) {
-    return
-  }
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      commitDetailEntryState()
-      setDetailEntryTimer(() => {
-        finishDetailEntryState()
-      }, motionDelay(readerMorphDuration))
-    })
-  })
+  startDetailEntryWithDelay(snapshotRect(rect), motionDelay(readerMorphDuration))
 }
 
 function startDetailHeaderTitleSwap(nextItem: FeedItem) {
