@@ -214,10 +214,6 @@ const feedContentSpace = computed(() => {
     return feedHeaderHeight.value * Math.max(topChromeProgress.value, pullProgress.value)
   }
 
-  if (feedContentCollapsed.value && topChromeProgress.value <= 0.01) {
-    return 0
-  }
-
   return feedHeaderHeight.value
 })
 const freezeFeedBodyDuringTopRefresh = computed(
@@ -288,35 +284,31 @@ const pagePullStatusMeta = computed(() => {
   return pageTitle.value === '订阅管理' ? '下拉更新订阅管理' : `下拉更新${pageTitle.value}`
 })
 const pullStatusStyle = computed(() => ({
-  opacity: feedPullActive.value ? '1' : '0',
-  transform: `${cssTranslate3d(0, (1 - pullProgress.value) * -10)} scale(${(0.96 + pullProgress.value * 0.04).toFixed(3)})`,
+  ...chromeLayerStyle(feedPullActive.value, pullProgress.value, { shift: -10, scaleStart: 0.96 }),
 }))
 const pullIconStyle = computed(() => ({
   transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(pullProgress.value * 300),
 }))
 const pagePullStatusStyle = computed(() => ({
-  opacity: pagePullActive.value ? '1' : '0',
-  transform: `${cssTranslate3d(0, (1 - pagePullProgress.value) * -10)} scale(${(0.96 + pagePullProgress.value * 0.04).toFixed(3)})`,
+  ...chromeLayerStyle(pagePullActive.value, pagePullProgress.value, { shift: -10, scaleStart: 0.96 }),
 }))
 const pagePullIconStyle = computed(() => ({
   transform: pagePullRefreshing.value ? 'none' : cssRotate(pagePullProgress.value * 300),
 }))
 const feedTabsLayerStyle = computed(() => {
-  if (!detailReaderOpen.value) {
-    return undefined
+  if (detailReaderOpen.value) {
+    return chromeLayerStyle(feedHeaderReturnProgress.value > 0.001, feedHeaderReturnProgress.value, {
+      shift: 7,
+      scaleStart: 0.98,
+      disableTransition: readerBackDragging.value,
+      pointerEnabled: !detailBlocksGestures(),
+    })
   }
 
-  const progress = feedHeaderReturnProgress.value
-  return {
-    opacity: progress.toFixed(3),
-    pointerEvents: progress > 0.96 && !detailBlocksGestures() ? ('auto' as const) : ('none' as const),
-    transform: `${cssTranslate3d(0, (1 - progress) * 7)} scale(${(0.98 + progress * 0.02).toFixed(3)})`,
-    transition: readerBackDragging.value ? 'none' : undefined,
-  }
+  return chromeLayerStyle(!feedPullActive.value, feedHeaderProgress.value)
 })
 const sourcePullStatusStyle = computed(() => ({
-  opacity: sourcePullActive.value ? '1' : '0',
-  transform: `${cssTranslate3d(0, (1 - sourcePullProgress.value) * -10)} scale(${(0.96 + sourcePullProgress.value * 0.04).toFixed(3)})`,
+  ...chromeLayerStyle(sourcePullActive.value, sourcePullProgress.value, { shift: -10, scaleStart: 0.96 }),
 }))
 const sourcePullIconStyle = computed(() => ({
   transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(sourcePullProgress.value * 300),
@@ -399,6 +391,9 @@ const sourceHeaderStyle = computed(() => ({
       ? 'transform 800ms cubic-bezier(0.16, 1, 0.3, 1), opacity 800ms ease'
       : undefined,
 }))
+const detailHeaderLayerStyle = computed(() => chromeLayerStyle(detailHeaderVisible.value, topChromeProgress.value))
+const pageTitleLayerStyle = computed(() => chromeLayerStyle(!pagePullActive.value, feedHeaderProgress.value))
+const sourceMainLayerStyle = computed(() => chromeLayerStyle(!sourcePullActive.value, topChromeProgress.value))
 const detailReaderStyle = computed(() => ({
   transform: `translate3d(0, 0, 0) scaleX(${(1 + Math.abs(detailReaderStretch.value)).toFixed(4)})`,
   transition: readerBackDragging.value ? 'none' : undefined,
@@ -1332,6 +1327,36 @@ function clearStretchAnchors(delay = 280) {
 
 function cssRotate(degrees: number) {
   return `rotate(${cssNumber(degrees)}deg)`
+}
+
+function chromeLayerStyle(
+  visible: boolean,
+  progress: number,
+  options: {
+    shift?: number
+    scaleStart?: number
+    disableTransition?: boolean
+    pointerEnabled?: boolean
+  } = {},
+) {
+  const safeProgress = clamp(visible ? progress : 0)
+  const shift = options.shift ?? -8
+  const scaleStart = options.scaleStart ?? 0.96
+  const pointerEnabled = options.pointerEnabled ?? true
+  return {
+    opacity: safeProgress.toFixed(3),
+    pointerEvents: safeProgress > 0.86 && pointerEnabled ? ('auto' as const) : ('none' as const),
+    transform: `${cssTranslate3d(0, (1 - safeProgress) * shift)} scale(${(
+      scaleStart +
+      safeProgress * (1 - scaleStart)
+    ).toFixed(3)})`,
+    transition: options.disableTransition
+      ? 'none'
+      : feedChromeSettling.value || feedRefreshSettling.value
+        ? 'transform 800ms cubic-bezier(0.16, 1, 0.3, 1), opacity 800ms ease, visibility 800ms ease'
+        : undefined,
+    visibility: safeProgress > 0.01 ? ('visible' as const) : ('hidden' as const),
+  }
 }
 
 function escapeHTML(value: string) {
@@ -2780,7 +2805,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   trackingBackSwipe = true
   detailEntrySettling.value = false
   sourceReturnTargetReady.value = false
-  if (backSwipeTarget === 'source' && deltaX < 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
+  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
     backSwipeIntent = 'back'
     detailRestoringFromSourceReader.value = true
     detailReturningToFeed.value = false
@@ -2816,7 +2841,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  if (backSwipeTarget === 'source' && deltaX < 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
+  if (backSwipeTarget === 'source' && deltaX > 0 && canReturnSourceReaderToDetail() && prepareSourceReaderReturnDrag()) {
     backSwipeIntent = 'back'
     detailRestoringFromSourceReader.value = true
     detailReturningToFeed.value = false
@@ -2854,8 +2879,8 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     detailReaderTouchOffset.value = 0
     detailBackExitProgress.value = clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
   } else if (intent === 'back' && backSwipeTarget === 'source') {
-    if (offset < 0 && canReturnSourceReaderToDetail()) {
-      const returnProgress = clamp(Math.max(0, -offset) / Math.max(220, windowWidth.value * 0.52))
+    if (offset > 0 && canReturnSourceReaderToDetail()) {
+      const returnProgress = clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52))
       detailRestoringFromSourceReader.value = true
       detailReaderTouchOffset.value = 0
       detailBackExitProgress.value = 0
@@ -2901,7 +2926,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
     intent === 'back' && target === 'detail'
       ? deltaX > 0 && (detailBackExitProgress.value >= 0.42 || deltaX >= viewSwitchDistance)
       : intent === 'back' && target === 'source'
-        ? deltaX < 0 && (detailSourceExitProgress.value <= 0.58 || Math.abs(deltaX) >= viewSwitchDistance)
+        ? deltaX > 0 && (detailSourceExitProgress.value <= 0.58 || deltaX >= viewSwitchDistance)
       : intent === 'source' && target === 'detail'
         ? deltaX < 0 && (detailSourceExitProgress.value >= 0.42 || Math.abs(deltaX) >= viewSwitchDistance)
         : intent === 'back'
@@ -3570,8 +3595,6 @@ function setTopChromeVisible(visible: boolean) {
   window.clearTimeout(feedChromeSettleTimer)
   if (visible) {
     feedContentCollapsed.value = false
-  } else {
-    feedContentCollapsed.value = true
   }
   topChromeProgress.value = nextProgress
   feedChromeSettleTimer = window.setTimeout(() => {
@@ -4141,6 +4164,7 @@ onUnmounted(() => {
               v-if="detailReaderOpen"
               class="feed-header-layer feed-header-layer--detail"
               :class="{ 'feed-header-layer--hidden': !detailHeaderVisible }"
+              :style="detailHeaderLayerStyle"
             >
               <div v-if="detailItem" class="detail-header-title" :style="detailHeaderTitleStyle">
                 <span
@@ -4203,6 +4227,7 @@ onUnmounted(() => {
             <div
               class="feed-header-layer feed-header-layer--tabs"
               :class="{ 'feed-header-layer--hidden': pagePullActive }"
+              :style="pageTitleLayerStyle"
             >
               <h1>{{ pageTitle }}</h1>
             </div>
@@ -4321,7 +4346,11 @@ onUnmounted(() => {
           <IconMenuUnfold />
         </button>
         <div class="reader-overlay__source-stack">
-          <div class="reader-source-layer" :class="{ 'reader-source-layer--hidden': sourcePullActive }">
+          <div
+            class="reader-source-layer"
+            :class="{ 'reader-source-layer--hidden': sourcePullActive }"
+            :style="sourceMainLayerStyle"
+          >
             <div class="reader-overlay__title" :style="sourceTitleLayerStyle">
               <span ref="sourceTitleTextRef" :style="sourceTitleTextStyle">{{ readerSource.name }}</span>
               <small>{{ sourceToggleActive ? '已订阅' : '未订阅' }}</small>
