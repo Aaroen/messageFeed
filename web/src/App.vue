@@ -126,6 +126,13 @@ const {
   sourceReaderMounted,
   sourceReaderOpen,
   detailReaderOpen,
+  detailCommittedListReturn,
+  hasDetailParkedBehindSource,
+  hasParkedDetailSourceState,
+  sourceReaderShouldReturnToDetail,
+  snapshotCurrentDetail,
+  pushParkedDetailSnapshot,
+  detailBlocksGestures,
 } = useReaderStackState()
 const feedScrollTop = ref(0)
 const pageSideOffset = ref(0)
@@ -1919,10 +1926,6 @@ async function restoreReaderSession() {
   await readerSession.restore()
 }
 
-function detailCommittedListReturn() {
-  return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
-}
-
 function hasVirtualBackTarget() {
   return (
     navigationVisible.value ||
@@ -1983,51 +1986,6 @@ function runVirtualBackAnimation() {
   return false
 }
 
-function hasDetailParkedBehindSource() {
-  return (
-    detailReaderOpen.value &&
-    sourceReaderVisible.value &&
-    detailListReturnCommitted.value &&
-    !detailReturningToFeed.value &&
-    detailSourceExitProgress.value >= 0.99
-  )
-}
-
-function hasParkedDetailSourceState() {
-  return (
-    detailReaderOpen.value &&
-    sourceReaderVisible.value &&
-    detailListReturnCommitted.value &&
-    !detailReturningToFeed.value
-  )
-}
-
-function sourceReaderShouldReturnToDetail() {
-  if (detailOpenedFromSourceReader.value && !detailCommittedListReturn()) {
-    return false
-  }
-
-  const hasDetailReturnTarget =
-    detailReaderOpen.value ||
-    parkedDetailStack.value.length > 0 ||
-    sourceReaderBackDetail.value !== null ||
-    detailListReturnCommitted.value ||
-    detailSourceExitProgress.value > 0.45 ||
-    detailRestoringFromSourceReader.value
-  const sourceLayerAvailable =
-    readerSource.value !== null &&
-    (sourceReaderVisible.value ||
-      sourceReaderBackDetail.value !== null ||
-      detailListReturnCommitted.value ||
-      detailSourceExitProgress.value > 0.45)
-  return (
-    sourceReaderReturnMode.value === 'detail' &&
-    sourceLayerAvailable &&
-    !detailReturningToFeed.value &&
-    hasDetailReturnTarget
-  )
-}
-
 function restoreSourceReaderBackTarget() {
   if (detailReaderOpen.value) {
     restoreDetailFromParkedSource()
@@ -2046,44 +2004,6 @@ function restoreSourceReaderBackTarget() {
 
   sourceReaderReturnMode.value = null
   closeSourceReader()
-}
-
-function snapshotCurrentDetail(): ParkedDetailSnapshot | null {
-  if (!detailItem.value) {
-    return null
-  }
-
-  return {
-    item: { ...detailItem.value },
-    sourceKind: detailSourceKind.value,
-    originRect: detailOriginRect.value ? { ...detailOriginRect.value } : null,
-    sourceItemTargetRect: detailSourceItemTargetRect.value ? { ...detailSourceItemTargetRect.value } : null,
-    sourceNameOriginRect: detailSourceNameOriginRect.value ? { ...detailSourceNameOriginRect.value } : null,
-    sourceNameTargetRect: detailSourceNameTargetRect.value ? { ...detailSourceNameTargetRect.value } : null,
-    morphingItemHeight: morphingItemHeight.value,
-    scrollTop: detailScrollTop.value,
-  }
-}
-
-function snapshotParkedDetail(): ParkedDetailSnapshot | null {
-  const canSnapshotForSourceReturn =
-    sourceReaderReturnMode.value === 'detail' &&
-    sourceReaderVisible.value &&
-    !detailReturningToFeed.value
-  if (!hasParkedDetailSourceState() && !canSnapshotForSourceReturn) {
-    return null
-  }
-
-  return snapshotCurrentDetail()
-}
-
-function pushParkedDetailSnapshot() {
-  const snapshot = snapshotParkedDetail()
-  if (!snapshot) {
-    return
-  }
-
-  parkedDetailStack.value.push(snapshot)
 }
 
 function restoreParkedDetailSnapshot(snapshot: ParkedDetailSnapshot | null) {
@@ -2122,10 +2042,6 @@ function restoreParkedDetailSnapshot(snapshot: ParkedDetailSnapshot | null) {
 
 function restorePreviousParkedDetail() {
   return restoreParkedDetailSnapshot(parkedDetailStack.value.pop() ?? null)
-}
-
-function detailBlocksGestures() {
-  return detailReaderOpen.value && !detailCommittedListReturn()
 }
 
 function finishCommittedListReturnForGesture() {

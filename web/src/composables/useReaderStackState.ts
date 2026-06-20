@@ -74,6 +74,98 @@ export function useReaderStackState() {
     () => detailItem.value !== null || detailLoading.value || detailError.value !== '',
   )
 
+  function detailCommittedListReturn() {
+    return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
+  }
+
+  function hasDetailParkedBehindSource() {
+    return (
+      detailReaderOpen.value &&
+      sourceReaderVisible.value &&
+      detailListReturnCommitted.value &&
+      !detailReturningToFeed.value &&
+      detailSourceExitProgress.value >= 0.99
+    )
+  }
+
+  function hasParkedDetailSourceState() {
+    return (
+      detailReaderOpen.value &&
+      sourceReaderVisible.value &&
+      detailListReturnCommitted.value &&
+      !detailReturningToFeed.value
+    )
+  }
+
+  function sourceReaderShouldReturnToDetail() {
+    if (detailOpenedFromSourceReader.value && !detailCommittedListReturn()) {
+      return false
+    }
+
+    const hasDetailReturnTarget =
+      detailReaderOpen.value ||
+      parkedDetailStack.value.length > 0 ||
+      sourceReaderBackDetail.value !== null ||
+      detailListReturnCommitted.value ||
+      detailSourceExitProgress.value > 0.45 ||
+      detailRestoringFromSourceReader.value
+    const sourceLayerAvailable =
+      readerSource.value !== null &&
+      (sourceReaderVisible.value ||
+        sourceReaderBackDetail.value !== null ||
+        detailListReturnCommitted.value ||
+        detailSourceExitProgress.value > 0.45)
+    return (
+      sourceReaderReturnMode.value === 'detail' &&
+      sourceLayerAvailable &&
+      !detailReturningToFeed.value &&
+      hasDetailReturnTarget
+    )
+  }
+
+  function snapshotCurrentDetail(): ParkedDetailSnapshot | null {
+    if (!detailItem.value) {
+      return null
+    }
+
+    return {
+      item: { ...detailItem.value },
+      sourceKind: detailSourceKind.value,
+      originRect: detailOriginRect.value ? { ...detailOriginRect.value } : null,
+      sourceItemTargetRect: detailSourceItemTargetRect.value ? { ...detailSourceItemTargetRect.value } : null,
+      sourceNameOriginRect: detailSourceNameOriginRect.value ? { ...detailSourceNameOriginRect.value } : null,
+      sourceNameTargetRect: detailSourceNameTargetRect.value ? { ...detailSourceNameTargetRect.value } : null,
+      morphingItemHeight: morphingItemHeight.value,
+      scrollTop: detailScrollTop.value,
+    }
+  }
+
+  function snapshotParkedDetail(): ParkedDetailSnapshot | null {
+    const canSnapshotForSourceReturn =
+      sourceReaderReturnMode.value === 'detail' &&
+      sourceReaderVisible.value &&
+      !detailReturningToFeed.value
+    if (!hasParkedDetailSourceState() && !canSnapshotForSourceReturn) {
+      return null
+    }
+
+    return snapshotCurrentDetail()
+  }
+
+  function pushParkedDetailSnapshot() {
+    const snapshot = snapshotParkedDetail()
+    if (!snapshot) {
+      return false
+    }
+
+    parkedDetailStack.value.push(snapshot)
+    return true
+  }
+
+  function detailBlocksGestures() {
+    return detailReaderOpen.value && !detailCommittedListReturn()
+  }
+
   return {
     sourceReaderContentRef,
     detailContentRef,
@@ -134,5 +226,13 @@ export function useReaderStackState() {
     sourceReaderMounted,
     sourceReaderOpen,
     detailReaderOpen,
+    detailCommittedListReturn,
+    hasDetailParkedBehindSource,
+    hasParkedDetailSourceState,
+    sourceReaderShouldReturnToDetail,
+    snapshotCurrentDetail,
+    snapshotParkedDetail,
+    pushParkedDetailSnapshot,
+    detailBlocksGestures,
   }
 }
