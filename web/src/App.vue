@@ -14,10 +14,11 @@ import {
   getFeedItem,
   type FeedItem,
 } from '@/api/feed'
+import AppFeedHeaderContent from '@/components/AppFeedHeaderContent.vue'
+import AppPageHeaderContent from '@/components/AppPageHeaderContent.vue'
 import ReaderDetailOverlayContent from '@/components/ReaderDetailOverlayContent.vue'
 import ReaderStack from '@/components/ReaderStack.vue'
 import ReaderSourceOverlayContent from '@/components/ReaderSourceOverlayContent.vue'
-import RefreshStatusLayer from '@/components/RefreshStatusLayer.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
@@ -3843,101 +3844,43 @@ onUnmounted(() => {
         :root-style="headerStyle"
       >
         <div class="app-header-slot" :class="{ 'app-header-slot--feed': isFeedRoute || detailChromeVisible }">
-          <div v-if="isFeedRoute || detailChromeVisible" class="app-header-feed-stack">
-            <div
-              v-if="detailReaderOpen"
-              class="feed-header-layer feed-header-layer--detail"
-              :class="{ 'feed-header-layer--hidden': !detailHeaderVisible }"
-              :style="detailHeaderLayerStyle"
-            >
-              <div v-if="detailItem" class="detail-header-title" :style="detailHeaderTitleStyle">
-                <span
-                  v-if="detailHeaderPreviousTitle"
-                  class="detail-header-title__text detail-header-title__text--previous"
-                  :style="detailHeaderPreviousTextStyle"
-                  aria-hidden="true"
-                >
-                  {{ detailHeaderPreviousTitle }}
-                </span>
-                <span class="detail-header-title__text" :style="detailHeaderCurrentTextStyle">
-                  {{ detailItem.title }}
-                </span>
-              </div>
-            </div>
-            <div
-              v-if="isFeedRoute"
-              class="feed-header-layer feed-header-layer--tabs"
-              :class="{ 'feed-header-layer--hidden': feedTabsLayerHidden }"
-              :style="feedTabsLayerStyle"
-            >
-              <div class="feed-tabs" role="tablist" aria-label="阅读视图">
-                <button
-                  v-for="tab in feedTabs"
-                  :key="tab.key"
-                  class="feed-tab"
-                  :class="{ 'feed-tab--active': route.name === tab.key }"
-                  type="button"
-                  role="tab"
-                  :aria-selected="route.name === tab.key"
-                  @pointerdown.stop
-                  @touchstart.stop
-                  @click="navigateTo(tab.path)"
-                >
-                  {{ tab.label }}
-                </button>
-              </div>
-            </div>
-            <div
-              v-if="isFeedRoute"
-              class="feed-header-layer feed-header-layer--tabs feed-header-layer--view-target"
-              :class="{ 'feed-header-layer--hidden': !viewSwipeTargetVisible }"
-              :style="feedTabsTargetLayerStyle"
-              aria-hidden="true"
-            >
-              <div class="feed-tabs" role="presentation">
-                <button
-                  v-for="tab in feedTabs"
-                  :key="`target-${tab.key}`"
-                  class="feed-tab"
-                  :class="{ 'feed-tab--active': viewSwipeTargetKey === tab.key }"
-                  type="button"
-                  tabindex="-1"
-                >
-                  {{ tab.label }}
-                </button>
-              </div>
-            </div>
-            <RefreshStatusLayer
-              v-if="isFeedRoute"
-              root-class="feed-header-layer feed-header-layer--refresh"
-              hidden-class="feed-header-layer--hidden"
-              :hidden="detailReaderOpen || !feedPullActive"
-              :root-style="pullStatusStyle"
-              :refreshing="feedInteraction.pullRefreshing"
-              :icon-style="pullIconStyle"
-              :title="pullStatusText"
-              :meta="pullStatusMeta"
-            />
-          </div>
-          <div v-else class="app-header-page-stack">
-            <div
-              class="feed-header-layer feed-header-layer--tabs"
-              :class="{ 'feed-header-layer--hidden': pagePullActive }"
-              :style="pageTitleLayerStyle"
-            >
-              <h1>{{ pageTitle }}</h1>
-            </div>
-            <RefreshStatusLayer
-              root-class="feed-header-layer feed-header-layer--refresh"
-              hidden-class="feed-header-layer--hidden"
-              :hidden="!pagePullActive"
-              :root-style="pagePullStatusStyle"
-              :refreshing="pagePullRefreshing"
-              :icon-style="pagePullIconStyle"
-              :title="pagePullStatusText"
-              :meta="pagePullStatusMeta"
-            />
-          </div>
+          <AppFeedHeaderContent
+            v-if="isFeedRoute || detailChromeVisible"
+            :detail-reader-open="detailReaderOpen"
+            :detail-header-visible="detailHeaderVisible"
+            :detail-header-layer-style="detailHeaderLayerStyle"
+            :detail-title="detailItem?.title"
+            :detail-header-title-style="detailHeaderTitleStyle"
+            :detail-header-previous-title="detailHeaderPreviousTitle"
+            :detail-header-previous-text-style="detailHeaderPreviousTextStyle"
+            :detail-header-current-text-style="detailHeaderCurrentTextStyle"
+            :is-feed-route="isFeedRoute"
+            :feed-tabs="feedTabs"
+            :active-key="route.name"
+            :feed-tabs-layer-hidden="feedTabsLayerHidden"
+            :feed-tabs-layer-style="feedTabsLayerStyle"
+            :view-swipe-target-visible="viewSwipeTargetVisible"
+            :feed-tabs-target-layer-style="feedTabsTargetLayerStyle"
+            :view-swipe-target-key="viewSwipeTargetKey"
+            :feed-pull-active="feedPullActive"
+            :pull-status-style="pullStatusStyle"
+            :pull-refreshing="feedInteraction.pullRefreshing"
+            :pull-icon-style="pullIconStyle"
+            :pull-status-text="pullStatusText"
+            :pull-status-meta="pullStatusMeta"
+            @navigate="navigateTo"
+          />
+          <AppPageHeaderContent
+            v-else
+            :page-title="pageTitle"
+            :page-pull-active="pagePullActive"
+            :page-title-layer-style="pageTitleLayerStyle"
+            :page-pull-status-style="pagePullStatusStyle"
+            :page-pull-refreshing="pagePullRefreshing"
+            :page-pull-icon-style="pagePullIconStyle"
+            :page-pull-status-text="pagePullStatusText"
+            :page-pull-status-meta="pagePullStatusMeta"
+          />
         </div>
       </TopChrome>
 
