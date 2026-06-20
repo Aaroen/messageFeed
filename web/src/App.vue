@@ -4059,10 +4059,8 @@ onUnmounted(() => {
       :source-name-morph-visible="sourceNameMorphVisible"
       :source-name-morph-style="sourceNameMorphStyle"
       :detail-open="detailReaderOpen"
-      :detail-class="{
-        'reader-overlay--motion-settling': readerMotionSettling,
-        'reader-overlay--returning-feed': detailReturningToFeed,
-      }"
+      :detail-motion-settling="readerMotionSettling"
+      :detail-returning-feed="detailReturningToFeed"
       :detail-style="detailReaderStyle"
     >
       <template #source>
