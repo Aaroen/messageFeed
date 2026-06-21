@@ -873,6 +873,7 @@ export function useReaderStackState() {
     sourceCatalogEntry.value = null
     sourceSubscription.value = null
     sourceNotice.value = null
+    clearDetailSourceTransitionTargetState()
     return true
   }
 
@@ -951,6 +952,7 @@ export function useReaderStackState() {
     sourceReaderReturnMode.value = null
     sourceReaderBackDetail.value = null
     parkedDetailStack.value = []
+    clearDetailSourceTransitionTargetState()
   }
 
   function clearSourceReaderState() {
@@ -961,6 +963,7 @@ export function useReaderStackState() {
     sourceReaderOffset.value = 0
     sourceReaderStretch.value = 0
     parkedDetailStack.value = []
+    clearDetailSourceTransitionTargetState()
   }
 
   function beginOpenItemReaderState(
