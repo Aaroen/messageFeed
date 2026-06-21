@@ -66,6 +66,7 @@ import { useAppRouteState } from '@/composables/useAppRouteState'
 import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
+import { usePullActivityState } from '@/composables/usePullActivityState'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 
 type SwipeSurface =
@@ -382,18 +383,22 @@ const viewSettling = feedPagerTransition.settling
 const viewSwipeCandidateActive = feedPagerTransition.viewSwipeCandidateActive
 const viewSwipeActive = feedPagerTransition.viewSwipeActive
 const activeFeedIndex = feedPagerTransition.activeIndex
-const feedPullActive = computed(() => isFeedRoute.value && (feedInteraction.pullActive || feedInteraction.pullOffset > 1))
-const pagePullActive = computed(() => !isFeedRoute.value && (pagePullRefreshing.value || pagePullOffset.value > 1))
-const sourcePullActive = computed(
-  () =>
-    sourceReaderOpen.value &&
-    feedInteraction.pullViewKey.startsWith('source:') &&
-    (feedInteraction.pullActive || feedInteraction.pullOffset > 1),
-)
-const feedOrSourcePullActive = computed(() => feedPullActive.value || sourcePullActive.value)
-const pullProgress = computed(() => Math.min(feedInteraction.pullOffset / 76, 1))
+const pullActivity = usePullActivityState({
+  isFeedRoute,
+  pagePullRefreshing,
+  pagePullOffset,
+  sourceReaderOpen,
+  getFeedPullActive: () => feedInteraction.pullActive,
+  getFeedPullOffset: () => feedInteraction.pullOffset,
+  getFeedPullViewKey: () => feedInteraction.pullViewKey,
+})
+const feedPullActive = pullActivity.feedActive
+const pagePullActive = pullActivity.pageActive
+const sourcePullActive = pullActivity.sourceActive
+const feedOrSourcePullActive = pullActivity.feedOrSourceActive
+const pullProgress = pullActivity.feedProgress
 const pagePullProgress = pagePullRefresh.distanceProgress
-const sourcePullProgress = computed(() => Math.min(feedInteraction.pullOffset / 76, 1))
+const sourcePullProgress = pullActivity.sourceProgress
 const feedHeaderHeight = computed(() => (windowWidth.value <= 720 ? 78 : 86))
 const feedHeaderProgress = computed(() => {
   if (!isFeedRoute.value) {
