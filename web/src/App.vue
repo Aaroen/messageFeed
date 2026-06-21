@@ -65,6 +65,7 @@ import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { usePagePullStatus } from '@/composables/usePagePullStatus'
+import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 
 type SwipeSurface =
@@ -676,6 +677,26 @@ const feedTabs = [
   { key: 'subscriptions', label: '订阅', path: '/subscriptions' },
   { key: 'recommendations', label: '推荐', path: '/recommendations' },
 ]
+const appNavigation = useAppNavigationActions({
+  router,
+  routeRuntime,
+  navigationDrawer,
+  feedPagerTransition,
+  managementItems,
+  resetGestureTracking,
+  setChromeStableVisible: chromeState.setStableVisible,
+  motionDelay,
+  motionNormalDuration,
+})
+const pushRoute = appNavigation.pushRoute
+const replaceRoute = appNavigation.replaceRoute
+const settleNavigation = appNavigation.settleNavigation
+const openNavigation = appNavigation.openNavigation
+const closeNavigation = appNavigation.closeNavigation
+const handleMenuClick = appNavigation.handleMenuClick
+const goHome = appNavigation.goHome
+const handleCornerButtonClick = appNavigation.handleCornerButtonClick
+const navigateTo = appNavigation.navigateTo
 
 const navigationOpenDistance = 72
 const viewSwitchDistance = 62
@@ -705,43 +726,8 @@ function suppressFollowingClick() {
   clickSuppression.suppressNext()
 }
 
-async function pushRoute(path: string) {
-  await routeRuntime.runProgrammaticNavigation(() => router.push(path))
-}
-
-async function replaceRoute(path: string) {
-  await routeRuntime.runProgrammaticNavigation(() => router.replace(path))
-}
-
 function scheduleReaderURLAndHistorySync(forcePush = false) {
   readerRouteSync.scheduleSync(forcePush)
-}
-
-function handleMenuClick(key: string) {
-  const item = managementItems.find((navItem) => navItem.key === key)
-  if (item) {
-    void pushRoute(item.path)
-    closeNavigation()
-  }
-}
-
-function goHome(closePanel = navigationVisible.value) {
-  void pushRoute('/recommendations')
-  chromeState.setStableVisible()
-  feedPagerTransition.reset()
-  if (closePanel) {
-    closeNavigation()
-  }
-}
-
-function handleCornerButtonClick() {
-  openNavigation()
-}
-
-function navigateTo(path: string) {
-  feedPagerTransition.beginProgrammaticNavigation()
-  void pushRoute(path)
-  feedPagerTransition.settleProgrammaticNavigation(motionDelay(motionNormalDuration))
 }
 
 function clamp(value: number, min = 0, max = 1) {
@@ -1266,19 +1252,6 @@ function completeDetailToSourceReader(duration = motionReaderDuration) {
       restoreMorphingItemContent()
     },
   })
-}
-
-function settleNavigation(open: boolean) {
-  navigationDrawer.settle(open)
-}
-
-function openNavigation() {
-  resetGestureTracking()
-  navigationDrawer.openPanel()
-}
-
-function closeNavigation() {
-  navigationDrawer.closePanel()
 }
 
 function canStartViewSwipe(_clientX: number) {
