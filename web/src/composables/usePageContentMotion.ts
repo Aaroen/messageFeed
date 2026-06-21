@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, readonly, ref } from 'vue'
 
 type StretchAnchor = 'left' | 'right' | null
 type ReadableRef<T> = {
@@ -64,9 +64,7 @@ export function usePageContentMotion(options: PageContentMotionOptions) {
   }
 
   return {
-    sideOffset,
-    sideStretch,
-    stretchAnchor,
+    sideStretch: readonly(sideStretch),
     contentStyle,
     setSideOffset,
     setSideStretch,
