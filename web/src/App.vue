@@ -15,7 +15,6 @@ import {
   type ReaderSource,
 } from '@/composables/useReaderSession'
 import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
-import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
 import { useTopPullState } from '@/composables/useTopPullState'
@@ -35,7 +34,6 @@ import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
-import { useAppVirtualBackActions } from '@/composables/useAppVirtualBackActions'
 import { useAppReaderSessionSnapshots } from '@/composables/useAppReaderSessionSnapshots'
 import { useAppRouteSessionWatchers } from '@/composables/useAppRouteSessionWatchers'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
@@ -74,6 +72,7 @@ import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime
 import { useAppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
 import { useAppReaderDetailHeaderState } from '@/composables/useAppReaderDetailHeaderState'
 import { useAppTopChromeOutletState } from '@/composables/useAppTopChromeOutletState'
+import { useAppVirtualBackGuard } from '@/composables/useAppVirtualBackGuard'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -364,7 +363,9 @@ const pagePullProgress = pagePullState.progress
 const pageContentInnerStyle = pagePullState.contentStyle
 const pagePullStatusText = pagePullState.statusText
 const pagePullStatusMeta = pagePullState.statusMeta
-const appVirtualBackActions = useAppVirtualBackActions({
+const virtualBackGuard = useAppVirtualBackGuard({
+  route,
+  router,
   navigationVisible,
   sourceReaderOpen,
   detailReaderOpen,
@@ -379,23 +380,8 @@ const appVirtualBackActions = useAppVirtualBackActions({
   restoreSourceReaderBackTarget: () => restoreSourceReaderBackTarget(),
   closeSourceReader: () => closeSourceReader(),
   goHome: (replace) => goHome(replace),
-})
-const hasVirtualBackTarget = appVirtualBackActions.hasVirtualBackTarget
-const runVirtualBackAnimation = appVirtualBackActions.runVirtualBackAnimation
-const virtualBackGuard = useVirtualBackGuard({
-  route,
-  router,
   getRouteFullPath: () => route.fullPath,
-  getState: () => {
-    const needsVirtualLayer = hasVirtualBackTarget()
-    return {
-      shouldGuard: needsVirtualLayer || isFeedRoute.value,
-      needsVirtualLayer,
-      needsHomeGuard: !needsVirtualLayer && isFeedRoute.value,
-    }
-  },
   canHandleNavigation: routeRuntime.canHandleNavigation,
-  consumeBack: runVirtualBackAnimation,
   onBackConsumed: () => {
     scheduleReaderSessionSave()
     scheduleReaderURLAndHistorySync(true)
