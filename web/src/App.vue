@@ -922,7 +922,6 @@ const navigationOpenDistance = 72
 const viewSwitchDistance = 62
 const viewSwipeChromeRevealDelay = 520
 const topChromeSettleDuration = motionChromeDuration
-let removeSystemBackGuard: (() => void) | null = null
 
 function resetGestureTracking() {
   navigationGesture.reset()
@@ -2599,7 +2598,7 @@ watch(
 onMounted(() => {
   loadReaderSettings()
   themeState.load()
-  removeSystemBackGuard = virtualBackGuard.installRouterGuard()
+  virtualBackGuard.installRouterGuard()
   void router.isReady().then(() => restoreReaderSession()).finally(() => {
     routeRuntime.markReaderSessionReady()
     scheduleReaderURLAndHistorySync()
@@ -2622,8 +2621,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   saveReaderSessionNow()
-  removeSystemBackGuard?.()
-  removeSystemBackGuard = null
+  virtualBackGuard.uninstallRouterGuard()
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('message', handleMessage)

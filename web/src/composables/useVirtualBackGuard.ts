@@ -26,6 +26,7 @@ function currentHistoryStateHasVirtualGuard() {
 
 export function useVirtualBackGuard(options: VirtualBackGuardOptions) {
   let virtualBackHandledAt = 0
+  let removeRouterGuard: (() => void) | null = null
 
   function syncHistoryState(forcePush = false) {
     if (typeof window === 'undefined' || !options.route.name) {
@@ -90,7 +91,8 @@ export function useVirtualBackGuard(options: VirtualBackGuardOptions) {
   }
 
   function installRouterGuard() {
-    return options.router.beforeEach(() => {
+    removeRouterGuard?.()
+    removeRouterGuard = options.router.beforeEach(() => {
       if (
         !options.canHandleNavigation() ||
         !currentHistoryStateHasVirtualGuard() ||
@@ -105,11 +107,18 @@ export function useVirtualBackGuard(options: VirtualBackGuardOptions) {
 
       return consumeSystemBack() ? false : true
     })
+    return removeRouterGuard
+  }
+
+  function uninstallRouterGuard() {
+    removeRouterGuard?.()
+    removeRouterGuard = null
   }
 
   return {
     syncHistoryState,
     handlePopState,
     installRouterGuard,
+    uninstallRouterGuard,
   }
 }
