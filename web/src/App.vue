@@ -255,6 +255,10 @@ const motionStretchAnchorClearDuration = 280
 const motionHeaderSwapDuration = 320
 const motionReaderDuration = 360
 const motionChromeDuration = 1000
+const detailFrameMetricsInitialDelay = motionQuickDuration
+const detailFrameMetricsSettledDelay = 520
+const readerScrollRestoreRetryDelay = 120
+const readerScrollRestoreSettledDelay = detailFrameMetricsSettledDelay
 const readerMorphDuration = motionReaderDuration
 const readerMorphCleanupBuffer = 96
 const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
@@ -962,8 +966,8 @@ ${body}
         resizeObserver.observe(document.body);
         if (content) resizeObserver.observe(content);
       }
-      window.setTimeout(postScrollMetrics, 180);
-      window.setTimeout(postScrollMetrics, 520);
+      window.setTimeout(postScrollMetrics, ${detailFrameMetricsInitialDelay});
+      window.setTimeout(postScrollMetrics, ${detailFrameMetricsSettledDelay});
     });
   });
   window.addEventListener('touchstart', (event) => {
@@ -1553,8 +1557,8 @@ function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
 
   nextTick(() => {
     apply()
-    window.setTimeout(apply, 120)
-    window.setTimeout(apply, 520)
+    window.setTimeout(apply, readerScrollRestoreRetryDelay)
+    window.setTimeout(apply, readerScrollRestoreSettledDelay)
   })
 }
 
