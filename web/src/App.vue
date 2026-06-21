@@ -402,7 +402,7 @@ const virtualBackGuard = useVirtualBackGuard({
     scheduleReaderURLAndHistorySync(true)
   },
 })
-useAppReaderRouteSyncBinding({
+const readerRouteSync = useAppReaderRouteSyncBinding({
   bindReaderRouteSync: appReaderRouteSyncAction.bindReaderRouteSync,
   route,
   router,
@@ -1479,6 +1479,8 @@ useAppLifecycle({
     () => navigationDrawer.clearTimer(),
     () => refreshCompletion.clearTimer(),
     () => chromeState.clearTimer(),
+    () => routeRuntime.clearTimer(),
+    () => readerRouteSync.clearTimer(),
     () => readerMotionState.clearSourceContentTimer(),
     clearDetailSourceTransitionRectCapture,
     () => pagePullState.clearTimers(),

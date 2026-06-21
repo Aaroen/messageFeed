@@ -62,6 +62,22 @@ function readerQueriesEqual(left: Record<string, unknown>, right: Record<string,
 
 export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
   let syncing = false
+  let releaseTimer = 0
+  let syncToken = 0
+
+  function clearReleaseTimer() {
+    if (typeof window !== 'undefined' && releaseTimer !== 0) {
+      window.clearTimeout(releaseTimer)
+    }
+    releaseTimer = 0
+  }
+
+  function clearTimer() {
+    syncToken += 1
+    clearReleaseTimer()
+    syncing = false
+    options.setProgrammaticRouteNavigation(false)
+  }
 
   function readerQueryBase() {
     const query: LocationQueryRaw = { ...options.route.query }
@@ -97,12 +113,20 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
       return
     }
 
+    syncToken += 1
+    const token = syncToken
+    clearReleaseTimer()
     syncing = true
     options.setProgrammaticRouteNavigation(true)
     try {
       await options.router.replace({ name: options.route.name, query })
     } finally {
-      window.setTimeout(() => {
+      clearReleaseTimer()
+      releaseTimer = window.setTimeout(() => {
+        releaseTimer = 0
+        if (token !== syncToken) {
+          return
+        }
         syncing = false
         options.setProgrammaticRouteNavigation(false)
       }, 0)
@@ -118,5 +142,6 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
   return {
     syncURLToState,
     scheduleSync,
+    clearTimer,
   }
 }
