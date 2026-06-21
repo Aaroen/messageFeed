@@ -3,7 +3,7 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
-import { getFeedItem } from '@/api/feed'
+import { getFeedItem, listSourceCatalog, listSources, type FeedItem } from '@/api/feed'
 import AppMainOutlet from '@/components/AppMainOutlet.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
 import AppReaderStackOutlet from '@/components/AppReaderStackOutlet.vue'
@@ -859,6 +859,106 @@ const openSourceReader = readerOpenInteractions.openSourceReader
 const showSourceReaderUnderDetail = readerOpenInteractions.showSourceReaderUnderDetail
 const openItemReader = readerOpenInteractions.openItemReader
 
+function routeQueryText(value: unknown) {
+  const nextValue = Array.isArray(value) ? value[0] : value
+  return typeof nextValue === 'string' ? nextValue.trim() : ''
+}
+
+function routeQueryID(value: unknown) {
+  const parsed = Number.parseInt(routeQueryText(value), 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function routeQuerySourceKind(value: unknown, fallback: FeedSourceKind): FeedSourceKind {
+  const text = routeQueryText(value)
+  if (text === 'subscriptions' || text === 'recommendations') {
+    return text
+  }
+  return fallback
+}
+
+function feedSourceKindFromRoute(): FeedSourceKind {
+  return route.name === 'subscriptions' ? 'subscriptions' : 'recommendations'
+}
+
+function readerSourceFromItem(item: FeedItem, kind: FeedSourceKind): ReaderSource | null {
+  if (!item.source_id) {
+    return null
+  }
+  return {
+    id: item.source_id,
+    name: item.source_name || '未知来源',
+    kind,
+  }
+}
+
+async function resolveRouteReaderSource(sourceID: number, kind: FeedSourceKind, item: FeedItem | null) {
+  const itemSource = item && item.source_id === sourceID ? readerSourceFromItem(item, kind) : null
+  if (itemSource) {
+    return itemSource
+  }
+
+  try {
+    const [sources, catalogResult] = await Promise.all([
+      listSources(),
+      listSourceCatalog({ limit: 200, offset: 0 }),
+    ])
+    const source = sources.find((entry) => entry.id === sourceID)
+    const catalogEntry =
+      catalogResult.entries.find((entry) => entry.id === sourceID) ??
+      catalogResult.entries.find((entry) => entry.source_id === sourceID)
+    return {
+      id: sourceID,
+      name: source?.name || catalogEntry?.name || '未知来源',
+      kind,
+    }
+  } catch {
+    return {
+      id: sourceID,
+      name: '未知来源',
+      kind,
+    }
+  }
+}
+
+async function restoreReaderRouteQueryState() {
+  const itemID = routeQueryID(route.query.item)
+  const sourceID = routeQueryID(route.query.source)
+  if (!itemID && !sourceID) {
+    return false
+  }
+
+  const itemKind = routeQuerySourceKind(route.query.itemKind, feedSourceKindFromRoute())
+  const sourceKind = routeQuerySourceKind(route.query.sourceKind, itemKind)
+  let item: FeedItem | null = null
+  let restored = false
+  if (itemID) {
+    try {
+      item = await getFeedItem(itemID)
+    } catch {
+      item = null
+    }
+  }
+
+  if (sourceID) {
+    openSourceReader(await resolveRouteReaderSource(sourceID, sourceKind, item))
+    restored = true
+  }
+  if (item) {
+    await openItemReader(item, itemKind)
+    restored = true
+  }
+
+  return restored
+}
+
+async function restoreReaderStateOnLoad() {
+  if (await restoreReaderRouteQueryState()) {
+    return
+  }
+  await restoreReaderSession()
+}
+
 const readerSourceCloseInteractions = useAppReaderSourceCloseInteractions({
   parkedRestore: {
     detailReaderOpen,
@@ -1449,7 +1549,7 @@ useAppLifecycle({
   installVirtualBackGuard: () => virtualBackGuard.installRouterGuard(),
   uninstallVirtualBackGuard: () => virtualBackGuard.uninstallRouterGuard(),
   waitForRouterReady: () => router.isReady(),
-  restoreReaderSession,
+  restoreReaderSession: restoreReaderStateOnLoad,
   markReaderSessionReady: () => routeRuntime.markReaderSessionReady(),
   scheduleReaderURLAndHistorySync,
   installWindowEventListeners,
