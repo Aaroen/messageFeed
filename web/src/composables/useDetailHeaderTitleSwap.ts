@@ -7,6 +7,7 @@ export function useDetailHeaderTitleSwap() {
   const progress = ref(1)
   let timer = 0
   let frame = 0
+  let swapToken = 0
 
   function begin(nextItem: FeedItem, currentItem: FeedItem | null) {
     if (!currentItem || currentItem.id === nextItem.id) {
@@ -29,6 +30,7 @@ export function useDetailHeaderTitleSwap() {
   }
 
   function clearTimer() {
+    swapToken += 1
     if (typeof window !== 'undefined' && timer !== 0) {
       window.clearTimeout(timer)
     }
@@ -52,11 +54,18 @@ export function useDetailHeaderTitleSwap() {
       return
     }
 
+    const token = swapToken
     frame = requestAnimationFrame(() => {
+      if (token !== swapToken) {
+        return
+      }
       frame = 0
       commit()
     })
     timer = window.setTimeout(() => {
+      if (token !== swapToken) {
+        return
+      }
       timer = 0
       finish()
     }, delay)
