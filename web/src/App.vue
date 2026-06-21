@@ -251,6 +251,7 @@ const pageSideStretch = pageContentMotion.sideStretch
 const pageContentInnerStyle = pageContentMotion.contentStyle
 const motionQuickDuration = 180
 const motionNormalDuration = 260
+const motionStretchAnchorClearDuration = 280
 const motionHeaderSwapDuration = 320
 const motionReaderDuration = 360
 const motionChromeDuration = 1000
@@ -1223,7 +1224,7 @@ function updateStretchAnchor(
   }
 }
 
-function clearStretchAnchors(delay = 280) {
+function clearStretchAnchors(delay = motionStretchAnchorClearDuration) {
   window.setTimeout(() => {
     if (!readerBackDragging.value && detailReaderStretch.value === 0) {
       detailStretchAnchor.value = null

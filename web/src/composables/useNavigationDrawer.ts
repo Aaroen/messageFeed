@@ -5,6 +5,8 @@ type NavigationDrawerOptions = {
   resolveDelay?: (duration: number) => number
 }
 
+const navigationDrawerSettleDuration = 220
+
 function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
 }
@@ -60,7 +62,7 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
       if (!nextOpen) {
         progress.value = 0
       }
-    }, delay(220))
+    }, delay(navigationDrawerSettleDuration))
   }
 
   function openPanel() {
@@ -73,7 +75,7 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
     })
     timer = window.setTimeout(() => {
       settling.value = false
-    }, delay(220))
+    }, delay(navigationDrawerSettleDuration))
   }
 
   function closePanel() {
