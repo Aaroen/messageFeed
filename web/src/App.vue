@@ -120,6 +120,8 @@ const {
   sourceReaderMounted,
   sourceReaderOpen,
   detailReaderOpen,
+  sourceReaderUnderDetail,
+  sourceReaderRevealProgress,
   detailCommittedListReturn,
   hasDetailParkedBehindSource,
   hasParkedDetailSourceState,
@@ -463,12 +465,6 @@ const mainClass = computed(() => ({
   'app-main--detail-reader': detailReaderOpen.value && !detailReturningToFeed.value,
   'app-main--detail-chrome': detailChromeVisible.value,
 }))
-const sourceReaderUnderDetail = computed(
-  () => detailReaderOpen.value && sourceReaderVisible.value,
-)
-const sourceReaderRevealProgress = computed(() =>
-  clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
-)
 const sourceHeaderSpace = computed(() =>
   feedContentCollapsed.value && topChromeProgress.value <= 0.01 ? 0 : feedHeaderHeight.value,
 )
