@@ -109,6 +109,11 @@ export function useChromeState() {
     scheduleSettlingEndIfNeeded(options.settleDelayMS)
   }
 
+  function setCollapsedHidden(options: SetChromeVisibleOptions = {}) {
+    setContentCollapsed(true)
+    setVisible(false, options)
+  }
+
   function setStableVisible() {
     clearSettlingTimer()
     progress.value = 1
@@ -140,6 +145,7 @@ export function useChromeState() {
     setContentCollapsed,
     setSettling,
     setVisible,
+    setCollapsedHidden,
     setStableVisible,
     beginRefreshing,
     setRefreshingProgress,

@@ -2772,8 +2772,7 @@ function handleFeedTopPullEnd(shouldRefresh = false) {
   }
 
   if (topChromeProgress.value <= 0.04) {
-    setChromeContentCollapsed(true)
-    setTopChromeVisible(false)
+    chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
     feedTopPullStartedWithChrome.value = false
     return
   }
@@ -2965,8 +2964,7 @@ async function refreshCurrentPageFromPull() {
   } finally {
     pagePullRefresh.setRefreshing(false)
     pagePullRefresh.setDistance(0)
-    setChromeContentCollapsed(true)
-    setTopChromeVisible(false)
+    chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
   }
 }
 
@@ -3079,8 +3077,7 @@ watch(
         settleSourceContentAfterRefresh()
       }
       feedTopPullStartedWithChrome.value = false
-      setChromeContentCollapsed(true)
-      setTopChromeVisible(false)
+      chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
     }
 
     if (!active && !refreshCompletion.wasActive.value) {
