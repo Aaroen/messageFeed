@@ -16,6 +16,7 @@ import { useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
 import { useReaderBackSwipeCompletion } from '@/composables/useReaderBackSwipeCompletion'
 import { useReaderBackSwipeDragHandlers } from '@/composables/useReaderBackSwipeDragHandlers'
+import { useReaderBackSwipeResetAction } from '@/composables/useReaderBackSwipeResetAction'
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import {
   type FeedSourceKind,
@@ -702,17 +703,6 @@ function scheduleReaderURLAndHistorySync(forcePush = false) {
   readerRouteSync.scheduleSync(forcePush)
 }
 
-function clamp(value: number, min = 0, max = 1) {
-  return Math.min(Math.max(value, min), max)
-}
-
-function clearStretchAnchors(delay = motionStretchAnchorClearDuration) {
-  window.setTimeout(() => {
-    clearReaderStretchAnchorsIfIdle()
-    pageContentMotion.clearStretchAnchorIfIdle(readerBackDragging.value)
-  }, delay)
-}
-
 function setSourceReaderContentElement(element: HTMLElement | null) {
   setSourceReaderContentElementState(element)
 }
@@ -995,6 +985,16 @@ const finishCommittedListReturnForGesture = readerItemCloseAction.finishCommitte
 const closeItemReader = readerItemCloseAction.closeItemReader
 const collapseItemReader = readerItemCloseAction.collapseItemReader
 
+const readerBackSwipeResetAction = useReaderBackSwipeResetAction({
+  readerBackDragging,
+  stretchAnchorClearDuration: motionStretchAnchorClearDuration,
+  resetReaderBackSwipeDragState,
+  resetPageSideMotion: pageContentMotion.resetSideMotion,
+  clearReaderStretchAnchorsIfIdle,
+  clearPageStretchAnchorIfIdle: pageContentMotion.clearStretchAnchorIfIdle,
+})
+const resetBackSwipeOffset = readerBackSwipeResetAction.resetBackSwipeOffset
+
 const readerRestoreActions = useReaderRestoreActions({
   normalDuration: motionNormalDuration,
   readerDuration: motionReaderDuration,
@@ -1079,12 +1079,6 @@ const readerBackSwipeTransitionController = useReaderBackSwipeTransitionControll
 })
 const beginBackSwipeTransition = readerBackSwipeTransitionController.beginBackSwipeTransition
 const syncBackSwipeTransition = readerBackSwipeTransitionController.syncBackSwipeTransition
-
-function resetBackSwipeOffset() {
-  resetReaderBackSwipeDragState()
-  pageContentMotion.resetSideMotion()
-  clearStretchAnchors()
-}
 
 const readerBackSwipeDragHandlers = useReaderBackSwipeDragHandlers({
   topChromeProgress,
