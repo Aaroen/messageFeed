@@ -19,6 +19,7 @@ type ReaderSourceOpenActionOptions = {
     source: ReaderSource,
     options: OpenSourceReaderOptions,
   ) => OpenSourceReaderStateResult
+  getReaderSource: () => ReaderSource | null
   clearHiddenSourceCleanupTimer: () => void
   setTopChromeVisible: (visible: boolean) => void
   captureDetailSourceTransitionRects: (retry?: number, options?: { force?: boolean; lock?: boolean }) => void
@@ -29,7 +30,21 @@ type ReaderSourceOpenActionOptions = {
 }
 
 export function useReaderSourceOpenAction(options: ReaderSourceOpenActionOptions) {
+  let sourceOpenToken = 0
+
+  function readerSourceMatches(source: ReaderSource) {
+    const currentSource = options.getReaderSource()
+    return currentSource?.id === source.id && currentSource.kind === source.kind
+  }
+
+  function sourceOpenIsCurrent(token: number, source: ReaderSource) {
+    return token === sourceOpenToken && readerSourceMatches(source)
+  }
+
   function openSourceReader(source: ReaderSource, actionOptions: OpenSourceReaderOptions = {}) {
+    sourceOpenToken += 1
+    const token = sourceOpenToken
+
     options.clearHiddenSourceCleanupTimer()
     const nextVisible = actionOptions.visible ?? true
     if (nextVisible) {
@@ -52,6 +67,9 @@ export function useReaderSourceOpenAction(options: ReaderSourceOpenActionOptions
       options.rememberSourceScrollTop(0)
     }
     nextTick(() => {
+      if (!sourceOpenIsCurrent(token, source)) {
+        return
+      }
       if (result.resetScroll) {
         options.scrollSourceReaderContentElementTo(0)
       }

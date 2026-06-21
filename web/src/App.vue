@@ -830,6 +830,7 @@ const {
 const readerOpenInteractions = useAppReaderOpenInteractions({
   sourceOpen: {
     openSourceReaderState,
+    getReaderSource: () => readerSource.value,
     clearHiddenSourceCleanupTimer,
     setTopChromeVisible,
     captureDetailSourceTransitionRects,
