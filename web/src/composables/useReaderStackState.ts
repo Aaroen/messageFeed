@@ -122,6 +122,14 @@ type ReaderBackSwipeIntentState =
 export type ReaderBackSwipeTarget = 'detail' | 'source' | 'page' | null
 export type ReaderBackSwipeIntent = 'back' | 'source' | 'blocked' | null
 type ReaderBackSwipeSurface = 'reader:detail' | 'reader:source' | 'page:management'
+type ReaderBackSwipeFinishAction =
+  | 'restore-item-expansion'
+  | 'restore-detail-from-source-swipe'
+  | 'restore-parked-source'
+  | 'complete-detail-to-source'
+  | 'collapse-detail'
+  | 'restore-detail-from-parked-source'
+  | 'reset'
 type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
 type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
@@ -1414,6 +1422,39 @@ export function useReaderStackState() {
     return false
   }
 
+  function readerBackSwipeIsBlocked() {
+    return backSwipeIntent.value === 'blocked'
+  }
+
+  function readerBackSwipeFinishAction(committed: boolean): ReaderBackSwipeFinishAction {
+    const target = backSwipeTarget.value
+    const intent = backSwipeIntent.value
+
+    if (!committed) {
+      if (intent === 'back' && target === 'detail') {
+        return 'restore-item-expansion'
+      }
+      if (intent === 'source' && target === 'detail') {
+        return 'restore-detail-from-source-swipe'
+      }
+      if (intent === 'back' && target === 'source' && sourceReaderCanReturnToDetail()) {
+        return 'restore-parked-source'
+      }
+      return 'reset'
+    }
+
+    if (intent === 'source' && target === 'detail') {
+      return 'complete-detail-to-source'
+    }
+    if (intent === 'back' && target === 'detail') {
+      return 'collapse-detail'
+    }
+    if (intent === 'back' && target === 'source') {
+      return sourceReaderCanReturnToDetail() ? 'restore-detail-from-parked-source' : 'reset'
+    }
+    return 'reset'
+  }
+
   function readerBackSwipeTransitionSurfaces<TSurface extends string>(surfaces: {
     activeFeedSurface: TSurface
     pageReturnSurface: TSurface
@@ -1663,6 +1704,8 @@ export function useReaderStackState() {
     readerBackSwipeMatches,
     readerBackSwipeTransitionProgress,
     readerBackSwipeShouldCommit,
+    readerBackSwipeIsBlocked,
+    readerBackSwipeFinishAction,
     readerBackSwipeTransitionSurfaces,
     beginReaderBackSwipeTrackingState,
     prepareReaderBackSwipeIntentState,

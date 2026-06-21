@@ -191,6 +191,8 @@ const {
   readerBackSwipeMatches,
   readerBackSwipeTransitionProgress,
   readerBackSwipeShouldCommit,
+  readerBackSwipeIsBlocked,
+  readerBackSwipeFinishAction,
   readerBackSwipeTransitionSurfaces,
   beginReaderBackSwipeTrackingState,
   prepareReaderBackSwipeIntentState,
@@ -2218,52 +2220,40 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
 }
 
 function finishBackSwipe(deltaX: number, _deltaY: number) {
-  const { target, intent } = getReaderBackSwipeState()
   const shouldCommit = readerBackSwipeShouldCommit(deltaX, viewSwitchDistance)
 
   swipeTransition.settle(shouldCommit, {
     progress: shouldCommit ? 1 : readerBackSwipeTransitionProgress(pageSideStretch.value),
-    isBlocked: intent === 'blocked',
+    isBlocked: readerBackSwipeIsBlocked(),
   })
   scheduleSwipeTransitionReset(360)
 
-  if (!shouldCommit) {
-    if (intent === 'back' && target === 'detail') {
-      restoreItemReaderExpansion()
-      return
-    }
-    if (intent === 'source' && target === 'detail') {
-      restoreDetailFromSourceSwipe()
-      return
-    }
-    if (intent === 'back' && target === 'source' && sourceReaderCanReturnToDetail()) {
-      restoreParkedSourceReader()
-      return
-    }
-    resetBackSwipeOffset()
+  const action = readerBackSwipeFinishAction(shouldCommit)
+  if (shouldCommit) {
+    suppressFollowingClick()
+  }
+  if (action === 'restore-item-expansion') {
+    restoreItemReaderExpansion()
     return
   }
-
-  suppressFollowingClick()
-  if (intent === 'source' && target === 'detail') {
+  if (action === 'restore-detail-from-source-swipe') {
+    restoreDetailFromSourceSwipe()
+    return
+  }
+  if (action === 'restore-parked-source') {
+    restoreParkedSourceReader()
+    return
+  }
+  if (action === 'complete-detail-to-source') {
     completeDetailToSourceReader()
     return
   }
-  if (intent === 'back' && target === 'detail') {
+  if (action === 'collapse-detail') {
     collapseItemReader()
     return
   }
-  if (intent === 'back' && target === 'source') {
-    if (sourceReaderCanReturnToDetail()) {
-      restoreDetailFromParkedSource()
-      return
-    }
-
-    resetBackSwipeOffset()
-    return
-  }
-  if (intent === 'back' && target === 'page') {
-    resetBackSwipeOffset()
+  if (action === 'restore-detail-from-parked-source') {
+    restoreDetailFromParkedSource()
     return
   }
 
