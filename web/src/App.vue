@@ -927,7 +927,6 @@ let trackingEdgeSwipe = false
 let trackingNavigationClose = false
 let navigationDragStarted = false
 let removeSystemBackGuard: (() => void) | null = null
-let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
 
 function resetGestureTracking() {
   trackingEdgeSwipeCandidate = false
@@ -2415,10 +2414,6 @@ function updateTopTabsByScroll(current: number, previous: number) {
   }
 }
 
-function handleScroll() {
-  lastScrollY = window.scrollY
-}
-
 function handleFeedContentScroll(event: Event) {
   const target = event.currentTarget as HTMLElement | null
   if (!target) {
@@ -2681,7 +2676,6 @@ onMounted(() => {
   window.addEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
   window.addEventListener('popstate', virtualBackGuard.handlePopState)
   window.addEventListener('beforeunload', saveReaderSessionNow)
-  window.addEventListener('scroll', handleScroll, { passive: true })
   window.addEventListener('pointerdown', handleWindowPointerDown, { passive: true })
   window.addEventListener('pointermove', handleWindowPointerMove, { passive: false })
   window.addEventListener('pointerup', handleWindowPointerUp, { passive: true })
@@ -2702,7 +2696,6 @@ onUnmounted(() => {
   window.removeEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
   window.removeEventListener('popstate', virtualBackGuard.handlePopState)
   window.removeEventListener('beforeunload', saveReaderSessionNow)
-  window.removeEventListener('scroll', handleScroll)
   window.removeEventListener('pointerdown', handleWindowPointerDown)
   window.removeEventListener('pointermove', handleWindowPointerMove)
   window.removeEventListener('pointerup', handleWindowPointerUp)
