@@ -92,6 +92,8 @@ const noticeRevealDelay = motionTimings.noticeRevealDelay
 let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
 let feedNoticeTimer = 0
+let loadRequestToken = 0
+let disposed = false
 let loadMoreObserver: IntersectionObserver | null = null
 
 const viewKey = computed(() => `${props.mode}:${props.sourceKind}:${props.sourceId}`)
@@ -269,8 +271,8 @@ function restoreItemsFromCache() {
   return entry
 }
 
-function writeItemsToCache() {
-  feedListCache.set(viewKey.value, {
+function writeItemsToCache(cacheKey = viewKey.value) {
+  feedListCache.set(cacheKey, {
     items: items.value,
     total: totalCount.value,
     nextOffset: nextOffset.value,
@@ -282,6 +284,14 @@ function writeItemsToCache() {
 
 function shouldRefreshCache(entry: FeedListCacheEntry | null) {
   return !entry || !cacheEntryIsFresh(entry)
+}
+
+function resetListState() {
+  items.value = []
+  totalCount.value = 0
+  nextOffset.value = 0
+  reachedEnd.value = false
+  lastUpdatedAt.value = ''
 }
 
 function loadInitialItems() {
@@ -300,6 +310,19 @@ function loadInitialItems() {
   if (shouldRefreshCache(restored)) {
     void loadItems({ refresh: true, background: true })
   }
+}
+
+function nextLoadRequestToken() {
+  loadRequestToken += 1
+  return loadRequestToken
+}
+
+function invalidateLoadRequests() {
+  loadRequestToken += 1
+}
+
+function loadRequestIsCurrent(token: number, requestViewKey: string) {
+  return !disposed && token === loadRequestToken && requestViewKey === viewKey.value
 }
 
 function refreshStaleCacheInBackground() {
@@ -338,21 +361,35 @@ function feedItemStyle(item: FeedItem) {
   return Object.keys(style).length > 0 ? style : undefined
 }
 
+function clearFeedNoticeTimer() {
+  window.clearTimeout(feedNoticeTimer)
+  feedNoticeTimer = 0
+}
+
+function clearFeedNotice() {
+  clearFeedNoticeTimer()
+  feedNotice.value = null
+}
+
 function showFeedNotice(type: FeedNotice['type'], message: string, delayMS = 0) {
   const normalized = message.trim()
   if (!normalized) {
-    feedNotice.value = null
+    clearFeedNotice()
     return
   }
-  window.clearTimeout(feedNoticeTimer)
+  clearFeedNoticeTimer()
   const show = () => {
     feedNotice.value = { type, message: normalized }
     feedNoticeTimer = window.setTimeout(() => {
+      feedNoticeTimer = 0
       feedNotice.value = null
     }, motionTimings.noticeDuration(type))
   }
   if (delayMS > 0) {
-    feedNoticeTimer = window.setTimeout(show, delayMS)
+    feedNoticeTimer = window.setTimeout(() => {
+      feedNoticeTimer = 0
+      show()
+    }, delayMS)
     return
   }
   show()
@@ -419,6 +456,8 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   if (loading.value || refreshing.value || loadingMore.value || (isAppend && !canLoadMore.value)) {
     return
   }
+  const requestViewKey = viewKey.value
+  const requestToken = nextLoadRequestToken()
   if (isRefresh && !isBackgroundRefresh) {
     refreshLayoutFreeze.capture()
   }
@@ -435,6 +474,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   }
   try {
     const refreshNotice = isRefresh ? await refreshSubscriptionSources() : null
+    if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
+      return
+    }
     const loader = effectiveSourceKind.value === 'recommendations' ? listRecommendationItems : listTimelineItems
     const requestOffset = isAppend ? nextOffset.value : 0
     const params = {
@@ -445,6 +487,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       ...(isSourceMode.value && props.sourceId > 0 ? { source_id: props.sourceId } : {}),
     }
     const result = await loader(params)
+    if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
+      return
+    }
     let nextItems = result.items
     let nextTotal = result.total
     let autoFetchNotice: FeedNotice | null = null
@@ -458,7 +503,13 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     ) {
       initialSubscriptionFetchAttempted.value = true
       autoFetchNotice = await refreshSubscriptionSources()
+      if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
+        return
+      }
       const reloaded = await loader(params)
+      if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
+        return
+      }
       nextItems = reloaded.items
       nextTotal = reloaded.total
     }
@@ -468,7 +519,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     nextOffset.value = requestOffset + nextItems.length
     reachedEnd.value = nextItems.length < pageSize || nextOffset.value >= nextTotal
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    writeItemsToCache()
+    writeItemsToCache(requestViewKey)
     if (!isBackgroundRefresh && refreshNotice) {
       showFeedNotice(refreshNotice.type, refreshNotice.message, noticeRevealDelay)
     } else if (!isBackgroundRefresh && autoFetchNotice && autoFetchNotice.type === 'warning') {
@@ -477,6 +528,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       showFeedNotice('success', refreshSuccessMessage(), noticeRevealDelay)
     }
   } catch (err) {
+    if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
+      return
+    }
     const message = formatAPIError(err)
     if (isRefresh) {
       if (isBackgroundRefresh) {
@@ -488,6 +542,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       error.value = `加载失败：${message}`
     }
   } finally {
+    if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
+      return
+    }
     loading.value = false
     loadingMore.value = false
     scheduleLoadMoreObserver()
@@ -508,6 +565,11 @@ function loadMoreTriggerElement() {
 function stopLoadMoreObserver() {
   loadMoreObserver?.disconnect()
   loadMoreObserver = null
+}
+
+function clearLoadMoreSyncTimer() {
+  window.clearTimeout(loadMoreSyncTimer)
+  loadMoreSyncTimer = 0
 }
 
 function maybeLoadMoreFromTrigger() {
@@ -555,8 +617,9 @@ function syncLoadMoreObserver() {
 }
 
 function scheduleLoadMoreObserver() {
-  window.clearTimeout(loadMoreSyncTimer)
+  clearLoadMoreSyncTimer()
   loadMoreSyncTimer = window.setTimeout(() => {
+    loadMoreSyncTimer = 0
     void nextTick(syncLoadMoreObserver)
   }, 0)
 }
@@ -578,6 +641,24 @@ function resetPullTracking() {
 function resetPullGesture(force = false) {
   pullRefresh.cancelGesture()
   clearPullState(force)
+}
+
+function resetTransientLoadState(options: { clearList?: boolean; clearNotice?: boolean } = {}) {
+  invalidateLoadRequests()
+  loading.value = false
+  loadingMore.value = false
+  error.value = ''
+  pullRefresh.reset()
+  refreshLayoutFreeze.release()
+  clearLoadMoreSyncTimer()
+  stopLoadMoreObserver()
+  clearPullState(true)
+  if (options.clearList) {
+    resetListState()
+  }
+  if (options.clearNotice) {
+    clearFeedNotice()
+  }
 }
 
 function handleTouchStart(event: TouchEvent) {
@@ -670,10 +751,12 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  disposed = true
+  invalidateLoadRequests()
   pullRefresh.clearTimers()
   refreshLayoutFreeze.release()
-  window.clearTimeout(loadMoreSyncTimer)
-  window.clearTimeout(feedNoticeTimer)
+  clearLoadMoreSyncTimer()
+  clearFeedNoticeTimer()
   stopLoadMoreObserver()
   window.removeEventListener('focus', refreshStaleCacheInBackground)
   document.removeEventListener('visibilitychange', handleVisibilityRefresh)
@@ -684,7 +767,7 @@ watch(
   () => props.active,
   (active) => {
     if (!active) {
-      resetPullGesture(true)
+      resetTransientLoadState({ clearNotice: true })
       return
     }
     const restored = hasItems.value ? feedListCache.get(viewKey.value) : restoreItemsFromCache()
@@ -705,6 +788,7 @@ watch(
 watch(
   () => [props.mode, props.sourceKind, props.sourceId] as const,
   () => {
+    resetTransientLoadState({ clearList: true, clearNotice: true })
     if (props.active) {
       loadInitialItems()
     }
