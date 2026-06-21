@@ -586,6 +586,18 @@ export function useReaderStackState() {
     }
   }
 
+  function readerSourceFromDetailItem(item: FeedItem | null, kind: FeedSourceKind): ReaderSource | null {
+    if (!item?.source_id) {
+      return null
+    }
+
+    return {
+      id: item.source_id,
+      name: item.source_name || '未知来源',
+      kind,
+    }
+  }
+
   function createReaderStackSessionSnapshot(): ReaderStackSessionSnapshot {
     return {
       sourceReaderScrollTop: sourceReaderScrollTop.value,
@@ -610,14 +622,22 @@ export function useReaderStackState() {
     snapshot: ReaderSessionSnapshot,
     options: ApplyReaderStackSessionOptions = {},
   ) {
+    const restoredDetailItem = snapshot.detailItem ? { ...snapshot.detailItem } : null
+    const restoredDetailSourceKind = snapshot.detailSourceKind || 'subscriptions'
+    const restoredReaderSource =
+      (snapshot.readerSource ? { ...snapshot.readerSource } : null) ??
+      readerSourceFromDetailItem(restoredDetailItem, restoredDetailSourceKind)
+
     sourceReaderScrollTop.value = snapshot.sourceReaderScrollTop || 0
     options.onSourceScrollTop?.(sourceReaderScrollTop.value)
     detailScrollTop.value = snapshot.detailScrollTop || 0
     options.onDetailScrollTop?.(detailScrollTop.value)
-    readerSource.value = snapshot.readerSource ? { ...snapshot.readerSource } : null
-    sourceReaderVisible.value = Boolean(snapshot.readerSource && snapshot.sourceReaderVisible)
-    detailItem.value = snapshot.detailItem ? { ...snapshot.detailItem } : null
-    detailSourceKind.value = snapshot.detailSourceKind || 'subscriptions'
+    readerSource.value = restoredReaderSource
+    sourceReaderVisible.value = Boolean(
+      restoredReaderSource && (snapshot.sourceReaderVisible || snapshot.detailListReturnCommitted),
+    )
+    detailItem.value = restoredDetailItem
+    detailSourceKind.value = restoredDetailSourceKind
     detailOpenedFromSourceReader.value = Boolean(snapshot.detailOpenedFromSourceReader)
     detailEntryProgress.value = 1
     detailEntrySettling.value = false
