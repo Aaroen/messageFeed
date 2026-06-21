@@ -305,7 +305,6 @@ export function useReaderStackState() {
   const readerBackDragging = ref(false)
   const backSwipeTarget = ref<ReaderBackSwipeTarget>(null)
   const backSwipeIntent = ref<ReaderBackSwipeIntent>(null)
-  const readerMotionSettling = ref(false)
 
   const readerSource = ref<ReaderSource | null>(null)
   const sourceReaderVisible = ref(false)
@@ -1248,11 +1247,6 @@ export function useReaderStackState() {
 
   function beginReaderMotionSettlingState() {
     readerBackDragging.value = false
-    readerMotionSettling.value = true
-  }
-
-  function finishReaderMotionSettlingState() {
-    readerMotionSettling.value = false
   }
 
   function clearReaderMotionTimer() {
@@ -1272,7 +1266,6 @@ export function useReaderStackState() {
         return
       }
       readerMotionTimer = 0
-      finishReaderMotionSettlingState()
       done?.()
     }, delay)
   }
@@ -2229,7 +2222,6 @@ export function useReaderStackState() {
     readerBackDragging,
     sourceReaderBlockedBackSwipeActive,
     sourceReaderReturnTargetPending,
-    readerMotionSettling,
     readerSource,
     sourceReaderVisible,
     detailItem,
@@ -2327,8 +2319,6 @@ export function useReaderStackState() {
     clearMorphingHeightUnlockTimer,
     restoreMorphingItemContentWithDelay,
     revealSourceReaderUnderDetailState,
-    beginReaderMotionSettlingState,
-    finishReaderMotionSettlingState,
     settleReaderMotionWithDelay,
     clearReaderStackTimers,
     updateSourceReaderScrollTopState,

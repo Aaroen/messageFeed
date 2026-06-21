@@ -26,7 +26,6 @@ const props = withDefaults(
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
-    detailMotionSettling?: boolean
     detailReturningFeed?: boolean
     detailStyle?: StyleValue
     sourceNotice?: SourceNotice | null
@@ -88,7 +87,6 @@ const props = withDefaults(
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,
-    detailMotionSettling: false,
     detailReturningFeed: false,
     detailStyle: undefined,
     sourceNotice: null,

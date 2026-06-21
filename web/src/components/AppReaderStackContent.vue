@@ -28,7 +28,6 @@ withDefaults(
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
-    detailMotionSettling?: boolean
     detailReturningFeed?: boolean
     detailStyle?: StyleValue
     sourceNotice?: SourceNotice | null
@@ -90,7 +89,6 @@ withDefaults(
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,
-    detailMotionSettling: false,
     detailReturningFeed: false,
     detailStyle: undefined,
     sourceNotice: null,
@@ -175,7 +173,6 @@ const emit = defineEmits<{
     :source-name-morph-style="sourceNameMorphStyle"
     :source-name-morph-text="sourceNameMorphText"
     :detail-open="detailOpen"
-    :detail-motion-settling="detailMotionSettling"
     :detail-returning-feed="detailReturningFeed"
     :detail-style="detailStyle"
   >

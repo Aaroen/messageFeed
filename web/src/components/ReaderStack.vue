@@ -16,7 +16,6 @@ withDefaults(
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
-    detailMotionSettling?: boolean
     detailReturningFeed?: boolean
     detailStyle?: StyleValue
   }>(),
@@ -34,7 +33,6 @@ withDefaults(
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,
-    detailMotionSettling: false,
     detailReturningFeed: false,
     detailStyle: undefined,
   },
@@ -75,7 +73,6 @@ withDefaults(
     v-if="detailOpen"
     class="reader-overlay reader-overlay--detail"
     :class="{
-      'reader-overlay--motion-settling': detailMotionSettling,
       'reader-overlay--returning-feed': detailReturningFeed,
     }"
     :style="detailStyle"
