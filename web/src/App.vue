@@ -57,6 +57,7 @@ import { usePageOutletState, type PageViewExpose } from '@/composables/usePageOu
 import { useFeedContentState } from '@/composables/useFeedContentState'
 import { useScrollHistory } from '@/composables/useScrollHistory'
 import { useDoubleBackGuard } from '@/composables/useDoubleBackGuard'
+import { useGestureOriginState } from '@/composables/useGestureOriginState'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 import { escapeHTML, formatItemDate, plainPreviewText, sanitizeDetailHTML } from '@/utils/readerContent'
 
@@ -73,6 +74,7 @@ const feedInteraction = useFeedInteractionStore()
 const feedContent = useFeedContentState()
 const pageOutlet = usePageOutletState()
 const scrollHistory = useScrollHistory()
+const gestureOrigin = useGestureOriginState()
 const {
   sourceReaderContentRef,
   detailContentRef,
@@ -917,10 +919,6 @@ const topPullDirectionLockRatio = 1.18
 const viewDragThreshold = feedPagerTransition.dragThreshold
 const viewSwipeChromeRevealDelay = 520
 const topChromeSettleDuration = motionChromeDuration
-let touchStartX = 0
-let touchStartY = 0
-let touchStartNavigationProgress = 0
-let activeNavigationPointerId: number | null = null
 let trackingEdgeSwipeCandidate = false
 let trackingNavigationCloseCandidate = false
 let trackingEdgeSwipe = false
@@ -1654,8 +1652,7 @@ function prepareDetailSourceReaderPreload() {
 
 function beginDetailGestureCandidate(startX: number, startY: number) {
   resetGestureTracking()
-  touchStartX = startX
-  touchStartY = startY
+  gestureOrigin.begin(startX, startY, navigationProgress.value)
   beginReaderBackSwipeCandidateState('detail')
   if (sourceTimelinePreloadEnabled.value) {
     prepareDetailSourceReaderPreload()
@@ -1709,7 +1706,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   return true
 }
 
-function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false, currentX = touchStartX + deltaX) {
+function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false, currentX = gestureOrigin.originX() + deltaX) {
   beginBackSwipeIfAllowed(deltaX, deltaY, fromDetailFrame)
 
   if (!readerBackSwipeTrackingActive.value) {
@@ -1719,7 +1716,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   suppressFollowingClick()
   updateReaderBackSwipeDragState(
     deltaX,
-    { currentX, startX: touchStartX, width: windowWidth.value },
+    { currentX, startX: gestureOrigin.originX(), width: windowWidth.value },
     {
       intent: readerBackSwipeIntentOptions({ resetSourceExit: true, prepareBlocked: true }),
       visual: {
@@ -1815,9 +1812,7 @@ function handleTouchStart(event: TouchEvent) {
   finishCommittedListReturnForGesture()
 
   const touch = event.touches[0]
-  touchStartX = touch.clientX
-  touchStartY = touch.clientY
-  touchStartNavigationProgress = navigationProgress.value
+  gestureOrigin.begin(touch.clientX, touch.clientY, navigationProgress.value)
 
   if (navigationVisible.value) {
     trackingNavigationCloseCandidate = navigationOpen.value
@@ -1839,9 +1834,9 @@ function handleTouchStart(event: TouchEvent) {
     beginReaderBackSwipeCandidateState('page')
   }
 
-  trackingEdgeSwipeCandidate = canStartNavigationOpen(touchStartX)
+  trackingEdgeSwipeCandidate = canStartNavigationOpen(gestureOrigin.originX())
   trackingNavigationCloseCandidate = navigationOpen.value
-  if (canStartViewSwipe(touchStartX)) {
+  if (canStartViewSwipe(gestureOrigin.originX())) {
     feedPagerTransition.beginViewSwipeCandidate()
   } else {
     feedPagerTransition.resetViewSwipeTracking()
@@ -1863,8 +1858,7 @@ function handleTouchMove(event: TouchEvent) {
   }
 
   const touch = event.touches[0]
-  const deltaX = touch.clientX - touchStartX
-  const deltaY = touch.clientY - touchStartY
+  const { deltaX, deltaY } = gestureOrigin.delta(touch.clientX, touch.clientY)
   const horizontal = isHorizontalSwipe(deltaX, deltaY)
   const viewHorizontal = isViewHorizontalSwipe(deltaX, deltaY)
 
@@ -1905,7 +1899,7 @@ function handleTouchMove(event: TouchEvent) {
   }
 
   if (trackingNavigationClose) {
-    navigationDrawer.updateClosingDrag(touchStartNavigationProgress, deltaX)
+    navigationDrawer.updateClosingDrag(gestureOrigin.navigationProgress(), deltaX)
     return
   }
 
@@ -1935,23 +1929,21 @@ function handleWindowPointerDown(event: PointerEvent) {
 
   finishCommittedListReturnForGesture()
 
-  touchStartX = event.clientX
-  touchStartY = event.clientY
-  touchStartNavigationProgress = navigationProgress.value
-  trackingEdgeSwipeCandidate = canStartNavigationOpen(touchStartX)
+  gestureOrigin.begin(event.clientX, event.clientY, navigationProgress.value)
+  trackingEdgeSwipeCandidate = canStartNavigationOpen(gestureOrigin.originX())
   trackingNavigationCloseCandidate = navigationOpen.value
   feedPagerTransition.cancelViewSwipeCandidate()
-  activeNavigationPointerId =
-    trackingEdgeSwipeCandidate || trackingNavigationCloseCandidate ? event.pointerId : null
+  gestureOrigin.setActivePointerId(
+    trackingEdgeSwipeCandidate || trackingNavigationCloseCandidate ? event.pointerId : null,
+  )
 }
 
 function handleWindowPointerMove(event: PointerEvent) {
-  if (activeNavigationPointerId !== event.pointerId) {
+  if (!gestureOrigin.isActivePointer(event.pointerId)) {
     return
   }
 
-  const deltaX = event.clientX - touchStartX
-  const deltaY = event.clientY - touchStartY
+  const { deltaX, deltaY } = gestureOrigin.delta(event.clientX, event.clientY)
 
   if (trackingEdgeSwipeCandidate && deltaX > 8 && isNavigationDrag(deltaX, deltaY)) {
     trackingEdgeSwipe = true
@@ -1976,17 +1968,16 @@ function handleWindowPointerMove(event: PointerEvent) {
   if (trackingEdgeSwipe) {
     navigationDrawer.updateOpeningDrag(deltaX)
   } else if (trackingNavigationClose) {
-    navigationDrawer.updateClosingDrag(touchStartNavigationProgress, deltaX)
+    navigationDrawer.updateClosingDrag(gestureOrigin.navigationProgress(), deltaX)
   }
 }
 
 function handleWindowPointerUp(event: PointerEvent) {
-  if (activeNavigationPointerId !== event.pointerId) {
+  if (!gestureOrigin.isActivePointer(event.pointerId)) {
     return
   }
 
-  const deltaX = event.clientX - touchStartX
-  const deltaY = event.clientY - touchStartY
+  const { deltaX, deltaY } = gestureOrigin.delta(event.clientX, event.clientY)
   const horizontal = viewSwipeActive.value ? isViewHorizontalSwipe(deltaX, deltaY) : isHorizontalSwipe(deltaX, deltaY)
 
   if (trackingEdgeSwipe && navigationDragStarted) {
@@ -1997,16 +1988,16 @@ function handleWindowPointerUp(event: PointerEvent) {
     settleNavigation(!(horizontal && (deltaX <= -navigationOpenDistance || navigationProgress.value <= 0.58)))
   }
 
-  activeNavigationPointerId = null
+  gestureOrigin.clearActivePointer()
   resetGestureTracking()
 }
 
 function handleWindowPointerCancel(event: PointerEvent) {
-  if (activeNavigationPointerId !== event.pointerId) {
+  if (!gestureOrigin.isActivePointer(event.pointerId)) {
     return
   }
 
-  activeNavigationPointerId = null
+  gestureOrigin.clearActivePointer()
   const hadNavigationGesture = trackingEdgeSwipe || trackingNavigationClose
   resetGestureTracking()
   if (hadNavigationGesture) {
@@ -2029,8 +2020,7 @@ function handleTouchEnd(event: TouchEvent) {
   }
 
   const touch = event.changedTouches[0]
-  const deltaX = touch.clientX - touchStartX
-  const deltaY = touch.clientY - touchStartY
+  const { deltaX, deltaY } = gestureOrigin.delta(touch.clientX, touch.clientY)
   const horizontal = isHorizontalSwipe(deltaX, deltaY)
 
   if (readerBackSwipeTrackingActive.value) {
@@ -2075,9 +2065,7 @@ function handleFeedPointerDown(event: PointerEvent) {
     return
   }
 
-  touchStartX = event.clientX
-  touchStartY = event.clientY
-  touchStartNavigationProgress = navigationProgress.value
+  gestureOrigin.begin(event.clientX, event.clientY, navigationProgress.value)
   trackingEdgeSwipe = false
   trackingNavigationClose = false
   feedPagerTransition.beginPointerTracking(event.pointerId)
@@ -2088,8 +2076,7 @@ function handleFeedPointerMove(event: PointerEvent) {
     return
   }
 
-  const deltaX = event.clientX - touchStartX
-  const deltaY = event.clientY - touchStartY
+  const { deltaX, deltaY } = gestureOrigin.delta(event.clientX, event.clientY)
 
   if (viewSwipeCandidateActive.value && !viewSwipeActive.value) {
     if (!isViewHorizontalSwipe(deltaX, deltaY)) {
@@ -2129,8 +2116,7 @@ function handleFeedPointerUp(event: PointerEvent) {
     return
   }
 
-  const deltaX = event.clientX - touchStartX
-  const deltaY = event.clientY - touchStartY
+  const { deltaX, deltaY } = gestureOrigin.delta(event.clientX, event.clientY)
   const horizontal = isViewHorizontalSwipe(deltaX, deltaY)
 
   const nextPath = feedPagerTransition.resolveDragCommitPath(deltaX, horizontal, viewSwitchDistance)
