@@ -125,6 +125,11 @@ const {
   sourceNameMorphProgress,
   detailSurfaceProgress,
   feedItemPreviewProgress,
+  sourceNameTransitionActive,
+  sourceTitleProgress,
+  sourceTitleRevealProgress,
+  sourceNameMorphActive,
+  sourceNameMorphVisible,
   detailParkedBehindSource,
   detailChromeVisible,
   detailCommittedListReturn,
@@ -723,27 +728,6 @@ const detailMorphSourceLabelStyle = computed(() => {
     transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) ease, filter var(--motion-short) ease',
   }
 })
-const sourceNameTransitionActive = computed(
-  () =>
-    Boolean(detailItem.value) &&
-    sourceReaderVisible.value &&
-    !sourceReaderBlockedBackSwipeActive.value &&
-    !detailReturningToFeed.value &&
-    !detailCommittedListReturn() &&
-    (readerBackDragging.value ||
-      detailEntrySettling.value ||
-      detailRestoringFromSourceReader.value ||
-      detailSourceExitProgress.value > 0.001 ||
-      (detailOpenedFromSourceReader.value && detailBackExitProgress.value > 0.001)),
-)
-const sourceTitleProgress = computed(() =>
-  detailReaderOpen.value && sourceReaderVisible.value && !detailCommittedListReturn()
-    ? sourceNameMorphProgress.value
-    : 1,
-)
-const sourceTitleRevealProgress = computed(() =>
-  clamp((sourceTitleProgress.value - 0.64) / 0.24),
-)
 const sourceTitleRevealVisible = computed(
   () =>
     Boolean(readerSource.value) &&
@@ -751,23 +735,6 @@ const sourceTitleRevealVisible = computed(
     sourceTitleRevealProgress.value > 0.001 &&
     !detailRestoringFromSourceReader.value &&
     !sourcePullActive.value,
-)
-const sourceNameMorphActive = computed(
-  () =>
-    sourceNameTransitionActive.value &&
-    sourceNameMorphProgress.value > 0.001 &&
-    sourceNameMorphProgress.value < 0.985 &&
-    Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value) &&
-    (readerBackDragging.value ||
-      detailRestoringFromSourceReader.value ||
-      detailSourceExitProgress.value > 0.001),
-)
-const sourceNameMorphVisible = computed(
-  () =>
-    sourceNameTransitionActive.value &&
-    sourceNameMorphProgress.value > 0.001 &&
-    sourceNameMorphProgress.value < 0.995 &&
-    Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value),
 )
 const sourceNameMorphStyle = computed(() => {
   const origin = detailSourceNameOriginRect.value

@@ -290,6 +290,44 @@ export function useReaderStackState() {
 
     return clampProgress(Math.max(detailBackExitProgress.value, detailListReturnCommitted.value ? 1 : 0))
   })
+  const sourceNameTransitionActive = computed(
+    () =>
+      Boolean(detailItem.value) &&
+      sourceReaderVisible.value &&
+      !sourceReaderBlockedBackSwipeActive.value &&
+      !detailReturningToFeed.value &&
+      !detailCommittedListReturn() &&
+      (readerBackDragging.value ||
+        detailEntrySettling.value ||
+        detailRestoringFromSourceReader.value ||
+        detailSourceExitProgress.value > 0.001 ||
+        (detailOpenedFromSourceReader.value && detailBackExitProgress.value > 0.001)),
+  )
+  const sourceTitleProgress = computed(() =>
+    detailReaderOpen.value && sourceReaderVisible.value && !detailCommittedListReturn()
+      ? sourceNameMorphProgress.value
+      : 1,
+  )
+  const sourceTitleRevealProgress = computed(() =>
+    clampProgress((sourceTitleProgress.value - 0.64) / 0.24),
+  )
+  const sourceNameMorphActive = computed(
+    () =>
+      sourceNameTransitionActive.value &&
+      sourceNameMorphProgress.value > 0.001 &&
+      sourceNameMorphProgress.value < 0.985 &&
+      Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value) &&
+      (readerBackDragging.value ||
+        detailRestoringFromSourceReader.value ||
+        detailSourceExitProgress.value > 0.001),
+  )
+  const sourceNameMorphVisible = computed(
+    () =>
+      sourceNameTransitionActive.value &&
+      sourceNameMorphProgress.value > 0.001 &&
+      sourceNameMorphProgress.value < 0.995 &&
+      Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value),
+  )
 
   function detailCommittedListReturn() {
     return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
@@ -1429,6 +1467,11 @@ export function useReaderStackState() {
     sourceNameMorphProgress,
     detailSurfaceProgress,
     feedItemPreviewProgress,
+    sourceNameTransitionActive,
+    sourceTitleProgress,
+    sourceTitleRevealProgress,
+    sourceNameMorphActive,
+    sourceNameMorphVisible,
     detailParkedBehindSource,
     detailChromeVisible,
     detailCommittedListReturn,
