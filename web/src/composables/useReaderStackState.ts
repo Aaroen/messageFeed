@@ -794,7 +794,6 @@ export function useReaderStackState() {
 
     if (sameSource) {
       if (nextVisible) {
-        sourceReaderRefreshNonce.value += 1
         sourceReaderOffset.value = 0
         sourceReaderStretch.value = 0
         if (!detailReaderOpen.value) {
