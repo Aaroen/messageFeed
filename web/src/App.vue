@@ -85,6 +85,7 @@ import { useReaderItemCloseAction } from '@/composables/useReaderItemCloseAction
 import { useReaderRestoreActions } from '@/composables/useReaderRestoreActions'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
+import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards'
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
@@ -1115,22 +1116,15 @@ function restoreDetailFromParkedSource(duration = motionReaderDuration) {
   })
 }
 
-function canStartViewSwipe(_clientX: number) {
-  if (!isFeedRoute.value || navigationVisible.value || sourceReaderOpen.value || detailBlocksGestures()) {
-    return false
-  }
-
-  return true
-}
-
-function canStartNavigationOpen(_clientX: number) {
-  return (
-    route.name === 'subscriptions' &&
-    !navigationVisible.value &&
-    !sourceReaderOpen.value &&
-    !detailBlocksGestures()
-  )
-}
+const appGestureStartGuards = useAppGestureStartGuards({
+  isFeedRoute,
+  navigationVisible,
+  sourceReaderOpen,
+  isSubscriptionsRoute: () => route.name === 'subscriptions',
+  detailBlocksGestures,
+})
+const canStartViewSwipe = appGestureStartGuards.canStartViewSwipe
+const canStartNavigationOpen = appGestureStartGuards.canStartNavigationOpen
 
 const feedViewSwipeController = useFeedViewSwipeController({
   topChromeProgress,
