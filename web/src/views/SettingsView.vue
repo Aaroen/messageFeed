@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
+import {
+  readSourceTimelinePreloadSetting,
+  updateSourceTimelinePreloadSetting,
+} from '@/composables/useReaderSettingsSync'
+
 const sourceTimelinePreload = ref(true)
 
 function loadSettings() {
-  sourceTimelinePreload.value = localStorage.getItem('messagefeed-source-preload') !== 'false'
+  sourceTimelinePreload.value = readSourceTimelinePreloadSetting()
 }
 
 function updateSourceTimelinePreload() {
-  localStorage.setItem('messagefeed-source-preload', sourceTimelinePreload.value ? 'true' : 'false')
-  window.dispatchEvent(
-    new CustomEvent('messagefeed-settings-changed', {
-      detail: { sourceTimelinePreload: sourceTimelinePreload.value },
-    }),
-  )
+  updateSourceTimelinePreloadSetting(sourceTimelinePreload.value)
 }
 
 onMounted(loadSettings)

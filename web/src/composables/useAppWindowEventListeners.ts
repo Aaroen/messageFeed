@@ -1,3 +1,5 @@
+import { readerSettingsChangedEvent } from '@/composables/useReaderSettingsSync'
+
 type AppWindowEventListenersOptions = {
   handleKeydown: (event: KeyboardEvent) => void
   handleResize: () => void
@@ -41,7 +43,7 @@ export function useAppWindowEventListeners(options: AppWindowEventListenersOptio
     window.addEventListener('keydown', handleKeydown)
     window.addEventListener('resize', handleResize)
     window.addEventListener('message', handleMessage)
-    window.addEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
+    window.addEventListener(readerSettingsChangedEvent, handleReaderSettingsChanged)
     window.addEventListener('popstate', handlePopState)
     window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('pointerdown', handleWindowPointerDown, { passive: true })
@@ -63,7 +65,7 @@ export function useAppWindowEventListeners(options: AppWindowEventListenersOptio
     window.removeEventListener('keydown', handleKeydown)
     window.removeEventListener('resize', handleResize)
     window.removeEventListener('message', handleMessage)
-    window.removeEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
+    window.removeEventListener(readerSettingsChangedEvent, handleReaderSettingsChanged)
     window.removeEventListener('popstate', handlePopState)
     window.removeEventListener('beforeunload', handleBeforeUnload)
     window.removeEventListener('pointerdown', handleWindowPointerDown)

@@ -101,6 +101,7 @@ import { useAppElementRefs } from '@/composables/useAppElementRefs'
 import { useAppGestureResetAction } from '@/composables/useAppGestureResetAction'
 import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
 import { useAppWindowEventListeners } from '@/composables/useAppWindowEventListeners'
+import { useReaderSettingsSync } from '@/composables/useReaderSettingsSync'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1208,18 +1209,11 @@ const readerDetailMessageHandler = useReaderDetailMessageHandler({
 })
 const handleMessage = readerDetailMessageHandler.handleMessage
 
-function loadReaderSettings() {
-  setSourceTimelinePreloadEnabledState(localStorage.getItem('messagefeed-source-preload') !== 'false')
-}
-
-function handleReaderSettingsChanged(event: Event) {
-  const detail = (event as CustomEvent<{ sourceTimelinePreload?: boolean }>).detail
-  if (typeof detail?.sourceTimelinePreload === 'boolean') {
-    setSourceTimelinePreloadEnabledState(detail.sourceTimelinePreload)
-  } else {
-    loadReaderSettings()
-  }
-}
+const readerSettingsSync = useReaderSettingsSync({
+  setSourceTimelinePreloadEnabled: setSourceTimelinePreloadEnabledState,
+})
+const loadReaderSettings = readerSettingsSync.loadReaderSettings
+const handleReaderSettingsChanged = readerSettingsSync.handleReaderSettingsChanged
 
 const feedTopPullHandlers = useFeedTopPullHandlers({
   isFeedRoute,
