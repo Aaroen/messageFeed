@@ -21,6 +21,7 @@ export function useAppReaderCloseInteractions(options: AppReaderCloseInteraction
   const itemCloseAction = useReaderItemCloseAction(options.itemClose)
 
   return {
+    clearBackSwipeStretchAnchorTimer: backSwipeResetAction.clearStretchAnchorTimer,
     resetBackSwipeOffset: backSwipeResetAction.resetBackSwipeOffset,
     restoreParkedSourceReader: restoreActions.restoreParkedSourceReader,
     restoreItemReaderExpansion: restoreActions.restoreItemReaderExpansion,

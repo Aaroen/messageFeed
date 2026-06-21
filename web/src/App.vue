@@ -945,6 +945,7 @@ const finishCommittedListReturnForGesture = readerCloseInteractions.finishCommit
 const closeItemReader = readerCloseInteractions.closeItemReader
 const collapseItemReader = readerCloseInteractions.collapseItemReader
 const resetBackSwipeOffset = readerCloseInteractions.resetBackSwipeOffset
+const clearBackSwipeStretchAnchorTimer = readerCloseInteractions.clearBackSwipeStretchAnchorTimer
 const restoreParkedSourceReader = readerCloseInteractions.restoreParkedSourceReader
 const restoreItemReaderExpansion = readerCloseInteractions.restoreItemReaderExpansion
 const restoreDetailFromSourceSwipe = readerCloseInteractions.restoreDetailFromSourceSwipe
@@ -1475,6 +1476,7 @@ useAppLifecycle({
     () => clickSuppression.clearTimer(),
     clearSourceNoticeTimer,
     clearReaderStackTimers,
+    clearBackSwipeStretchAnchorTimer,
     () => readerSession.clearTimer(),
   ],
 })
