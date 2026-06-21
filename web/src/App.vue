@@ -1518,7 +1518,6 @@ function showSourceReaderUnderDetail() {
   }
 
   setTopChromeVisible(true)
-  setChromeContentCollapsed(false)
   revealSourceReaderUnderDetailState()
   captureDetailSourceTransitionRects(12, { lock: true })
 }
@@ -1808,7 +1807,6 @@ function closeSourceReader() {
     closeVisibleSourceReaderState()
     if (isFeedRoute.value && !detailReaderOpen.value) {
       setTopChromeVisible(true)
-      setChromeContentCollapsed(false)
     }
     scheduleHiddenSourceReaderCleanup(340)
     return
@@ -1818,7 +1816,6 @@ function closeSourceReader() {
   resetSourceSubscriptionState()
   if (isFeedRoute.value && !detailReaderOpen.value) {
     setTopChromeVisible(true)
-    setChromeContentCollapsed(false)
   }
 }
 
@@ -1836,7 +1833,6 @@ function restoreDetailFromParkedSource(duration = 360) {
     },
     afterBegin: () => {
       setTopChromeVisible(true)
-      setChromeContentCollapsed(false)
     },
     afterFinish: () => {
       restoreMorphingItemContent()
@@ -1855,7 +1851,6 @@ function closeItemReader() {
   const result = closeItemReaderWithTransition()
   if (isFeedRoute.value) {
     setTopChromeVisible(true)
-    setChromeContentCollapsed(false)
   }
   if (result.shouldScheduleHiddenSourceCleanup) {
     scheduleHiddenSourceReaderCleanup()
@@ -1897,7 +1892,6 @@ function completeDetailToSourceReader(duration = 360) {
   completeDetailToSourceReaderWithDelay(motionDelay(duration), {
     afterBegin: () => {
       setTopChromeVisible(true)
-      setChromeContentCollapsed(false)
       captureDetailSourceTransitionRects(12, { lock: true })
     },
     afterFinish: () => {
@@ -1995,7 +1989,6 @@ function showTopChromeForSourceReturn() {
   if (topChromeProgress.value < 0.99 || feedContentCollapsed.value) {
     setTopChromeVisible(true)
   }
-  setChromeContentCollapsed(false)
 }
 
 function settleSourceContentAfterRefresh() {
