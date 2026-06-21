@@ -73,7 +73,7 @@ export function useReaderSourceTitleMotion(options: ReaderSourceTitleMotionOptio
 
   const titleLayerStyle = computed(() => {
     const activeRevealProgress = revealVisible.value ? options.revealProgress.value : 0
-    const opacity = revealVisible.value ? options.titleProgress.value * (1 - activeRevealProgress) : 1
+    const opacity = options.titleProgress.value * (revealVisible.value ? 1 - activeRevealProgress : 1)
 
     return {
       opacity: opacity.toFixed(3),
