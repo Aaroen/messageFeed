@@ -312,6 +312,7 @@ const motionReaderDuration = motionTimings.readerDuration
 const motionChromeDuration = motionTimings.chromeDuration
 const navigationDrawerSettleDuration = motionTimings.navigationDrawerSettleDuration
 const sourceReaderCloseCleanupDelay = motionTimings.sourceReaderCloseCleanupDelay
+const topRefreshNoticeDelay = motionTimings.topRefreshNoticeDelay
 const viewSwipeChromeRevealDelay = motionTimings.viewSwipeChromeRevealDelay
 const detailFrameMetricsInitialDelay = motionTimings.detailFrameMetricsInitialDelay
 const detailFrameMetricsSettledDelay = motionTimings.detailFrameMetricsSettledDelay
@@ -1336,7 +1337,7 @@ const readerStackOutletListeners = readerStackOutletBindings.listeners
 
 const pagePullRefreshAction = usePagePullRefreshAction({
   refreshing: pagePullRefreshing,
-  noticeDelayMS: motionQuickDuration,
+  noticeDelayMS: topRefreshNoticeDelay,
   currentRefreshPage: pageOutlet.currentRefreshPage,
   beginRefreshing: pagePullRefresh.beginRefreshing,
   settleRefreshCompletion: pagePullRefresh.settleRefreshCompletion,

@@ -11,8 +11,9 @@ export function useMotionTimings() {
   const noticeSuccessDuration = 1000
   const noticeFailureDuration = 3000
   const homeExitDoubleBackTimeout = 1600
-  const noticeRevealDelay = quickDuration
   const topRefreshReleaseDelay = 120
+  const topRefreshNoticeDelay = Math.max(quickDuration, topRefreshReleaseDelay + 60)
+  const noticeRevealDelay = topRefreshNoticeDelay
   const topRefreshSettleDuration = chromeDuration
   const navigationDrawerSettleDuration = shortDuration
   const hiddenSourceCleanupDelay = quickDuration
@@ -52,6 +53,7 @@ export function useMotionTimings() {
     homeExitDoubleBackTimeout,
     noticeRevealDelay,
     topRefreshReleaseDelay,
+    topRefreshNoticeDelay,
     topRefreshSettleDuration,
     navigationDrawerSettleDuration,
     hiddenSourceCleanupDelay,
