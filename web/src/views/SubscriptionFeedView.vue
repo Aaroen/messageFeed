@@ -580,7 +580,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     const message = formatAPIError(err)
     if (isRefresh) {
       if (isBackgroundRefresh) {
-        error.value = `刷新失败：${message}`
+        if (!hasItems.value) {
+          error.value = `刷新失败：${message}`
+        }
       } else {
         showFeedNotice('warning', `刷新失败：${message}`, noticeRevealDelay)
       }
