@@ -130,7 +130,11 @@ export function useFeedPointerSwipeHandlers(options: FeedPointerSwipeHandlersOpt
     options.feedPagerTransition.endPointerTracking()
   }
 
-  function handleFeedPointerCancel() {
+  function handleFeedPointerCancel(event: PointerEvent) {
+    if (!options.feedPagerTransition.isActivePointer(event.pointerId) || event.pointerType === 'mouse') {
+      return
+    }
+
     options.feedPagerTransition.endPointerTracking()
     options.finishViewSwipe(null)
   }
