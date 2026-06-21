@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, readonly, ref } from 'vue'
 
 export type FeedSwipeSurface = 'feed:subscriptions' | 'feed:recommendations'
 
@@ -315,10 +315,10 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   return {
     dragThreshold,
-    dragOffset,
-    settling,
-    viewSwipeCandidateActive,
-    viewSwipeActive,
+    dragOffset: readonly(dragOffset),
+    settling: readonly(settling),
+    viewSwipeCandidateActive: readonly(viewSwipeCandidateActive),
+    viewSwipeActive: readonly(viewSwipeActive),
     activeIndex,
     activeSurface,
     trackStyle,
