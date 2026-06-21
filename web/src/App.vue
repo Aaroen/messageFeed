@@ -20,7 +20,6 @@ import { useReaderBackSwipeResetAction } from '@/composables/useReaderBackSwipeR
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import {
   type FeedSourceKind,
-  type ParkedDetailSnapshot,
   type ReaderSessionSnapshot,
   type ReaderSource,
   useReaderSession,
@@ -100,6 +99,7 @@ import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
 import { useAppGestureResetAction } from '@/composables/useAppGestureResetAction'
+import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -207,7 +207,6 @@ const {
   createReaderStackSessionSnapshot,
   applyReaderStackSessionSnapshot,
   pushParkedDetailSnapshot,
-  restoreParkedDetailSnapshot: restoreReaderStackParkedDetailSnapshot,
   restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
   restorePreviousParkedDetailIfReaderClosed,
   restoreSourceReaderBackTargetState,
@@ -226,7 +225,6 @@ const {
   clearMorphingHeightUnlockTimer,
   restoreMorphingItemContentWithDelay,
   revealSourceReaderUnderDetailState,
-  settleReaderMotionWithDelay,
   clearReaderStackTimers,
   updateSourceReaderScrollTopState,
   updateDetailScrollMetricsState,
@@ -828,29 +826,17 @@ const refreshDetailFeedOriginRect = readerDetailSourceTransitionRects.refreshDet
 const captureDetailSourceTransitionRects = readerDetailSourceTransitionRects.captureDetailSourceTransitionRects
 const captureVisibleSourceReturnTarget = readerDetailSourceTransitionRects.captureVisibleSourceReturnTarget
 
-function restoreMorphingItemContent(unlockDelay = motionQuickDuration) {
-  restoreMorphingItemContentWithDelay(unlockDelay)
-}
-
-function scheduleHiddenSourceReaderCleanup(delay = motionQuickDuration) {
-  scheduleHiddenSourceReaderCleanupWithDelay(delay)
-}
-
-function settleReaderMotion(duration = motionNormalDuration, done?: () => void) {
-  settleReaderMotionWithDelay(motionDelay(duration), done)
-}
-
-function restoreParkedDetailSnapshot(snapshot: ParkedDetailSnapshot | null) {
-  return restoreReaderStackParkedDetailSnapshot(snapshot, {
-    onDetailScrollTop: rememberDetailScrollTop,
-  })
-}
-
-function restorePreviousParkedDetail() {
-  return restoreReaderStackPreviousParkedDetail({
-    onDetailScrollTop: rememberDetailScrollTop,
-  })
-}
+const {
+  restoreMorphingItemContent,
+  scheduleHiddenSourceReaderCleanup,
+  restorePreviousParkedDetail,
+} = useAppReaderStackActions({
+  quickDuration: motionQuickDuration,
+  restoreMorphingItemContentWithDelay,
+  scheduleHiddenSourceReaderCleanupWithDelay,
+  restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
+  rememberDetailScrollTop,
+})
 
 const readerSourceOpenAction = useReaderSourceOpenAction({
   openSourceReaderState,
