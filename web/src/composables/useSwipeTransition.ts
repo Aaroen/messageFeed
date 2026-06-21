@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, readonly, ref } from 'vue'
 
 export type SwipePhase = 'idle' | 'dragging' | 'settling' | 'canceled' | 'committed'
 export type SwipeDirection = 'left' | 'right' | 'up' | 'down' | null
@@ -106,12 +106,12 @@ export function useSwipeTransition<TSurface extends string = string>() {
   }
 
   return {
-    from,
-    to,
-    phase,
-    direction,
-    progress,
-    isBlocked,
+    from: readonly(from),
+    to: readonly(to),
+    phase: readonly(phase),
+    direction: readonly(direction),
+    progress: readonly(progress),
+    isBlocked: readonly(isBlocked),
     snapshot,
     begin,
     update,
