@@ -63,6 +63,7 @@ import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { useGestureDirection } from '@/composables/useGestureDirection'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
+import { useAppRouteState } from '@/composables/useAppRouteState'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 
 type SwipeSurface =
@@ -326,8 +327,11 @@ const readerSession = useReaderSession<ReaderSessionSnapshot>({
   afterRestore: scheduleReaderURLAndHistorySync,
 })
 
-const selectedKeys = computed(() => [route.name?.toString() ?? 'subscriptions'])
-const pageTitle = computed(() => route.meta.title?.toString() ?? '订阅')
+const appRouteState = useAppRouteState(route)
+const selectedKeys = appRouteState.selectedKeys
+const pageTitle = appRouteState.pageTitle
+const isFeedRoute = appRouteState.isFeedRoute
+const cornerButtonLabel = appRouteState.cornerButtonLabel
 const virtualBackGuard = useVirtualBackGuard({
   route,
   router,
@@ -358,8 +362,6 @@ const readerRouteSync = useReaderRouteSync({
   setProgrammaticRouteNavigation: routeRuntime.setProgrammaticNavigation,
   syncVirtualHistoryState: virtualBackGuard.syncHistoryState,
 })
-const isFeedRoute = computed(() => ['subscriptions', 'recommendations'].includes(route.name?.toString() ?? ''))
-const cornerButtonLabel = computed(() => '打开导航')
 const feedPagerTransition = useFeedPagerTransition({
   getActiveKey: () => route.name,
   getWindowWidth: () => windowWidth.value,
