@@ -30,6 +30,7 @@
   --motion-ambient: 12s;
   --motion-reduced: 1ms;
   --ease-linear: linear;
+  --ease-oscillate: ease-in-out;
   --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --nav-panel-min-width: 304px;
@@ -271,7 +272,7 @@ body[arco-theme='dark'] .nav-panel {
     );
   filter: blur(24px);
   opacity: 0.95;
-  animation: fluid-panel var(--motion-ambient) ease-in-out infinite alternate;
+  animation: fluid-panel var(--motion-ambient) var(--ease-oscillate) infinite alternate;
   pointer-events: none;
 }
 
@@ -1031,7 +1032,7 @@ body[arco-theme='dark'] .app-main--refreshing .app-header {
   border-radius: 999px;
   background: var(--mf-primary-strong);
   opacity: 0.48;
-  animation: feed-loading-dot-bounce var(--motion-loading-cycle) ease-in-out infinite;
+  animation: feed-loading-dot-bounce var(--motion-loading-cycle) var(--ease-oscillate) infinite;
 }
 
 .feed-loading-dots span:nth-child(2) {
