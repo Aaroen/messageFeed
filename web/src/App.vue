@@ -64,6 +64,7 @@ import { useGestureDirection } from '@/composables/useGestureDirection'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
 import { useAppRouteState } from '@/composables/useAppRouteState'
+import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 
 type SwipeSurface =
@@ -458,18 +459,13 @@ const headerDetailLayoutActive = computed(
 )
 const pullStatusText = computed(() => feedInteraction.statusText)
 const pullStatusMeta = computed(() => feedInteraction.statusMeta)
-const pagePullStatusText = computed(() => {
-  if (pagePullRefreshing.value) {
-    return '抓取中'
-  }
-  return pagePullProgress.value >= 1 ? '释放刷新' : '下拉刷新'
+const pagePullStatus = usePagePullStatus({
+  refreshing: pagePullRefreshing,
+  progress: pagePullProgress,
+  pageTitle,
 })
-const pagePullStatusMeta = computed(() => {
-  if (pagePullRefreshing.value) {
-    return pageTitle.value === '订阅管理' ? '正在更新订阅源列表与推荐源目录' : `正在更新${pageTitle.value}`
-  }
-  return pageTitle.value === '订阅管理' ? '下拉更新订阅管理' : `下拉更新${pageTitle.value}`
-})
+const pagePullStatusText = pagePullStatus.text
+const pagePullStatusMeta = pagePullStatus.meta
 const pullStatusStyle = computed(() => chromeLayerMotion.refreshStatusStyle(feedPullActive.value, pullProgress.value))
 const pullIconStyle = computed(() =>
   chromeLayerMotion.refreshIconStyle(feedInteraction.pullRefreshing, pullProgress.value),
