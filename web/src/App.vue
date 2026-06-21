@@ -80,6 +80,7 @@ import { useFeedPointerSwipeHandlers } from '@/composables/useFeedPointerSwipeHa
 import { useNavigationPointerHandlers } from '@/composables/useNavigationPointerHandlers'
 import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHandlers'
 import { useReaderDetailProgressHandlers } from '@/composables/useReaderDetailProgressHandlers'
+import { useReaderDetailMessageHandler } from '@/composables/useReaderDetailMessageHandler'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1541,73 +1542,21 @@ const handleDetailProgressDragStart = readerDetailProgressHandlers.handleDetailP
 const handleDetailProgressDragEnd = readerDetailProgressHandlers.handleDetailProgressDragEnd
 const handleDetailFrameLoad = readerDetailProgressHandlers.handleDetailFrameLoad
 
-function handleMessage(event: MessageEvent) {
-  if (detailCommittedListReturn()) {
-    return
-  }
-
-  if (event.data?.type === 'messagefeed-detail-scroll' && detailReaderOpen.value) {
-    const payload = event.data as { scrollTop?: number; scrollHeight?: number; clientHeight?: number }
-    const scrollHeight = Number(payload.scrollHeight ?? 0)
-    if (Number.isFinite(scrollHeight)) {
-      updateDetailFrameContentHeightState(scrollHeight)
-    }
-    requestAnimationFrame(syncDetailContainerMetrics)
-    return
-  }
-
-  if (event.data?.type !== 'messagefeed-detail-gesture' || !detailReaderOpen.value) {
-    return
-  }
-
-  if (navigationVisible.value) {
-    return
-  }
-
-  const payload = event.data as {
-    phase?: 'start' | 'move' | 'end' | 'cancel'
-    source?: string
-    startX?: number
-    startY?: number
-    x?: number
-    dx?: number
-    dy?: number
-  }
-  const fromDetailFrame = payload.source === 'detail-frame'
-  const frameOffset = fromDetailFrame ? detailFrameViewportOffset() : { left: 0, top: 0 }
-  const startX = Number(payload.startX ?? 0) + frameOffset.left
-  const startY = Number(payload.startY ?? 0) + frameOffset.top
-  const deltaX = Number(payload.dx ?? 0)
-  const deltaY = Number(payload.dy ?? 0)
-  const currentX = Number(payload.x ?? Number(payload.startX ?? 0) + deltaX) + frameOffset.left
-
-  if (payload.phase === 'start') {
-    beginDetailGestureCandidate(startX, startY)
-    return
-  }
-
-  if (payload.phase === 'move') {
-    updateBackSwipe(deltaX, deltaY, fromDetailFrame, currentX)
-    return
-  }
-
-  if (payload.phase === 'end') {
-    if (readerBackSwipeTrackingActive.value) {
-      finishBackSwipe(deltaX, deltaY)
-      resetGestureTracking()
-      return
-    }
-    resetGestureTracking()
-    return
-  }
-
-  if (payload.phase === 'cancel') {
-    if (readerBackSwipeTrackingActive.value) {
-      cancelBackSwipe()
-    }
-    resetGestureTracking()
-  }
-}
+const readerDetailMessageHandler = useReaderDetailMessageHandler({
+  detailReaderOpen,
+  navigationVisible,
+  readerBackSwipeTrackingActive,
+  detailCommittedListReturn,
+  updateDetailFrameContentHeight: updateDetailFrameContentHeightState,
+  syncDetailContainerMetrics,
+  detailFrameViewportOffset,
+  beginDetailGestureCandidate,
+  updateBackSwipe,
+  finishBackSwipe,
+  cancelBackSwipe,
+  resetGestureTracking,
+})
+const handleMessage = readerDetailMessageHandler.handleMessage
 
 function loadReaderSettings() {
   setSourceTimelinePreloadEnabledState(localStorage.getItem('messagefeed-source-preload') !== 'false')
