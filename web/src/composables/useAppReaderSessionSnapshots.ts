@@ -51,6 +51,14 @@ export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsO
   let scrollRestoreRetryTimer = 0
   let scrollRestoreSettledTimer = 0
 
+  function stableChromeSnapshot(snapshot: ChromeSnapshot): ChromeSnapshot {
+    const progress = Number.isFinite(snapshot.progress) ? snapshot.progress : 1
+    return {
+      progress: progress >= 0.5 ? 1 : 0,
+      contentCollapsed: snapshot.contentCollapsed,
+    }
+  }
+
   function clearScrollRestoreHandles() {
     if (typeof window !== 'undefined' && scrollRestoreRetryTimer !== 0) {
       window.clearTimeout(scrollRestoreRetryTimer)
@@ -82,12 +90,16 @@ export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsO
   }
 
   function readerSessionSnapshot(): ReaderSessionSnapshot {
+    const chromeSnapshot = stableChromeSnapshot({
+      progress: options.topChromeProgress.value,
+      contentCollapsed: options.feedContentCollapsed.value,
+    })
     return {
       savedAt: Date.now(),
       routeFullPath: options.getRouteFullPath(),
       feedScrollTop: options.feedScrollTop.value,
-      topChromeProgress: options.topChromeProgress.value,
-      feedContentCollapsed: options.feedContentCollapsed.value,
+      topChromeProgress: chromeSnapshot.progress,
+      feedContentCollapsed: chromeSnapshot.contentCollapsed,
       ...options.createReaderStackSessionSnapshot(),
     }
   }
@@ -122,11 +134,12 @@ export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsO
   }
 
   function applyReaderSessionSnapshot(snapshot: ReaderSessionSnapshot) {
-    options.restoreFeedScrollTop(snapshot.feedScrollTop)
-    options.restoreChromeSnapshot({
+    const chromeSnapshot = stableChromeSnapshot({
       progress: snapshot.topChromeProgress,
       contentCollapsed: snapshot.feedContentCollapsed,
     })
+    options.restoreFeedScrollTop(snapshot.feedScrollTop)
+    options.restoreChromeSnapshot(chromeSnapshot)
     options.applyReaderStackSessionSnapshot(snapshot, {
       onSourceScrollTop: options.rememberSourceScrollTop,
       onDetailScrollTop: options.rememberDetailScrollTop,
