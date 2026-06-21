@@ -124,6 +124,7 @@ const {
   hasDetailParkedBehindSource,
   hasParkedDetailSourceState,
   sourceReaderShouldReturnToDetail,
+  sourceReaderCanReturnToDetail,
   createReaderStackSessionSnapshot,
   applyReaderStackSessionSnapshot,
   pushParkedDetailSnapshot,
@@ -2174,10 +2175,6 @@ function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
   return Math.abs(deltaX) > viewDragThreshold && Math.abs(deltaX) > Math.abs(deltaY) * viewDirectionLockRatio
 }
 
-function canReturnSourceReaderToDetail() {
-  return sourceReaderShouldReturnToDetail() || hasParkedDetailSourceState() || detailRestoringFromSourceReader.value
-}
-
 function showTopChromeForSourceReturn() {
   if (topChromeProgress.value < 0.99 || feedContentCollapsed.value) {
     setTopChromeVisible(true)
@@ -2269,7 +2266,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
 
   trackingBackSwipe = true
   beginReaderBackSwipeTrackingState()
-  if (readerBackSwipeMatches('source') && deltaX < 0 && canReturnSourceReaderToDetail()) {
+  if (readerBackSwipeMatches('source') && deltaX < 0 && sourceReaderCanReturnToDetail()) {
     prepareSourceReaderReturnDrag()
     setReaderBackSwipeIntentState('back')
     showTopChromeForSourceReturn()
@@ -2312,7 +2309,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  if (readerBackSwipeMatches('source') && deltaX < 0 && canReturnSourceReaderToDetail()) {
+  if (readerBackSwipeMatches('source') && deltaX < 0 && sourceReaderCanReturnToDetail()) {
     prepareSourceReaderReturnDrag()
     setReaderBackSwipeIntentState('back')
     showTopChromeForSourceReturn()
@@ -2357,7 +2354,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
       progress: clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52)),
     })
   } else if (intent === 'back' && readerBackSwipeMatches('source')) {
-    if (offset < 0 && canReturnSourceReaderToDetail()) {
+    if (offset < 0 && sourceReaderCanReturnToDetail()) {
       const returnProgress = clamp(Math.max(0, -offset) / Math.max(220, windowWidth.value * 0.52))
       applyReaderBackSwipeVisualState({ target: 'source-return', returnProgress })
     } else {
@@ -2412,7 +2409,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
       restoreDetailFromSourceSwipe()
       return
     }
-    if (intent === 'back' && target === 'source' && canReturnSourceReaderToDetail()) {
+    if (intent === 'back' && target === 'source' && sourceReaderCanReturnToDetail()) {
       restoreParkedSourceReader()
       return
     }
@@ -2430,7 +2427,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
     return
   }
   if (intent === 'back' && target === 'source') {
-    if (canReturnSourceReaderToDetail()) {
+    if (sourceReaderCanReturnToDetail()) {
       restoreDetailFromParkedSource()
       return
     }
