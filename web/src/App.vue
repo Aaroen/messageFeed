@@ -996,7 +996,6 @@ const readerBackSwipeInteractions = useAppReaderBackSwipeInteractions({
   transition: {
     activeFeedSurface: feedPagerTransition.activeSurface,
     pageReturnSurface: 'feed:recommendations',
-    fallbackStretch: pagePullState.sideStretch,
     beginSwipeTransition: swipeTransition.begin,
     updateSwipeTransition: swipeTransition.update,
     transitionBeginPayload: readerBackSwipeTransitionBeginPayload,
@@ -1035,7 +1034,6 @@ const readerBackSwipeInteractions = useAppReaderBackSwipeInteractions({
   },
   completion: {
     switchDistance: viewSwitchDistance,
-    getFallbackStretch: () => pagePullState.sideStretch.value,
     finishResult: readerBackSwipeFinishResult,
     cancelResult: readerBackSwipeCancelResult,
     settleTransition: swipeTransition.settle,

@@ -17,19 +17,22 @@ type AppReaderBackSwipeInteractionsOptions<
   TFeedSurface extends TSwipeSurface,
 > = {
   pagePull: AppPagePullState
-  transition: ReaderBackSwipeTransitionOptions<TSwipeSurface, TFeedSurface>
+  transition: Omit<ReaderBackSwipeTransitionOptions<TSwipeSurface, TFeedSurface>, 'fallbackStretch'>
   drag: Omit<
     ReaderBackSwipeDragOptions,
     'beginBackSwipeTransition' | 'syncBackSwipeTransition' | 'setPageSideStretch' | 'setPageSideOffset'
   >
-  completion: ReaderBackSwipeCompletionOptions
+  completion: Omit<ReaderBackSwipeCompletionOptions, 'getFallbackStretch'>
 }
 
 export function useAppReaderBackSwipeInteractions<
   TSwipeSurface extends string,
   TFeedSurface extends TSwipeSurface,
 >(options: AppReaderBackSwipeInteractionsOptions<TSwipeSurface, TFeedSurface>) {
-  const transitionController = useReaderBackSwipeTransitionController(options.transition)
+  const transitionController = useReaderBackSwipeTransitionController({
+    ...options.transition,
+    fallbackStretch: options.pagePull.sideStretch,
+  })
   const dragHandlers = useReaderBackSwipeDragHandlers({
     ...options.drag,
     beginBackSwipeTransition: transitionController.beginBackSwipeTransition,
@@ -37,7 +40,10 @@ export function useAppReaderBackSwipeInteractions<
     setPageSideStretch: options.pagePull.setSideStretch,
     setPageSideOffset: options.pagePull.setSideOffset,
   })
-  const completion = useReaderBackSwipeCompletion(options.completion)
+  const completion = useReaderBackSwipeCompletion({
+    ...options.completion,
+    getFallbackStretch: () => options.pagePull.sideStretch.value,
+  })
 
   return {
     beginDetailGestureCandidate: dragHandlers.beginDetailGestureCandidate,
