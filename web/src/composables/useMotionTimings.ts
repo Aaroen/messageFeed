@@ -2,6 +2,7 @@ type NoticeType = 'success' | 'warning'
 
 export function useMotionTimings() {
   const quickDuration = 180
+  const shortDuration = 220
   const normalDuration = 260
   const stretchAnchorClearDuration = 280
   const headerSwapDuration = 320
@@ -12,9 +13,11 @@ export function useMotionTimings() {
   const noticeRevealDelay = quickDuration
   const topRefreshReleaseDelay = 120
   const topRefreshSettleDuration = chromeDuration
+  const navigationDrawerSettleDuration = shortDuration
   const motionCleanupBuffer = 96
   const detailFrameMetricsInitialDelay = quickDuration
   const detailFrameMetricsSettledDelay = 520
+  const viewSwipeChromeRevealDelay = detailFrameMetricsSettledDelay
   const readerScrollRestoreRetryDelay = 120
   const readerScrollRestoreSettledDelay = detailFrameMetricsSettledDelay
   const readerMorphDuration = readerDuration
@@ -32,6 +35,7 @@ export function useMotionTimings() {
 
   return {
     quickDuration,
+    shortDuration,
     normalDuration,
     stretchAnchorClearDuration,
     headerSwapDuration,
@@ -42,9 +46,11 @@ export function useMotionTimings() {
     noticeRevealDelay,
     topRefreshReleaseDelay,
     topRefreshSettleDuration,
+    navigationDrawerSettleDuration,
     motionCleanupBuffer,
     detailFrameMetricsInitialDelay,
     detailFrameMetricsSettledDelay,
+    viewSwipeChromeRevealDelay,
     readerScrollRestoreRetryDelay,
     readerScrollRestoreSettledDelay,
     readerMorphDuration,

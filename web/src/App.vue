@@ -310,6 +310,8 @@ const motionStretchAnchorClearDuration = motionTimings.stretchAnchorClearDuratio
 const motionHeaderSwapDuration = motionTimings.headerSwapDuration
 const motionReaderDuration = motionTimings.readerDuration
 const motionChromeDuration = motionTimings.chromeDuration
+const navigationDrawerSettleDuration = motionTimings.navigationDrawerSettleDuration
+const viewSwipeChromeRevealDelay = motionTimings.viewSwipeChromeRevealDelay
 const detailFrameMetricsInitialDelay = motionTimings.detailFrameMetricsInitialDelay
 const detailFrameMetricsSettledDelay = motionTimings.detailFrameMetricsSettledDelay
 const readerScrollRestoreRetryDelay = motionTimings.readerScrollRestoreRetryDelay
@@ -317,7 +319,11 @@ const readerScrollRestoreSettledDelay = motionTimings.readerScrollRestoreSettled
 const readerMorphDuration = motionTimings.readerMorphDuration
 const readerRectRetryDelay = motionTimings.readerRectRetryDelay
 const motionDelay = motionTimings.delay
-const navigationDrawer = useNavigationDrawer({ windowWidth, resolveDelay: motionDelay })
+const navigationDrawer = useNavigationDrawer({
+  windowWidth,
+  resolveDelay: motionDelay,
+  settleDuration: navigationDrawerSettleDuration,
+})
 const navigationOpen = navigationDrawer.open
 const navigationProgress = navigationDrawer.progress
 const navigationSettling = navigationDrawer.settling
@@ -757,7 +763,6 @@ const navigateTo = appNavigation.navigateTo
 
 const navigationOpenDistance = 72
 const viewSwitchDistance = 62
-const viewSwipeChromeRevealDelay = 520
 const topChromeSettleDuration = motionChromeDuration
 const appTopChromeActions = useAppTopChromeActions({
   sourceReaderOpen,

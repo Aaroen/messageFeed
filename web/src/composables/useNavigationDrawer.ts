@@ -1,11 +1,12 @@
 import { computed, readonly, ref, type Ref } from 'vue'
 
+import { useMotionTimings } from '@/composables/useMotionTimings'
+
 type NavigationDrawerOptions = {
   windowWidth: Ref<number>
   resolveDelay?: (duration: number) => number
+  settleDuration?: number
 }
-
-const navigationDrawerSettleDuration = 220
 
 function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
@@ -23,6 +24,7 @@ function clampProgress(value: number) {
 }
 
 export function useNavigationDrawer(options: NavigationDrawerOptions) {
+  const motionTimings = useMotionTimings()
   const open = ref(false)
   const progress = ref(0)
   const settling = ref(false)
@@ -53,6 +55,10 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
     return options.resolveDelay?.(duration) ?? duration
   }
 
+  function settleDuration() {
+    return options.settleDuration ?? motionTimings.navigationDrawerSettleDuration
+  }
+
   function clearTimer() {
     if (typeof window !== 'undefined') {
       window.clearTimeout(timer)
@@ -69,7 +75,7 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
       if (!nextOpen) {
         progress.value = 0
       }
-    }, delay(navigationDrawerSettleDuration))
+    }, delay(settleDuration()))
   }
 
   function openPanel() {
@@ -82,7 +88,7 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
     })
     timer = window.setTimeout(() => {
       settling.value = false
-    }, delay(navigationDrawerSettleDuration))
+    }, delay(settleDuration()))
   }
 
   function closePanel() {
