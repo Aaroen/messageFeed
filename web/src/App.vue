@@ -464,6 +464,7 @@ const feedChromeState = useAppFeedChromeState({
     pagePullOffset,
     sourceReaderOpen,
     getFeedPullActive: () => feedInteraction.pullActive,
+    getFeedPullRefreshing: () => feedInteraction.pullRefreshing,
     getFeedPullOffset: () => feedInteraction.pullOffset,
     getFeedPullViewKey: () => feedInteraction.pullViewKey,
   },
@@ -491,6 +492,7 @@ const feedChromeState = useAppFeedChromeState({
 const feedPullActive = feedChromeState.feedPullActive
 const pagePullActive = feedChromeState.pagePullActive
 const sourcePullActive = feedChromeState.sourcePullActive
+const sourcePullRefreshing = computed(() => sourcePullActive.value && feedInteraction.pullRefreshing)
 const feedOrSourcePullActive = feedChromeState.feedOrSourcePullActive
 const pullProgress = feedChromeState.pullProgress
 const sourcePullProgress = feedChromeState.sourcePullProgress
@@ -526,6 +528,7 @@ const chromeVisualState = useAppChromeVisualState({
     viewSwipeTargetVisible,
     viewSwipeTargetProgress,
     sourcePullActive,
+    sourcePullRefreshing: () => sourcePullRefreshing.value,
     sourcePullProgress,
     topChromeProgress,
     feedHeaderHeight,
@@ -1250,7 +1253,7 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   sourcePullStatusStyle,
   sourcePullIconStyle,
   sourcePullActive,
-  sourcePullRefreshing: () => feedInteraction.pullRefreshing,
+  sourcePullRefreshing: () => sourcePullRefreshing.value,
   pullStatusText,
   pullStatusMeta,
   sourceToggleLabel,

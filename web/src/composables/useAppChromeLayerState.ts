@@ -21,6 +21,7 @@ type AppChromeLayerStateOptions = {
   viewSwipeTargetVisible: ReadableRef<boolean>
   viewSwipeTargetProgress: ReadableRef<number>
   sourcePullActive: ReadableRef<boolean>
+  sourcePullRefreshing: () => boolean
   sourcePullProgress: ReadableRef<number>
   topChromeProgress: ReadableRef<number>
   feedHeaderHeight: ReadableRef<number>
@@ -71,7 +72,7 @@ export function useAppChromeLayerState(options: AppChromeLayerStateOptions) {
     chromeLayerMotion.refreshStatusStyle(options.sourcePullActive.value, options.sourcePullProgress.value),
   )
   const sourcePullIconStyle = computed(() =>
-    chromeLayerMotion.refreshIconStyle(options.feedPullRefreshing(), options.sourcePullProgress.value),
+    chromeLayerMotion.refreshIconStyle(options.sourcePullRefreshing(), options.sourcePullProgress.value),
   )
   const sourceHeaderStyle = computed(() =>
     chromeLayerMotion.sourceHeaderStyle(

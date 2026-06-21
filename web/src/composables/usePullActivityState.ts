@@ -10,6 +10,7 @@ type PullActivityStateOptions = {
   pagePullOffset: ReadableRef<number>
   sourceReaderOpen: ReadableRef<boolean>
   getFeedPullActive: () => boolean
+  getFeedPullRefreshing: () => boolean
   getFeedPullOffset: () => number
   getFeedPullViewKey: () => string
 }
@@ -20,7 +21,9 @@ function pullProgressFromOffset(offset: number) {
 
 export function usePullActivityState(options: PullActivityStateOptions) {
   const pullViewKey = computed(() => options.getFeedPullViewKey())
-  const feedPullHasMotion = computed(() => options.getFeedPullActive() || options.getFeedPullOffset() > 1)
+  const feedPullHasMotion = computed(
+    () => options.getFeedPullActive() || options.getFeedPullRefreshing() || options.getFeedPullOffset() > 1,
+  )
   const feedPullBelongsToSource = computed(() => pullViewKey.value.startsWith('source:'))
   const feedActive = computed(
     () =>
