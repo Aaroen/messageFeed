@@ -28,7 +28,6 @@ import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
 import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
 import { useAppChromeLayerState } from '@/composables/useAppChromeLayerState'
-import { useReaderDetailSourceTransitionRects } from '@/composables/useReaderDetailSourceTransitionRects'
 import { useAppShellMotion } from '@/composables/useAppShellMotion'
 import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
@@ -85,6 +84,7 @@ import { useAppReaderSourceCloseInteractions } from '@/composables/useAppReaderS
 import { useAppReaderOpenInteractions } from '@/composables/useAppReaderOpenInteractions'
 import { useAppReaderCloseInteractions } from '@/composables/useAppReaderCloseInteractions'
 import { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
+import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitionRects'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -778,21 +778,22 @@ const {
   setDetailFrameElement: setDetailFrameElementState,
 })
 
-const readerDetailSourceTransitionRects = useReaderDetailSourceTransitionRects({
+const readerTransitionRects = useAppReaderTransitionRects({
   sourceReaderContentRef,
   detailInlineSourceRef,
   detailItem,
   detailFeedOriginLocked,
   detailTransitionRectsLocked,
   retryDelay: readerRectRetryDelay,
-  findFeedItemElement: (itemID) => feedContent.findItemElement(itemID, activeFeedIndex.value),
+  activeFeedIndex,
+  findFeedItemElement: feedContent.findItemElement,
   applyDetailFeedOriginRectState,
   applyDetailSourceTransitionRectsState,
   applyVisibleSourceReturnTargetState,
 })
-const refreshDetailFeedOriginRect = readerDetailSourceTransitionRects.refreshDetailFeedOriginRect
-const captureDetailSourceTransitionRects = readerDetailSourceTransitionRects.captureDetailSourceTransitionRects
-const captureVisibleSourceReturnTarget = readerDetailSourceTransitionRects.captureVisibleSourceReturnTarget
+const refreshDetailFeedOriginRect = readerTransitionRects.refreshDetailFeedOriginRect
+const captureDetailSourceTransitionRects = readerTransitionRects.captureDetailSourceTransitionRects
+const captureVisibleSourceReturnTarget = readerTransitionRects.captureVisibleSourceReturnTarget
 
 const {
   restoreMorphingItemContent,
