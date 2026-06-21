@@ -68,14 +68,16 @@ export function useChromeState() {
   }
 
   function clearTimer() {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && settlingTimer !== 0) {
       window.clearTimeout(settlingTimer)
     }
+    settlingTimer = 0
   }
 
   function scheduleSettlingEnd(delayMS: number) {
     clearTimer()
     settlingTimer = window.setTimeout(() => {
+      settlingTimer = 0
       setSettling(false)
     }, Math.max(0, delayMS))
   }

@@ -36,10 +36,13 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   }
 
   function clearTimer() {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && settleTimer !== 0) {
       window.clearTimeout(settleTimer)
+    }
+    if (typeof window !== 'undefined' && settleFrame !== 0) {
       window.cancelAnimationFrame(settleFrame)
     }
+    settleTimer = 0
     settleFrame = 0
   }
 
@@ -70,6 +73,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
       })
     })
     settleTimer = window.setTimeout(() => {
+      settleTimer = 0
       settling.value = false
     }, delay(duration))
   }

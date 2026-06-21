@@ -8,9 +8,10 @@ export function useRefreshCompletionState() {
   let settleTimer = 0
 
   function clearTimer() {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && settleTimer !== 0) {
       window.clearTimeout(settleTimer)
     }
+    settleTimer = 0
   }
 
   function recordStartedWithChrome(startedWithVisibleChrome: boolean) {
@@ -18,6 +19,8 @@ export function useRefreshCompletionState() {
   }
 
   function begin(payload: { viewKey: string; startedWithVisibleChrome: boolean }) {
+    clearTimer()
+    settling.value = false
     wasActive.value = true
     wasSource.value = payload.viewKey.startsWith('source:')
     recordStartedWithChrome(payload.startedWithVisibleChrome)
@@ -34,6 +37,7 @@ export function useRefreshCompletionState() {
     clearTimer()
     settling.value = true
     settleTimer = window.setTimeout(() => {
+      settleTimer = 0
       settling.value = false
     }, Math.max(0, delayMS))
     return result

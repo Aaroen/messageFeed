@@ -159,6 +159,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function beginProgrammaticNavigation() {
+    clearTimers()
     setSettling(true)
     setDragOffset(0)
   }
@@ -169,6 +170,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function beginDragCandidate() {
+    clearTimers()
     setSettling(false)
   }
 
@@ -258,23 +260,33 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function clearSettlingTimer() {
-    window.clearTimeout(settlingTimer)
+    if (typeof window !== 'undefined' && settlingTimer !== 0) {
+      window.clearTimeout(settlingTimer)
+    }
+    settlingTimer = 0
   }
 
   function clearDelayedCommitTimer() {
-    window.clearTimeout(delayedCommitTimer)
+    if (typeof window !== 'undefined' && delayedCommitTimer !== 0) {
+      window.clearTimeout(delayedCommitTimer)
+    }
+    delayedCommitTimer = 0
   }
 
   function scheduleSettlingEnd(delay: number) {
     clearSettlingTimer()
     settlingTimer = window.setTimeout(() => {
+      settlingTimer = 0
       setSettling(false)
     }, Math.max(0, delay))
   }
 
   function scheduleDelayedCommit(delay: number, commit: () => void) {
     clearDelayedCommitTimer()
-    delayedCommitTimer = window.setTimeout(commit, Math.max(0, delay))
+    delayedCommitTimer = window.setTimeout(() => {
+      delayedCommitTimer = 0
+      commit()
+    }, Math.max(0, delay))
   }
 
   function clearTimers() {
