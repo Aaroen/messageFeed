@@ -6,6 +6,7 @@ export function useDetailHeaderTitleSwap() {
   const previousTitle = ref('')
   const progress = ref(1)
   let timer = 0
+  let frame = 0
 
   function begin(nextItem: FeedItem, currentItem: FeedItem | null) {
     if (!currentItem || currentItem.id === nextItem.id) {
@@ -29,6 +30,10 @@ export function useDetailHeaderTitleSwap() {
 
   function clearTimer() {
     window.clearTimeout(timer)
+    if (frame) {
+      cancelAnimationFrame(frame)
+      frame = 0
+    }
   }
 
   function reset() {
@@ -44,7 +49,8 @@ export function useDetailHeaderTitleSwap() {
       return
     }
 
-    requestAnimationFrame(() => {
+    frame = requestAnimationFrame(() => {
+      frame = 0
       commit()
     })
     timer = window.setTimeout(() => {
