@@ -59,6 +59,7 @@ import { useScrollHistory } from '@/composables/useScrollHistory'
 import { useDoubleBackGuard } from '@/composables/useDoubleBackGuard'
 import { useGestureOriginState } from '@/composables/useGestureOriginState'
 import { useNavigationGestureState } from '@/composables/useNavigationGestureState'
+import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 import { escapeHTML, formatItemDate, plainPreviewText, sanitizeDetailHTML } from '@/utils/readerContent'
 
@@ -77,6 +78,7 @@ const pageOutlet = usePageOutletState()
 const scrollHistory = useScrollHistory()
 const gestureOrigin = useGestureOriginState()
 const navigationGesture = useNavigationGestureState()
+const routeRuntime = useRouteRuntimeState()
 const {
   sourceReaderContentRef,
   detailContentRef,
@@ -310,8 +312,6 @@ const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
 const readerRectRetryDelay = 64
 const homeExitDoubleBackMs = 1600
 const homeBackGuard = useDoubleBackGuard(homeExitDoubleBackMs)
-let programmaticRouteNavigation = false
-let readerSessionInitialized = false
 const readerSession = useReaderSession<ReaderSessionSnapshot>({
   storageKey: 'messagefeed-reader-session-v1',
   maxAgeMS: 24 * 60 * 60 * 1000,
@@ -338,7 +338,7 @@ const virtualBackGuard = useVirtualBackGuard({
       needsHomeGuard: !needsVirtualLayer && isFeedRoute.value,
     }
   },
-  canHandleNavigation: () => readerSessionInitialized && !programmaticRouteNavigation,
+  canHandleNavigation: routeRuntime.canHandleNavigation,
   consumeBack: runVirtualBackAnimation,
   onBackConsumed: () => {
     scheduleReaderSessionSave()
@@ -348,14 +348,12 @@ const virtualBackGuard = useVirtualBackGuard({
 const readerRouteSync = useReaderRouteSync({
   route,
   router,
-  canSync: () => readerSessionInitialized && !readerSession.restoring.value,
+  canSync: () => routeRuntime.canSyncReaderRoute(readerSession.restoring.value),
   getReaderSource: () => readerSource.value,
   isSourceReaderOpen: () => sourceReaderOpen.value,
   getDetailItemID: () => detailItem.value?.id,
   getDetailSourceKind: () => detailSourceKind.value,
-  setProgrammaticRouteNavigation: (active) => {
-    programmaticRouteNavigation = active
-  },
+  setProgrammaticRouteNavigation: routeRuntime.setProgrammaticNavigation,
   syncVirtualHistoryState: virtualBackGuard.syncHistoryState,
 })
 const isFeedRoute = computed(() => ['subscriptions', 'recommendations'].includes(route.name?.toString() ?? ''))
@@ -947,25 +945,11 @@ function suppressFollowingClick() {
 }
 
 async function pushRoute(path: string) {
-  programmaticRouteNavigation = true
-  try {
-    await router.push(path)
-  } finally {
-    window.setTimeout(() => {
-      programmaticRouteNavigation = false
-    }, 0)
-  }
+  await routeRuntime.runProgrammaticNavigation(() => router.push(path))
 }
 
 async function replaceRoute(path: string) {
-  programmaticRouteNavigation = true
-  try {
-    await router.replace(path)
-  } finally {
-    window.setTimeout(() => {
-      programmaticRouteNavigation = false
-    }, 0)
-  }
+  await routeRuntime.runProgrammaticNavigation(() => router.replace(path))
 }
 
 function scheduleReaderURLAndHistorySync(forcePush = false) {
@@ -1191,14 +1175,14 @@ function readerSessionSnapshot(): ReaderSessionSnapshot {
 }
 
 function saveReaderSessionNow() {
-  if (!readerSessionInitialized && !readerSession.restoring.value) {
+  if (!routeRuntime.canSaveReaderSession(readerSession.restoring.value)) {
     return
   }
   readerSession.saveNow()
 }
 
 function scheduleReaderSessionSave() {
-  if (!readerSessionInitialized && !readerSession.restoring.value) {
+  if (!routeRuntime.canSaveReaderSession(readerSession.restoring.value)) {
     return
   }
   readerSession.scheduleSave()
@@ -2630,7 +2614,7 @@ onMounted(() => {
   themeState.load()
   removeSystemBackGuard = virtualBackGuard.installRouterGuard()
   void router.isReady().then(() => restoreReaderSession()).finally(() => {
-    readerSessionInitialized = true
+    routeRuntime.markReaderSessionReady()
     scheduleReaderURLAndHistorySync()
   })
   window.addEventListener('keydown', handleKeydown)
