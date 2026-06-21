@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { readonly, ref } from 'vue'
 
 export type ChromePhase =
   | 'hidden'
@@ -156,10 +156,10 @@ export function useChromeState() {
   }
 
   return {
-    progress,
-    phase,
-    contentCollapsed,
-    settling,
+    progress: readonly(progress),
+    phase: readonly(phase),
+    contentCollapsed: readonly(contentCollapsed),
+    settling: readonly(settling),
     setVisible,
     setCollapsedHidden,
     setStableVisible,
