@@ -293,6 +293,7 @@ function resetListState() {
   nextOffset.value = 0
   reachedEnd.value = false
   lastUpdatedAt.value = ''
+  initialSubscriptionFetchAttempted.value = false
 }
 
 function loadInitialItems() {
@@ -798,6 +799,9 @@ watch(
   () => props.active,
   (active) => {
     if (!active) {
+      if (!isSourceMode.value && effectiveSourceKind.value === 'subscriptions') {
+        initialSubscriptionFetchAttempted.value = false
+      }
       resetTransientLoadState({ clearNotice: true })
       return
     }
