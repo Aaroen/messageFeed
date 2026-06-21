@@ -432,11 +432,11 @@ function formatFetchErrors(errors: Array<{ source_name?: string; message: string
 }
 
 function refreshSuccessMessage() {
-  if (isSourceMode.value) {
-    return '刷新成功：已更新当前来源'
-  }
   if (effectiveSourceKind.value === 'recommendations') {
     return '刷新成功：已更新当前推荐来源'
+  }
+  if (isSourceMode.value) {
+    return '刷新成功：已更新当前来源'
   }
   return '刷新成功：已更新订阅内容'
 }
