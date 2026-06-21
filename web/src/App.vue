@@ -44,6 +44,7 @@ import { useChromeLayerMotion } from '@/composables/useChromeLayerMotion'
 import { useReaderSourceSurfaceMotion } from '@/composables/useReaderSourceSurfaceMotion'
 import { useReaderDetailSurfaceMotion } from '@/composables/useReaderDetailSurfaceMotion'
 import { useReaderDetailContentMotion } from '@/composables/useReaderDetailContentMotion'
+import { useReaderDetailProgressMotion } from '@/composables/useReaderDetailProgressMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -545,6 +546,14 @@ const detailContentMotion = useReaderDetailContentMotion({
   dragging: readerBackDragging,
   committedListReturn: detailCommittedListReturn,
 })
+const detailProgressMotion = useReaderDetailProgressMotion({
+  surfaceMargin: detailSurfaceMargin,
+  expandedTop: detailExpandedTop,
+  visible: detailProgressVisible,
+  dragging: detailProgressDragging,
+  readerBackDragging,
+  readingProgress: detailReadingProgress,
+})
 const detailTransitionSurfaceStyle = computed(() => {
   const origin = detailOriginRect.value
   const sourceExiting =
@@ -605,28 +614,9 @@ const detailTransitionSurfaceStyle = computed(() => {
   }
 })
 const detailContentStyle = detailContentMotion.contentStyle
-const detailProgressStyle = computed(() => {
-  const margin = detailSurfaceMargin.value
-  const top = Math.max(margin, detailExpandedTop.value + margin)
-  return {
-    top: cssPx(top),
-    right: cssPx(Math.max(6, margin * 0.5)),
-    bottom: `${margin}px`,
-    opacity: detailProgressVisible.value ? '1' : '0',
-    pointerEvents: detailProgressVisible.value ? ('auto' as const) : ('none' as const),
-    transition: detailProgressDragging.value || readerBackDragging.value ? 'none' : undefined,
-  }
-})
-const detailProgressFillStyle = computed(() => ({
-  height: `${(detailReadingProgress.value * 100).toFixed(2)}%`,
-}))
-const detailProgressThumbStyle = computed(() => {
-  const progress = detailReadingProgress.value
-  return {
-    top: `${(progress * 100).toFixed(2)}%`,
-    transform: `translate3d(0, ${(-progress * 42).toFixed(2)}px, 0)`,
-  }
-})
+const detailProgressStyle = detailProgressMotion.railStyle
+const detailProgressFillStyle = detailProgressMotion.fillStyle
+const detailProgressThumbStyle = detailProgressMotion.thumbStyle
 const detailMorphTextStyle = computed(() => {
   const progress = detailSurfaceProgress.value
   const committedListReturn = detailCommittedListReturn()
