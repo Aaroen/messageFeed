@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, readonly, ref } from 'vue'
 
 export type PullRefreshOptions = {
   threshold?: number
@@ -204,15 +204,15 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     threshold,
     maxOffset,
     emptyMaxOffset,
-    offset,
-    distance,
-    dragging,
-    settling,
-    refreshing,
-    startedWithVisibleChrome,
-    gestureDistance,
-    gestureCandidate,
-    gestureTracking,
+    offset: readonly(offset),
+    distance: readonly(distance),
+    dragging: readonly(dragging),
+    settling: readonly(settling),
+    refreshing: readonly(refreshing),
+    startedWithVisibleChrome: readonly(startedWithVisibleChrome),
+    gestureDistance: readonly(gestureDistance),
+    gestureCandidate: readonly(gestureCandidate),
+    gestureTracking: readonly(gestureTracking),
     progress,
     distanceProgress,
     active,

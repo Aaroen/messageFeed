@@ -1,9 +1,12 @@
-import { computed, ref, type Ref } from 'vue'
+import { computed, ref } from 'vue'
 
 type StretchAnchor = 'left' | 'right' | null
+type ReadableRef<T> = {
+  readonly value: T
+}
 
 type PageContentMotionOptions = {
-  pullOffset: Ref<number>
+  pullOffset: ReadableRef<number>
 }
 
 function cssPx(value: number) {
