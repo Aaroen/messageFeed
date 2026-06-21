@@ -80,6 +80,7 @@ import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHand
 import { useReaderDetailProgressHandlers } from '@/composables/useReaderDetailProgressHandlers'
 import { useReaderDetailMessageHandler } from '@/composables/useReaderDetailMessageHandler'
 import { useReaderSourceOpenAction } from '@/composables/useReaderSourceOpenAction'
+import { useReaderSourceRevealAction } from '@/composables/useReaderSourceRevealAction'
 import { useReaderSourceCloseAction } from '@/composables/useReaderSourceCloseAction'
 import { useReaderItemOpenAction } from '@/composables/useReaderItemOpenAction'
 import { useReaderItemCloseAction } from '@/composables/useReaderItemCloseAction'
@@ -780,26 +781,6 @@ function scheduleHiddenSourceReaderCleanup(delay = motionQuickDuration) {
   scheduleHiddenSourceReaderCleanupWithDelay(delay)
 }
 
-function showSourceReaderUnderDetail() {
-  if (!detailItem.value?.source_id) {
-    return
-  }
-
-  const source = {
-    id: detailItem.value.source_id,
-    name: detailItem.value.source_name || '未知来源',
-    kind: detailSourceKind.value,
-  }
-
-  if (readerSource.value?.id !== source.id || readerSource.value.kind !== source.kind) {
-    openSourceReader(source, { visible: false })
-  }
-
-  setTopChromeVisible(true)
-  revealSourceReaderUnderDetailState()
-  captureDetailSourceTransitionRects(12, { lock: true })
-}
-
 function settleReaderMotion(duration = motionNormalDuration, done?: () => void) {
   settleReaderMotionWithDelay(motionDelay(duration), done)
 }
@@ -942,6 +923,17 @@ const readerSourceOpenAction = useReaderSourceOpenAction({
   scrollSourceReaderContentElementTo,
 })
 const openSourceReader = readerSourceOpenAction.openSourceReader
+
+const readerSourceRevealAction = useReaderSourceRevealAction({
+  detailItem,
+  detailSourceKind,
+  readerSource,
+  openSourceReader,
+  setTopChromeVisible,
+  revealSourceReaderUnderDetailState,
+  captureDetailSourceTransitionRects,
+})
+const showSourceReaderUnderDetail = readerSourceRevealAction.showSourceReaderUnderDetail
 
 const readerItemOpenAction = useReaderItemOpenAction({
   sourceReaderOpen,
