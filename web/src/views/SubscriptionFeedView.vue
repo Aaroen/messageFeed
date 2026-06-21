@@ -426,6 +426,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   if (isAppend) {
     loadingMore.value = true
   } else if (isRefresh && !isBackgroundRefresh) {
+    if (shouldRefreshVisibleSource.value && pullOffset.value <= 0) {
+      pullRefresh.commitRefreshOffset()
+    }
     pullRefresh.beginRefreshing()
   } else if (!isBackgroundRefresh) {
     loading.value = true
