@@ -2269,7 +2269,7 @@ function handleTouchMove(event: TouchEvent) {
   }
 
   if (viewSwipeActive.value) {
-    feedPagerTransition.setDragDelta(deltaX)
+    feedPagerTransition.updateDragDelta(deltaX)
     syncViewSwipeTransition(viewDragOffset.value)
     return
   }
@@ -2464,12 +2464,11 @@ function handleFeedPointerMove(event: PointerEvent) {
     return
   }
 
-  if (feedPagerTransition.isBlockedDragDirection(deltaX)) {
-    feedPagerTransition.resetDragOffset()
+  const dragUpdate = feedPagerTransition.updateDragDelta(deltaX, { resetBlockedDirection: true })
+  if (dragUpdate.blocked) {
     return
   }
 
-  feedPagerTransition.setDragDelta(deltaX)
   syncViewSwipeTransition(viewDragOffset.value)
 }
 

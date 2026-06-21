@@ -24,6 +24,14 @@ type FeedPagerDragStartResult = {
   blocked: boolean
 }
 
+type FeedPagerDragUpdateOptions = {
+  resetBlockedDirection?: boolean
+}
+
+type FeedPagerDragUpdateResult = {
+  blocked: boolean
+}
+
 function clamp(value: number) {
   if (!Number.isFinite(value)) {
     return 0
@@ -260,6 +268,20 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     setDragOffset(Math.max(0, Math.min(deltaX, options.getWindowWidth())))
   }
 
+  function updateDragDelta(deltaX: number, updateOptions: FeedPagerDragUpdateOptions = {}): FeedPagerDragUpdateResult {
+    if (updateOptions.resetBlockedDirection && isBlockedDragDirection(deltaX)) {
+      resetDragOffset()
+      return {
+        blocked: true,
+      }
+    }
+
+    setDragDelta(deltaX)
+    return {
+      blocked: false,
+    }
+  }
+
   function reset() {
     clearSettlingTimer()
     clearDelayedCommitTimer()
@@ -284,7 +306,6 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     targetVisible,
     targetProgress,
     surfaceFromOffset,
-    isBlockedDragDirection,
     commitPath,
     swipeTransitionBeginPayload,
     swipeTransitionUpdatePayload,
@@ -308,7 +329,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     clearDelayedCommitTimer,
     scheduleSettlingEnd,
     scheduleDelayedCommit,
-    setDragDelta,
+    updateDragDelta,
     reset,
   }
 }
