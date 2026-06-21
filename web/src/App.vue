@@ -1350,6 +1350,7 @@ const pagePullGestureHandlers = usePagePullGestureHandlers({
   refreshThreshold: pagePullRefresh.threshold,
   pullRefresh: pagePullRefresh,
   currentContentScrollTop,
+  hasRefreshPage: pageOutlet.hasRefreshPage,
   isControlTarget: isPageTopPullControlTarget,
   shouldCancelTopPull,
   shouldWaitForTopPull,

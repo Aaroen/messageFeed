@@ -30,6 +30,10 @@ export function usePageOutletState() {
     return viewInstance.value?.refreshPage ?? null
   }
 
+  function hasRefreshPage() {
+    return currentRefreshPage() !== null
+  }
+
   return {
     contentElement: readonly(contentElement),
     viewInstance: readonly(viewInstance),
@@ -37,5 +41,6 @@ export function usePageOutletState() {
     setViewInstance,
     currentScrollTop,
     currentRefreshPage,
+    hasRefreshPage,
   }
 }

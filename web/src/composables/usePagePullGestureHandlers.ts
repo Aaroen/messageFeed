@@ -20,6 +20,7 @@ type PagePullGestureHandlersOptions = {
   refreshThreshold: number
   pullRefresh: PagePullRefreshController
   currentContentScrollTop: () => number
+  hasRefreshPage: () => boolean
   isControlTarget: (target: EventTarget | null) => boolean
   shouldCancelTopPull: (deltaX: number, deltaY: number) => boolean
   shouldWaitForTopPull: (deltaX: number, deltaY: number) => boolean
@@ -44,6 +45,7 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
   function handlePageTouchStart(event: TouchEvent) {
     if (
       options.isFeedRoute.value ||
+      !options.hasRefreshPage() ||
       event.touches.length !== 1 ||
       options.pullRefresh.refreshing.value ||
       options.currentContentScrollTop() > 0 ||
@@ -60,6 +62,7 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
   function handlePageTouchMove(event: TouchEvent) {
     if (
       options.isFeedRoute.value ||
+      !options.hasRefreshPage() ||
       event.touches.length !== 1 ||
       options.currentContentScrollTop() > 0 ||
       (!options.pullRefresh.gestureCandidate.value && !options.pullRefresh.gestureTracking.value)
@@ -97,7 +100,7 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
       options.finishFeedTopPull()
       options.setTopChromeVisible(true)
       options.settlePullOffset()
-      if (shouldRefresh) {
+      if (shouldRefresh && options.hasRefreshPage()) {
         void options.refreshCurrentPageFromPull()
       }
     } else if (options.pullRefresh.gestureCandidate.value) {
