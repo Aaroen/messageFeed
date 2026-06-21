@@ -12,14 +12,9 @@ import {
   type FeedSourceKind,
   type ReaderSessionSnapshot,
   type ReaderSource,
-  useReaderSession,
 } from '@/composables/useReaderSession'
 import { useReaderStackState } from '@/composables/useReaderStackState'
-import {
-  browserRouteFullPath,
-  readerRouteMatchesCurrent,
-  useReaderRouteSync,
-} from '@/composables/useReaderRouteSync'
+import { useReaderRouteSync } from '@/composables/useReaderRouteSync'
 import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
@@ -83,6 +78,7 @@ import { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
 import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitionRects'
 import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
 import { useAppReaderSourceSubscription } from '@/composables/useAppReaderSourceSubscription'
+import { useAppReaderSession } from '@/composables/useAppReaderSession'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -360,14 +356,9 @@ const appReaderSessionSnapshots = useAppReaderSessionSnapshots({
 })
 const readerSessionSnapshot = appReaderSessionSnapshots.readerSessionSnapshot
 const applyReaderSessionSnapshot = appReaderSessionSnapshots.applyReaderSessionSnapshot
-const readerSession = useReaderSession<ReaderSessionSnapshot>({
-  storageKey: 'messagefeed-reader-session-v1',
-  maxAgeMS: 24 * 60 * 60 * 1000,
-  saveDelayMS: 80,
+const readerSession = useAppReaderSession({
   createSnapshot: readerSessionSnapshot,
   getCurrentRouteFullPath: () => route.fullPath,
-  matchesCurrentRoute: (snapshotRouteFullPath) =>
-    readerRouteMatchesCurrent([route.fullPath, browserRouteFullPath()], snapshotRouteFullPath),
   restoreSnapshot: applyReaderSessionSnapshot,
   afterRestore: scheduleReaderURLAndHistorySync,
 })
