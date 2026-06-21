@@ -185,11 +185,11 @@ const {
   resetReaderBackSwipeTargetState,
   setReaderBackSwipeTargetState,
   applyReaderBackSwipeIntentState,
-  readerBackSwipeTransitionProgress,
   applyReaderBackSwipeVisualActionState,
   readerBackSwipeFinishResult,
   readerBackSwipeCancelAction,
-  readerBackSwipeTransitionSurfaces,
+  readerBackSwipeTransitionBeginPayload,
+  readerBackSwipeTransitionUpdatePayload,
   beginReaderBackSwipeDragState,
   detailBlocksGestures,
 } = useReaderStackState()
@@ -1976,29 +1976,19 @@ function syncViewSwipeTransition(offset: number) {
 }
 
 function beginBackSwipeTransition(deltaX: number) {
-  const surfaces = readerBackSwipeTransitionSurfaces({
+  const payload = readerBackSwipeTransitionBeginPayload(deltaX, {
     activeFeedSurface: feedPagerTransition.activeSurface.value,
     pageReturnSurface: 'feed:recommendations',
   })
-  swipeTransition.begin({
-    from: surfaces.from,
-    to: surfaces.to,
-    direction: deltaX < 0 ? 'left' : 'right',
-    isBlocked: surfaces.isBlocked,
-  })
+  swipeTransition.begin(payload)
 }
 
 function syncBackSwipeTransition(deltaX: number) {
-  const surfaces = readerBackSwipeTransitionSurfaces({
+  const payload = readerBackSwipeTransitionUpdatePayload(deltaX, pageSideStretch.value, {
     activeFeedSurface: feedPagerTransition.activeSurface.value,
     pageReturnSurface: 'feed:recommendations',
   })
-  swipeTransition.update({
-    to: surfaces.to,
-    direction: deltaX < 0 ? 'left' : 'right',
-    progress: readerBackSwipeTransitionProgress(pageSideStretch.value),
-    isBlocked: surfaces.isBlocked,
-  })
+  swipeTransition.update(payload)
 }
 
 function isBackHorizontalSwipe(deltaX: number, deltaY: number) {

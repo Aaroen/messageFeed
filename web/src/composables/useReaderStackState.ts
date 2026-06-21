@@ -1698,6 +1698,39 @@ export function useReaderStackState() {
     }
   }
 
+  function readerBackSwipeTransitionBeginPayload<TSurface extends string>(
+    deltaX: number,
+    surfaces: {
+      activeFeedSurface: TSurface
+      pageReturnSurface: TSurface
+    },
+  ) {
+    const transitionSurfaces = readerBackSwipeTransitionSurfaces(surfaces)
+    return {
+      from: transitionSurfaces.from,
+      to: transitionSurfaces.to,
+      direction: deltaX < 0 ? ('left' as const) : ('right' as const),
+      isBlocked: transitionSurfaces.isBlocked,
+    }
+  }
+
+  function readerBackSwipeTransitionUpdatePayload<TSurface extends string>(
+    deltaX: number,
+    fallbackStretch: number,
+    surfaces: {
+      activeFeedSurface: TSurface
+      pageReturnSurface: TSurface
+    },
+  ) {
+    const transitionSurfaces = readerBackSwipeTransitionSurfaces(surfaces)
+    return {
+      to: transitionSurfaces.to,
+      direction: deltaX < 0 ? ('left' as const) : ('right' as const),
+      progress: readerBackSwipeTransitionProgress(fallbackStretch),
+      isBlocked: transitionSurfaces.isBlocked,
+    }
+  }
+
   function beginReaderBackSwipeTrackingState() {
     detailEntrySettling.value = false
     sourceReturnTargetReady.value = false
@@ -1942,11 +1975,11 @@ export function useReaderStackState() {
     resetReaderBackSwipeTargetState,
     setReaderBackSwipeTargetState,
     applyReaderBackSwipeIntentState,
-    readerBackSwipeTransitionProgress,
     applyReaderBackSwipeVisualActionState,
     readerBackSwipeFinishResult,
     readerBackSwipeCancelAction,
-    readerBackSwipeTransitionSurfaces,
+    readerBackSwipeTransitionBeginPayload,
+    readerBackSwipeTransitionUpdatePayload,
     beginReaderBackSwipeDragState,
     detailBlocksGestures,
   }
