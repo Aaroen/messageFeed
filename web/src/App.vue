@@ -173,7 +173,6 @@ const {
   updateDetailScrollTopState,
   updateDetailFrameContentHeightState,
   setDetailProgressDraggingState,
-  clearSourceReturnTargetReadyState,
   closeItemReaderWithTransition,
   collapseItemReaderWithDelay,
   restoreItemReaderExpansionWithDelay,
@@ -182,8 +181,8 @@ const {
   restoreParkedSourceReaderWithDelay,
   restoreDetailFromParkedSourceWithDelay,
   resetReaderBackSwipeState,
-  resetReaderBackSwipeTargetState,
-  setReaderBackSwipeTargetState,
+  resetReaderBackSwipeCandidateState,
+  beginReaderBackSwipeCandidateState,
   applyReaderBackSwipeIntentState,
   applyReaderBackSwipeVisualActionState,
   readerBackSwipeFinishResult,
@@ -1113,8 +1112,7 @@ function resetGestureTracking() {
   trackingViewSwipe = false
   trackingBackSwipe = false
   navigationDragStarted = false
-  resetReaderBackSwipeTargetState()
-  clearSourceReturnTargetReadyState()
+  resetReaderBackSwipeCandidateState()
 }
 
 function isInteractiveTarget(target: EventTarget | null) {
@@ -2068,7 +2066,7 @@ function beginDetailGestureCandidate(startX: number, startY: number) {
   touchStartY = startY
   trackingBackSwipeCandidate = true
   trackingBackSwipe = false
-  setReaderBackSwipeTargetState('detail')
+  beginReaderBackSwipeCandidateState('detail')
   if (sourceTimelinePreloadEnabled.value) {
     prepareDetailSourceReaderPreload()
   }
@@ -2276,12 +2274,12 @@ function handleTouchStart(event: TouchEvent) {
   }
   if (sourceReaderOpen.value) {
     trackingBackSwipeCandidate = true
-    setReaderBackSwipeTargetState('source')
+    beginReaderBackSwipeCandidateState('source')
     return
   }
   if (!isFeedRoute.value && !navigationVisible.value) {
     trackingBackSwipeCandidate = true
-    setReaderBackSwipeTargetState('page')
+    beginReaderBackSwipeCandidateState('page')
   }
 
   trackingEdgeSwipeCandidate = canStartNavigationOpen(touchStartX)

@@ -1429,8 +1429,17 @@ export function useReaderStackState() {
     backSwipeIntent.value = null
   }
 
+  function resetReaderBackSwipeCandidateState() {
+    resetReaderBackSwipeTargetState()
+    clearSourceReturnTargetReadyState()
+  }
+
   function setReaderBackSwipeTargetState(target: ReaderBackSwipeTarget) {
     backSwipeTarget.value = target
+  }
+
+  function beginReaderBackSwipeCandidateState(target: Exclude<ReaderBackSwipeTarget, null>) {
+    setReaderBackSwipeTargetState(target)
   }
 
   function setReaderBackSwipeIntentState(intent: ReaderBackSwipeIntent) {
@@ -1972,7 +1981,6 @@ export function useReaderStackState() {
     updateDetailScrollTopState,
     updateDetailFrameContentHeightState,
     setDetailProgressDraggingState,
-    clearSourceReturnTargetReadyState,
     closeItemReaderWithTransition,
     collapseItemReaderWithDelay,
     restoreItemReaderExpansionWithDelay,
@@ -1981,8 +1989,8 @@ export function useReaderStackState() {
     restoreParkedSourceReaderWithDelay,
     restoreDetailFromParkedSourceWithDelay,
     resetReaderBackSwipeState,
-    resetReaderBackSwipeTargetState,
-    setReaderBackSwipeTargetState,
+    resetReaderBackSwipeCandidateState,
+    beginReaderBackSwipeCandidateState,
     applyReaderBackSwipeIntentState,
     applyReaderBackSwipeVisualActionState,
     readerBackSwipeFinishResult,
