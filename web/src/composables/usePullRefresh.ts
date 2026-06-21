@@ -101,7 +101,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   }
 
   function setGestureOffset(nextOffset: number) {
-    clearSettleTimer()
+    clearTimers()
     settling.value = false
     setOffset(nextOffset)
   }
@@ -142,7 +142,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     settling.value = nextSettling
   }
 
-  function clearSettleTimer() {
+  function clearTimers() {
     if (typeof window !== 'undefined') {
       window.clearTimeout(settleTimer)
       window.clearTimeout(releaseTimer)
@@ -150,7 +150,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   }
 
   function settleOffset(delayMS: number) {
-    clearSettleTimer()
+    clearTimers()
     settling.value = true
     offset.value = 0
     settleTimer = window.setTimeout(() => {
@@ -159,7 +159,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   }
 
   function settleRefreshCompletion(options: PullRefreshSettleCompletionOptions) {
-    clearSettleTimer()
+    clearTimers()
     dragging.value = false
     settling.value = true
     releaseTimer = window.setTimeout(() => {
@@ -224,7 +224,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     finishRefreshing,
     resetMotion,
     finishBackgroundRefresh,
-    clearSettleTimer,
+    clearTimers,
     settleOffset,
     settleRefreshCompletion,
     reset,

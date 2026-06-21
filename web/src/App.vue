@@ -3084,7 +3084,7 @@ onUnmounted(() => {
   refreshCompletion.clearTimer()
   chromeState.clearSettlingTimer()
   sourceContentMotion.clearTimer()
-  pagePullRefresh.clearSettleTimer()
+  pagePullRefresh.clearTimers()
   clickSuppression.clearTimer()
   clearSourceNoticeTimer()
   clearReaderStackTimers()

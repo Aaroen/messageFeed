@@ -697,7 +697,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  pullRefresh.clearSettleTimer()
+  pullRefresh.clearTimers()
   window.clearTimeout(loadMoreSyncTimer)
   window.clearTimeout(feedNoticeTimer)
   stopLoadMoreObserver()
@@ -764,7 +764,7 @@ watch(
       clearPullState()
       return
     }
-    pullRefresh.clearSettleTimer()
+    pullRefresh.clearTimers()
     setPullState({
       offset: pullOffset.value,
       active: pullActive.value,
