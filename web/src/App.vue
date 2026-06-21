@@ -210,6 +210,10 @@ const {
   scrollDetailContentTo: scrollDetailContentElementTo,
   setSourceTimelinePreloadEnabledState,
   clearReaderStretchAnchorsIfIdle,
+  setSourceCatalogEntryState,
+  setSourceSubscriptionState,
+  setSourceSubscriptionLoadingState,
+  setSourceNoticeState,
 } = useReaderStackState()
 const {
   sourceToggleLabel,
@@ -225,6 +229,10 @@ const {
   sourceSubscriptionLoading,
   sourceNotice,
   getReaderSource: () => readerSource.value,
+  setSourceCatalogEntry: setSourceCatalogEntryState,
+  setSourceSubscription: setSourceSubscriptionState,
+  setSourceSubscriptionLoading: setSourceSubscriptionLoadingState,
+  setSourceNotice: setSourceNoticeState,
 })
 const feedScrollTop = ref(0)
 const chromeState = useChromeState()

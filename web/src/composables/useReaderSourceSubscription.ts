@@ -28,6 +28,10 @@ type ReaderSourceSubscriptionOptions = {
   sourceSubscriptionLoading: Ref<boolean>
   sourceNotice: Ref<SourceNotice | null>
   getReaderSource: () => ReaderSource | null
+  setSourceCatalogEntry: (entry: SourceCatalogEntry | null) => void
+  setSourceSubscription: (source: Source | null) => void
+  setSourceSubscriptionLoading: (loading: boolean) => void
+  setSourceNotice: (notice: SourceNotice | null) => void
 }
 
 export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
@@ -52,24 +56,24 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     const normalized = message.trim()
     if (!normalized) {
       clearNoticeTimer()
-      options.sourceNotice.value = null
+      options.setSourceNotice(null)
       return
     }
-    options.sourceNotice.value = { type, message: normalized }
+    options.setSourceNotice({ type, message: normalized })
     clearNoticeTimer()
     const duration = durationMS ?? (type === 'success' ? 1000 : 3000)
     if (duration > 0 && typeof window !== 'undefined') {
       sourceNoticeTimer = window.setTimeout(() => {
-        options.sourceNotice.value = null
+        options.setSourceNotice(null)
       }, duration)
     }
   }
 
   function resetSourceSubscriptionState() {
     clearNoticeTimer()
-    options.sourceCatalogEntry.value = null
-    options.sourceSubscription.value = null
-    options.sourceNotice.value = null
+    options.setSourceCatalogEntry(null)
+    options.setSourceSubscription(null)
+    options.setSourceNotice(null)
   }
 
   async function fetchNow(source: Source): Promise<FetchNowResult> {
@@ -83,7 +87,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
   }
 
   async function loadSourceReaderSubscription(source: ReaderSource) {
-    options.sourceSubscriptionLoading.value = true
+    options.setSourceSubscriptionLoading(true)
     try {
       const [sources, catalogResult] = await Promise.all([
         listSources(),
@@ -98,12 +102,12 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
         ? sources.find((item) => item.id === catalogEntry.source_id)
         : undefined
 
-      options.sourceCatalogEntry.value = catalogEntry ?? null
-      options.sourceSubscription.value = directSource ?? catalogSource ?? null
+      options.setSourceCatalogEntry(catalogEntry ?? null)
+      options.setSourceSubscription(directSource ?? catalogSource ?? null)
     } catch (err) {
       showSourceNotice('warning', `加载失败：来源状态未同步。详细原因：${formatAPIError(err)}`)
     } finally {
-      options.sourceSubscriptionLoading.value = false
+      options.setSourceSubscriptionLoading(false)
     }
   }
 
@@ -113,12 +117,12 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
       return
     }
 
-    options.sourceSubscriptionLoading.value = true
+    options.setSourceSubscriptionLoading(true)
     try {
       if (options.sourceSubscription.value) {
         const nextStatus = options.sourceSubscription.value.status === 'active' ? 'inactive' : 'active'
         const updated = await updateSourceStatus(options.sourceSubscription.value.id, nextStatus)
-        options.sourceSubscription.value = updated
+        options.setSourceSubscription(updated)
         let fetchResult: FetchNowResult = { success: true }
         if (updated.status === 'active') {
           fetchResult = await fetchNow(updated)
@@ -144,7 +148,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
       const imported = result.sources[0]
       let fetchResult: FetchNowResult = { success: true }
       if (imported) {
-        options.sourceSubscription.value = imported
+        options.setSourceSubscription(imported)
         fetchResult = await fetchNow(imported)
       }
       if (!fetchResult.success) {
@@ -161,7 +165,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     } catch (err) {
       showSourceNotice('warning', `操作失败：来源订阅状态未更新。详细原因：${formatAPIError(err)}`)
     } finally {
-      options.sourceSubscriptionLoading.value = false
+      options.setSourceSubscriptionLoading(false)
     }
   }
 

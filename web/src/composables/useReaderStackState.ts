@@ -2020,6 +2020,22 @@ export function useReaderStackState() {
     }
   }
 
+  function setSourceCatalogEntryState(entry: SourceCatalogEntry | null) {
+    sourceCatalogEntry.value = entry
+  }
+
+  function setSourceSubscriptionState(source: Source | null) {
+    sourceSubscription.value = source
+  }
+
+  function setSourceSubscriptionLoadingState(loading: boolean) {
+    sourceSubscriptionLoading.value = loading
+  }
+
+  function setSourceNoticeState(notice: { type: 'success' | 'warning'; message: string } | null) {
+    sourceNotice.value = notice
+  }
+
   return {
     sourceReaderContentRef,
     detailContentRef,
@@ -2171,5 +2187,9 @@ export function useReaderStackState() {
     scrollDetailContentTo,
     setSourceTimelinePreloadEnabledState,
     clearReaderStretchAnchorsIfIdle,
+    setSourceCatalogEntryState,
+    setSourceSubscriptionState,
+    setSourceSubscriptionLoadingState,
+    setSourceNoticeState,
   }
 }
