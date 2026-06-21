@@ -122,6 +122,8 @@ const {
   detailReaderOpen,
   sourceReaderUnderDetail,
   sourceReaderRevealProgress,
+  sourceNameMorphProgress,
+  detailSurfaceProgress,
   detailParkedBehindSource,
   detailChromeVisible,
   detailCommittedListReturn,
@@ -511,13 +513,8 @@ const detailReaderStyle = computed(() => ({
   '--detail-overlay-opacity':
     sourceReaderBlockedBackSwipeActive.value || detailCommittedListReturn() || detailReturningToFeed.value
     ? '0'
-    : clamp(
-        detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value)),
-      ).toFixed(3),
+    : detailSurfaceProgress.value.toFixed(3),
 }))
-const detailSurfaceProgress = computed(() =>
-  clamp(detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value))),
-)
 const feedItemPreviewProgress = computed(() => {
   if (
     sourceReaderVisible.value &&
@@ -743,9 +740,6 @@ const detailMorphSourceLabelStyle = computed(() => {
     transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) ease, filter var(--motion-short) ease',
   }
 })
-const sourceNameMorphProgress = computed(() =>
-  clamp(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
-)
 const sourceNameTransitionActive = computed(
   () =>
     Boolean(detailItem.value) &&

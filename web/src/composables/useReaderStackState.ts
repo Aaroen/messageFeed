@@ -261,6 +261,10 @@ export function useReaderStackState() {
   const sourceReaderRevealProgress = computed(() =>
     clampProgress(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
   )
+  const sourceNameMorphProgress = sourceReaderRevealProgress
+  const detailSurfaceProgress = computed(() =>
+    clampProgress(detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value))),
+  )
   const detailParkedBehindSource = computed(() => hasDetailParkedBehindSource() && !readerBackDragging.value)
   const detailChromeVisible = computed(
     () =>
@@ -1404,6 +1408,8 @@ export function useReaderStackState() {
     detailReaderOpen,
     sourceReaderUnderDetail,
     sourceReaderRevealProgress,
+    sourceNameMorphProgress,
+    detailSurfaceProgress,
     detailParkedBehindSource,
     detailChromeVisible,
     detailCommittedListReturn,
