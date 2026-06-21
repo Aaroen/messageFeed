@@ -72,6 +72,7 @@ import { usePagePullGestureHandlers } from '@/composables/usePagePullGestureHand
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useTopChromeScrollBehavior } from '@/composables/useTopChromeScrollBehavior'
 import { useFeedTopPullHandlers } from '@/composables/useFeedTopPullHandlers'
+import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1264,10 +1265,6 @@ function showTopChromeForSourceReturn() {
   }
 }
 
-function settleSourceContentAfterRefresh() {
-  sourceContentMotion.settleAfterRefresh(topChromeSettleDuration)
-}
-
 function prepareSourceReaderReturnDrag() {
   const ready = prepareSourceReaderReturnDragState({
     onDetailScrollTop: rememberDetailScrollTop,
@@ -2074,37 +2071,20 @@ watch(
   },
 )
 
-watch(
-  () => feedInteraction.pullRefreshing,
-  (refreshing) => {
-    if (refreshing) {
-      refreshCompletion.begin({
-        viewKey: feedInteraction.pullViewKey,
-        startedWithVisibleChrome: feedTopPullStartedWithChrome.value,
-      })
-    }
-  },
-)
-
-watch(
+useFeedRefreshCompletionWatcher({
+  pullRefreshing: () => feedInteraction.pullRefreshing,
+  pullViewKey: () => feedInteraction.pullViewKey,
   feedOrSourcePullActive,
-  (active) => {
-    if (!active && refreshCompletion.wasActive.value) {
-      const refreshResult = refreshCompletion.finish(motionDelay(topChromeSettleDuration))
-      const shouldSettleSourceContent = refreshResult.wasSource
-      if (shouldSettleSourceContent) {
-        settleSourceContentAfterRefresh()
-      }
-      feedTopPull.resetStartedWithChrome()
-      chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
-    }
-
-    if (!active && !refreshCompletion.wasActive.value) {
-      refreshCompletion.resetInactive()
-      feedTopPull.resetStartedWithChrome()
-    }
+  refreshCompletion,
+  topPull: feedTopPull,
+  settleDelayMS: () => motionDelay(topChromeSettleDuration),
+  settleSourceContentAfterRefresh: () => {
+    sourceContentMotion.settleAfterRefresh(topChromeSettleDuration)
   },
-)
+  collapseTopChrome: () => {
+    chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
+  },
+})
 
 onMounted(() => {
   loadReaderSettings()
