@@ -208,6 +208,7 @@ const {
   setDetailFrameElement: setDetailFrameElementState,
   scrollSourceReaderContentTo: scrollSourceReaderContentElementTo,
   scrollDetailContentTo: scrollDetailContentElementTo,
+  setSourceTimelinePreloadEnabledState,
 } = useReaderStackState()
 const {
   sourceToggleLabel,
@@ -2403,13 +2404,13 @@ function handleMessage(event: MessageEvent) {
 }
 
 function loadReaderSettings() {
-  sourceTimelinePreloadEnabled.value = localStorage.getItem('messagefeed-source-preload') !== 'false'
+  setSourceTimelinePreloadEnabledState(localStorage.getItem('messagefeed-source-preload') !== 'false')
 }
 
 function handleReaderSettingsChanged(event: Event) {
   const detail = (event as CustomEvent<{ sourceTimelinePreload?: boolean }>).detail
   if (typeof detail?.sourceTimelinePreload === 'boolean') {
-    sourceTimelinePreloadEnabled.value = detail.sourceTimelinePreload
+    setSourceTimelinePreloadEnabledState(detail.sourceTimelinePreload)
   } else {
     loadReaderSettings()
   }

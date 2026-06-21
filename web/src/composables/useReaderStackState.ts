@@ -2007,6 +2007,10 @@ export function useReaderStackState() {
     return true
   }
 
+  function setSourceTimelinePreloadEnabledState(enabled: boolean) {
+    sourceTimelinePreloadEnabled.value = enabled
+  }
+
   return {
     sourceReaderContentRef,
     detailContentRef,
@@ -2156,5 +2160,6 @@ export function useReaderStackState() {
     setDetailFrameElement,
     scrollSourceReaderContentTo,
     scrollDetailContentTo,
+    setSourceTimelinePreloadEnabledState,
   }
 }
