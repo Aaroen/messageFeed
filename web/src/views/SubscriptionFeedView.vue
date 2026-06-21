@@ -62,6 +62,7 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
 const feedNotice = ref<FeedNotice | null>(null)
+const backgroundRefreshing = ref(false)
 const lastUpdatedAt = ref('')
 const totalCount = ref(0)
 const nextOffset = ref(0)
@@ -95,6 +96,7 @@ let loadMoreSyncToken = 0
 let feedNoticeTimer = 0
 let feedNoticeTimerToken = 0
 let loadRequestToken = 0
+let backgroundRefreshRequestToken = 0
 let disposed = false
 let loadMoreObserver: IntersectionObserver | null = null
 
@@ -328,6 +330,7 @@ function nextLoadRequestToken() {
 
 function invalidateLoadRequests() {
   loadRequestToken += 1
+  clearBackgroundRefresh()
 }
 
 function loadRequestIsCurrent(token: number, requestViewKey: string) {
@@ -335,7 +338,7 @@ function loadRequestIsCurrent(token: number, requestViewKey: string) {
 }
 
 function refreshStaleCacheInBackground() {
-  if (!props.active || loading.value || refreshing.value || loadingMore.value) {
+  if (!props.active || loading.value || refreshing.value || loadingMore.value || backgroundRefreshing.value) {
     return
   }
   const entry = feedListCache.get(viewKey.value)
@@ -343,6 +346,19 @@ function refreshStaleCacheInBackground() {
     return
   }
   void loadItems({ refresh: true, background: true })
+}
+
+function beginBackgroundRefresh(token: number) {
+  backgroundRefreshRequestToken = token
+  backgroundRefreshing.value = true
+}
+
+function clearBackgroundRefresh(token?: number) {
+  if (token !== undefined && backgroundRefreshRequestToken !== token) {
+    return
+  }
+  backgroundRefreshRequestToken = 0
+  backgroundRefreshing.value = false
 }
 
 function handleVisibilityRefresh() {
@@ -473,11 +489,22 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   const isAppend = Boolean(options.append)
   const isBackground = Boolean(options.background)
   const isBackgroundRefresh = isBackground || props.backgroundRefresh
-  if (loading.value || refreshing.value || loadingMore.value || (isAppend && !canLoadMore.value)) {
+  if (
+    loading.value ||
+    refreshing.value ||
+    loadingMore.value ||
+    (isBackgroundRefresh && backgroundRefreshing.value) ||
+    (isAppend && !canLoadMore.value)
+  ) {
     return
   }
   const requestViewKey = viewKey.value
   const requestToken = nextLoadRequestToken()
+  if (isBackgroundRefresh) {
+    beginBackgroundRefresh(requestToken)
+  } else {
+    clearBackgroundRefresh()
+  }
   const releaseRefreshLayoutFreeze =
     isRefresh && !isBackgroundRefresh ? refreshLayoutFreeze.capture() : undefined
   error.value = ''
@@ -561,6 +588,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       error.value = `加载失败：${message}`
     }
   } finally {
+    if (isBackgroundRefresh) {
+      clearBackgroundRefresh(requestToken)
+    }
     if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
       releaseRefreshLayoutFreeze?.()
       return
