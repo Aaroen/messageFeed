@@ -2728,8 +2728,7 @@ function handleFeedTopPullStart(startedWithVisibleChrome = false) {
 
   feedTopPulling.value = true
   feedTopPullStartedWithChrome.value = startedWithVisibleChrome || feedTopChromeIsVisiblyOpen.value
-  setChromeSettling(false, 'refreshing')
-  chromeState.clearSettlingTimer()
+  chromeState.beginRefreshing()
   topPullStartProgress = topChromeProgress.value
 }
 
@@ -2747,12 +2746,11 @@ function handleFeedTopPullMove(distance: number) {
   }
 
   if (feedTopPullStartedWithChrome.value) {
-    setChromeProgress(1, 'refreshing')
-    setChromeContentCollapsed(false)
+    chromeState.setRefreshingProgress(1, { contentCollapsed: false })
     return
   }
 
-  setChromeProgress(clamp(topPullStartProgress - distance / feedHeaderHeight.value), 'refreshing')
+  chromeState.setRefreshingProgress(clamp(topPullStartProgress - distance / feedHeaderHeight.value))
 }
 
 function handleFeedTopPullEnd(shouldRefresh = false) {
@@ -2768,7 +2766,7 @@ function handleFeedTopPullEnd(shouldRefresh = false) {
     refreshStartedWithChrome.value = startedWithChrome
     setChromeContentCollapsed(!startedWithChrome)
     if (startedWithChrome) {
-      setChromeProgress(1, 'refreshing')
+      chromeState.setRefreshingProgress(1)
     }
     return
   }

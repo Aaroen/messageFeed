@@ -12,6 +12,10 @@ type SetChromeVisibleOptions = {
   settleDelayMS?: number
 }
 
+type SetChromeRefreshingProgressOptions = {
+  contentCollapsed?: boolean
+}
+
 function clampProgress(value: number) {
   if (!Number.isFinite(value)) {
     return 0
@@ -113,6 +117,19 @@ export function useChromeState() {
     settling.value = false
   }
 
+  function beginRefreshing() {
+    clearSettlingTimer()
+    settling.value = false
+    phase.value = 'refreshing'
+  }
+
+  function setRefreshingProgress(nextProgress: number, options: SetChromeRefreshingProgressOptions = {}) {
+    setProgress(nextProgress, 'refreshing')
+    if (options.contentCollapsed !== undefined) {
+      setContentCollapsed(options.contentCollapsed)
+    }
+  }
+
   return {
     progress,
     phase,
@@ -124,6 +141,8 @@ export function useChromeState() {
     setSettling,
     setVisible,
     setStableVisible,
+    beginRefreshing,
+    setRefreshingProgress,
     clearSettlingTimer,
     scheduleSettlingEnd,
   }
