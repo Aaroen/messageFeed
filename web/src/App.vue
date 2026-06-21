@@ -86,6 +86,7 @@ import { useReaderSourceCloseAction } from '@/composables/useReaderSourceCloseAc
 import { useReaderItemOpenAction } from '@/composables/useReaderItemOpenAction'
 import { useReaderItemCloseAction } from '@/composables/useReaderItemCloseAction'
 import { useReaderRestoreActions } from '@/composables/useReaderRestoreActions'
+import { useReaderParkedDetailRestoreAction } from '@/composables/useReaderParkedDetailRestoreAction'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards'
@@ -897,6 +898,21 @@ const readerItemOpenAction = useReaderItemOpenAction({
 })
 const openItemReader = readerItemOpenAction.openItemReader
 
+const readerParkedDetailRestoreAction = useReaderParkedDetailRestoreAction({
+  detailReaderOpen,
+  readerDuration: motionReaderDuration,
+  resolveDelay: motionDelay,
+  closeSourceReader: () => closeSourceReader(),
+  suppressFollowingClick,
+  restoreDetailFromParkedSourceWithDelay,
+  clearMorphingHeightUnlockTimer,
+  captureVisibleSourceReturnTarget,
+  setTopChromeVisible,
+  restoreMorphingItemContent,
+  scheduleHiddenSourceReaderCleanup,
+})
+const restoreDetailFromParkedSource = readerParkedDetailRestoreAction.restoreDetailFromParkedSource
+
 const readerSourceCloseAction = useReaderSourceCloseAction({
   sourceReaderOpen,
   detailReaderOpen,
@@ -964,28 +980,6 @@ const restoreParkedSourceReader = readerRestoreActions.restoreParkedSourceReader
 const restoreItemReaderExpansion = readerRestoreActions.restoreItemReaderExpansion
 const restoreDetailFromSourceSwipe = readerRestoreActions.restoreDetailFromSourceSwipe
 const completeDetailToSourceReader = readerRestoreActions.completeDetailToSourceReader
-
-function restoreDetailFromParkedSource(duration = motionReaderDuration) {
-  if (!detailReaderOpen.value) {
-    closeSourceReader()
-    return
-  }
-
-  suppressFollowingClick()
-  restoreDetailFromParkedSourceWithDelay(motionDelay(duration), {
-    beforeBegin: () => {
-      clearMorphingHeightUnlockTimer()
-      captureVisibleSourceReturnTarget()
-    },
-    afterBegin: () => {
-      setTopChromeVisible(true)
-    },
-    afterFinish: () => {
-      restoreMorphingItemContent()
-      scheduleHiddenSourceReaderCleanup()
-    },
-  })
-}
 
 const appGestureStartGuards = useAppGestureStartGuards({
   isFeedRoute,
