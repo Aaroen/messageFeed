@@ -578,7 +578,8 @@ function handleTouchStart(event: TouchEvent) {
     props.scrollTop > 0 ||
     event.touches.length !== 1 ||
     loading.value ||
-    refreshing.value
+    refreshing.value ||
+    loadingMore.value
   ) {
     pullRefresh.cancelGesture()
     return
