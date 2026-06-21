@@ -103,6 +103,7 @@ const loadMoreTriggerIndex = computed(() => Math.max(items.value.length - 3, 0))
 const isRecommendations = computed(() => props.mode === 'recommendations')
 const isSourceMode = computed(() => props.mode === 'source')
 const usesGlobalPullState = computed(() => !props.backgroundRefresh)
+const shouldRefreshVisibleSource = computed(() => isSourceMode.value && !props.backgroundRefresh)
 const effectiveSourceKind = computed<SourceKind>(() => {
   if (isSourceMode.value) {
     return props.sourceKind
@@ -290,6 +291,10 @@ function loadInitialItems() {
   }
   if (!restored) {
     void loadItems({ refresh: isSourceMode.value })
+    return
+  }
+  if (shouldRefreshVisibleSource.value) {
+    void loadItems({ refresh: true })
     return
   }
   if (shouldRefreshCache(restored)) {
@@ -682,6 +687,10 @@ watch(
     const restored = hasItems.value ? feedListCache.get(viewKey.value) : restoreItemsFromCache()
     if (!hasItems.value && !loading.value) {
       void loadItems({ refresh: isSourceMode.value })
+      return
+    }
+    if (shouldRefreshVisibleSource.value) {
+      void loadItems({ refresh: true })
       return
     }
     if (shouldRefreshCache(restored)) {
