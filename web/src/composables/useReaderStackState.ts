@@ -1428,6 +1428,10 @@ export function useReaderStackState() {
     sourceReturnTargetReady.value = false
   }
 
+  function resetReaderBackSwipeDragState() {
+    resetReaderBackSwipeState()
+  }
+
   function resetReaderBackSwipeTargetState() {
     backSwipeTarget.value = null
     backSwipeIntent.value = null
@@ -2014,7 +2018,7 @@ export function useReaderStackState() {
     completeDetailToSourceReaderWithDelay,
     restoreParkedSourceReaderWithDelay,
     restoreDetailFromParkedSourceWithDelay,
-    resetReaderBackSwipeState,
+    resetReaderBackSwipeDragState,
     resetReaderBackSwipeCandidateState,
     beginReaderBackSwipeCandidateState,
     updateReaderBackSwipeDragState,

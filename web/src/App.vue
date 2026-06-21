@@ -180,7 +180,7 @@ const {
   completeDetailToSourceReaderWithDelay,
   restoreParkedSourceReaderWithDelay,
   restoreDetailFromParkedSourceWithDelay,
-  resetReaderBackSwipeState,
+  resetReaderBackSwipeDragState,
   resetReaderBackSwipeCandidateState,
   beginReaderBackSwipeCandidateState,
   updateReaderBackSwipeDragState,
@@ -2039,7 +2039,7 @@ function backSwipeVisualOffset(deltaX: number) {
 }
 
 function resetBackSwipeOffset() {
-  resetReaderBackSwipeState()
+  resetReaderBackSwipeDragState()
   pageContentMotion.resetSideMotion()
   clearStretchAnchors()
 }
