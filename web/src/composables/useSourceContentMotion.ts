@@ -3,6 +3,7 @@ import { computed, ref, type Ref } from 'vue'
 type SourceContentMotionOptions = {
   headerSpace: Ref<number>
   headerHeight: Ref<number>
+  chromeSettling: Ref<boolean>
   isVisible: () => boolean
   resolveDelay?: (duration: number) => number
 }
@@ -29,7 +30,9 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
       ? 'padding-top var(--motion-chrome) var(--ease-emphasized), transform var(--motion-chrome) var(--ease-emphasized)'
       : settleOffset.value > 0
         ? 'none'
-        : undefined,
+        : options.chromeSettling.value
+          ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
+          : undefined,
   }))
 
   function delay(duration: number) {

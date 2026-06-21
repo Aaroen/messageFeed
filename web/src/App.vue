@@ -579,6 +579,7 @@ const readerMotionState = useAppReaderMotionState({
   },
   sourceContent: {
     headerHeight: feedHeaderHeight,
+    chromeSettling: computed(() => feedChromeSettling.value && !readerBackDragging.value),
     isVisible: () => sourceReaderVisible.value,
     resolveDelay: motionDelay,
   },
