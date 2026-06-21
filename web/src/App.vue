@@ -68,6 +68,7 @@ import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
+import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 
 type SwipeSurface =
@@ -423,27 +424,21 @@ const appShellMotion = useAppShellMotion({
   feedContentSpace,
   detailSurfaceProgress,
 })
-const feedTabsVisible = computed(() => isFeedRoute.value && topChromeProgress.value > 0.04)
-const feedChromeHidden = computed(() => isFeedRoute.value && feedHeaderProgress.value <= 0.01 && !feedPullActive.value)
-const feedTabsLayerHidden = computed(() => {
-  if (!isFeedRoute.value || feedPullActive.value) {
-    return true
-  }
-  if (detailReaderOpen.value) {
-    return feedHeaderReturnProgress.value <= 0.001
-  }
-  return !feedTabsVisible.value
+const feedChromeVisibility = useFeedChromeVisibilityState({
+  isFeedRoute,
+  topChromeProgress,
+  feedHeaderProgress,
+  feedPullActive,
+  detailReaderOpen,
+  feedHeaderReturnProgress,
+  sourceReaderOpen,
+  detailChromeVisible,
 })
-const feedCornerHidden = computed(
-  () =>
-    (sourceReaderOpen.value && !detailChromeVisible.value) ||
-    (detailChromeVisible.value && !detailHeaderVisible.value) ||
-    (!detailChromeVisible.value && isFeedRoute.value && (feedPullActive.value || feedHeaderProgress.value <= 0.05)),
-)
-const detailHeaderVisible = computed(() => detailChromeVisible.value && topChromeProgress.value > 0.04)
-const headerDetailLayoutActive = computed(
-  () => detailChromeVisible.value || (detailReaderOpen.value && isFeedRoute.value && feedHeaderReturnProgress.value > 0.001),
-)
+const feedChromeHidden = feedChromeVisibility.feedChromeHidden
+const feedTabsLayerHidden = feedChromeVisibility.feedTabsLayerHidden
+const feedCornerHidden = feedChromeVisibility.feedCornerHidden
+const detailHeaderVisible = feedChromeVisibility.detailHeaderVisible
+const headerDetailLayoutActive = feedChromeVisibility.headerDetailLayoutActive
 const pullStatusText = computed(() => feedInteraction.statusText)
 const pullStatusMeta = computed(() => feedInteraction.statusMeta)
 const pagePullStatus = usePagePullStatus({
