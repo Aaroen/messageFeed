@@ -38,6 +38,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   const gestureTracking = ref(false)
   let settleTimer = 0
   let releaseTimer = 0
+  let timerToken = 0
 
   const progress = computed(() => Math.min(offset.value / threshold, 1))
   const distanceProgress = computed(() => Math.min(distance.value / threshold, 1))
@@ -171,13 +172,19 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     }
     settleTimer = 0
     releaseTimer = 0
+    timerToken += 1
   }
 
   function settleOffset(delayMS: number) {
     clearTimers()
+    const token = timerToken + 1
+    timerToken = token
     settling.value = true
     offset.value = 0
     settleTimer = window.setTimeout(() => {
+      if (token !== timerToken) {
+        return
+      }
       settleTimer = 0
       settling.value = false
     }, Math.max(0, delayMS))
@@ -185,15 +192,23 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
 
   function settleRefreshCompletion(options: PullRefreshSettleCompletionOptions) {
     clearTimers()
+    const token = timerToken + 1
+    timerToken = token
     dragging.value = false
     settling.value = true
     releaseTimer = window.setTimeout(() => {
+      if (token !== timerToken) {
+        return
+      }
       releaseTimer = 0
       setOffset(0)
       finishRefreshingState()
       resetGesture()
       options.afterRelease?.()
       settleTimer = window.setTimeout(() => {
+        if (token !== timerToken) {
+          return
+        }
         settleTimer = 0
         settling.value = false
         options.afterSettled?.()
