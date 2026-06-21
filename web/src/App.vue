@@ -81,6 +81,7 @@ import { useReaderDetailMessageHandler } from '@/composables/useReaderDetailMess
 import { useReaderSourceOpenAction } from '@/composables/useReaderSourceOpenAction'
 import { useReaderSourceCloseAction } from '@/composables/useReaderSourceCloseAction'
 import { useReaderItemOpenAction } from '@/composables/useReaderItemOpenAction'
+import { useReaderItemCloseAction } from '@/composables/useReaderItemCloseAction'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1001,18 +1002,6 @@ function restorePreviousParkedDetail() {
   })
 }
 
-function finishCommittedListReturnForGesture() {
-  if (!detailCommittedListReturn()) {
-    return
-  }
-  if (hasDetailParkedBehindSource()) {
-    return
-  }
-
-  clearDetailEntryTimer()
-  closeItemReader()
-}
-
 const readerSourceOpenAction = useReaderSourceOpenAction({
   openSourceReaderState,
   clearHiddenSourceCleanupTimer,
@@ -1064,6 +1053,27 @@ const readerSourceCloseAction = useReaderSourceCloseAction({
 const restoreSourceReaderBackTarget = readerSourceCloseAction.restoreSourceReaderBackTarget
 const closeSourceReader = readerSourceCloseAction.closeSourceReader
 
+const readerItemCloseAction = useReaderItemCloseAction({
+  detailReaderOpen,
+  isFeedRoute,
+  readerDuration: motionReaderDuration,
+  resolveDelay: motionDelay,
+  detailCommittedListReturn,
+  hasDetailParkedBehindSource,
+  clearDetailEntryTimer,
+  closeItemReaderWithTransition,
+  collapseItemReaderWithDelay,
+  setTopChromeVisible,
+  scheduleHiddenSourceReaderCleanup,
+  suppressFollowingClick,
+  refreshDetailFeedOriginRect,
+  restorePreviousParkedDetail,
+  scheduleReaderURLAndHistorySync,
+})
+const finishCommittedListReturnForGesture = readerItemCloseAction.finishCommittedListReturnForGesture
+const closeItemReader = readerItemCloseAction.closeItemReader
+const collapseItemReader = readerItemCloseAction.collapseItemReader
+
 function restoreDetailFromParkedSource(duration = motionReaderDuration) {
   if (!detailReaderOpen.value) {
     closeSourceReader()
@@ -1090,39 +1100,6 @@ function restoreParkedSourceReader(duration = motionNormalDuration) {
   if (!restoreParkedSourceReaderWithDelay(motionDelay(duration))) {
     resetBackSwipeOffset()
   }
-}
-
-function closeItemReader() {
-  const result = closeItemReaderWithTransition()
-  if (isFeedRoute.value) {
-    setTopChromeVisible(true)
-  }
-  if (result.shouldScheduleHiddenSourceCleanup) {
-    scheduleHiddenSourceReaderCleanup()
-  }
-}
-
-function collapseItemReader(duration = motionReaderDuration) {
-  if (!detailReaderOpen.value) {
-    return
-  }
-
-  suppressFollowingClick()
-  collapseItemReaderWithDelay(motionDelay(duration), {
-    afterBegin: (result) => {
-      if (result.shouldRefreshFeedOrigin) {
-        refreshDetailFeedOriginRect(true)
-      }
-    },
-    afterFinish: (result) => {
-      if (result.shouldRestorePreviousParkedDetail && restorePreviousParkedDetail()) {
-        scheduleReaderURLAndHistorySync(true)
-        return
-      }
-      closeItemReader()
-      scheduleReaderURLAndHistorySync(true)
-    },
-  })
 }
 
 function restoreItemReaderExpansion(duration = motionReaderDuration) {
