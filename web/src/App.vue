@@ -437,7 +437,6 @@ const sourcePullIconStyle = computed(() => ({
   transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(sourcePullProgress.value * 300),
 }))
 const feedTrackStyle = feedPagerTransition.trackStyle
-const viewSwipeProgress = feedPagerTransition.swipeProgress
 const viewSwipeTargetKey = feedPagerTransition.targetKey
 const viewSwipeTargetVisible = feedPagerTransition.targetVisible
 const viewSwipeTargetProgress = feedPagerTransition.targetProgress
@@ -1933,22 +1932,11 @@ function scheduleSwipeTransitionReset(duration = 260) {
 }
 
 function beginViewSwipeTransition(offset: number) {
-  swipeTransition.begin({
-    from: feedPagerTransition.activeSurface.value,
-    to: feedPagerTransition.surfaceFromOffset(offset),
-    direction: offset < 0 ? 'left' : 'right',
-    progress: viewSwipeProgress.value,
-  })
+  swipeTransition.begin(feedPagerTransition.swipeTransitionBeginPayload(offset))
 }
 
 function syncViewSwipeTransition(offset: number) {
-  const targetSurface = feedPagerTransition.surfaceFromOffset(offset)
-  swipeTransition.update({
-    to: targetSurface,
-    direction: offset < 0 ? 'left' : 'right',
-    progress: viewSwipeProgress.value,
-    isBlocked: targetSurface === null,
-  })
+  swipeTransition.update(feedPagerTransition.swipeTransitionUpdatePayload(offset))
 }
 
 function beginBackSwipeTransition(deltaX: number) {

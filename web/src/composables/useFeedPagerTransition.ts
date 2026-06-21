@@ -83,6 +83,29 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     return null
   }
 
+  function directionFromOffset(offset: number) {
+    return offset < 0 ? ('left' as const) : ('right' as const)
+  }
+
+  function swipeTransitionBeginPayload(offset: number) {
+    return {
+      from: activeSurface.value,
+      to: surfaceFromOffset(offset),
+      direction: directionFromOffset(offset),
+      progress: swipeProgress.value,
+    }
+  }
+
+  function swipeTransitionUpdatePayload(offset: number) {
+    const targetSurface = surfaceFromOffset(offset)
+    return {
+      to: targetSurface,
+      direction: directionFromOffset(offset),
+      progress: swipeProgress.value,
+      isBlocked: targetSurface === null,
+    }
+  }
+
   function setDragOffset(nextOffset: number) {
     dragOffset.value = Number.isFinite(nextOffset) ? nextOffset : 0
   }
@@ -156,6 +179,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     isBlockedDragDirection,
     canStartDrag,
     commitPath,
+    swipeTransitionBeginPayload,
+    swipeTransitionUpdatePayload,
     setDragOffset,
     setSettling,
     markStartedWithHiddenChrome,
