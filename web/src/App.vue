@@ -206,6 +206,8 @@ const {
   setDetailContentElement: setDetailContentElementState,
   setDetailInlineSourceElement: setDetailInlineSourceElementState,
   setDetailFrameElement: setDetailFrameElementState,
+  scrollSourceReaderContentTo: scrollSourceReaderContentElementTo,
+  scrollDetailContentTo: scrollDetailContentElementTo,
 } = useReaderStackState()
 const {
   sourceToggleLabel,
@@ -1292,11 +1294,8 @@ function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
     if (feedContentRef.value) {
       feedContentRef.value.scrollTop = snapshot.feedScrollTop
     }
-    if (sourceReaderContentRef.value) {
-      sourceReaderContentRef.value.scrollTop = snapshot.sourceReaderScrollTop
-    }
-    if (detailContentRef.value) {
-      detailContentRef.value.scrollTop = snapshot.detailScrollTop
+    scrollSourceReaderContentElementTo(snapshot.sourceReaderScrollTop)
+    if (scrollDetailContentElementTo(snapshot.detailScrollTop)) {
       syncDetailContainerMetrics()
     }
   }
@@ -1457,8 +1456,8 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
     lastSourceReaderScrollTop = 0
   }
   nextTick(() => {
-    if (result.resetScroll && sourceReaderContentRef.value) {
-      sourceReaderContentRef.value.scrollTop = 0
+    if (result.resetScroll) {
+      scrollSourceReaderContentElementTo(0)
     }
     if (result.captureTransition) {
       captureDetailSourceTransitionRects(12, { lock: true })
@@ -1508,9 +1507,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
     finishOpenItemReaderLoad({ errorMessage: '无法加载完整条目，已显示当前列表内容。' })
   } finally {
     nextTick(() => {
-      if (detailContentRef.value) {
-        detailContentRef.value.scrollTop = 0
-      }
+      scrollDetailContentElementTo(0)
       scheduleReaderSessionSave()
     })
   }
@@ -2331,8 +2328,8 @@ function handleDetailProgressDragEnd() {
 function handleDetailFrameLoad() {
   requestAnimationFrame(() => {
     syncDetailContainerMetrics()
-    if (detailScrollTop.value > 0 && detailContentRef.value) {
-      detailContentRef.value.scrollTop = detailScrollTop.value
+    if (detailScrollTop.value > 0) {
+      scrollDetailContentElementTo(detailScrollTop.value)
     }
   })
 }

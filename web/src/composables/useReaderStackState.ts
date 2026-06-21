@@ -1991,6 +1991,22 @@ export function useReaderStackState() {
     detailFrameRef.value = element
   }
 
+  function scrollSourceReaderContentTo(scrollTop: number) {
+    if (!sourceReaderContentRef.value) {
+      return false
+    }
+    sourceReaderContentRef.value.scrollTop = scrollTop
+    return true
+  }
+
+  function scrollDetailContentTo(scrollTop: number) {
+    if (!detailContentRef.value) {
+      return false
+    }
+    detailContentRef.value.scrollTop = scrollTop
+    return true
+  }
+
   return {
     sourceReaderContentRef,
     detailContentRef,
@@ -2138,5 +2154,7 @@ export function useReaderStackState() {
     setDetailContentElement,
     setDetailInlineSourceElement,
     setDetailFrameElement,
+    scrollSourceReaderContentTo,
+    scrollDetailContentTo,
   }
 }
