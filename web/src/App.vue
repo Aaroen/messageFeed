@@ -500,7 +500,7 @@ const sourceReaderStyle = computed(() => {
     transformOrigin: stretchTransformOrigin(sourceStretch, sourceStretchAnchor.value),
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity var(--motion-normal) ease, transform var(--motion-normal) var(--ease-standard)',
+      : 'opacity var(--motion-normal) var(--ease-standard), transform var(--motion-normal) var(--ease-standard)',
   }
 })
 const sourceHeaderStyle = computed(() => ({
@@ -509,7 +509,7 @@ const sourceHeaderStyle = computed(() => ({
   transform: cssTranslate3d(0, (topChromeProgress.value - 1) * feedHeaderHeight.value),
   transition:
     feedChromeSettling.value || readerBackDragging.value
-      ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) ease'
+      ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard)'
       : undefined,
 }))
 const detailHeaderLayerStyle = computed(() => chromeLayerStyle(detailHeaderVisible.value, topChromeProgress.value))
@@ -678,7 +678,7 @@ const detailHeaderCurrentTextStyle = computed(() => {
     transform: cssTranslate3d(0, (1 - progress) * 6),
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity var(--motion-normal) ease, filter var(--motion-normal) ease, transform var(--motion-normal) var(--ease-emphasized)',
+      : 'opacity var(--motion-normal) var(--ease-standard), filter var(--motion-normal) var(--ease-standard), transform var(--motion-normal) var(--ease-emphasized)',
   }
 })
 const detailHeaderPreviousTextStyle = computed(() => {
@@ -689,7 +689,7 @@ const detailHeaderPreviousTextStyle = computed(() => {
     transform: cssTranslate3d(0, progress * -6),
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity var(--motion-short) ease, filter var(--motion-normal) ease, transform var(--motion-normal) var(--ease-emphasized)',
+      : 'opacity var(--motion-short) var(--ease-standard), filter var(--motion-normal) var(--ease-standard), transform var(--motion-normal) var(--ease-emphasized)',
   }
 })
 const detailInlineSourceStyle = computed(() => {
@@ -697,14 +697,14 @@ const detailInlineSourceStyle = computed(() => {
     opacity: sourceNameMorphLabelOpacity.value.toFixed(3),
     filter: `blur(${sourceNameMorphLabelBlur.value.toFixed(2)}px)`,
     transform: 'translate3d(0, 0, 0)',
-    transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) ease, filter var(--motion-short) ease',
+    transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) var(--ease-standard), filter var(--motion-short) var(--ease-standard)',
   }
 })
 const detailMorphSourceLabelStyle = computed(() => {
   return {
     opacity: sourceNameMorphLabelOpacity.value.toFixed(3),
     filter: `blur(${sourceNameMorphLabelBlur.value.toFixed(2)}px)`,
-    transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) ease, filter var(--motion-short) ease',
+    transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) var(--ease-standard), filter var(--motion-short) var(--ease-standard)',
   }
 })
 const sourceTitleRevealVisible = computed(
@@ -740,7 +740,7 @@ const sourceNameMorphStyle = computed(() => {
     transform: 'translate3d(0, 0, 0)',
     transition: readerBackDragging.value
       ? 'none'
-      : 'left var(--motion-reader) var(--ease-standard), top var(--motion-reader) var(--ease-standard), width var(--motion-reader) var(--ease-standard), font-size var(--motion-reader) var(--ease-standard), opacity var(--motion-quick) ease, filter var(--motion-quick) ease',
+      : 'left var(--motion-reader) var(--ease-standard), top var(--motion-reader) var(--ease-standard), width var(--motion-reader) var(--ease-standard), font-size var(--motion-reader) var(--ease-standard), opacity var(--motion-quick) var(--ease-standard), filter var(--motion-quick) var(--ease-standard)',
   }
 })
 const sourceTitleLayerStyle = computed(() => {
@@ -753,7 +753,7 @@ const sourceTitleLayerStyle = computed(() => {
     filter: `blur(${(revealProgress * 2).toFixed(2)}px)`,
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity var(--motion-short) ease, filter var(--motion-short) ease, transform var(--motion-short) var(--ease-standard)',
+      : 'opacity var(--motion-short) var(--ease-standard), filter var(--motion-short) var(--ease-standard), transform var(--motion-short) var(--ease-standard)',
   }
 })
 const sourceTitleTextStyle = computed(() => ({
@@ -776,7 +776,7 @@ const sourceTitleRevealStyle = computed(() => {
     filter: `blur(${((1 - progress) * 2.4).toFixed(2)}px)`,
     transition: readerBackDragging.value
       ? 'none'
-      : 'opacity var(--motion-slow) ease, transform var(--motion-slow) var(--ease-emphasized), filter var(--motion-slow) ease',
+      : 'opacity var(--motion-slow) var(--ease-standard), transform var(--motion-slow) var(--ease-emphasized), filter var(--motion-slow) var(--ease-standard)',
   }
 })
 const mainStyle = computed(() => {
@@ -818,7 +818,7 @@ const navOpenButtonStyle = computed(() => {
       progress * 0.08
     ).toFixed(3)})`,
     transition: settling
-      ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) ease, visibility var(--motion-chrome) ease, border-color var(--motion-fast) ease, background var(--motion-fast) ease'
+      ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard), visibility var(--motion-chrome) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard)'
       : undefined,
     visibility: progress > 0.01 && !feedCornerHidden.value ? ('visible' as const) : ('hidden' as const),
   }
@@ -1268,7 +1268,7 @@ function chromeLayerStyle(
     transition: options.disableTransition
       ? 'none'
       : feedChromeSettling.value || feedRefreshSettling.value
-        ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) ease, visibility var(--motion-chrome) ease'
+        ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard), visibility var(--motion-chrome) var(--ease-standard)'
         : undefined,
     visibility: safeProgress > 0.01 ? ('visible' as const) : ('hidden' as const),
   }
