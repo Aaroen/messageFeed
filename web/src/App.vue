@@ -13,7 +13,6 @@ import {
   type ReaderSessionSnapshot,
   type ReaderSource,
 } from '@/composables/useReaderSession'
-import { useReaderStackState } from '@/composables/useReaderStackState'
 import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 import { useClickSuppression } from '@/composables/useClickSuppression'
@@ -61,7 +60,6 @@ import { useAppReaderCloseInteractions } from '@/composables/useAppReaderCloseIn
 import { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
 import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitionRects'
 import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
-import { useAppReaderSourceSubscription } from '@/composables/useAppReaderSourceSubscription'
 import { useAppReaderSession } from '@/composables/useAppReaderSession'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 import { useAppFeedChromeInteractions } from '@/composables/useAppFeedChromeInteractions'
@@ -70,6 +68,7 @@ import { useAppPointerGestureInteractions } from '@/composables/useAppPointerGes
 import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwipeInteractions'
 import { useAppGesturePolicy } from '@/composables/useAppGesturePolicy'
 import { useAppSwipeNavigationState } from '@/composables/useAppSwipeNavigationState'
+import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -233,8 +232,6 @@ const {
   setSourceSubscriptionState,
   setSourceSubscriptionLoadingState,
   setSourceNoticeState,
-} = useReaderStackState()
-const {
   sourceToggleLabel,
   sourceToggleActive,
   sourceToggleDisabled,
@@ -242,17 +239,7 @@ const {
   resetSourceSubscriptionState,
   loadSourceReaderSubscription,
   toggleSourceReaderSubscription,
-} = useAppReaderSourceSubscription({
-  readerSource,
-  sourceCatalogEntry,
-  sourceSubscription,
-  sourceSubscriptionLoading,
-  sourceNotice,
-  setSourceCatalogEntry: setSourceCatalogEntryState,
-  setSourceSubscription: setSourceSubscriptionState,
-  setSourceSubscriptionLoading: setSourceSubscriptionLoadingState,
-  setSourceNotice: setSourceNoticeState,
-})
+} = useAppReaderStackRuntime()
 const feedScroll = useFeedScrollState()
 const feedScrollTop = feedScroll.scrollTop
 const chromeState = useChromeState()
