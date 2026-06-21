@@ -60,6 +60,7 @@ import { useDoubleBackGuard } from '@/composables/useDoubleBackGuard'
 import { useGestureOriginState } from '@/composables/useGestureOriginState'
 import { useNavigationGestureState } from '@/composables/useNavigationGestureState'
 import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
+import { useGestureDirection } from '@/composables/useGestureDirection'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 import { escapeHTML, formatItemDate, plainPreviewText, sanitizeDetailHTML } from '@/utils/readerContent'
 
@@ -364,6 +365,13 @@ const feedPagerTransition = useFeedPagerTransition({
   isFeedRoute: () => isFeedRoute.value,
   isDetailReaderOpen: () => detailReaderOpen.value,
 })
+const gestureDirection = useGestureDirection({ viewDragThreshold: feedPagerTransition.dragThreshold })
+const isHorizontalSwipe = gestureDirection.isHorizontalSwipe
+const isViewHorizontalSwipe = gestureDirection.isViewHorizontalSwipe
+const isNavigationDrag = gestureDirection.isNavigationDrag
+const isBackHorizontalSwipe = gestureDirection.isBackHorizontalSwipe
+const shouldCancelTopPull = gestureDirection.shouldCancelTopPull
+const shouldWaitForTopPull = gestureDirection.shouldWaitForTopPull
 const viewDragOffset = feedPagerTransition.dragOffset
 const viewSettling = feedPagerTransition.settling
 const viewSwipeCandidateActive = feedPagerTransition.viewSwipeCandidateActive
@@ -912,11 +920,6 @@ const feedTabs = [
 
 const navigationOpenDistance = 72
 const viewSwitchDistance = 62
-const directionLockRatio = 1.25
-const navigationDragRatio = 1.1
-const viewDirectionLockRatio = 1.35
-const topPullDirectionLockRatio = 1.18
-const viewDragThreshold = feedPagerTransition.dragThreshold
 const viewSwipeChromeRevealDelay = 520
 const topChromeSettleDuration = motionChromeDuration
 let removeSystemBackGuard: (() => void) | null = null
@@ -1524,18 +1527,6 @@ function closeNavigation() {
   navigationDrawer.closePanel()
 }
 
-function isHorizontalSwipe(deltaX: number, deltaY: number) {
-  return Math.abs(deltaX) > Math.abs(deltaY) * directionLockRatio
-}
-
-function isViewHorizontalSwipe(deltaX: number, deltaY: number) {
-  return Math.abs(deltaX) > Math.abs(deltaY) * viewDirectionLockRatio
-}
-
-function isNavigationDrag(deltaX: number, deltaY: number) {
-  return Math.abs(deltaX) > 8 && Math.abs(deltaX) > Math.abs(deltaY) * navigationDragRatio
-}
-
 function canStartViewSwipe(_clientX: number) {
   if (!isFeedRoute.value || navigationVisible.value || sourceReaderOpen.value || detailBlocksGestures()) {
     return false
@@ -1579,10 +1570,6 @@ function syncBackSwipeTransition(deltaX: number) {
     pageReturnSurface: 'feed:recommendations',
   })
   swipeTransition.update(payload)
-}
-
-function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
-  return Math.abs(deltaX) > viewDragThreshold && Math.abs(deltaX) > Math.abs(deltaY) * viewDirectionLockRatio
 }
 
 function showTopChromeForSourceReturn() {
@@ -2457,12 +2444,12 @@ function handlePageTouchMove(event: TouchEvent) {
   const { deltaX, deltaY } = pagePullRefresh.gestureDelta(touch.clientX, touch.clientY)
 
   if (!trackingPageTopPull.value) {
-    if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY) * topPullDirectionLockRatio) {
+    if (shouldCancelTopPull(deltaX, deltaY)) {
       resetPageTopPullTracking()
       return
     }
 
-    if (deltaY < 2 || Math.abs(deltaY) <= Math.abs(deltaX) * topPullDirectionLockRatio) {
+    if (shouldWaitForTopPull(deltaX, deltaY)) {
       return
     }
 
