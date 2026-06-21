@@ -604,9 +604,6 @@ body[arco-theme='dark'] .settings-icon-button--active {
   min-width: 0;
   opacity: 1;
   transform: translate3d(0, 0, 0);
-  transition:
-    opacity var(--motion-brief) var(--ease-standard),
-    transform var(--motion-quick) var(--ease-standard);
   will-change: opacity, transform;
 }
 
@@ -1497,9 +1494,6 @@ body[arco-theme='dark'] .reader-back-button {
   gap: 12px;
   opacity: 1;
   transform: translate3d(0, 0, 0);
-  transition:
-    opacity var(--motion-fast) var(--ease-standard),
-    transform var(--motion-short) var(--ease-standard);
 }
 
 .reader-source-layer--hidden {
@@ -1518,9 +1512,6 @@ body[arco-theme='dark'] .reader-back-button {
   gap: 8px;
   min-height: 44px;
   text-align: center;
-  transition:
-    opacity var(--motion-fast) var(--ease-standard),
-    transform var(--motion-short) var(--ease-standard);
 }
 
 .reader-source-toggle {
