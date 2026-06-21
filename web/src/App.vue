@@ -45,6 +45,7 @@ import { useReaderSourceSurfaceMotion } from '@/composables/useReaderSourceSurfa
 import { useReaderDetailSurfaceMotion } from '@/composables/useReaderDetailSurfaceMotion'
 import { useReaderDetailContentMotion } from '@/composables/useReaderDetailContentMotion'
 import { useReaderDetailProgressMotion } from '@/composables/useReaderDetailProgressMotion'
+import { useReaderDetailTextMotion } from '@/composables/useReaderDetailTextMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -554,6 +555,18 @@ const detailProgressMotion = useReaderDetailProgressMotion({
   readerBackDragging,
   readingProgress: detailReadingProgress,
 })
+const detailTextMotion = useReaderDetailTextMotion({
+  surfaceProgress: detailSurfaceProgress,
+  sourceListTitleProgress: detailSourceListTitleProgress,
+  headerFeedTitleProgress: detailHeaderFeedTitleProgress,
+  feedHeaderReturnProgress,
+  headerTitleSwapping: detailHeaderTitleSwapping,
+  headerSwapProgress: detailHeaderSwapProgress,
+  sourceLabelOpacity: sourceNameMorphLabelOpacity,
+  sourceLabelBlur: sourceNameMorphLabelBlur,
+  readerBackDragging,
+  committedListReturn: detailCommittedListReturn,
+})
 const detailTransitionSurfaceStyle = computed(() => {
   const origin = detailOriginRect.value
   const sourceExiting =
@@ -617,71 +630,12 @@ const detailContentStyle = detailContentMotion.contentStyle
 const detailProgressStyle = detailProgressMotion.railStyle
 const detailProgressFillStyle = detailProgressMotion.fillStyle
 const detailProgressThumbStyle = detailProgressMotion.thumbStyle
-const detailMorphTextStyle = computed(() => {
-  const progress = detailSurfaceProgress.value
-  const committedListReturn = detailCommittedListReturn()
-  const summaryOpacity = clamp((0.56 - progress) / 0.18)
-  const textOpacity = clamp((0.74 - progress) / 0.18)
-  return {
-    opacity: committedListReturn ? '0' : '1',
-    '--morph-title-size': `${(18 + progress * 10).toFixed(2)}px`,
-    '--morph-text-opacity': textOpacity.toFixed(3),
-    '--morph-summary-opacity': summaryOpacity.toFixed(3),
-    '--morph-source-pointer-events': textOpacity > 0.12 ? 'auto' : 'none',
-    transform: cssTranslate3d(0, progress * -4),
-    transition: readerBackDragging.value || committedListReturn ? 'none' : undefined,
-  }
-})
-const detailHeaderTitleStyle = computed(() => {
-  const sourceListTitleProgress = detailSourceListTitleProgress.value
-  const opacity =
-    sourceListTitleProgress > 0
-      ? sourceListTitleProgress
-      : detailHeaderFeedTitleProgress.value * (1 - feedHeaderReturnProgress.value)
-  return {
-    opacity: opacity.toFixed(3),
-    transform: cssTranslate3d(0, (1 - opacity) * 8),
-    filter: `blur(${((1 - opacity) * 3.2).toFixed(2)}px)`,
-    transition: readerBackDragging.value ? 'none' : undefined,
-  }
-})
-const detailHeaderCurrentTextStyle = computed(() => {
-  const progress = detailHeaderTitleSwapping.value ? detailHeaderSwapProgress.value : 1
-  return {
-    opacity: progress.toFixed(3),
-    filter: `blur(${((1 - progress) * 2.8).toFixed(2)}px)`,
-    transform: cssTranslate3d(0, (1 - progress) * 6),
-    transition: readerBackDragging.value
-      ? 'none'
-      : 'opacity var(--motion-normal) var(--ease-standard), filter var(--motion-normal) var(--ease-standard), transform var(--motion-normal) var(--ease-emphasized)',
-  }
-})
-const detailHeaderPreviousTextStyle = computed(() => {
-  const progress = detailHeaderSwapProgress.value
-  return {
-    opacity: (1 - progress).toFixed(3),
-    filter: `blur(${(progress * 3.2).toFixed(2)}px)`,
-    transform: cssTranslate3d(0, progress * -6),
-    transition: readerBackDragging.value
-      ? 'none'
-      : 'opacity var(--motion-short) var(--ease-standard), filter var(--motion-normal) var(--ease-standard), transform var(--motion-normal) var(--ease-emphasized)',
-  }
-})
-const detailInlineSourceStyle = computed(() => {
-  return {
-    opacity: sourceNameMorphLabelOpacity.value.toFixed(3),
-    filter: `blur(${sourceNameMorphLabelBlur.value.toFixed(2)}px)`,
-    transform: 'translate3d(0, 0, 0)',
-    transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) var(--ease-standard), filter var(--motion-short) var(--ease-standard)',
-  }
-})
-const detailMorphSourceLabelStyle = computed(() => {
-  return {
-    opacity: sourceNameMorphLabelOpacity.value.toFixed(3),
-    filter: `blur(${sourceNameMorphLabelBlur.value.toFixed(2)}px)`,
-    transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) var(--ease-standard), filter var(--motion-short) var(--ease-standard)',
-  }
-})
+const detailMorphTextStyle = detailTextMotion.morphTextStyle
+const detailHeaderTitleStyle = detailTextMotion.headerTitleStyle
+const detailHeaderCurrentTextStyle = detailTextMotion.headerCurrentTextStyle
+const detailHeaderPreviousTextStyle = detailTextMotion.headerPreviousTextStyle
+const detailInlineSourceStyle = detailTextMotion.inlineSourceStyle
+const detailMorphSourceLabelStyle = detailTextMotion.morphSourceLabelStyle
 const sourceTitleRevealVisible = computed(
   () => sourceTitleRevealReady.value && !sourcePullActive.value,
 )
