@@ -82,6 +82,7 @@ import { useReaderSourceOpenAction } from '@/composables/useReaderSourceOpenActi
 import { useReaderSourceCloseAction } from '@/composables/useReaderSourceCloseAction'
 import { useReaderItemOpenAction } from '@/composables/useReaderItemOpenAction'
 import { useReaderItemCloseAction } from '@/composables/useReaderItemCloseAction'
+import { useReaderRestoreActions } from '@/composables/useReaderRestoreActions'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1074,6 +1075,24 @@ const finishCommittedListReturnForGesture = readerItemCloseAction.finishCommitte
 const closeItemReader = readerItemCloseAction.closeItemReader
 const collapseItemReader = readerItemCloseAction.collapseItemReader
 
+const readerRestoreActions = useReaderRestoreActions({
+  normalDuration: motionNormalDuration,
+  readerDuration: motionReaderDuration,
+  resolveDelay: motionDelay,
+  restoreParkedSourceReaderWithDelay,
+  restoreItemReaderExpansionWithDelay,
+  restoreDetailFromSourceSwipeWithDelay,
+  completeDetailToSourceReaderWithDelay,
+  resetBackSwipeOffset,
+  setTopChromeVisible,
+  captureDetailSourceTransitionRects,
+  restoreMorphingItemContent,
+})
+const restoreParkedSourceReader = readerRestoreActions.restoreParkedSourceReader
+const restoreItemReaderExpansion = readerRestoreActions.restoreItemReaderExpansion
+const restoreDetailFromSourceSwipe = readerRestoreActions.restoreDetailFromSourceSwipe
+const completeDetailToSourceReader = readerRestoreActions.completeDetailToSourceReader
+
 function restoreDetailFromParkedSource(duration = motionReaderDuration) {
   if (!detailReaderOpen.value) {
     closeSourceReader()
@@ -1092,32 +1111,6 @@ function restoreDetailFromParkedSource(duration = motionReaderDuration) {
     afterFinish: () => {
       restoreMorphingItemContent()
       scheduleHiddenSourceReaderCleanup()
-    },
-  })
-}
-
-function restoreParkedSourceReader(duration = motionNormalDuration) {
-  if (!restoreParkedSourceReaderWithDelay(motionDelay(duration))) {
-    resetBackSwipeOffset()
-  }
-}
-
-function restoreItemReaderExpansion(duration = motionReaderDuration) {
-  restoreItemReaderExpansionWithDelay(motionDelay(duration))
-}
-
-function restoreDetailFromSourceSwipe(duration = motionReaderDuration) {
-  restoreDetailFromSourceSwipeWithDelay(motionDelay(duration))
-}
-
-function completeDetailToSourceReader(duration = motionReaderDuration) {
-  completeDetailToSourceReaderWithDelay(motionDelay(duration), {
-    afterBegin: () => {
-      setTopChromeVisible(true)
-      captureDetailSourceTransitionRects(12, { lock: true })
-    },
-    afterFinish: () => {
-      restoreMorphingItemContent()
     },
   })
 }
