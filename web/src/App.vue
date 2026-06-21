@@ -261,7 +261,7 @@ const motionNormalDuration = motionTimings.normalDuration
 const motionStretchAnchorClearDuration = motionTimings.stretchAnchorClearDuration
 const motionHeaderSwapDuration = motionTimings.headerSwapDuration
 const motionReaderDuration = motionTimings.readerDuration
-const motionChromeDuration = motionTimings.chromeDuration
+const topChromeSettleDuration = motionTimings.topChromeSettleDuration
 const navigationDrawerSettleDuration = motionTimings.navigationDrawerSettleDuration
 const sourceReaderCloseCleanupDelay = motionTimings.sourceReaderCloseCleanupDelay
 const topRefreshNoticeDelay = motionTimings.topRefreshNoticeDelay
@@ -745,7 +745,6 @@ const navigateTo = appNavigation.navigateTo
 
 const navigationOpenDistance = 72
 const viewSwitchDistance = 62
-const topChromeSettleDuration = motionChromeDuration
 const appTopChromeActions = useAppTopChromeActions({
   sourceReaderOpen,
   sourceReaderScrollTop,

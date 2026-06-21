@@ -15,6 +15,7 @@ export function useMotionTimings() {
   const topRefreshNoticeDelay = Math.max(quickDuration, topRefreshReleaseDelay + 60)
   const noticeRevealDelay = topRefreshNoticeDelay
   const topRefreshSettleDuration = chromeDuration
+  const topChromeSettleDuration = chromeDuration
   const navigationDrawerSettleDuration = shortDuration
   const hiddenSourceCleanupDelay = quickDuration
   const sourceReaderCloseCleanupDelay = 340
@@ -55,6 +56,7 @@ export function useMotionTimings() {
     topRefreshReleaseDelay,
     topRefreshNoticeDelay,
     topRefreshSettleDuration,
+    topChromeSettleDuration,
     navigationDrawerSettleDuration,
     hiddenSourceCleanupDelay,
     sourceReaderCloseCleanupDelay,
