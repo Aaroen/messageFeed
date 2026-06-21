@@ -70,6 +70,7 @@ import { useAppMainClassState } from '@/composables/useAppMainClassState'
 import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { usePagePullGestureHandlers } from '@/composables/usePagePullGestureHandlers'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
+import { useTopChromeScrollBehavior } from '@/composables/useTopChromeScrollBehavior'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1979,43 +1980,19 @@ function handleFeedTopPullEnd(shouldRefresh = false) {
   feedTopPull.resetStartedWithChrome()
 }
 
-function updateTopTabsByScroll(current: number, previous: number) {
-  if (current <= 1 && topChromeProgress.value < 0.99 && !feedPullActive.value && !feedTopPulling.value) {
-    setTopChromeVisible(true)
-    return
-  }
-
-  if (feedPullActive.value || sourcePullActive.value || feedTopPulling.value || feedChromeSettling.value) {
-    return
-  }
-
-  const delta = current - previous
-  if (Math.abs(delta) < 3 || current < 0) {
-    return
-  }
-
-  if (detailReaderOpen.value) {
-    const max = detailScrollMax.value
-    const bottomStabilityZone = 28
-    const nearBottom =
-      max > 0 &&
-      current >= max - bottomStabilityZone &&
-      previous >= max - bottomStabilityZone
-    if (nearBottom) {
-      return
-    }
-  }
-
-  const hideThreshold = detailReaderOpen.value ? feedHeaderHeight.value : isFeedRoute.value ? 8 : feedHeaderHeight.value
-  if (delta > 0 && current >= hideThreshold && topChromeProgress.value > 0.01) {
-    setTopChromeVisible(false)
-    return
-  }
-
-  if (delta < 0 && topChromeProgress.value < 0.99) {
-    setTopChromeVisible(true)
-  }
-}
+const topChromeScrollBehavior = useTopChromeScrollBehavior({
+  topChromeProgress,
+  feedPullActive,
+  sourcePullActive,
+  feedTopPulling,
+  feedChromeSettling,
+  detailReaderOpen,
+  detailScrollMax,
+  feedHeaderHeight,
+  isFeedRoute,
+  setTopChromeVisible,
+})
+const updateTopTabsByScroll = topChromeScrollBehavior.updateByScroll
 
 const appScrollHandlers = useAppScrollHandlers({
   scrollHistory,
