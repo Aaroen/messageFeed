@@ -29,11 +29,13 @@ const opmlFile = ref<File | null>(null)
 const loading = ref(false)
 const catalogLoading = ref(false)
 const actionLoading = ref(false)
+const pageRefreshing = ref(false)
 const notice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
 const motionTimings = useMotionTimings()
 const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef })
 let noticeTimer = 0
 const importFetchConcurrency = 3
+const pageBusy = computed(() => loading.value || catalogLoading.value || actionLoading.value || pageRefreshing.value)
 
 type ImportFetchSummary = {
   requestedCount: number
@@ -134,9 +136,10 @@ async function loadCatalog(options: { silent?: boolean; notify?: boolean } = {})
 }
 
 async function refreshPage(options: PageRefreshOptions = {}) {
-  if (loading.value || catalogLoading.value || actionLoading.value) {
+  if (pageBusy.value) {
     return
   }
+  pageRefreshing.value = true
   if (options.onRefreshSettled) {
     refreshLayoutFreeze.capture()
     options.onRefreshSettled(refreshLayoutFreeze.release)
@@ -165,6 +168,8 @@ async function refreshPage(options: PageRefreshOptions = {}) {
     showNotice('success', '刷新成功：已更新订阅管理数据', undefined, options.noticeDelayMS)
   } catch (err) {
     showNotice('warning', `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`, undefined, options.noticeDelayMS)
+  } finally {
+    pageRefreshing.value = false
   }
 }
 
@@ -217,6 +222,9 @@ function importNoticeMessage(prefix: string, result: ImportSourcesResult, fetchS
 }
 
 async function handleImportURLs() {
+  if (pageBusy.value) {
+    return
+  }
   const urls = urlInput.value
     .split(/\r?\n/)
     .map((item) => item.trim())
@@ -239,6 +247,9 @@ async function handleImportURLs() {
 }
 
 async function handleImportOPML(event: Event) {
+  if (pageBusy.value) {
+    return
+  }
   const input = event.target as HTMLInputElement
   const file = input.files?.[0] ?? null
   if (!file) {
@@ -293,6 +304,9 @@ async function fetchNow(source: Source): Promise<FetchNowResult> {
 }
 
 async function toggleCatalogSource(entry: SourceCatalogEntry) {
+  if (pageBusy.value) {
+    return
+  }
   actionLoading.value = true
   try {
     const existing = sourceForCatalog(entry)
@@ -360,7 +374,7 @@ defineExpose({ refreshPage })
     <div class="sources-toolbar">
       <div class="sources-toolbar__group">
         <input v-model="catalogQuery" class="sources-input" type="search" placeholder="搜索订阅源" />
-        <button class="sources-button" type="button" :disabled="catalogLoading" @click="() => loadCatalog()">
+        <button class="sources-button" type="button" :disabled="pageBusy" @click="() => loadCatalog()">
           <IconSearch />
           <span>搜索</span>
         </button>
@@ -368,7 +382,7 @@ defineExpose({ refreshPage })
     </div>
 
     <section class="sources-panel">
-      <div v-if="catalogLoading || loading" class="sources-empty">加载中</div>
+      <div v-if="catalogLoading || loading || (pageRefreshing && !catalog.length)" class="sources-empty">加载中</div>
       <div v-else class="sources-list">
         <div
           v-for="entry in catalog"
@@ -390,7 +404,7 @@ defineExpose({ refreshPage })
               class="sources-button"
               :class="{ 'sources-button--active': catalogStatus(entry) === 'active' }"
               type="button"
-              :disabled="actionLoading"
+              :disabled="pageBusy"
               @click.stop="toggleCatalogSource(entry)"
             >
               {{ catalogToggleLabel(entry) }}
@@ -405,14 +419,14 @@ defineExpose({ refreshPage })
         <label class="sources-button sources-button--file">
           <IconUpload />
           <span>导入 OPML</span>
-          <input type="file" accept=".opml,.xml" hidden @change="handleImportOPML" />
+          <input type="file" accept=".opml,.xml" hidden :disabled="pageBusy" @change="handleImportOPML" />
         </label>
       </article>
 
       <article class="sources-panel">
         <textarea v-model="urlInput" class="sources-textarea" rows="8" placeholder="每行一个订阅地址"></textarea>
         <div class="sources-toolbar__group">
-          <button class="sources-button" type="button" :disabled="actionLoading" @click="handleImportURLs">
+          <button class="sources-button" type="button" :disabled="pageBusy" @click="handleImportURLs">
             导入 URL
           </button>
         </div>
