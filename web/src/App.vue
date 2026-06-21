@@ -66,9 +66,6 @@ import { useNavigationPointerHandlers } from '@/composables/useNavigationPointer
 import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHandlers'
 import { useReaderDetailProgressHandlers } from '@/composables/useReaderDetailProgressHandlers'
 import { useReaderDetailMessageHandler } from '@/composables/useReaderDetailMessageHandler'
-import { useReaderSourceOpenAction } from '@/composables/useReaderSourceOpenAction'
-import { useReaderSourceRevealAction } from '@/composables/useReaderSourceRevealAction'
-import { useReaderItemOpenAction } from '@/composables/useReaderItemOpenAction'
 import { useReaderItemCloseAction } from '@/composables/useReaderItemCloseAction'
 import { useReaderRestoreActions } from '@/composables/useReaderRestoreActions'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
@@ -98,6 +95,7 @@ import { useAppPagePullState } from '@/composables/useAppPagePullState'
 import { useAppPagePullInteractions } from '@/composables/useAppPagePullInteractions'
 import { useAppReaderBackSwipeInteractions } from '@/composables/useAppReaderBackSwipeInteractions'
 import { useAppReaderSourceCloseInteractions } from '@/composables/useAppReaderSourceCloseInteractions'
+import { useAppReaderOpenInteractions } from '@/composables/useAppReaderOpenInteractions'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -830,48 +828,46 @@ const {
   rememberDetailScrollTop,
 })
 
-const readerSourceOpenAction = useReaderSourceOpenAction({
-  openSourceReaderState,
-  clearHiddenSourceCleanupTimer,
-  setTopChromeVisible,
-  captureDetailSourceTransitionRects,
-  loadSourceReaderSubscription,
-  resetSourceSubscriptionState,
-  rememberSourceScrollTop,
-  scrollSourceReaderContentElementTo,
+const readerOpenInteractions = useAppReaderOpenInteractions({
+  sourceOpen: {
+    openSourceReaderState,
+    clearHiddenSourceCleanupTimer,
+    setTopChromeVisible,
+    captureDetailSourceTransitionRects,
+    loadSourceReaderSubscription,
+    resetSourceSubscriptionState,
+    rememberSourceScrollTop,
+    scrollSourceReaderContentElementTo,
+  },
+  sourceReveal: {
+    detailItem,
+    detailSourceKind,
+    readerSource,
+    setTopChromeVisible,
+    revealSourceReaderUnderDetailState,
+    captureDetailSourceTransitionRects,
+  },
+  itemOpen: {
+    sourceReaderOpen,
+    readerSource,
+    sourceTimelinePreloadEnabled,
+    headerSwapDuration: motionHeaderSwapDuration,
+    detailEntryDuration: readerMorphDuration,
+    resolveDelay: motionDelay,
+    openItemReaderWithTransition,
+    loadFeedItem: getFeedItem,
+    finishOpenItemReaderLoad,
+    setChromeStableVisible: chromeState.setStableVisible,
+    finishFeedTopPull: feedTopPull.finish,
+    rememberDetailScrollTop,
+    captureDetailSourceTransitionRects,
+    scrollDetailContentElementTo,
+    scheduleReaderSessionSave,
+  },
 })
-const openSourceReader = readerSourceOpenAction.openSourceReader
-
-const readerSourceRevealAction = useReaderSourceRevealAction({
-  detailItem,
-  detailSourceKind,
-  readerSource,
-  openSourceReader,
-  setTopChromeVisible,
-  revealSourceReaderUnderDetailState,
-  captureDetailSourceTransitionRects,
-})
-const showSourceReaderUnderDetail = readerSourceRevealAction.showSourceReaderUnderDetail
-
-const readerItemOpenAction = useReaderItemOpenAction({
-  sourceReaderOpen,
-  readerSource,
-  sourceTimelinePreloadEnabled,
-  headerSwapDuration: motionHeaderSwapDuration,
-  detailEntryDuration: readerMorphDuration,
-  resolveDelay: motionDelay,
-  openItemReaderWithTransition,
-  openSourceReader,
-  loadFeedItem: getFeedItem,
-  finishOpenItemReaderLoad,
-  setChromeStableVisible: chromeState.setStableVisible,
-  finishFeedTopPull: feedTopPull.finish,
-  rememberDetailScrollTop,
-  captureDetailSourceTransitionRects,
-  scrollDetailContentElementTo,
-  scheduleReaderSessionSave,
-})
-const openItemReader = readerItemOpenAction.openItemReader
+const openSourceReader = readerOpenInteractions.openSourceReader
+const showSourceReaderUnderDetail = readerOpenInteractions.showSourceReaderUnderDetail
+const openItemReader = readerOpenInteractions.openItemReader
 
 const readerSourceCloseInteractions = useAppReaderSourceCloseInteractions({
   parkedRestore: {
