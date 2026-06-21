@@ -547,6 +547,7 @@ const chromeVisualState = useAppChromeVisualState({
     freezeFeedBodyDuringTopRefresh,
     feedRefreshSettling,
     feedChromeSettling,
+    readerBackDragging,
     pagePullSettling,
     viewSettling,
     detailReaderOpen,

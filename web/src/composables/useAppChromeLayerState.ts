@@ -35,7 +35,9 @@ type AppChromeLayerStateOptions = {
 
 export function useAppChromeLayerState(options: AppChromeLayerStateOptions) {
   const chromeLayerMotion = useChromeLayerMotion({
-    isSettling: () => options.feedChromeSettling.value || options.feedRefreshSettling.value,
+    isSettling: () =>
+      (options.feedChromeSettling.value || options.feedRefreshSettling.value) &&
+      !options.readerBackDragging.value,
   })
 
   const pullStatusStyle = computed(() =>
@@ -78,7 +80,7 @@ export function useAppChromeLayerState(options: AppChromeLayerStateOptions) {
     chromeLayerMotion.sourceHeaderStyle(
       options.topChromeProgress.value,
       options.feedHeaderHeight.value,
-      options.feedChromeSettling.value || options.readerBackDragging.value,
+      options.feedChromeSettling.value && !options.readerBackDragging.value,
     ),
   )
   const detailHeaderLayerStyle = computed(() =>
