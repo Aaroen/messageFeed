@@ -69,6 +69,7 @@ import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppMainClassState } from '@/composables/useAppMainClassState'
 import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { usePagePullGestureHandlers } from '@/composables/usePagePullGestureHandlers'
+import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -2016,56 +2017,18 @@ function updateTopTabsByScroll(current: number, previous: number) {
   }
 }
 
-function handleFeedContentScroll(event: Event) {
-  const target = event.currentTarget as HTMLElement | null
-  if (!target) {
-    return
-  }
-
-  const current = target.scrollTop
-  const scrollUpdate = scrollHistory.update('feed', current)
-  feedScroll.update(current)
-  updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
-  scheduleReaderSessionSave()
-}
-
-function handlePageContentScroll(event: Event) {
-  const target = event.currentTarget as HTMLElement | null
-  if (!target) {
-    return
-  }
-
-  const current = target.scrollTop
-  const scrollUpdate = scrollHistory.update('page', current)
-  updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
-  scheduleReaderSessionSave()
-}
-
-function handleSourceReaderScroll(event: Event) {
-  const target = event.currentTarget as HTMLElement | null
-  if (!target) {
-    return
-  }
-
-  const current = target.scrollTop
-  const scrollUpdate = scrollHistory.update('source', current)
-  updateSourceReaderScrollTopState(current)
-  updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
-  scheduleReaderSessionSave()
-}
-
-function handleDetailContentScroll(event: Event) {
-  const target = event.currentTarget as HTMLElement | null
-  if (!target) {
-    return
-  }
-
-  const current = target.scrollTop
-  const scrollUpdate = scrollHistory.update('detail', current)
-  updateDetailScrollMetricsState(current, target.scrollHeight, target.clientHeight)
-  updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
-  scheduleReaderSessionSave()
-}
+const appScrollHandlers = useAppScrollHandlers({
+  scrollHistory,
+  updateFeedScrollTop: feedScroll.update,
+  updateSourceReaderScrollTop: updateSourceReaderScrollTopState,
+  updateDetailScrollMetrics: updateDetailScrollMetricsState,
+  updateTopTabsByScroll,
+  scheduleReaderSessionSave,
+})
+const handleFeedContentScroll = appScrollHandlers.handleFeedContentScroll
+const handlePageContentScroll = appScrollHandlers.handlePageContentScroll
+const handleSourceReaderScroll = appScrollHandlers.handleSourceReaderScroll
+const handleDetailContentScroll = appScrollHandlers.handleDetailContentScroll
 
 function settlePagePullOffset() {
   pagePullRefresh.settleOffset(motionDelay(topChromeSettleDuration))
