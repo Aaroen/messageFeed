@@ -52,22 +52,22 @@ type FeedPullRefreshCompletionActionOptions = {
 }
 
 export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompletionActionOptions) {
-  function ownsPullState() {
-    return options.feedInteraction.pullViewKey === options.viewKey.value
+  function ownsPullState(ownerViewKey = options.viewKey.value) {
+    return options.feedInteraction.pullViewKey === ownerViewKey
   }
 
   function pullStateIsUnowned() {
     return !options.feedInteraction.pullViewKey
   }
 
-  function canAccessPullState(force = false) {
+  function canAccessPullState(force = false, ownerViewKey = options.viewKey.value) {
     if (!options.usesGlobalPullState.value) {
       return false
     }
-    if (!pullStateIsUnowned() && !ownsPullState()) {
+    if (!pullStateIsUnowned() && !ownsPullState(ownerViewKey)) {
       return false
     }
-    return options.active.value || ownsPullState() || force
+    return options.active.value || ownsPullState(ownerViewKey) || force
   }
 
   function setPullState(payload: FeedPullStatePayload, force = false) {
@@ -81,8 +81,8 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
     })
   }
 
-  function clearPullState(force = false) {
-    if (!canAccessPullState(force)) {
+  function clearPullState(force = false, ownerViewKey = options.viewKey.value) {
+    if (!canAccessPullState(force, ownerViewKey)) {
       return
     }
     options.feedInteraction.resetPullState()

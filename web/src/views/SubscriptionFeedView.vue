@@ -729,7 +729,9 @@ function resetPullGesture(force = false) {
   clearPullState(force)
 }
 
-function resetTransientLoadState(options: { clearList?: boolean; clearNotice?: boolean } = {}) {
+function resetTransientLoadState(
+  options: { clearList?: boolean; clearNotice?: boolean; pullOwnerViewKey?: string } = {},
+) {
   invalidateLoadRequests()
   loading.value = false
   loadingMore.value = false
@@ -738,7 +740,7 @@ function resetTransientLoadState(options: { clearList?: boolean; clearNotice?: b
   refreshLayoutFreeze.release()
   clearLoadMoreSyncTimer()
   stopLoadMoreObserver()
-  clearPullState(true)
+  clearPullState(true, options.pullOwnerViewKey)
   if (options.clearList) {
     resetListState()
   }
@@ -875,9 +877,13 @@ watch(
 )
 
 watch(
-  () => [props.mode, props.sourceKind, props.sourceId] as const,
-  () => {
-    resetTransientLoadState({ clearList: true, clearNotice: true })
+  viewKey,
+  (_nextViewKey, previousViewKey) => {
+    resetTransientLoadState({
+      clearList: true,
+      clearNotice: true,
+      pullOwnerViewKey: previousViewKey,
+    })
     if (props.active) {
       loadInitialItems()
     }
