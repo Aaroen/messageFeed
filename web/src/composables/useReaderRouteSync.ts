@@ -65,6 +65,9 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
   let releaseTimer = 0
   let syncToken = 0
   let historySyncToken = 0
+  let pendingSync = false
+  let pendingForcePush = false
+  let activeHistoryForcePush = false
 
   function clearReleaseTimer() {
     if (typeof window !== 'undefined' && releaseTimer !== 0) {
@@ -76,9 +79,29 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
   function clearTimer() {
     syncToken += 1
     historySyncToken += 1
+    pendingSync = false
+    pendingForcePush = false
+    activeHistoryForcePush = false
     clearReleaseTimer()
     syncing = false
     options.setProgrammaticRouteNavigation(false)
+  }
+
+  function queuePendingSync(forcePush: boolean) {
+    pendingSync = true
+    pendingForcePush = pendingForcePush || forcePush || activeHistoryForcePush
+    historySyncToken += 1
+  }
+
+  function consumePendingSync() {
+    if (!pendingSync) {
+      return null
+    }
+
+    const forcePush = pendingForcePush
+    pendingSync = false
+    pendingForcePush = false
+    return forcePush
   }
 
   function readerQueryBase() {
@@ -131,19 +154,32 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
         }
         syncing = false
         options.setProgrammaticRouteNavigation(false)
+        const forcePendingSync = consumePendingSync()
+        activeHistoryForcePush = false
+        if (forcePendingSync !== null) {
+          scheduleSync(forcePendingSync)
+        }
       }, 0)
     }
   }
 
   function scheduleSync(forcePush = false) {
+    if (syncing) {
+      queuePendingSync(forcePush)
+      return
+    }
+
     historySyncToken += 1
     const token = historySyncToken
+    activeHistoryForcePush = forcePush
     void syncURLToState().finally(() => {
       nextTick(() => {
         if (token !== historySyncToken) {
           return
         }
-        options.syncVirtualHistoryState(forcePush)
+        const historyForcePush = forcePush || activeHistoryForcePush
+        activeHistoryForcePush = false
+        options.syncVirtualHistoryState(historyForcePush)
       })
     })
   }
