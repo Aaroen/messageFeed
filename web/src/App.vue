@@ -2130,21 +2130,15 @@ function cancelBackSwipe() {
 }
 
 function finishViewSwipe(nextPath: string | null) {
-  const committed = Boolean(nextPath)
-  feedPagerTransition.setSettling(true)
-  swipeTransition.settle(committed, { progress: committed ? 1 : 0, isBlocked: false })
-  feedPagerTransition.clearDelayedCommitTimer()
-  feedPagerTransition.clearSettlingTimer()
-  const startedWithHiddenChrome = feedPagerTransition.consumeStartedWithHiddenChrome()
-  const shouldRevealChromeFirst = Boolean(nextPath) && startedWithHiddenChrome
-  if (shouldRevealChromeFirst) {
+  const result = feedPagerTransition.finishSwipeResult(nextPath)
+  swipeTransition.settle(result.committed, result.settlePayload)
+  if (result.shouldRevealChromeFirst) {
     setTopChromeVisible(true)
     feedPagerTransition.scheduleDelayedCommit(viewSwipeChromeRevealDelay, () => {
       if (nextPath) {
         void pushRoute(nextPath)
       }
-      feedPagerTransition.setDragOffset(0)
-      feedPagerTransition.scheduleSettlingEnd(motionDelay(260))
+      feedPagerTransition.settleFinishedSwipe(motionDelay(260))
     })
     scheduleSwipeTransitionReset(viewSwipeChromeRevealDelay + 260)
     return
@@ -2152,8 +2146,7 @@ function finishViewSwipe(nextPath: string | null) {
   if (nextPath) {
     void pushRoute(nextPath)
   }
-  feedPagerTransition.setDragOffset(0)
-  feedPagerTransition.scheduleSettlingEnd(motionDelay(260))
+  feedPagerTransition.settleFinishedSwipe(motionDelay(260))
   scheduleSwipeTransitionReset(260)
 }
 

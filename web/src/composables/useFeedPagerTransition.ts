@@ -10,6 +10,15 @@ type FeedPagerTransitionOptions = {
   dragThreshold?: number
 }
 
+type FeedPagerSwipeFinishResult = {
+  committed: boolean
+  settlePayload: {
+    progress: number
+    isBlocked: boolean
+  }
+  shouldRevealChromeFirst: boolean
+}
+
 function clamp(value: number) {
   if (!Number.isFinite(value)) {
     return 0
@@ -106,6 +115,26 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     }
   }
 
+  function finishSwipeResult(nextPath: string | null): FeedPagerSwipeFinishResult {
+    const committed = Boolean(nextPath)
+    setSettling(true)
+    clearDelayedCommitTimer()
+    clearSettlingTimer()
+    return {
+      committed,
+      settlePayload: {
+        progress: committed ? 1 : 0,
+        isBlocked: false,
+      },
+      shouldRevealChromeFirst: committed && consumeStartedWithHiddenChrome(),
+    }
+  }
+
+  function settleFinishedSwipe(delay: number) {
+    setDragOffset(0)
+    scheduleSettlingEnd(delay)
+  }
+
   function setDragOffset(nextOffset: number) {
     dragOffset.value = Number.isFinite(nextOffset) ? nextOffset : 0
   }
@@ -181,6 +210,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     commitPath,
     swipeTransitionBeginPayload,
     swipeTransitionUpdatePayload,
+    finishSwipeResult,
+    settleFinishedSwipe,
     setDragOffset,
     setSettling,
     markStartedWithHiddenChrome,
