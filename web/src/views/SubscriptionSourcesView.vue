@@ -192,9 +192,10 @@ async function refreshPage(options: PageRefreshOptions = {}) {
   }
   const token = nextPageRequestToken()
   pageRefreshing.value = true
+  let releaseRefreshLayoutFreeze: (() => void) | undefined
   if (options.onRefreshSettled) {
-    refreshLayoutFreeze.capture()
-    options.onRefreshSettled(refreshLayoutFreeze.release)
+    releaseRefreshLayoutFreeze = refreshLayoutFreeze.capture()
+    options.onRefreshSettled(releaseRefreshLayoutFreeze)
   }
   const query = catalogQuery.value.trim()
   try {
@@ -237,9 +238,11 @@ async function refreshPage(options: PageRefreshOptions = {}) {
       )
     }
   } finally {
-    if (pageRequestIsCurrent(token)) {
-      pageRefreshing.value = false
+    if (!pageRequestIsCurrent(token)) {
+      releaseRefreshLayoutFreeze?.()
+      return
     }
+    pageRefreshing.value = false
   }
 }
 

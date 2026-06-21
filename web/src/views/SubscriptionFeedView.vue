@@ -471,9 +471,8 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   }
   const requestViewKey = viewKey.value
   const requestToken = nextLoadRequestToken()
-  if (isRefresh && !isBackgroundRefresh) {
-    refreshLayoutFreeze.capture()
-  }
+  const releaseRefreshLayoutFreeze =
+    isRefresh && !isBackgroundRefresh ? refreshLayoutFreeze.capture() : undefined
   error.value = ''
   if (isAppend) {
     loadingMore.value = true
@@ -556,13 +555,18 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     }
   } finally {
     if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
+      releaseRefreshLayoutFreeze?.()
       return
     }
     loading.value = false
     loadingMore.value = false
     scheduleLoadMoreObserver()
 
-    feedPullRefreshCompletion.completeLoad({ isRefresh, isBackgroundRefresh })
+    feedPullRefreshCompletion.completeLoad({
+      isRefresh,
+      isBackgroundRefresh,
+      afterSettled: releaseRefreshLayoutFreeze,
+    })
   }
 }
 

@@ -10,15 +10,23 @@ function cssPx(value: number) {
 
 export function useRefreshLayoutFreeze(options: RefreshLayoutFreezeOptions) {
   const frozenHeight = ref<number | null>(null)
+  let freezeToken = 0
   const active = computed(() => frozenHeight.value !== null)
   const style = computed(() => (frozenHeight.value === null ? {} : { minHeight: cssPx(frozenHeight.value) }))
 
   function capture() {
+    freezeToken += 1
+    const token = freezeToken
     const height = options.targetRef.value?.getBoundingClientRect().height ?? 0
     frozenHeight.value = height > 0 ? height : null
+    return () => release(token)
   }
 
-  function release() {
+  function release(token?: number) {
+    if (token !== undefined && token !== freezeToken) {
+      return
+    }
+    freezeToken += 1
     frozenHeight.value = null
   }
 

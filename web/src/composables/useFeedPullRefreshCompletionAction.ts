@@ -89,7 +89,11 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
     options.feedInteraction.resetPullState()
   }
 
-  function completeLoad(payload: { isRefresh: boolean; isBackgroundRefresh: boolean }) {
+  function completeLoad(payload: {
+    isRefresh: boolean
+    isBackgroundRefresh: boolean
+    afterSettled?: () => void
+  }) {
     if (!payload.isRefresh) {
       options.pullRefresh.finishRefreshing()
       return
@@ -109,7 +113,7 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
     })
     options.pullRefresh.settleRefreshCompletion({
       afterRelease: clearPullState,
-      afterSettled: options.afterSettled,
+      afterSettled: payload.afterSettled ?? options.afterSettled,
     })
   }
 
