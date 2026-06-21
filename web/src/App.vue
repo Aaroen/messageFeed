@@ -47,6 +47,7 @@ import { useReaderDetailContentMotion } from '@/composables/useReaderDetailConte
 import { useReaderDetailProgressMotion } from '@/composables/useReaderDetailProgressMotion'
 import { useReaderDetailTextMotion } from '@/composables/useReaderDetailTextMotion'
 import { useReaderSourceTitleMotion } from '@/composables/useReaderSourceTitleMotion'
+import { useReaderDetailTransitionMotion } from '@/composables/useReaderDetailTransitionMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -580,65 +581,26 @@ const sourceTitleMotion = useReaderSourceTitleMotion({
   headerHeight: feedHeaderHeight,
   readerBackDragging,
 })
-const detailTransitionSurfaceStyle = computed(() => {
-  const origin = detailOriginRect.value
-  const sourceExiting =
-    detailRestoringFromSourceReader.value ||
-    (detailSourceExitProgress.value >= detailBackExitProgress.value && detailSourceExitProgress.value > 0)
-  const collapsedTarget = sourceExiting ? detailSourceItemTargetRect.value ?? detailSourceFallbackTargetRect.value : origin
-  const exitProgress = Math.max(detailBackExitProgress.value, detailSourceExitProgress.value)
-  const progress = detailSurfaceProgress.value
-  const surfaceMargin = detailSurfaceMargin.value
-  const expandedLeft = surfaceMargin
-  const targetTop = detailExpandedTop.value
-  const expandedWidth = Math.max(1, windowWidth.value - surfaceMargin * 2)
-  const targetHeight = Math.max(1, windowHeight.value - targetTop - surfaceMargin)
-  const draggingToList =
-    readerBackDragging.value &&
-    (detailBackExitProgress.value > 0 || detailSourceExitProgress.value > 0) &&
-    !sourceReaderReturnTargetPending.value
-  const committedListReturn = detailCommittedListReturn()
-  const suppressSourceReturnPreview = sourceReaderBlockedBackSwipeActive.value
-
-  if (!collapsedTarget) {
-    const opacity =
-      draggingToList
-        ? 1
-        : committedListReturn || detailReturningToFeed.value
-          ? progress
-          : 1 - exitProgress * 0.28
-    return {
-      width: cssPx(expandedWidth),
-      height: cssPx(targetHeight),
-      opacity: suppressSourceReturnPreview ? '0' : clamp(opacity).toFixed(3),
-      transform: cssTranslate3d(expandedLeft, targetTop + exitProgress * 18),
-      transition: readerBackDragging.value ? 'none' : undefined,
-      borderRadius: cssPx(16 - exitProgress * 4),
-    }
-  }
-
-  const width = collapsedTarget.width + (expandedWidth - collapsedTarget.width) * progress
-  const height = collapsedTarget.height + (targetHeight - collapsedTarget.height) * progress
-  const x = collapsedTarget.left + (expandedLeft - collapsedTarget.left) * progress
-  const y = collapsedTarget.top + (targetTop - collapsedTarget.top) * progress
-  const radius = 12 + 4 * progress
-  const minimumSurfaceOpacity = darkTheme.value ? 0.64 : 0.36
-  const opacity =
-    draggingToList
-      ? 1
-      : committedListReturn || detailReturningToFeed.value
-        ? progress
-        : minimumSurfaceOpacity + progress * (1 - minimumSurfaceOpacity)
-
-  return {
-    width: cssPx(width),
-    height: cssPx(height),
-    opacity: suppressSourceReturnPreview ? '0' : clamp(opacity).toFixed(3),
-    transform: cssTranslate3d(x, y),
-    borderRadius: cssPx(radius),
-    transition: readerBackDragging.value ? 'none' : undefined,
-  }
+const detailTransitionMotion = useReaderDetailTransitionMotion({
+  originRect: detailOriginRect,
+  sourceItemTargetRect: detailSourceItemTargetRect,
+  fallbackTargetRect: detailSourceFallbackTargetRect,
+  restoringFromSourceReader: detailRestoringFromSourceReader,
+  sourceExitProgress: detailSourceExitProgress,
+  backExitProgress: detailBackExitProgress,
+  surfaceProgress: detailSurfaceProgress,
+  surfaceMargin: detailSurfaceMargin,
+  expandedTop: detailExpandedTop,
+  windowWidth,
+  windowHeight,
+  darkTheme,
+  readerBackDragging,
+  sourceReturnTargetPending: sourceReaderReturnTargetPending,
+  blockedBackSwipeActive: sourceReaderBlockedBackSwipeActive,
+  returningToFeed: detailReturningToFeed,
+  committedListReturn: detailCommittedListReturn,
 })
+const detailTransitionSurfaceStyle = detailTransitionMotion.surfaceStyle
 const detailContentStyle = detailContentMotion.contentStyle
 const detailProgressStyle = detailProgressMotion.railStyle
 const detailProgressFillStyle = detailProgressMotion.fillStyle
