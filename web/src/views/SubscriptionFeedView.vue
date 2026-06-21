@@ -669,9 +669,7 @@ onUnmounted(() => {
   stopLoadMoreObserver()
   window.removeEventListener('focus', refreshStaleCacheInBackground)
   document.removeEventListener('visibilitychange', handleVisibilityRefresh)
-  if (usesGlobalPullState.value && feedInteraction.pullViewKey === viewKey.value) {
-    feedInteraction.resetPullState()
-  }
+  clearPullState(true)
 })
 
 watch(
