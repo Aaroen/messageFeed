@@ -807,6 +807,8 @@ const readerTransitionRects = useAppReaderTransitionRects({
 const refreshDetailFeedOriginRect = readerTransitionRects.refreshDetailFeedOriginRect
 const captureDetailSourceTransitionRects = readerTransitionRects.captureDetailSourceTransitionRects
 const captureVisibleSourceReturnTarget = readerTransitionRects.captureVisibleSourceReturnTarget
+const clearDetailSourceTransitionRectCapture =
+  readerTransitionRects.clearDetailSourceTransitionRectCapture
 
 const {
   restoreMorphingItemContent,
@@ -1472,6 +1474,7 @@ useAppLifecycle({
     () => refreshCompletion.clearTimer(),
     () => chromeState.clearTimer(),
     () => readerMotionState.clearSourceContentTimer(),
+    clearDetailSourceTransitionRectCapture,
     () => pagePullState.clearTimers(),
     () => clickSuppression.clearTimer(),
     clearSourceNoticeTimer,

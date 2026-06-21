@@ -39,6 +39,26 @@ type ReaderDetailSourceTransitionRectsOptions = {
 }
 
 export function useReaderDetailSourceTransitionRects(options: ReaderDetailSourceTransitionRectsOptions) {
+  let captureFrame = 0
+  let captureRetryTimer = 0
+  let captureToken = 0
+
+  function clearCaptureHandles() {
+    if (typeof window !== 'undefined' && captureFrame !== 0) {
+      window.cancelAnimationFrame(captureFrame)
+    }
+    if (typeof window !== 'undefined' && captureRetryTimer !== 0) {
+      window.clearTimeout(captureRetryTimer)
+    }
+    captureFrame = 0
+    captureRetryTimer = 0
+  }
+
+  function clearDetailSourceTransitionRectCapture() {
+    captureToken += 1
+    clearCaptureHandles()
+  }
+
   function findSourceFeedItemElement(itemID?: number) {
     if (!itemID || !options.sourceReaderContentRef.value) {
       return null
@@ -79,16 +99,22 @@ export function useReaderDetailSourceTransitionRects(options: ReaderDetailSource
     options.applyDetailFeedOriginRectState(itemRect, lock)
   }
 
-  function captureDetailSourceTransitionRects(
+  function scheduleDetailSourceTransitionRectCapture(
     retry = 12,
     captureOptions: { force?: boolean; lock?: boolean } = {},
+    token: number,
   ) {
-    if (options.detailTransitionRectsLocked.value && !captureOptions.force) {
-      return
-    }
-
     nextTick(() => {
-      requestAnimationFrame(() => {
+      if (token !== captureToken) {
+        return
+      }
+
+      captureFrame = window.requestAnimationFrame(() => {
+        captureFrame = 0
+        if (token !== captureToken) {
+          return
+        }
+
         if (options.detailTransitionRectsLocked.value && !captureOptions.force) {
           return
         }
@@ -110,16 +136,34 @@ export function useReaderDetailSourceTransitionRects(options: ReaderDetailSource
         }
 
         if (retry > 0 && (!itemRect || !sourceOriginRect || !sourceTargetRect)) {
-          window.setTimeout(
-            () => captureDetailSourceTransitionRects(retry - 1, captureOptions),
-            options.retryDelay,
-          )
+          captureRetryTimer = window.setTimeout(() => {
+            captureRetryTimer = 0
+            if (token !== captureToken) {
+              return
+            }
+            scheduleDetailSourceTransitionRectCapture(retry - 1, captureOptions, token)
+          }, options.retryDelay)
         }
       })
     })
   }
 
+  function captureDetailSourceTransitionRects(
+    retry = 12,
+    captureOptions: { force?: boolean; lock?: boolean } = {},
+  ) {
+    captureToken += 1
+    clearCaptureHandles()
+    const token = captureToken
+    if (options.detailTransitionRectsLocked.value && !captureOptions.force) {
+      return
+    }
+
+    scheduleDetailSourceTransitionRectCapture(retry, captureOptions, token)
+  }
+
   function captureVisibleSourceReturnTarget() {
+    clearDetailSourceTransitionRectCapture()
     const itemRect = snapshotElementRect(findSourceFeedItemElement(options.detailItem.value?.id))
     const sourceTargetRect =
       snapshotElementRect(findSourceFeedItemSourceElement(options.detailItem.value?.id)) ??
@@ -133,5 +177,6 @@ export function useReaderDetailSourceTransitionRects(options: ReaderDetailSource
     refreshDetailFeedOriginRect,
     captureDetailSourceTransitionRects,
     captureVisibleSourceReturnTarget,
+    clearDetailSourceTransitionRectCapture,
   }
 }
