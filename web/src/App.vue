@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, watch, type ComponentPublicInstance } from 'vue'
 import { IconBook } from '@arco-design/web-vue/es/icon'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -54,6 +54,7 @@ import { useViewportSize } from '@/composables/useViewportSize'
 import { useThemeState } from '@/composables/useThemeState'
 import { useFeedScrollState } from '@/composables/useFeedScrollState'
 import { usePageOutletState, type PageViewExpose } from '@/composables/usePageOutletState'
+import { useFeedContentState } from '@/composables/useFeedContentState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -65,7 +66,7 @@ type SwipeSurface =
 const route = useRoute()
 const router = useRouter()
 const feedInteraction = useFeedInteractionStore()
-const feedContentRef = ref<HTMLElement | null>(null)
+const feedContent = useFeedContentState()
 const pageOutlet = usePageOutletState()
 const pageContentRef = pageOutlet.contentElement
 const {
@@ -1108,6 +1109,10 @@ function setSourceReaderContentElement(element: HTMLElement | null) {
   setSourceReaderContentElementState(element)
 }
 
+function setFeedContentElement(element: Element | ComponentPublicInstance | null) {
+  feedContent.setContentElement(element instanceof HTMLElement ? element : null)
+}
+
 function setPageContentElement(element: HTMLElement | null) {
   pageOutlet.setContentElement(element)
 }
@@ -1124,15 +1129,7 @@ function findSourceFeedItemElement(itemID?: number) {
 }
 
 function findFeedItemElement(itemID?: number) {
-  if (!itemID || !feedContentRef.value) {
-    return null
-  }
-
-  const activePane = feedContentRef.value.querySelectorAll('.feed-pane').item(activeFeedIndex.value)
-  return (
-    activePane?.querySelector(`[data-feed-item-id="${itemID}"]`) ??
-    feedContentRef.value.querySelector(`[data-feed-item-id="${itemID}"]`)
-  )
+  return feedContent.findItemElement(itemID, activeFeedIndex.value)
 }
 
 function refreshDetailFeedOriginRect(lock = false) {
@@ -1292,9 +1289,7 @@ function scheduleReaderSessionSave() {
 
 function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
   const apply = () => {
-    if (feedContentRef.value) {
-      feedContentRef.value.scrollTop = snapshot.feedScrollTop
-    }
+    feedContent.scrollTo(snapshot.feedScrollTop)
     scrollSourceReaderContentElementTo(snapshot.sourceReaderScrollTop)
     if (scrollDetailContentElementTo(snapshot.detailScrollTop)) {
       syncDetailContainerMetrics()
@@ -2684,7 +2679,7 @@ watch(
     if (isFeedRoute.value) {
       setTopChromeVisible(true)
       nextTick(() => {
-        const current = feedContentRef.value?.scrollTop ?? 0
+        const current = feedContent.currentScrollTop()
         feedScroll.update(current)
         lastFeedScrollTop = current
       })
@@ -2906,7 +2901,7 @@ onUnmounted(() => {
 
       <section
         v-if="isFeedRoute"
-        ref="feedContentRef"
+        :ref="setFeedContentElement"
         class="app-content app-content--feed"
         @scroll.passive="handleFeedContentScroll"
         @pointerdown="handleFeedPointerDown"
