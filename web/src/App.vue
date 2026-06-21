@@ -124,6 +124,9 @@ const {
   sourceReaderRevealProgress,
   sourceNameMorphProgress,
   detailSurfaceProgress,
+  detailScrollMax,
+  detailReadingProgress,
+  detailProgressVisible,
   feedItemPreviewProgress,
   sourceNameTransitionActive,
   sourceTitleProgress,
@@ -619,17 +622,6 @@ const detailContentStyle = computed(() => {
     transition: readerBackDragging.value || committedListReturn ? 'none' : undefined,
   }
 })
-const detailScrollMax = computed(() => Math.max(0, detailScrollHeight.value - detailScrollClientHeight.value))
-const detailReadingProgress = computed(() =>
-  detailScrollMax.value > 0 ? clamp(detailScrollTop.value / detailScrollMax.value) : 0,
-)
-const detailProgressVisible = computed(
-  () =>
-    detailReaderOpen.value &&
-    !detailCommittedListReturn() &&
-    detailSurfaceProgress.value > 0.86 &&
-    detailScrollMax.value > 8,
-)
 const detailProgressStyle = computed(() => {
   const margin = detailSurfaceMargin.value
   const top = Math.max(margin, detailExpandedTop.value + margin)
