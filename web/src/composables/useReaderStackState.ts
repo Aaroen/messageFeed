@@ -1396,6 +1396,24 @@ export function useReaderStackState() {
     return clampProgress(Math.abs(detailReaderStretch.value || sourceReaderStretch.value || fallbackStretch) / 0.07)
   }
 
+  function readerBackSwipeShouldCommit(deltaX: number, switchDistance: number) {
+    const target = backSwipeTarget.value
+    const intent = backSwipeIntent.value
+    if (intent === 'back' && target === 'detail') {
+      return deltaX > 0 && (detailBackExitProgress.value >= 0.42 || deltaX >= switchDistance)
+    }
+    if (intent === 'back' && target === 'source') {
+      return deltaX < 0 && (detailSourceExitProgress.value <= 0.58 || Math.abs(deltaX) >= switchDistance)
+    }
+    if (intent === 'source' && target === 'detail') {
+      return deltaX < 0 && (detailSourceExitProgress.value >= 0.42 || Math.abs(deltaX) >= switchDistance)
+    }
+    if (intent === 'back') {
+      return deltaX > 0 && Math.abs(deltaX) >= switchDistance
+    }
+    return false
+  }
+
   function readerBackSwipeTransitionSurfaces<TSurface extends string>(surfaces: {
     activeFeedSurface: TSurface
     pageReturnSurface: TSurface
@@ -1644,6 +1662,7 @@ export function useReaderStackState() {
     getReaderBackSwipeState,
     readerBackSwipeMatches,
     readerBackSwipeTransitionProgress,
+    readerBackSwipeShouldCommit,
     readerBackSwipeTransitionSurfaces,
     beginReaderBackSwipeTrackingState,
     prepareReaderBackSwipeIntentState,

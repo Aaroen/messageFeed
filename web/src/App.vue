@@ -190,6 +190,7 @@ const {
   getReaderBackSwipeState,
   readerBackSwipeMatches,
   readerBackSwipeTransitionProgress,
+  readerBackSwipeShouldCommit,
   readerBackSwipeTransitionSurfaces,
   beginReaderBackSwipeTrackingState,
   prepareReaderBackSwipeIntentState,
@@ -2218,16 +2219,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
 
 function finishBackSwipe(deltaX: number, _deltaY: number) {
   const { target, intent } = getReaderBackSwipeState()
-  const shouldCommit =
-    intent === 'back' && target === 'detail'
-      ? deltaX > 0 && (detailBackExitProgress.value >= 0.42 || deltaX >= viewSwitchDistance)
-      : intent === 'back' && target === 'source'
-        ? deltaX < 0 && (detailSourceExitProgress.value <= 0.58 || Math.abs(deltaX) >= viewSwitchDistance)
-      : intent === 'source' && target === 'detail'
-        ? deltaX < 0 && (detailSourceExitProgress.value >= 0.42 || Math.abs(deltaX) >= viewSwitchDistance)
-        : intent === 'back'
-          ? deltaX > 0 && Math.abs(deltaX) >= viewSwitchDistance
-          : false
+  const shouldCommit = readerBackSwipeShouldCommit(deltaX, viewSwitchDistance)
 
   swipeTransition.settle(shouldCommit, {
     progress: shouldCommit ? 1 : readerBackSwipeTransitionProgress(pageSideStretch.value),
