@@ -43,6 +43,7 @@ import { useRefreshCompletionState } from '@/composables/useRefreshCompletionSta
 import { useChromeLayerMotion } from '@/composables/useChromeLayerMotion'
 import { useReaderSourceSurfaceMotion } from '@/composables/useReaderSourceSurfaceMotion'
 import { useReaderDetailSurfaceMotion } from '@/composables/useReaderDetailSurfaceMotion'
+import { useReaderDetailContentMotion } from '@/composables/useReaderDetailContentMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -536,6 +537,14 @@ const detailExpandedTop = computed(() =>
 const detailFrameMinHeight = computed(() =>
   Math.max(300, windowHeight.value - detailExpandedTop.value - detailSurfaceMargin.value - 96),
 )
+const detailContentMotion = useReaderDetailContentMotion({
+  surfaceProgress: detailSurfaceProgress,
+  sourceExitProgress: detailSourceExitProgress,
+  frameMinHeight: detailFrameMinHeight,
+  frameContentHeight: detailFrameContentHeight,
+  dragging: readerBackDragging,
+  committedListReturn: detailCommittedListReturn,
+})
 const detailTransitionSurfaceStyle = computed(() => {
   const origin = detailOriginRect.value
   const sourceExiting =
@@ -595,25 +604,7 @@ const detailTransitionSurfaceStyle = computed(() => {
     transition: readerBackDragging.value ? 'none' : undefined,
   }
 })
-const detailContentStyle = computed(() => {
-  const progress = detailSurfaceProgress.value
-  const sourceExitProgress = detailSourceExitProgress.value
-  const committedListReturn = detailCommittedListReturn()
-  const opacity = sourceExitProgress > 0 ? 1 : clamp((progress - 0.56) / 0.22)
-  const bodyOpacity = sourceExitProgress > 0 ? clamp((0.72 - sourceExitProgress) / 0.32) : 1
-  const inlineMetaOpacity = sourceExitProgress > 0 ? clamp((0.24 - sourceExitProgress) / 0.18) : 1
-  return {
-    opacity: committedListReturn ? '0' : opacity.toFixed(3),
-    '--detail-body-opacity': bodyOpacity.toFixed(3),
-    '--detail-inline-meta-opacity': inlineMetaOpacity.toFixed(3),
-    '--detail-frame-min-height': cssPx(detailFrameMinHeight.value),
-    '--detail-frame-content-height': cssPx(Math.max(detailFrameMinHeight.value, detailFrameContentHeight.value)),
-    transform:
-      sourceExitProgress > 0 ? cssTranslate3d(0, 0) : cssTranslate3d(0, (1 - progress) * 8),
-    visibility: !committedListReturn && opacity > 0.01 ? ('visible' as const) : ('hidden' as const),
-    transition: readerBackDragging.value || committedListReturn ? 'none' : undefined,
-  }
-})
+const detailContentStyle = detailContentMotion.contentStyle
 const detailProgressStyle = computed(() => {
   const margin = detailSurfaceMargin.value
   const top = Math.max(margin, detailExpandedTop.value + margin)
