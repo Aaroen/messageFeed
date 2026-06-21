@@ -682,6 +682,7 @@ const sourceTitleTextStyle = readerMotionState.sourceTitleTextStyle
 const sourceTitleRevealStyle = readerMotionState.sourceTitleRevealStyle
 const detailPreviewSummary = readerMotionState.detailPreviewSummary
 const detailDisplayDate = readerMotionState.detailDisplayDate
+const detailFrameId = readerMotionState.detailFrameId
 const detailSrcdoc = readerMotionState.detailSrcdoc
 const readerMorphVisibilityState = useAppReaderMorphVisibilityState({
   readerSource,
@@ -1153,6 +1154,7 @@ const readerDetailInteractions = useAppReaderDetailInteractions({
   },
   message: {
     detailReaderOpen,
+    detailFrameId,
     navigationVisible,
     readerBackSwipeTrackingActive,
     detailCommittedListReturn,

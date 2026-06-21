@@ -10,6 +10,7 @@ type ViewportOffset = {
 type DetailGesturePayload = {
   phase?: 'start' | 'move' | 'end' | 'cancel'
   source?: string
+  frameId?: string
   startX?: number
   startY?: number
   x?: number
@@ -18,6 +19,7 @@ type DetailGesturePayload = {
 }
 
 type DetailScrollPayload = {
+  frameId?: string
   scrollTop?: number
   scrollHeight?: number
   clientHeight?: number
@@ -25,6 +27,7 @@ type DetailScrollPayload = {
 
 type ReaderDetailMessageHandlerOptions = {
   detailReaderOpen: ReadableRef<boolean>
+  detailFrameId: ReadableRef<string>
   navigationVisible: ReadableRef<boolean>
   readerBackSwipeTrackingActive: ReadableRef<boolean>
   detailCommittedListReturn: () => boolean
@@ -116,6 +119,10 @@ export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandle
     }
 
     if (!options.isCurrentDetailFrameMessageSource(event.source)) {
+      return
+    }
+
+    if (event.data?.frameId !== options.detailFrameId.value) {
       return
     }
 

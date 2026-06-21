@@ -11,6 +11,15 @@ type ReaderDetailFrameOptions = {
   metricsSettledDelay: number
 }
 
+function hashFrameSource(value: string) {
+  let hash = 2166136261
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
+}
+
 export function useReaderDetailFrame(options: ReaderDetailFrameOptions) {
   const html = computed(() => options.item.value?.content_html || options.item.value?.content_snippet || '')
   const text = computed(
@@ -33,6 +42,19 @@ export function useReaderDetailFrame(options: ReaderDetailFrameOptions) {
   const body = computed(() => {
     const source = html.value || `<p>${escapeHTML(text.value || '暂无正文。')}</p>`
     return sanitizeDetailHTML(source)
+  })
+  const frameId = computed(() => {
+    const item = options.item.value
+    return `detail-${hashFrameSource(
+      [
+        item?.id ?? '',
+        item?.source_id ?? '',
+        item?.url ?? '',
+        item?.published_at ?? '',
+        item?.fetched_at ?? '',
+        body.value,
+      ].join('\u001f'),
+    )}`
   })
   const srcdoc = computed(() => `<!doctype html>
 <html>
@@ -98,10 +120,12 @@ ${body.value}
   let intent = null;
   let metricsTicking = false;
   let resizeObserver = null;
+  const frameId = '${frameId.value}';
   const preferTouchEvents = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const post = (phase, touch) => {
     window.parent.postMessage({
       type: 'messagefeed-detail-gesture',
+      frameId,
       phase,
       startX,
       startY,
@@ -133,6 +157,7 @@ ${body.value}
   const postScrollMetrics = () => {
     window.parent.postMessage({
       type: 'messagefeed-detail-scroll',
+      frameId,
       ...scrollMetrics()
     }, '*');
   };
@@ -147,6 +172,7 @@ ${body.value}
   window.addEventListener('resize', () => requestAnimationFrame(postScrollMetrics), { passive: true });
   window.addEventListener('message', (event) => {
     if (event.data?.type !== 'messagefeed-detail-scroll-to') return;
+    if (event.data?.frameId && event.data.frameId !== frameId) return;
     requestAnimationFrame(postScrollMetrics);
   });
   window.addEventListener('load', () => {
@@ -267,6 +293,7 @@ ${body.value}
   return {
     previewSummary,
     displayDate,
+    frameId,
     srcdoc,
   }
 }

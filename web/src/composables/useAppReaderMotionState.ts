@@ -79,6 +79,7 @@ export function useAppReaderMotionState(options: AppReaderMotionStateOptions) {
     detailTransitionSurfaceStyle: detailTransitionMotion.surfaceStyle,
     detailPreviewSummary: detailFrame.previewSummary,
     detailDisplayDate: detailFrame.displayDate,
+    detailFrameId: detailFrame.frameId,
     detailSrcdoc: detailFrame.srcdoc,
   }
 }
