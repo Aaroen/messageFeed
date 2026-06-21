@@ -311,6 +311,13 @@ export function useReaderStackState() {
   const sourceTitleRevealProgress = computed(() =>
     clampProgress((sourceTitleProgress.value - 0.64) / 0.24),
   )
+  const sourceTitleRevealReady = computed(
+    () =>
+      Boolean(readerSource.value) &&
+      sourceNameTransitionActive.value &&
+      sourceTitleRevealProgress.value > 0.001 &&
+      !detailRestoringFromSourceReader.value,
+  )
   const sourceNameMorphActive = computed(
     () =>
       sourceNameTransitionActive.value &&
@@ -1470,6 +1477,7 @@ export function useReaderStackState() {
     sourceNameTransitionActive,
     sourceTitleProgress,
     sourceTitleRevealProgress,
+    sourceTitleRevealReady,
     sourceNameMorphActive,
     sourceNameMorphVisible,
     detailParkedBehindSource,

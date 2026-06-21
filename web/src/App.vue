@@ -128,6 +128,7 @@ const {
   sourceNameTransitionActive,
   sourceTitleProgress,
   sourceTitleRevealProgress,
+  sourceTitleRevealReady,
   sourceNameMorphActive,
   sourceNameMorphVisible,
   detailParkedBehindSource,
@@ -729,12 +730,7 @@ const detailMorphSourceLabelStyle = computed(() => {
   }
 })
 const sourceTitleRevealVisible = computed(
-  () =>
-    Boolean(readerSource.value) &&
-    sourceNameTransitionActive.value &&
-    sourceTitleRevealProgress.value > 0.001 &&
-    !detailRestoringFromSourceReader.value &&
-    !sourcePullActive.value,
+  () => sourceTitleRevealReady.value && !sourcePullActive.value,
 )
 const sourceNameMorphStyle = computed(() => {
   const origin = detailSourceNameOriginRect.value
