@@ -27,12 +27,24 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
       return
     }
 
+    const afterSettledCallbacks: Array<() => void> = []
     options.beginRefreshing()
     try {
-      await refreshPage({ noticeDelayMS: options.noticeDelayMS, suppressStartNotice: true })
+      await refreshPage({
+        noticeDelayMS: options.noticeDelayMS,
+        suppressStartNotice: true,
+        onRefreshSettled: (callback) => {
+          afterSettledCallbacks.push(callback)
+        },
+      })
     } finally {
       options.settleRefreshCompletion({
         afterRelease: options.collapseTopChrome,
+        afterSettled: () => {
+          for (const callback of afterSettledCallbacks) {
+            callback()
+          }
+        },
       })
     }
   }

@@ -17,7 +17,10 @@ import {
   type SourceCatalogEntry,
 } from '@/api/feed'
 import { useMotionTimings } from '@/composables/useMotionTimings'
+import type { PageRefreshOptions } from '@/composables/usePageOutletState'
+import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
 
+const sourcesPageRef = ref<HTMLElement | null>(null)
 const sources = ref<Source[]>([])
 const catalog = ref<SourceCatalogEntry[]>([])
 const catalogQuery = ref('')
@@ -28,6 +31,7 @@ const catalogLoading = ref(false)
 const actionLoading = ref(false)
 const notice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
 const motionTimings = useMotionTimings()
+const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef })
 let noticeTimer = 0
 const importFetchConcurrency = 3
 
@@ -129,9 +133,13 @@ async function loadCatalog(options: { silent?: boolean; notify?: boolean } = {})
   }
 }
 
-async function refreshPage(options: { noticeDelayMS?: number; suppressStartNotice?: boolean } = {}) {
+async function refreshPage(options: PageRefreshOptions = {}) {
   if (loading.value || catalogLoading.value || actionLoading.value) {
     return
+  }
+  if (options.onRefreshSettled) {
+    refreshLayoutFreeze.capture()
+    options.onRefreshSettled(refreshLayoutFreeze.release)
   }
   const query = catalogQuery.value.trim()
   try {
@@ -329,13 +337,14 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.clearTimeout(noticeTimer)
+  refreshLayoutFreeze.release()
 })
 
 defineExpose({ refreshPage })
 </script>
 
 <template>
-  <section class="sources-page">
+  <section ref="sourcesPageRef" class="sources-page" :style="refreshLayoutFreeze.style.value">
     <Teleport to="body">
       <div
         v-if="notice"
