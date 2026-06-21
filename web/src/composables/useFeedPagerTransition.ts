@@ -51,6 +51,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   const viewSwipeActive = ref(false)
   let settlingTimer = 0
   let delayedCommitTimer = 0
+  let settlingTimerToken = 0
+  let delayedCommitTimerToken = 0
   let startedWithHiddenChrome = false
   let activePointerId: number | null = null
 
@@ -264,6 +266,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
       window.clearTimeout(settlingTimer)
     }
     settlingTimer = 0
+    settlingTimerToken += 1
   }
 
   function clearDelayedCommitTimer() {
@@ -271,11 +274,17 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
       window.clearTimeout(delayedCommitTimer)
     }
     delayedCommitTimer = 0
+    delayedCommitTimerToken += 1
   }
 
   function scheduleSettlingEnd(delay: number) {
     clearSettlingTimer()
+    const token = settlingTimerToken + 1
+    settlingTimerToken = token
     settlingTimer = window.setTimeout(() => {
+      if (token !== settlingTimerToken) {
+        return
+      }
       settlingTimer = 0
       setSettling(false)
     }, Math.max(0, delay))
@@ -283,7 +292,12 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   function scheduleDelayedCommit(delay: number, commit: () => void) {
     clearDelayedCommitTimer()
+    const token = delayedCommitTimerToken + 1
+    delayedCommitTimerToken = token
     delayedCommitTimer = window.setTimeout(() => {
+      if (token !== delayedCommitTimerToken) {
+        return
+      }
       delayedCommitTimer = 0
       commit()
     }, Math.max(0, delay))
