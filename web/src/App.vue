@@ -498,15 +498,13 @@ const sourceContentMotion = useSourceContentMotion({
 })
 const sourceContentStyle = sourceContentMotion.contentStyle
 const sourceReaderStyle = sourceSurfaceMotion.surfaceStyle
-const sourceHeaderStyle = computed(() => ({
-  opacity: topChromeProgress.value.toFixed(3),
-  pointerEvents: topChromeProgress.value > 0.86 ? ('auto' as const) : ('none' as const),
-  transform: cssTranslate3d(0, (topChromeProgress.value - 1) * feedHeaderHeight.value),
-  transition:
-    feedChromeSettling.value || readerBackDragging.value
-      ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard)'
-      : undefined,
-}))
+const sourceHeaderStyle = computed(() =>
+  chromeLayerMotion.sourceHeaderStyle(
+    topChromeProgress.value,
+    feedHeaderHeight.value,
+    feedChromeSettling.value || readerBackDragging.value,
+  ),
+)
 const detailHeaderLayerStyle = computed(() => chromeLayerMotion.layerStyle(detailHeaderVisible.value, topChromeProgress.value))
 const pageTitleLayerStyle = computed(() => chromeLayerMotion.layerStyle(!pagePullActive.value, feedHeaderProgress.value))
 const sourceMainLayerStyle = computed(() => chromeLayerMotion.layerStyle(!sourcePullActive.value, topChromeProgress.value))

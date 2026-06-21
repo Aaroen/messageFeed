@@ -42,6 +42,18 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
     }
   }
 
+  function sourceHeaderStyle(progress: number, headerHeight: number, settling: boolean) {
+    const safeProgress = finiteNumber(progress)
+    return {
+      opacity: safeProgress.toFixed(3),
+      pointerEvents: safeProgress > 0.86 ? ('auto' as const) : ('none' as const),
+      transform: cssTranslate3d(0, (safeProgress - 1) * headerHeight),
+      transition: settling
+        ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard)'
+        : undefined,
+    }
+  }
+
   function navOpenButtonStyle(progress: number, headerHeight: number, visible: boolean) {
     const safeProgress = finiteNumber(visible ? progress : 0)
     return {
@@ -86,6 +98,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
 
   return {
     headerStyle,
+    sourceHeaderStyle,
     navOpenButtonStyle,
     layerStyle,
   }
