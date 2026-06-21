@@ -601,10 +601,8 @@ function resetPullTracking() {
 }
 
 function resetPullGesture(force = false) {
-  resetPullTracking()
-  pullRefresh.resetOffset()
+  pullRefresh.cancelGesture()
   clearPullState(force)
-  pullRefresh.resetGesture()
 }
 
 function handleTouchStart(event: TouchEvent) {
@@ -615,8 +613,7 @@ function handleTouchStart(event: TouchEvent) {
     loading.value ||
     refreshing.value
   ) {
-    resetPullTracking()
-    pullRefresh.resetGesture()
+    pullRefresh.cancelGesture()
     return
   }
 

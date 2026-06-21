@@ -96,6 +96,12 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     setOffset(0)
   }
 
+  function cancelGesture() {
+    resetGestureTracking(0)
+    resetOffset()
+    resetGesture()
+  }
+
   function commitRefreshOffset() {
     setOffset(threshold)
   }
@@ -217,7 +223,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     beginGestureTracking,
     updateGestureDistance,
     resetGestureTracking,
-    resetOffset,
+    cancelGesture,
     commitRefreshOffset,
     setGestureOffset,
     beginRefreshing,
@@ -228,6 +234,5 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     settleOffset,
     settleRefreshCompletion,
     reset,
-    resetGesture,
   }
 }
