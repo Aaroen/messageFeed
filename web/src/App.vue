@@ -64,6 +64,7 @@ import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
 import { useReaderLayoutState } from '@/composables/useReaderLayoutState'
 import { useAppRouteState } from '@/composables/useAppRouteState'
+import { useAppMainClassState } from '@/composables/useAppMainClassState'
 import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
@@ -490,20 +491,22 @@ const sourceMainLayerStyle = appChromeLayerState.sourceMainLayerStyle
 const headerClass = appChromeLayerState.headerClass
 const headerStyle = appChromeLayerState.headerStyle
 const navOpenButtonStyle = appChromeLayerState.navOpenButtonStyle
-const mainClass = computed(() => ({
-  'app-main--feed': isFeedRoute.value,
-  'app-main--page': !isFeedRoute.value,
-  'app-main--tabs-hidden': feedChromeHidden.value,
-  'app-main--refreshing': feedPullActive.value || pagePullActive.value,
-  'app-main--pull-dragging': feedPullActive.value && !feedInteraction.pullRefreshing,
-  'app-main--top-refresh-contained': freezeFeedBodyDuringTopRefresh.value,
-  'app-main--refresh-settling': feedRefreshSettling.value,
-  'app-main--chrome-settling': feedChromeSettling.value,
-  'app-main--page-pull-settling': pagePullSettling.value,
-  'app-main--view-settling': viewSettling.value,
-  'app-main--detail-reader': detailReaderOpen.value && !detailReturningToFeed.value,
-  'app-main--detail-chrome': detailChromeVisible.value,
-}))
+const appMainClassState = useAppMainClassState({
+  isFeedRoute,
+  feedChromeHidden,
+  feedPullActive,
+  feedPullRefreshing: () => feedInteraction.pullRefreshing,
+  pagePullActive,
+  freezeFeedBodyDuringTopRefresh,
+  feedRefreshSettling,
+  feedChromeSettling,
+  pagePullSettling,
+  viewSettling,
+  detailReaderOpen,
+  detailReturningToFeed,
+  detailChromeVisible,
+})
+const mainClass = appMainClassState.mainClass
 const readerLayoutState = useReaderLayoutState({
   windowWidth,
   windowHeight,
