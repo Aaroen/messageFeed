@@ -726,6 +726,9 @@ export function useReaderStackState() {
     morphingItemId.value = null
     morphingHeightLockItemId.value = null
     morphingItemHeight.value = null
+    detailTransitionRectsLocked.value = false
+    detailFeedOriginLocked.value = false
+    sourceReturnTargetReady.value = false
     parkedDetailStack.value = Array.isArray(snapshot.parkedDetailStack)
       ? snapshot.parkedDetailStack.map(durableParkedDetailSnapshot)
       : []
@@ -792,6 +795,8 @@ export function useReaderStackState() {
     detailRestoringFromSourceReader.value = false
     sourceReaderReturnMode.value = 'detail'
     sourceReaderVisible.value = true
+    detailTransitionRectsLocked.value = false
+    sourceReturnTargetReady.value = false
     return true
   }
 
@@ -836,6 +841,14 @@ export function useReaderStackState() {
     return restoreParkedDetailSnapshot(snapshot, options)
   }
 
+  function clearDetailSourceTransitionTargetState() {
+    detailSourceItemTargetRect.value = null
+    detailSourceNameOriginRect.value = null
+    detailSourceNameTargetRect.value = null
+    detailTransitionRectsLocked.value = false
+    sourceReturnTargetReady.value = false
+  }
+
   function resetDetailTransition() {
     detailEntryProgress.value = 1
     detailEntrySettling.value = false
@@ -845,12 +858,8 @@ export function useReaderStackState() {
     detailListReturnCommitted.value = false
     detailRestoringFromSourceReader.value = false
     sourceReaderReturnMode.value = null
-    detailSourceItemTargetRect.value = null
-    detailSourceNameOriginRect.value = null
-    detailSourceNameTargetRect.value = null
-    detailTransitionRectsLocked.value = false
+    clearDetailSourceTransitionTargetState()
     detailFeedOriginLocked.value = false
-    sourceReturnTargetReady.value = false
   }
 
   function clearHiddenSourceReader() {
@@ -1183,10 +1192,7 @@ export function useReaderStackState() {
     sourceTargetRect: RectSnapshot | null,
   ) {
     if (!itemRect) {
-      detailSourceItemTargetRect.value = null
-      detailSourceNameOriginRect.value = null
-      detailSourceNameTargetRect.value = null
-      sourceReturnTargetReady.value = false
+      clearDetailSourceTransitionTargetState()
       return false
     }
 
@@ -1421,10 +1427,7 @@ export function useReaderStackState() {
   function finishRestoreDetailFromSourceSwipeState() {
     detailEntrySettling.value = false
     sourceReaderVisible.value = false
-    detailSourceItemTargetRect.value = null
-    detailSourceNameOriginRect.value = null
-    detailSourceNameTargetRect.value = null
-    detailTransitionRectsLocked.value = false
+    clearDetailSourceTransitionTargetState()
   }
 
   function restoreDetailFromSourceSwipeWithDelay(delay: number) {
@@ -1559,10 +1562,7 @@ export function useReaderStackState() {
     sourceReaderBackDetail.value = null
     parkedDetailStack.value = []
     sourceReaderVisible.value = false
-    detailSourceItemTargetRect.value = null
-    detailSourceNameOriginRect.value = null
-    detailSourceNameTargetRect.value = null
-    detailTransitionRectsLocked.value = false
+    clearDetailSourceTransitionTargetState()
   }
 
   function restoreDetailFromParkedSourceWithDelay(
