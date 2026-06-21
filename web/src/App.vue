@@ -14,7 +14,6 @@ import {
   type ReaderSource,
 } from '@/composables/useReaderSession'
 import { useReaderStackState } from '@/composables/useReaderStackState'
-import { useReaderRouteSync } from '@/composables/useReaderRouteSync'
 import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
@@ -79,6 +78,7 @@ import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitio
 import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
 import { useAppReaderSourceSubscription } from '@/composables/useAppReaderSourceSubscription'
 import { useAppReaderSession } from '@/composables/useAppReaderSession'
+import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -423,7 +423,8 @@ const virtualBackGuard = useVirtualBackGuard({
     scheduleReaderURLAndHistorySync(true)
   },
 })
-const readerRouteSync = useReaderRouteSync({
+useAppReaderRouteSyncBinding({
+  bindReaderRouteSync: appReaderRouteSyncAction.bindReaderRouteSync,
   route,
   router,
   canSync: () => routeRuntime.canSyncReaderRoute(readerSession.restoring.value),
@@ -434,7 +435,6 @@ const readerRouteSync = useReaderRouteSync({
   setProgrammaticRouteNavigation: routeRuntime.setProgrammaticNavigation,
   syncVirtualHistoryState: virtualBackGuard.syncHistoryState,
 })
-appReaderRouteSyncAction.bindReaderRouteSync(readerRouteSync)
 const feedPagerTransition = useFeedPagerTransition({
   getActiveKey: () => route.name,
   getWindowWidth: () => windowWidth.value,
