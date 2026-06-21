@@ -49,8 +49,10 @@ type ReaderDetailMessageHandlerOptions = {
 
 export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandlerOptions) {
   let metricsFrame = 0
+  let metricsFrameToken = 0
 
   function clearMetricsFrame() {
+    metricsFrameToken += 1
     if (typeof window !== 'undefined' && metricsFrame !== 0) {
       window.cancelAnimationFrame(metricsFrame)
     }
@@ -58,11 +60,20 @@ export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandle
   }
 
   function handleDetailScrollMessage(data: DetailScrollPayload) {
+    const frameId = data.frameId
     const scrollHeight = Number(data.scrollHeight ?? 0)
     clearMetricsFrame()
+    const token = metricsFrameToken
     metricsFrame = window.requestAnimationFrame(() => {
+      if (token !== metricsFrameToken) {
+        return
+      }
       metricsFrame = 0
-      if (!options.detailReaderOpen.value || options.detailCommittedListReturn()) {
+      if (
+        !options.detailReaderOpen.value ||
+        options.detailCommittedListReturn() ||
+        frameId !== options.detailFrameId.value
+      ) {
         return
       }
       if (Number.isFinite(scrollHeight)) {
