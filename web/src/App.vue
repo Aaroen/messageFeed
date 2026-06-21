@@ -848,6 +848,8 @@ const readerOpenInteractions = useAppReaderOpenInteractions({
     captureDetailSourceTransitionRects,
   },
   itemOpen: {
+    detailItem,
+    detailSourceKind,
     sourceReaderOpen,
     readerSource,
     headerSwapDuration: motionHeaderSwapDuration,

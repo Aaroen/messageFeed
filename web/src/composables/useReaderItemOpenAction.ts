@@ -18,6 +18,8 @@ type OpenItemReaderTransitionOptions = {
 }
 
 type ReaderItemOpenActionOptions = {
+  detailItem: ReadableRef<FeedItem | null>
+  detailSourceKind: ReadableRef<FeedSourceKind>
   sourceReaderOpen: ReadableRef<boolean>
   readerSource: ReadableRef<ReaderSource | null>
   headerSwapDuration: number
@@ -40,7 +42,19 @@ type ReaderItemOpenActionOptions = {
 }
 
 export function useReaderItemOpenAction(options: ReaderItemOpenActionOptions) {
+  let openItemToken = 0
+
+  function openItemIsCurrent(token: number, item: FeedItem, sourceKind: FeedSourceKind) {
+    return (
+      token === openItemToken &&
+      options.detailItem.value?.id === item.id &&
+      options.detailSourceKind.value === sourceKind
+    )
+  }
+
   async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
+    openItemToken += 1
+    const token = openItemToken
     const openedFromSourceReader =
       options.sourceReaderOpen.value &&
       options.readerSource.value?.id === item.source_id &&
@@ -79,11 +93,20 @@ export function useReaderItemOpenAction(options: ReaderItemOpenActionOptions) {
       if (sourceKind === 'subscriptions' && item.id > 0) {
         loadedItem = await options.loadFeedItem(item.id)
       }
+      if (!openItemIsCurrent(token, item, sourceKind)) {
+        return
+      }
       options.finishOpenItemReaderLoad({ item: loadedItem })
     } catch {
+      if (!openItemIsCurrent(token, item, sourceKind)) {
+        return
+      }
       options.finishOpenItemReaderLoad({ errorMessage: '无法加载完整条目，已显示当前列表内容。' })
     } finally {
       nextTick(() => {
+        if (!openItemIsCurrent(token, item, sourceKind)) {
+          return
+        }
         options.scrollDetailContentElementTo(0)
         options.scheduleReaderSessionSave()
       })
