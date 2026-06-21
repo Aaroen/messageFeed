@@ -34,6 +34,8 @@ const notice = ref<{ type: 'success' | 'warning'; message: string } | null>(null
 const motionTimings = useMotionTimings()
 const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef })
 let noticeTimer = 0
+let pageRequestToken = 0
+let disposed = false
 const importFetchConcurrency = 3
 const pageBusy = computed(() => loading.value || catalogLoading.value || actionLoading.value || pageRefreshing.value)
 
@@ -59,24 +61,57 @@ const sourceByNormalizedURL = computed(() => {
   return sourceMap
 })
 
+function clearNoticeTimer() {
+  window.clearTimeout(noticeTimer)
+  noticeTimer = 0
+}
+
+function clearNotice() {
+  clearNoticeTimer()
+  notice.value = null
+}
+
+function nextPageRequestToken() {
+  pageRequestToken += 1
+  return pageRequestToken
+}
+
+function invalidatePageRequests() {
+  pageRequestToken += 1
+}
+
+function pageRequestIsCurrent(token?: number) {
+  return !disposed && (token === undefined || token === pageRequestToken)
+}
+
 function showNotice(type: 'success' | 'warning', message: string, durationMS?: number, delayMS = 0) {
-  const normalized = message.trim()
-  if (!normalized) {
-    notice.value = null
+  if (disposed) {
     return
   }
-  window.clearTimeout(noticeTimer)
+  const normalized = message.trim()
+  if (!normalized) {
+    clearNotice()
+    return
+  }
+  clearNoticeTimer()
   const show = () => {
+    if (disposed) {
+      return
+    }
     notice.value = { type, message: normalized }
     const duration = durationMS ?? motionTimings.noticeDuration(type)
     if (duration > 0) {
       noticeTimer = window.setTimeout(() => {
+        noticeTimer = 0
         notice.value = null
       }, duration)
     }
   }
   if (delayMS > 0) {
-    noticeTimer = window.setTimeout(show, delayMS)
+    noticeTimer = window.setTimeout(() => {
+      noticeTimer = 0
+      show()
+    }, delayMS)
     return
   }
   show()
@@ -98,38 +133,45 @@ function formatFetchErrors(errors: Array<{ source_name?: string; message: string
   return `${details.join('；')}${overflow}`
 }
 
-async function loadSources(options: { silent?: boolean; notify?: boolean } = {}) {
+async function loadSources(options: { silent?: boolean; notify?: boolean; token?: number } = {}) {
   if (!options.silent) {
     loading.value = true
   }
   try {
-    sources.value = await listSources()
+    const nextSources = await listSources()
+    if (!pageRequestIsCurrent(options.token)) {
+      return
+    }
+    sources.value = nextSources
   } catch (err) {
-    if (options.notify !== false) {
+    if (pageRequestIsCurrent(options.token) && options.notify !== false) {
       showNotice('warning', `刷新失败：订阅源列表加载失败。详细原因：${formatAPIError(err)}`)
     }
     throw err
   } finally {
-    if (!options.silent) {
+    if (pageRequestIsCurrent(options.token) && !options.silent) {
       loading.value = false
     }
   }
 }
 
-async function loadCatalog(options: { silent?: boolean; notify?: boolean } = {}) {
+async function loadCatalog(options: { silent?: boolean; notify?: boolean; token?: number } = {}) {
   if (!options.silent) {
     catalogLoading.value = true
   }
   try {
     const result = await listSourceCatalog({ q: catalogQuery.value || undefined, limit: 200, offset: 0 })
+    if (!pageRequestIsCurrent(options.token)) {
+      return
+    }
     catalog.value = result.entries
   } catch (err) {
-    if (options.notify !== false) {
+    if (pageRequestIsCurrent(options.token) && options.notify !== false) {
       showNotice('warning', `刷新失败：推荐源目录加载失败。详细原因：${formatAPIError(err)}`)
     }
     throw err
   } finally {
-    if (!options.silent) {
+    if (pageRequestIsCurrent(options.token) && !options.silent) {
       catalogLoading.value = false
     }
   }
@@ -139,6 +181,7 @@ async function refreshPage(options: PageRefreshOptions = {}) {
   if (pageBusy.value) {
     return
   }
+  const token = nextPageRequestToken()
   pageRefreshing.value = true
   if (options.onRefreshSettled) {
     refreshLayoutFreeze.capture()
@@ -150,11 +193,20 @@ async function refreshPage(options: PageRefreshOptions = {}) {
       showNotice('success', query ? `抓取中：正在更新“${query}”的推荐源搜索结果` : '抓取中：正在更新订阅管理数据', 0)
     }
     await Promise.all([
-      loadSources({ silent: true, notify: false }),
-      loadCatalog({ silent: true, notify: false }),
+      loadSources({ silent: true, notify: false, token }),
+      loadCatalog({ silent: true, notify: false, token }),
     ])
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
     const fetchResult = await fetchActiveSources()
-    await loadSources({ silent: true, notify: false })
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
+    await loadSources({ silent: true, notify: false, token })
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
     if (fetchResult.failure_count > 0) {
       const prefix = fetchResult.success_count > 0 ? '刷新异常' : '刷新失败'
       showNotice(
@@ -167,9 +219,18 @@ async function refreshPage(options: PageRefreshOptions = {}) {
     }
     showNotice('success', '刷新成功：已更新订阅管理数据', undefined, options.noticeDelayMS)
   } catch (err) {
-    showNotice('warning', `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`, undefined, options.noticeDelayMS)
+    if (pageRequestIsCurrent(token)) {
+      showNotice(
+        'warning',
+        `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`,
+        undefined,
+        options.noticeDelayMS,
+      )
+    }
   } finally {
-    pageRefreshing.value = false
+    if (pageRequestIsCurrent(token)) {
+      pageRefreshing.value = false
+    }
   }
 }
 
@@ -350,7 +411,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  window.clearTimeout(noticeTimer)
+  disposed = true
+  invalidatePageRequests()
+  clearNoticeTimer()
   refreshLayoutFreeze.release()
 })
 
