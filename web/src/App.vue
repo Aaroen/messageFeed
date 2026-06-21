@@ -22,7 +22,6 @@ import {
   type ParkedDetailSnapshot,
   type ReaderSessionSnapshot,
   type ReaderSource,
-  type RectSnapshot,
   useReaderSession,
 } from '@/composables/useReaderSession'
 import { useReaderStackState } from '@/composables/useReaderStackState'
@@ -43,6 +42,7 @@ import { useAppChromeLayerState } from '@/composables/useAppChromeLayerState'
 import { useReaderSourceSurfaceMotion } from '@/composables/useReaderSourceSurfaceMotion'
 import { useReaderDetailSurfaceMotion } from '@/composables/useReaderDetailSurfaceMotion'
 import { useReaderDetailContentMotion } from '@/composables/useReaderDetailContentMotion'
+import { useReaderDetailSourceTransitionRects } from '@/composables/useReaderDetailSourceTransitionRects'
 import { useReaderDetailProgressMotion } from '@/composables/useReaderDetailProgressMotion'
 import { useReaderDetailTextMotion } from '@/composables/useReaderDetailTextMotion'
 import { useReaderSourceTitleMotion } from '@/composables/useReaderSourceTitleMotion'
@@ -90,7 +90,6 @@ import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
-import { snapshotElementRect } from '@/utils/domSnapshot'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -737,94 +736,21 @@ function rememberDetailScrollTop(scrollTop: number) {
   scrollHistory.set('detail', scrollTop)
 }
 
-function findSourceFeedItemElement(itemID?: number) {
-  if (!itemID || !sourceReaderContentRef.value) {
-    return null
-  }
-  return sourceReaderContentRef.value.querySelector(`[data-feed-item-id="${itemID}"]`)
-}
-
-function findFeedItemElement(itemID?: number) {
-  return feedContent.findItemElement(itemID, activeFeedIndex.value)
-}
-
-function refreshDetailFeedOriginRect(lock = false) {
-  if (detailFeedOriginLocked.value) {
-    return
-  }
-
-  const itemRect = snapshotElementRect(findFeedItemElement(detailItem.value?.id))
-  if (!itemRect) {
-    return
-  }
-
-  applyDetailFeedOriginRectState(itemRect, lock)
-}
-
-function findSourceFeedItemSourceElement(itemID?: number) {
-  const itemElement = findSourceFeedItemElement(itemID)
-  return itemElement?.querySelector('.feed-item__source') ?? null
-}
-
-function sourceNameTargetFallback(itemRect: RectSnapshot | null) {
-  if (itemRect) {
-    const left = itemRect.left + 16
-    const top = itemRect.top + 16
-    return {
-      left,
-      top,
-      width: Math.max(1, Math.min(itemRect.width - 32, 180)),
-      height: 18,
-    }
-  }
-
-  return null
-}
-
-function captureDetailSourceTransitionRects(
-  retry = 12,
-  options: { force?: boolean; lock?: boolean } = {},
-) {
-  if (detailTransitionRectsLocked.value && !options.force) {
-    return
-  }
-
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      if (detailTransitionRectsLocked.value && !options.force) {
-        return
-      }
-
-      const itemRect = snapshotElementRect(findSourceFeedItemElement(detailItem.value?.id))
-      const sourceOriginRect = snapshotElementRect(detailInlineSourceRef.value)
-      const sourceTargetRect =
-        snapshotElementRect(findSourceFeedItemSourceElement(detailItem.value?.id)) ?? sourceNameTargetFallback(itemRect)
-
-      const result = applyDetailSourceTransitionRectsState({
-        itemRect,
-        sourceOriginRect,
-        sourceTargetRect,
-        lock: options.lock,
-      })
-      if (result.locked) {
-        return
-      }
-
-      if (retry > 0 && (!itemRect || !sourceOriginRect || !sourceTargetRect)) {
-        window.setTimeout(() => captureDetailSourceTransitionRects(retry - 1, options), readerRectRetryDelay)
-      }
-    })
-  })
-}
-
-function captureVisibleSourceReturnTarget() {
-  const itemRect = snapshotElementRect(findSourceFeedItemElement(detailItem.value?.id))
-  const sourceTargetRect =
-    snapshotElementRect(findSourceFeedItemSourceElement(detailItem.value?.id)) ?? sourceNameTargetFallback(itemRect)
-  const sourceOriginRect = snapshotElementRect(detailInlineSourceRef.value)
-
-  return applyVisibleSourceReturnTargetState(itemRect, sourceOriginRect, sourceTargetRect)
-}
+const readerDetailSourceTransitionRects = useReaderDetailSourceTransitionRects({
+  sourceReaderContentRef,
+  detailInlineSourceRef,
+  detailItem,
+  detailFeedOriginLocked,
+  detailTransitionRectsLocked,
+  retryDelay: readerRectRetryDelay,
+  findFeedItemElement: (itemID) => feedContent.findItemElement(itemID, activeFeedIndex.value),
+  applyDetailFeedOriginRectState,
+  applyDetailSourceTransitionRectsState,
+  applyVisibleSourceReturnTargetState,
+})
+const refreshDetailFeedOriginRect = readerDetailSourceTransitionRects.refreshDetailFeedOriginRect
+const captureDetailSourceTransitionRects = readerDetailSourceTransitionRects.captureDetailSourceTransitionRects
+const captureVisibleSourceReturnTarget = readerDetailSourceTransitionRects.captureVisibleSourceReturnTarget
 
 function detailFrameViewportOffset() {
   const rect = detailFrameRef.value?.getBoundingClientRect()
