@@ -102,6 +102,7 @@ import { useAppLifecycle } from '@/composables/useAppLifecycle'
 import { useAppShellEventActions } from '@/composables/useAppShellEventActions'
 import { useAppReaderScrollMemoryActions } from '@/composables/useAppReaderScrollMemoryActions'
 import { useAppReaderRouteSyncAction } from '@/composables/useAppReaderRouteSyncAction'
+import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStackOutletBindings'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1247,6 +1248,85 @@ const handlePageContentScroll = appScrollHandlers.handlePageContentScroll
 const handleSourceReaderScroll = appScrollHandlers.handleSourceReaderScroll
 const handleDetailContentScroll = appScrollHandlers.handleDetailContentScroll
 
+const readerStackOutletBindings = useAppReaderStackOutletBindings({
+  sourceReaderMounted,
+  sourceReaderUnderDetail,
+  sourceReaderStyle,
+  readerSource,
+  sourceTitleRevealVisible,
+  sourceTitleRevealStyle,
+  sourceToggleActive,
+  detailItem,
+  sourceNameMorphVisible,
+  sourceNameMorphStyle,
+  detailReaderOpen,
+  readerMotionSettling,
+  detailReturningToFeed,
+  detailReaderStyle,
+  sourceNotice,
+  topChromePhase,
+  topChromeProgress,
+  sourceHeaderStyle,
+  sourceTitleTextStyle,
+  sourceTitleLayerStyle,
+  sourceMainLayerStyle,
+  sourcePullStatusStyle,
+  sourcePullIconStyle,
+  sourcePullActive,
+  sourcePullRefreshing: () => feedInteraction.pullRefreshing,
+  pullStatusText,
+  pullStatusMeta,
+  sourceToggleLabel,
+  sourceToggleDisabled,
+  sourceContentStyle,
+  sourceReaderRefreshNonce,
+  sourceReaderScrollTop,
+  feedHeaderHeight,
+  morphingItemId,
+  morphingHeightLockItemId,
+  morphingItemHeight,
+  feedItemPreviewProgress,
+  sourceReaderVisible,
+  detailEntrySettling,
+  feedChromeSettling,
+  detailTransitionSurfaceStyle,
+  detailMorphTextVisible,
+  detailMorphTextStyle,
+  detailMorphSourceLabelStyle,
+  detailDisplayDate,
+  detailMorphSummaryVisible,
+  detailPreviewSummary,
+  detailContentStyle,
+  detailLoading,
+  detailError,
+  detailSrcdoc,
+  detailInlineSourceStyle,
+  detailProgressVisible,
+  detailProgressDragging,
+  detailReadingProgress,
+  detailProgressStyle,
+  detailProgressFillStyle,
+  detailProgressThumbStyle,
+  setSourceReaderContentElement,
+  handleSourceReaderScroll,
+  openNavigation,
+  toggleSourceReaderSubscription,
+  handleFeedTopPullStart,
+  handleFeedTopPullMove,
+  handleFeedTopPullEnd,
+  openItemReader,
+  setDetailContentElement,
+  handleDetailContentScroll,
+  setDetailInlineSourceElement,
+  setDetailFrameElement,
+  handleDetailFrameLoad,
+  handleDetailProgressDragStart,
+  handleDetailProgressDragEnd,
+  handleDetailProgressChange,
+})
+const readerStackOutletProps = readerStackOutletBindings.props
+const readerStackOutletListeners = readerStackOutletBindings.listeners
+
 const pagePullRefreshAction = usePagePullRefreshAction({
   refreshing: pagePullRefreshing,
   noticeDelayMS: motionQuickDuration,
@@ -1474,87 +1554,6 @@ useAppLifecycle({
       @open-source="openSourceReader"
     />
 
-    <AppReaderStackOutlet
-      :source-mounted="sourceReaderMounted && Boolean(readerSource)"
-      :source-under-detail="sourceReaderUnderDetail"
-      :source-style="sourceReaderStyle"
-      :source-title-reveal-mounted="Boolean(readerSource)"
-      :source-title-reveal-visible="sourceTitleRevealVisible"
-      :source-title-reveal-style="sourceTitleRevealStyle"
-      :source-title="readerSource?.name || ''"
-      :source-meta="sourceToggleActive ? '已订阅' : '未订阅'"
-      :source-name-morph-mounted="Boolean(detailItem)"
-      :source-name-morph-visible="sourceNameMorphVisible"
-      :source-name-morph-style="sourceNameMorphStyle"
-      :source-name-morph-text="detailItem?.source_name || '未知来源'"
-      :detail-open="detailReaderOpen"
-      :detail-motion-settling="readerMotionSettling"
-      :detail-returning-feed="detailReturningToFeed"
-      :detail-style="detailReaderStyle"
-      :source-notice="sourceNotice"
-      :top-chrome-phase="topChromePhase"
-      :top-chrome-progress="topChromeProgress"
-      :source-header-style="sourceHeaderStyle"
-      :source-name="readerSource?.name || ''"
-      :source-title-text-style="sourceTitleTextStyle"
-      :source-title-layer-style="sourceTitleLayerStyle"
-      :source-main-layer-style="sourceMainLayerStyle"
-      :source-pull-status-style="sourcePullStatusStyle"
-      :source-pull-icon-style="sourcePullIconStyle"
-      :source-pull-active="sourcePullActive"
-      :source-pull-refreshing="feedInteraction.pullRefreshing"
-      :pull-status-text="pullStatusText"
-      :pull-status-meta="pullStatusMeta"
-      :source-toggle-active="sourceToggleActive"
-      :source-toggle-label="sourceToggleLabel"
-      :source-toggle-disabled="sourceToggleDisabled"
-      :source-content-style="sourceContentStyle"
-      :reader-source="readerSource"
-      :source-refresh-nonce="sourceReaderRefreshNonce"
-      :source-scroll-top="sourceReaderScrollTop"
-      :feed-header-height="feedHeaderHeight"
-      :morphing-item-id="morphingItemId"
-      :morphing-height-lock-item-id="morphingHeightLockItemId"
-      :morphing-item-height="morphingItemHeight"
-      :feed-item-preview-progress="feedItemPreviewProgress"
-      :source-background-refresh="!sourceReaderVisible"
-      :detail-entry-settling="detailEntrySettling"
-      :detail-chrome-settling="feedChromeSettling"
-      :detail-transition-style="detailTransitionSurfaceStyle"
-      :detail-item="detailItem"
-      :detail-morph-visible="detailMorphTextVisible"
-      :detail-morph-text-style="detailMorphTextStyle"
-      :detail-morph-source-label-style="detailMorphSourceLabelStyle"
-      :detail-display-date="detailDisplayDate"
-      :detail-morph-summary-visible="detailMorphSummaryVisible"
-      :detail-preview-summary="detailPreviewSummary"
-      :detail-content-style="detailContentStyle"
-      :detail-loading="detailLoading"
-      :detail-error="detailError"
-      :detail-srcdoc="detailSrcdoc"
-      :detail-inline-source-style="detailInlineSourceStyle"
-      :detail-progress-visible="detailProgressVisible"
-      :detail-progress-dragging="detailProgressDragging"
-      :detail-reading-progress="detailReadingProgress"
-      :detail-progress-style="detailProgressStyle"
-      :detail-progress-fill-style="detailProgressFillStyle"
-      :detail-progress-thumb-style="detailProgressThumbStyle"
-      @source-content-ref="setSourceReaderContentElement"
-      @source-content-scroll="handleSourceReaderScroll"
-      @open-navigation="openNavigation"
-      @toggle-source-subscription="toggleSourceReaderSubscription"
-      @top-pull-start="handleFeedTopPullStart"
-      @top-pull-move="handleFeedTopPullMove"
-      @top-pull-end="handleFeedTopPullEnd"
-      @open-item="openItemReader"
-      @detail-content-ref="setDetailContentElement"
-      @detail-content-scroll="handleDetailContentScroll"
-      @detail-inline-source-ref="setDetailInlineSourceElement"
-      @detail-frame-ref="setDetailFrameElement"
-      @detail-frame-load="handleDetailFrameLoad"
-      @detail-progress-drag-start="handleDetailProgressDragStart"
-      @detail-progress-drag-end="handleDetailProgressDragEnd"
-      @detail-progress-change="handleDetailProgressChange"
-    />
+    <AppReaderStackOutlet v-bind="readerStackOutletProps" v-on="readerStackOutletListeners" />
   </div>
 </template>
