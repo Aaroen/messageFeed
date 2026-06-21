@@ -4,10 +4,7 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
-import {
-  getFeedItem,
-  type FeedItem,
-} from '@/api/feed'
+import { getFeedItem } from '@/api/feed'
 import AppFeedHeaderContent from '@/components/AppFeedHeaderContent.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
 import AppPageHeaderContent from '@/components/AppPageHeaderContent.vue'
@@ -82,12 +79,13 @@ import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHand
 import { useReaderDetailProgressHandlers } from '@/composables/useReaderDetailProgressHandlers'
 import { useReaderDetailMessageHandler } from '@/composables/useReaderDetailMessageHandler'
 import { useReaderSourceOpenAction } from '@/composables/useReaderSourceOpenAction'
+import { useReaderItemOpenAction } from '@/composables/useReaderItemOpenAction'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
-import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
+import { snapshotElementRect } from '@/utils/domSnapshot'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1038,50 +1036,25 @@ const readerSourceOpenAction = useReaderSourceOpenAction({
 })
 const openSourceReader = readerSourceOpenAction.openSourceReader
 
-async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
-  const openedFromSourceReader =
-    sourceReaderOpen.value && readerSource.value?.id === item.source_id && readerSource.value.kind === sourceKind
-  openItemReaderWithTransition(item, sourceKind, {
-    openedFromSourceReader,
-    originRect: snapshotRect(originRect),
-    headerSwapDelay: motionDelay(motionHeaderSwapDuration),
-    detailEntryDelay: motionDelay(readerMorphDuration),
-    afterBegin: () => {
-      chromeState.setStableVisible()
-      feedTopPull.finish()
-      rememberDetailScrollTop(0)
-    },
-    afterEntry: () => {
-      if (openedFromSourceReader) {
-        captureDetailSourceTransitionRects(12, { lock: true })
-      }
-    },
-  })
-  if (!openedFromSourceReader && sourceTimelinePreloadEnabled.value && item.source_id) {
-    openSourceReader(
-      {
-        id: item.source_id,
-        name: item.source_name || '未知来源',
-        kind: sourceKind,
-      },
-      { visible: false },
-    )
-  }
-  try {
-    let loadedItem: FeedItem | undefined
-    if (sourceKind === 'subscriptions' && item.id > 0) {
-      loadedItem = await getFeedItem(item.id)
-    }
-    finishOpenItemReaderLoad({ item: loadedItem })
-  } catch {
-    finishOpenItemReaderLoad({ errorMessage: '无法加载完整条目，已显示当前列表内容。' })
-  } finally {
-    nextTick(() => {
-      scrollDetailContentElementTo(0)
-      scheduleReaderSessionSave()
-    })
-  }
-}
+const readerItemOpenAction = useReaderItemOpenAction({
+  sourceReaderOpen,
+  readerSource,
+  sourceTimelinePreloadEnabled,
+  headerSwapDuration: motionHeaderSwapDuration,
+  detailEntryDuration: readerMorphDuration,
+  resolveDelay: motionDelay,
+  openItemReaderWithTransition,
+  openSourceReader,
+  loadFeedItem: getFeedItem,
+  finishOpenItemReaderLoad,
+  setChromeStableVisible: chromeState.setStableVisible,
+  finishFeedTopPull: feedTopPull.finish,
+  rememberDetailScrollTop,
+  captureDetailSourceTransitionRects,
+  scrollDetailContentElementTo,
+  scheduleReaderSessionSave,
+})
+const openItemReader = readerItemOpenAction.openItemReader
 
 function closeSourceReader() {
   if (sourceReaderShouldReturnToDetail()) {
