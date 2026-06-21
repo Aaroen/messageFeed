@@ -135,6 +135,9 @@ type ReaderBackSwipeCancelAction =
   | 'restore-detail-from-source-swipe'
   | 'restore-parked-source'
   | 'reset'
+type ReaderBackSwipeCancelResult = {
+  action: ReaderBackSwipeCancelAction
+}
 type ReaderBackSwipeFinishResult = {
   committed: boolean
   progress: number
@@ -1669,6 +1672,12 @@ export function useReaderStackState() {
     return 'reset'
   }
 
+  function readerBackSwipeCancelResult(): ReaderBackSwipeCancelResult {
+    return {
+      action: readerBackSwipeCancelAction(),
+    }
+  }
+
   function readerBackSwipeTransitionSurfaces<TSurface extends string>(surfaces: {
     activeFeedSurface: TSurface
     pageReturnSurface: TSurface
@@ -1977,7 +1986,7 @@ export function useReaderStackState() {
     applyReaderBackSwipeIntentState,
     applyReaderBackSwipeVisualActionState,
     readerBackSwipeFinishResult,
-    readerBackSwipeCancelAction,
+    readerBackSwipeCancelResult,
     readerBackSwipeTransitionBeginPayload,
     readerBackSwipeTransitionUpdatePayload,
     beginReaderBackSwipeDragState,

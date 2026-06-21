@@ -187,7 +187,7 @@ const {
   applyReaderBackSwipeIntentState,
   applyReaderBackSwipeVisualActionState,
   readerBackSwipeFinishResult,
-  readerBackSwipeCancelAction,
+  readerBackSwipeCancelResult,
   readerBackSwipeTransitionBeginPayload,
   readerBackSwipeTransitionUpdatePayload,
   beginReaderBackSwipeDragState,
@@ -2198,6 +2198,22 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
   resetBackSwipeOffset()
 }
 
+function applyCanceledBackSwipeAction(action: ReturnType<typeof readerBackSwipeCancelResult>['action']) {
+  if (action === 'restore-item-expansion') {
+    restoreItemReaderExpansion()
+    return
+  }
+  if (action === 'restore-detail-from-source-swipe') {
+    restoreDetailFromSourceSwipe()
+    return
+  }
+  if (action === 'restore-parked-source') {
+    restoreParkedSourceReader()
+    return
+  }
+  resetBackSwipeOffset()
+}
+
 function finishViewSwipe(nextPath: string | null) {
   const committed = Boolean(nextPath)
   feedPagerTransition.setSettling(true)
@@ -2590,7 +2606,7 @@ function handleTouchCancel() {
   const hadNavigationGesture = trackingEdgeSwipe || trackingNavigationClose
   const hadViewGesture = trackingViewSwipe
   const hadBackGesture = trackingBackSwipe
-  const canceledBackAction = readerBackSwipeCancelAction()
+  const canceledBackResult = readerBackSwipeCancelResult()
   resetGestureTracking()
   if (hadNavigationGesture && navigationVisible.value && !navigationOpen.value) {
     settleNavigation(false)
@@ -2599,15 +2615,7 @@ function handleTouchCancel() {
     finishViewSwipe(null)
   }
   if (hadBackGesture) {
-    if (canceledBackAction === 'restore-item-expansion') {
-      restoreItemReaderExpansion()
-    } else if (canceledBackAction === 'restore-detail-from-source-swipe') {
-      restoreDetailFromSourceSwipe()
-    } else if (canceledBackAction === 'restore-parked-source') {
-      restoreParkedSourceReader()
-    } else {
-      resetBackSwipeOffset()
-    }
+    applyCanceledBackSwipeAction(canceledBackResult.action)
   }
   activeFeedPointerId = null
 }
@@ -2744,17 +2752,9 @@ function handleMessage(event: MessageEvent) {
 
   if (payload.phase === 'cancel') {
     if (trackingBackSwipe) {
-      const canceledBackAction = readerBackSwipeCancelAction()
+      const canceledBackResult = readerBackSwipeCancelResult()
       resetGestureTracking()
-      if (canceledBackAction === 'restore-item-expansion') {
-        restoreItemReaderExpansion()
-      } else if (canceledBackAction === 'restore-detail-from-source-swipe') {
-        restoreDetailFromSourceSwipe()
-      } else if (canceledBackAction === 'restore-parked-source') {
-        restoreParkedSourceReader()
-      } else {
-        resetBackSwipeOffset()
-      }
+      applyCanceledBackSwipeAction(canceledBackResult.action)
     }
     resetGestureTracking()
   }
