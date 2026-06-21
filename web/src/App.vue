@@ -183,8 +183,7 @@ const {
   resetReaderBackSwipeState,
   resetReaderBackSwipeCandidateState,
   beginReaderBackSwipeCandidateState,
-  applyReaderBackSwipeIntentState,
-  applyReaderBackSwipeVisualActionState,
+  updateReaderBackSwipeDragState,
   readerBackSwipeFinishResult,
   readerBackSwipeCancelResult,
   readerBackSwipeTransitionBeginPayload,
@@ -2078,7 +2077,7 @@ function isDetailFrameHorizontalSwipe(deltaX: number, deltaY: number) {
 
 function readerBackSwipeIntentOptions(
   options: { resetSourceExit?: boolean; prepareBlocked?: boolean } = {},
-): NonNullable<Parameters<typeof applyReaderBackSwipeIntentState>[1]> {
+): NonNullable<Parameters<typeof beginReaderBackSwipeDragState>[1]> {
   return {
     ...options,
     beforeSourceReturnIntent: () => {
@@ -2105,13 +2104,6 @@ function readerBackSwipeIntentOptions(
   }
 }
 
-function applyReaderBackSwipeIntentAction(
-  deltaX: number,
-  options: { resetSourceExit?: boolean; prepareBlocked?: boolean } = {},
-) {
-  applyReaderBackSwipeIntentState(deltaX, readerBackSwipeIntentOptions(options))
-}
-
 function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame = false) {
   const horizontal = fromDetailFrame ? isDetailFrameHorizontalSwipe(deltaX, deltaY) : isBackHorizontalSwipe(deltaX, deltaY)
   if (!trackingBackSwipeCandidate || !horizontal) {
@@ -2136,20 +2128,26 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  applyReaderBackSwipeIntentAction(deltaX, { resetSourceExit: true, prepareBlocked: true })
   const offset = backSwipeVisualOffset(deltaX)
   const stretch = blockedSwipeStretch(deltaX, currentX)
-  applyReaderBackSwipeVisualActionState(offset, stretch, windowWidth.value, {
-    resetPageStretch: () => {
-      pageContentMotion.setSideStretch(0)
+  updateReaderBackSwipeDragState(
+    deltaX,
+    { offset, stretch, width: windowWidth.value },
+    {
+      intent: readerBackSwipeIntentOptions({ resetSourceExit: true, prepareBlocked: true }),
+      visual: {
+        resetPageStretch: () => {
+          pageContentMotion.setSideStretch(0)
+        },
+        resetPageOffset: () => {
+          pageContentMotion.setSideOffset(0)
+        },
+        applyPageStretch: (nextStretch: number) => {
+          pageContentMotion.setSideStretch(nextStretch)
+        },
+      },
     },
-    resetPageOffset: () => {
-      pageContentMotion.setSideOffset(0)
-    },
-    applyPageStretch: (nextStretch: number) => {
-      pageContentMotion.setSideStretch(nextStretch)
-    },
-  })
+  )
 
   syncBackSwipeTransition(deltaX)
   return true

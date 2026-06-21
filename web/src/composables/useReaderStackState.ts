@@ -190,6 +190,10 @@ type ApplyReaderBackSwipeVisualActionOptions = {
   resetPageOffset?: () => void
   applyPageStretch?: (stretch: number) => void
 }
+type UpdateReaderBackSwipeDragStateOptions = {
+  intent?: ApplyReaderBackSwipeIntentStateOptions
+  visual?: ApplyReaderBackSwipeVisualActionOptions
+}
 type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
 type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
@@ -1854,6 +1858,28 @@ export function useReaderStackState() {
     return action
   }
 
+  function updateReaderBackSwipeDragState(
+    deltaX: number,
+    visual: {
+      offset: number
+      stretch: number
+      width: number
+    },
+    options: UpdateReaderBackSwipeDragStateOptions = {},
+  ) {
+    const intentAction = applyReaderBackSwipeIntentState(deltaX, options.intent)
+    const visualAction = applyReaderBackSwipeVisualActionState(
+      visual.offset,
+      visual.stretch,
+      visual.width,
+      options.visual,
+    )
+    return {
+      intentAction,
+      visualAction,
+    }
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -1991,8 +2017,7 @@ export function useReaderStackState() {
     resetReaderBackSwipeState,
     resetReaderBackSwipeCandidateState,
     beginReaderBackSwipeCandidateState,
-    applyReaderBackSwipeIntentState,
-    applyReaderBackSwipeVisualActionState,
+    updateReaderBackSwipeDragState,
     readerBackSwipeFinishResult,
     readerBackSwipeCancelResult,
     readerBackSwipeTransitionBeginPayload,
