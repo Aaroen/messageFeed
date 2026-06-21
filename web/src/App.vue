@@ -79,6 +79,7 @@ import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHand
 import { useReaderDetailProgressHandlers } from '@/composables/useReaderDetailProgressHandlers'
 import { useReaderDetailMessageHandler } from '@/composables/useReaderDetailMessageHandler'
 import { useReaderSourceOpenAction } from '@/composables/useReaderSourceOpenAction'
+import { useReaderSourceCloseAction } from '@/composables/useReaderSourceCloseAction'
 import { useReaderItemOpenAction } from '@/composables/useReaderItemOpenAction'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
@@ -988,18 +989,6 @@ function runVirtualBackAnimation() {
   return false
 }
 
-function restoreSourceReaderBackTarget() {
-  const result = restoreSourceReaderBackTargetState({
-    onDetailScrollTop: rememberDetailScrollTop,
-  })
-  if (result.action === 'restore-detail') {
-    restoreDetailFromParkedSource()
-    return
-  }
-
-  closeSourceReader()
-}
-
 function restoreParkedDetailSnapshot(snapshot: ParkedDetailSnapshot | null) {
   return restoreReaderStackParkedDetailSnapshot(snapshot, {
     onDetailScrollTop: rememberDetailScrollTop,
@@ -1056,41 +1045,24 @@ const readerItemOpenAction = useReaderItemOpenAction({
 })
 const openItemReader = readerItemOpenAction.openItemReader
 
-function closeSourceReader() {
-  if (sourceReaderShouldReturnToDetail()) {
-    restoreSourceReaderBackTarget()
-    return
-  }
-
-  if (hasDetailParkedBehindSource()) {
-    restoreDetailFromParkedSource()
-    return
-  }
-
-  if (
-    restorePreviousParkedDetailIfReaderClosed({
-      onDetailScrollTop: rememberDetailScrollTop,
-    })
-  ) {
-    restoreDetailFromParkedSource()
-    return
-  }
-
-  if (sourceReaderOpen.value) {
-    closeVisibleSourceReaderState()
-    if (isFeedRoute.value && !detailReaderOpen.value) {
-      setTopChromeVisible(true)
-    }
-    scheduleHiddenSourceReaderCleanup(340)
-    return
-  }
-
-  clearSourceReaderState()
-  resetSourceSubscriptionState()
-  if (isFeedRoute.value && !detailReaderOpen.value) {
-    setTopChromeVisible(true)
-  }
-}
+const readerSourceCloseAction = useReaderSourceCloseAction({
+  sourceReaderOpen,
+  detailReaderOpen,
+  isFeedRoute,
+  sourceReaderShouldReturnToDetail,
+  hasDetailParkedBehindSource,
+  restorePreviousParkedDetailIfReaderClosed,
+  restoreSourceReaderBackTargetState,
+  closeVisibleSourceReaderState,
+  clearSourceReaderState,
+  resetSourceSubscriptionState,
+  rememberDetailScrollTop,
+  restoreDetailFromParkedSource,
+  setTopChromeVisible,
+  scheduleHiddenSourceReaderCleanup,
+})
+const restoreSourceReaderBackTarget = readerSourceCloseAction.restoreSourceReaderBackTarget
+const closeSourceReader = readerSourceCloseAction.closeSourceReader
 
 function restoreDetailFromParkedSource(duration = motionReaderDuration) {
   if (!detailReaderOpen.value) {
