@@ -357,7 +357,6 @@ const isFeedRoute = appRouteState.isFeedRoute
 const cornerButtonLabel = appRouteState.cornerButtonLabel
 const pagePullState = useAppPagePullState({ pageTitle })
 const pagePullOffset = pagePullState.offset
-const pagePullSettling = pagePullState.settling
 const pagePullRefreshing = pagePullState.refreshing
 const pagePullProgress = pagePullState.progress
 const pageContentInnerStyle = pagePullState.contentStyle
@@ -534,7 +533,6 @@ const chromeVisualState = useAppChromeVisualState({
     feedRefreshSettling,
     feedChromeSettling,
     readerBackDragging,
-    pagePullSettling,
     viewSettling,
     detailReaderOpen,
     detailReturningToFeed,

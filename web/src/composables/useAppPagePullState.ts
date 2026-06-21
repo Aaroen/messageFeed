@@ -11,7 +11,10 @@ type AppPagePullStateOptions = {
 
 export function useAppPagePullState(options: AppPagePullStateOptions) {
   const pullRefresh = usePullRefresh({ threshold: options.threshold ?? 52 })
-  const contentMotion = usePageContentMotion({ pullOffset: pullRefresh.offset })
+  const contentMotion = usePageContentMotion({
+    pullOffset: pullRefresh.offset,
+    settling: pullRefresh.settling,
+  })
   const status = usePagePullStatus({
     refreshing: pullRefresh.refreshing,
     progress: pullRefresh.distanceProgress,

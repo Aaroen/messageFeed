@@ -7,6 +7,7 @@ type ReadableRef<T> = {
 
 type PageContentMotionOptions = {
   pullOffset: ReadableRef<number>
+  settling: ReadableRef<boolean>
 }
 
 function cssPx(value: number) {
@@ -37,6 +38,7 @@ export function usePageContentMotion(options: PageContentMotionOptions) {
       1 + Math.abs(sideStretch.value)
     ).toFixed(4)})`,
     transformOrigin: stretchTransformOrigin(sideStretch.value, stretchAnchor.value),
+    transition: options.settling.value ? 'transform var(--motion-chrome) var(--ease-emphasized)' : undefined,
   }))
 
   function setSideOffset(nextOffset: number) {

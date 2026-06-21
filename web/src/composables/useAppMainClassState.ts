@@ -14,7 +14,6 @@ type AppMainClassStateOptions = {
   feedRefreshSettling: ReadableRef<boolean>
   feedChromeSettling: ReadableRef<boolean>
   readerBackDragging: ReadableRef<boolean>
-  pagePullSettling: ReadableRef<boolean>
   viewSettling: ReadableRef<boolean>
   detailReaderOpen: ReadableRef<boolean>
   detailReturningToFeed: ReadableRef<boolean>
@@ -31,7 +30,6 @@ export function useAppMainClassState(options: AppMainClassStateOptions) {
     'app-main--top-refresh-contained': options.freezeFeedBodyDuringTopRefresh.value,
     'app-main--refresh-settling': options.feedRefreshSettling.value,
     'app-main--chrome-settling': options.feedChromeSettling.value && !options.readerBackDragging.value,
-    'app-main--page-pull-settling': options.pagePullSettling.value,
     'app-main--view-settling': options.viewSettling.value,
     'app-main--detail-reader': options.detailReaderOpen.value && !options.detailReturningToFeed.value,
     'app-main--detail-chrome': options.detailChromeVisible.value,

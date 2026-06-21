@@ -850,10 +850,6 @@ body[arco-theme='dark'] .feed-tab--active {
   will-change: transform;
 }
 
-.app-main--page-pull-settling .page-content-inner {
-  transition: transform var(--motion-chrome) var(--ease-emphasized);
-}
-
 .app-main--pull-dragging .app-header,
 .app-main--pull-dragging .app-content--feed {
   transition: none;
