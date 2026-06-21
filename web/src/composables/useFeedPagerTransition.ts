@@ -232,6 +232,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   function endPointerTracking() {
     resetViewSwipeTracking()
+    clearStartedWithHiddenChrome()
     clearPointerTracking()
   }
 
