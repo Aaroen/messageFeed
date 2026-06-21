@@ -56,6 +56,7 @@ import { useFeedScrollState } from '@/composables/useFeedScrollState'
 import { usePageOutletState, type PageViewExpose } from '@/composables/usePageOutletState'
 import { useFeedContentState } from '@/composables/useFeedContentState'
 import { useScrollHistory } from '@/composables/useScrollHistory'
+import { useDoubleBackGuard } from '@/composables/useDoubleBackGuard'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 import { escapeHTML, formatItemDate, plainPreviewText, sanitizeDetailHTML } from '@/utils/readerContent'
 
@@ -304,6 +305,7 @@ const readerMorphCleanupBuffer = 96
 const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
 const readerRectRetryDelay = 64
 const homeExitDoubleBackMs = 1600
+const homeBackGuard = useDoubleBackGuard(homeExitDoubleBackMs)
 let programmaticRouteNavigation = false
 let readerSessionInitialized = false
 const readerSession = useReaderSession<ReaderSessionSnapshot>({
@@ -925,7 +927,6 @@ let trackingEdgeSwipe = false
 let trackingNavigationClose = false
 let navigationDragStarted = false
 let removeSystemBackGuard: (() => void) | null = null
-let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
 
 function resetGestureTracking() {
@@ -1261,49 +1262,43 @@ function hasVirtualBackTarget() {
 
 function runVirtualBackAnimation() {
   if (navigationVisible.value) {
-    lastHomeBackAttemptAt = 0
+    homeBackGuard.reset()
     closeNavigation()
     return true
   }
 
   if (detailReaderOpen.value && detailOpenedFromSourceReader.value && !detailCommittedListReturn()) {
-    lastHomeBackAttemptAt = 0
+    homeBackGuard.reset()
     collapseItemReader()
     return true
   }
 
   if (sourceReaderShouldReturnToDetail()) {
-    lastHomeBackAttemptAt = 0
+    homeBackGuard.reset()
     restoreSourceReaderBackTarget()
     return true
   }
 
   if (sourceReaderOpen.value && !detailReaderOpen.value) {
-    lastHomeBackAttemptAt = 0
+    homeBackGuard.reset()
     closeSourceReader()
     return true
   }
 
   if (detailReaderOpen.value) {
-    lastHomeBackAttemptAt = 0
+    homeBackGuard.reset()
     collapseItemReader()
     return true
   }
 
   if (!isFeedRoute.value && !navigationVisible.value) {
-    lastHomeBackAttemptAt = 0
+    homeBackGuard.reset()
     goHome(false)
     return true
   }
 
   if (isFeedRoute.value) {
-    const now = Date.now()
-    if (now - lastHomeBackAttemptAt <= homeExitDoubleBackMs) {
-      lastHomeBackAttemptAt = 0
-      return false
-    }
-    lastHomeBackAttemptAt = now
-    return true
+    return homeBackGuard.shouldConsumeBack()
   }
 
   return false
