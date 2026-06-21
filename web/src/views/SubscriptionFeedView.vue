@@ -78,16 +78,14 @@ const pullDragging = pullRefresh.dragging
 const pullSettling = pullRefresh.settling
 const refreshing = pullRefresh.refreshing
 const pullStartedWithVisibleChrome = pullRefresh.startedWithVisibleChrome
+const trackingPullCandidate = pullRefresh.gestureCandidate
+const trackingPull = pullRefresh.gestureTracking
 const pageSize = 10
 const cacheTTLMS = 60 * 1000
 const verticalLockRatio = 1.18
 const motionCleanupBuffer = 96
 const pullSettleDuration = 1000
-let touchStartY = 0
-let touchStartX = 0
 let touchStartChromeDistance = 0
-let trackingPullCandidate = false
-let trackingPull = false
 let pullSettleTimer = 0
 let loadMoreSyncTimer = 0
 let feedNoticeTimer = 0
@@ -609,9 +607,7 @@ function isInteractiveTarget(target: EventTarget | null) {
 }
 
 function resetPullTracking() {
-  trackingPullCandidate = false
-  trackingPull = false
-  pullRefresh.stopDragging()
+  pullRefresh.resetGestureTracking()
 }
 
 function resetPullGesture(force = false) {
@@ -635,25 +631,24 @@ function handleTouchStart(event: TouchEvent) {
   }
 
   const touch = event.touches[0]
-  touchStartX = touch.clientX
-  touchStartY = touch.clientY
   touchStartChromeDistance = props.headerHeight * props.topChromeProgress
   pullRefresh.begin(props.freezeBodyDuringTopRefresh || props.topChromeProgress > 0.04)
-  trackingPullCandidate = true
-  trackingPull = false
+  pullRefresh.beginGestureCandidate(touch.clientX, touch.clientY)
   emit('topPullStart', pullStartedWithVisibleChrome.value)
 }
 
 function handleTouchMove(event: TouchEvent) {
-  if (!props.active || ((!trackingPullCandidate && !trackingPull) || props.scrollTop > 0 || event.touches.length !== 1)) {
+  if (
+    !props.active ||
+    ((!trackingPullCandidate.value && !trackingPull.value) || props.scrollTop > 0 || event.touches.length !== 1)
+  ) {
     return
   }
 
   const touch = event.touches[0]
-  const deltaX = touch.clientX - touchStartX
-  const deltaY = touch.clientY - touchStartY
+  const { deltaX, deltaY } = pullRefresh.gestureDelta(touch.clientX, touch.clientY)
 
-  if (!trackingPull) {
+  if (!trackingPull.value) {
     if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY) * verticalLockRatio) {
       resetPullGesture()
       return
@@ -663,12 +658,10 @@ function handleTouchMove(event: TouchEvent) {
       return
     }
 
-    trackingPull = true
-    trackingPullCandidate = false
-    pullRefresh.startDragging()
+    pullRefresh.beginGestureTracking()
   }
 
-  if (trackingPull) {
+  if (trackingPull.value) {
     event.preventDefault()
     emit('topPullMove', Math.max(0, deltaY))
     const refreshDistance = Math.max(0, deltaY - touchStartChromeDistance)
@@ -682,7 +675,7 @@ function handleTouchMove(event: TouchEvent) {
 }
 
 function handleTouchEnd() {
-  if (!trackingPull) {
+  if (!trackingPull.value) {
     resetPullGesture()
     emit('topPullEnd', false)
     return
@@ -775,7 +768,7 @@ watch(
     }
 
     if (!pullActive.value && !refreshing.value) {
-      if (pullStartedWithVisibleChrome.value && trackingPull) {
+      if (pullStartedWithVisibleChrome.value && trackingPull.value) {
         return
       }
       clearPullState()
