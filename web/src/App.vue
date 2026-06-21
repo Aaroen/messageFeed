@@ -311,6 +311,7 @@ const motionHeaderSwapDuration = motionTimings.headerSwapDuration
 const motionReaderDuration = motionTimings.readerDuration
 const motionChromeDuration = motionTimings.chromeDuration
 const navigationDrawerSettleDuration = motionTimings.navigationDrawerSettleDuration
+const sourceReaderCloseCleanupDelay = motionTimings.sourceReaderCloseCleanupDelay
 const viewSwipeChromeRevealDelay = motionTimings.viewSwipeChromeRevealDelay
 const detailFrameMetricsInitialDelay = motionTimings.detailFrameMetricsInitialDelay
 const detailFrameMetricsSettledDelay = motionTimings.detailFrameMetricsSettledDelay
@@ -905,6 +906,7 @@ const readerSourceCloseAction = useReaderSourceCloseAction({
   sourceReaderOpen,
   detailReaderOpen,
   isFeedRoute,
+  sourceReaderCloseCleanupDelay,
   sourceReaderShouldReturnToDetail,
   hasDetailParkedBehindSource,
   restorePreviousParkedDetailIfReaderClosed,

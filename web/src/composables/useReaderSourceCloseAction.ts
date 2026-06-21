@@ -18,6 +18,7 @@ type ReaderSourceCloseActionOptions = {
   sourceReaderOpen: ReadableRef<boolean>
   detailReaderOpen: ReadableRef<boolean>
   isFeedRoute: ReadableRef<boolean>
+  sourceReaderCloseCleanupDelay: number
   sourceReaderShouldReturnToDetail: () => boolean
   hasDetailParkedBehindSource: () => boolean
   restorePreviousParkedDetailIfReaderClosed: (options?: RestoreParkedDetailOptions) => boolean
@@ -71,7 +72,7 @@ export function useReaderSourceCloseAction(options: ReaderSourceCloseActionOptio
       if (options.isFeedRoute.value && !options.detailReaderOpen.value) {
         options.setTopChromeVisible(true)
       }
-      options.scheduleHiddenSourceReaderCleanup(340)
+      options.scheduleHiddenSourceReaderCleanup(options.sourceReaderCloseCleanupDelay)
       return
     }
 

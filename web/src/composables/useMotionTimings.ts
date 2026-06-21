@@ -15,6 +15,7 @@ export function useMotionTimings() {
   const topRefreshSettleDuration = chromeDuration
   const navigationDrawerSettleDuration = shortDuration
   const hiddenSourceCleanupDelay = quickDuration
+  const sourceReaderCloseCleanupDelay = 340
   const detailHeaderSwapDelay = headerSwapDuration
   const morphingItemContentUnlockDelay = quickDuration
   const readerMotionSettleDelay = normalDuration
@@ -52,6 +53,7 @@ export function useMotionTimings() {
     topRefreshSettleDuration,
     navigationDrawerSettleDuration,
     hiddenSourceCleanupDelay,
+    sourceReaderCloseCleanupDelay,
     detailHeaderSwapDelay,
     morphingItemContentUnlockDelay,
     readerMotionSettleDelay,
