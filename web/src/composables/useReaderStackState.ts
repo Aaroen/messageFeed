@@ -281,6 +281,8 @@ export function useReaderStackState() {
   let detailEntryTimer = 0
   let detailEntryFrame = 0
   let detailEntrySecondFrame = 0
+  let detailEntryTimerToken = 0
+  let detailEntryFrameToken = 0
   const detailHeaderTitleSwap = useDetailHeaderTitleSwap()
 
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
@@ -941,6 +943,7 @@ export function useReaderStackState() {
   }
 
   function clearDetailEntryTimer() {
+    detailEntryTimerToken += 1
     if (typeof window !== 'undefined' && detailEntryTimer !== 0) {
       window.clearTimeout(detailEntryTimer)
     }
@@ -948,6 +951,7 @@ export function useReaderStackState() {
   }
 
   function clearDetailEntryFrames() {
+    detailEntryFrameToken += 1
     if (typeof window !== 'undefined' && detailEntryFrame !== 0) {
       window.cancelAnimationFrame(detailEntryFrame)
     }
@@ -965,7 +969,11 @@ export function useReaderStackState() {
 
   function setDetailEntryTimer(handler: () => void, delay?: number) {
     clearDetailEntryTimer()
+    const token = detailEntryTimerToken
     detailEntryTimer = window.setTimeout(() => {
+      if (token !== detailEntryTimerToken) {
+        return
+      }
       detailEntryTimer = 0
       handler()
     }, delay)
@@ -973,7 +981,11 @@ export function useReaderStackState() {
 
   function scheduleDetailEntryFrame(handler: () => void) {
     clearDetailEntryFrames()
+    const token = detailEntryFrameToken
     detailEntryFrame = window.requestAnimationFrame(() => {
+      if (token !== detailEntryFrameToken) {
+        return
+      }
       detailEntryFrame = 0
       handler()
     })
@@ -981,9 +993,16 @@ export function useReaderStackState() {
 
   function scheduleDetailEntryDoubleFrame(handler: () => void) {
     clearDetailEntryFrames()
+    const token = detailEntryFrameToken
     detailEntryFrame = window.requestAnimationFrame(() => {
+      if (token !== detailEntryFrameToken) {
+        return
+      }
       detailEntryFrame = 0
       detailEntrySecondFrame = window.requestAnimationFrame(() => {
+        if (token !== detailEntryFrameToken) {
+          return
+        }
         detailEntrySecondFrame = 0
         handler()
       })
