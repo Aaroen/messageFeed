@@ -49,6 +49,7 @@ import { useReaderDetailTextMotion } from '@/composables/useReaderDetailTextMoti
 import { useReaderSourceTitleMotion } from '@/composables/useReaderSourceTitleMotion'
 import { useReaderDetailTransitionMotion } from '@/composables/useReaderDetailTransitionMotion'
 import { useAppShellMotion } from '@/composables/useAppShellMotion'
+import { useTopPullState } from '@/composables/useTopPullState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -263,8 +264,9 @@ const feedRefreshSettling = refreshCompletion.settling
 const chromeLayerMotion = useChromeLayerMotion({
   isSettling: () => feedChromeSettling.value || feedRefreshSettling.value,
 })
-const feedTopPulling = ref(false)
-const feedTopPullStartedWithChrome = ref(false)
+const feedTopPull = useTopPullState()
+const feedTopPulling = feedTopPull.pulling
+const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
 const pagePullRefresh = usePullRefresh({ threshold: 52 })
 const pageRefreshThreshold = pagePullRefresh.threshold
 const pagePullOffset = pagePullRefresh.offset
@@ -1472,7 +1474,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
     detailEntryDelay: motionDelay(readerMorphDuration),
     afterBegin: () => {
       chromeState.setStableVisible()
-      feedTopPulling.value = false
+      feedTopPull.finish()
       lastDetailScrollTop = 0
     },
     afterEntry: () => {
@@ -2430,8 +2432,7 @@ function handleFeedTopPullStart(startedWithVisibleChrome = false) {
     return
   }
 
-  feedTopPulling.value = true
-  feedTopPullStartedWithChrome.value = startedWithVisibleChrome || feedTopChromeIsVisiblyOpen.value
+  feedTopPull.begin(startedWithVisibleChrome || feedTopChromeIsVisiblyOpen.value)
   chromeState.beginRefreshing()
   topPullStartProgress = topChromeProgress.value
 }
@@ -2442,7 +2443,7 @@ function handleFeedTopPullMove(distance: number) {
   }
 
   if (!feedTopPullStartedWithChrome.value && feedTopChromeIsVisiblyOpen.value) {
-    feedTopPullStartedWithChrome.value = true
+    feedTopPull.markStartedWithChrome()
   }
 
   if (!feedTopPullStartedWithChrome.value && currentContentScrollTop() > 0) {
@@ -2459,12 +2460,12 @@ function handleFeedTopPullMove(distance: number) {
 
 function handleFeedTopPullEnd(shouldRefresh = false) {
   if (!feedTopPulling.value) {
-    feedTopPullStartedWithChrome.value = false
+    feedTopPull.resetStartedWithChrome()
     return
   }
 
   const startedWithChrome = feedTopPullStartedWithChrome.value
-  feedTopPulling.value = false
+  feedTopPull.finish()
 
   if (shouldRefresh) {
     refreshCompletion.recordStartedWithChrome(startedWithChrome)
@@ -2474,12 +2475,12 @@ function handleFeedTopPullEnd(shouldRefresh = false) {
 
   if (topChromeProgress.value <= 0.04) {
     chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
-    feedTopPullStartedWithChrome.value = false
+    feedTopPull.resetStartedWithChrome()
     return
   }
 
   setTopChromeVisible(true)
-  feedTopPullStartedWithChrome.value = false
+  feedTopPull.resetStartedWithChrome()
 }
 
 function updateTopTabsByScroll(current: number, previous: number) {
@@ -2658,21 +2659,21 @@ async function refreshCurrentPageFromPull() {
 function handlePageTouchEnd() {
   if (trackingPageTopPull.value) {
     const shouldRefresh = pageTopPullDistance.value >= pageRefreshThreshold
-    feedTopPulling.value = false
+    feedTopPull.finish()
     setTopChromeVisible(true)
     settlePagePullOffset()
     if (shouldRefresh) {
       void refreshCurrentPageFromPull()
     }
   } else if (trackingPageTopPullCandidate.value) {
-    feedTopPulling.value = false
+    feedTopPull.finish()
   }
   resetPageTopPullTracking()
 }
 
 function handlePageTouchCancel() {
   if (trackingPageTopPull.value || trackingPageTopPullCandidate.value) {
-    feedTopPulling.value = false
+    feedTopPull.finish()
     setTopChromeVisible(true)
     settlePagePullOffset()
   }
@@ -2684,7 +2685,7 @@ watch(
   () => {
     resetGestureTracking()
     resetPageTopPullTracking()
-    feedTopPulling.value = false
+    feedTopPull.finish()
     pagePullRefresh.resetMotion()
     feedPagerTransition.resetDragOffset()
     if (isFeedRoute.value) {
@@ -2761,13 +2762,13 @@ watch(
       if (shouldSettleSourceContent) {
         settleSourceContentAfterRefresh()
       }
-      feedTopPullStartedWithChrome.value = false
+      feedTopPull.resetStartedWithChrome()
       chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
     }
 
     if (!active && !refreshCompletion.wasActive.value) {
       refreshCompletion.resetInactive()
-      feedTopPullStartedWithChrome.value = false
+      feedTopPull.resetStartedWithChrome()
     }
   },
 )
