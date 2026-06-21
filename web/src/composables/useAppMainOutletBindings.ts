@@ -2,9 +2,8 @@ import { computed } from 'vue'
 import type { StyleValue } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
-import type { AppReaderDetailHeaderState } from '@/composables/useAppReaderDetailHeaderState'
+import type { AppTopChromeOutletState } from '@/composables/useAppTopChromeOutletState'
 import type { PageViewExpose } from '@/composables/usePageOutletState'
-import type { ChromePhase } from '@/composables/useChromeState'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
 
 type ReadableRef<T> = {
@@ -13,12 +12,6 @@ type ReadableRef<T> = {
 
 type ClassValue = string | Record<string, boolean> | Array<string | Record<string, boolean>>
 
-type FeedTab = {
-  key: string
-  label: string
-  path: string
-}
-
 type AppMainOutletBindingOptions = {
   mainClass: ReadableRef<ClassValue>
   mainStyle: ReadableRef<StyleValue>
@@ -26,33 +19,7 @@ type AppMainOutletBindingOptions = {
   swipeDirection: ReadableRef<string | null>
   swipeProgress: ReadableRef<number>
   swipeIsBlocked: ReadableRef<boolean>
-  topChromePhase: ReadableRef<ChromePhase>
-  feedHeaderProgress: ReadableRef<number>
-  headerClass: ReadableRef<ClassValue>
-  headerStyle: ReadableRef<StyleValue>
-  isFeedRoute: ReadableRef<boolean>
-  readerDetailHeader: AppReaderDetailHeaderState
-  feedTabs: FeedTab[]
-  activeKey: () => string | symbol | null | undefined
-  feedTabsLayerHidden: ReadableRef<boolean>
-  feedTabsLayerStyle: ReadableRef<StyleValue>
-  viewSwipeTargetVisible: ReadableRef<boolean>
-  feedTabsTargetLayerStyle: ReadableRef<StyleValue>
-  viewSwipeTargetKey: ReadableRef<string | null>
-  feedPullActive: ReadableRef<boolean>
-  feedPullRefreshing: () => boolean
-  pullStatusStyle: ReadableRef<StyleValue>
-  pullIconStyle: ReadableRef<StyleValue>
-  pullStatusText: ReadableRef<string>
-  pullStatusMeta: ReadableRef<string>
-  pageTitle: ReadableRef<string>
-  pagePullActive: ReadableRef<boolean>
-  pageTitleLayerStyle: ReadableRef<StyleValue>
-  pagePullStatusStyle: ReadableRef<StyleValue>
-  pagePullRefreshing: ReadableRef<boolean>
-  pagePullIconStyle: ReadableRef<StyleValue>
-  pagePullStatusText: ReadableRef<string>
-  pagePullStatusMeta: ReadableRef<string>
+  topChrome: AppTopChromeOutletState
   sourceReaderOpen: ReadableRef<boolean>
   viewSettling: ReadableRef<boolean>
   feedTrackStyle: ReadableRef<StyleValue>
@@ -88,7 +55,7 @@ type AppMainOutletBindingOptions = {
 
 export function useAppMainOutletBindings(options: AppMainOutletBindingOptions) {
   const props = computed(() => {
-    const readerDetailHeader = options.readerDetailHeader
+    const topChrome = options.topChrome
 
     return {
       mainClass: options.mainClass.value,
@@ -97,41 +64,41 @@ export function useAppMainOutletBindings(options: AppMainOutletBindingOptions) {
       swipeDirection: options.swipeDirection.value,
       swipeProgress: options.swipeProgress.value,
       swipeIsBlocked: options.swipeIsBlocked.value,
-      topChromePhase: options.topChromePhase.value,
-      feedHeaderProgress: options.feedHeaderProgress.value,
-      headerClass: options.headerClass.value,
-      headerStyle: options.headerStyle.value,
-      feedHeaderActive: options.isFeedRoute.value || readerDetailHeader.chromeVisible.value,
-      detailReaderOpen: readerDetailHeader.readerOpen.value,
-      detailHeaderVisible: readerDetailHeader.visible.value,
-      detailHeaderLayerStyle: readerDetailHeader.layerStyle.value,
-      detailTitle: readerDetailHeader.title.value,
-      detailHeaderTitleStyle: readerDetailHeader.titleStyle.value,
-      detailHeaderPreviousTitle: readerDetailHeader.previousTitle.value,
-      detailHeaderPreviousTextStyle: readerDetailHeader.previousTextStyle.value,
-      detailHeaderCurrentTextStyle: readerDetailHeader.currentTextStyle.value,
-      isFeedRoute: options.isFeedRoute.value,
-      feedTabs: options.feedTabs,
-      activeKey: options.activeKey() ?? null,
-      feedTabsLayerHidden: options.feedTabsLayerHidden.value,
-      feedTabsLayerStyle: options.feedTabsLayerStyle.value,
-      viewSwipeTargetVisible: options.viewSwipeTargetVisible.value,
-      feedTabsTargetLayerStyle: options.feedTabsTargetLayerStyle.value,
-      viewSwipeTargetKey: options.viewSwipeTargetKey.value,
-      feedPullActive: options.feedPullActive.value,
-      feedPullRefreshing: options.feedPullRefreshing(),
-      pullStatusStyle: options.pullStatusStyle.value,
-      pullIconStyle: options.pullIconStyle.value,
-      pullStatusText: options.pullStatusText.value,
-      pullStatusMeta: options.pullStatusMeta.value,
-      pageTitle: options.pageTitle.value,
-      pagePullActive: options.pagePullActive.value,
-      pageTitleLayerStyle: options.pageTitleLayerStyle.value,
-      pagePullStatusStyle: options.pagePullStatusStyle.value,
-      pagePullRefreshing: options.pagePullRefreshing.value,
-      pagePullIconStyle: options.pagePullIconStyle.value,
-      pagePullStatusText: options.pagePullStatusText.value,
-      pagePullStatusMeta: options.pagePullStatusMeta.value,
+      topChromePhase: topChrome.phase.value,
+      feedHeaderProgress: topChrome.progress.value,
+      headerClass: topChrome.rootClass.value,
+      headerStyle: topChrome.rootStyle.value,
+      feedHeaderActive: topChrome.feedHeaderActive.value,
+      detailReaderOpen: topChrome.detailReaderOpen.value,
+      detailHeaderVisible: topChrome.detailHeaderVisible.value,
+      detailHeaderLayerStyle: topChrome.detailHeaderLayerStyle.value,
+      detailTitle: topChrome.detailTitle.value,
+      detailHeaderTitleStyle: topChrome.detailHeaderTitleStyle.value,
+      detailHeaderPreviousTitle: topChrome.detailHeaderPreviousTitle.value,
+      detailHeaderPreviousTextStyle: topChrome.detailHeaderPreviousTextStyle.value,
+      detailHeaderCurrentTextStyle: topChrome.detailHeaderCurrentTextStyle.value,
+      isFeedRoute: topChrome.isFeedRoute.value,
+      feedTabs: topChrome.feedTabs,
+      activeKey: topChrome.activeKey.value,
+      feedTabsLayerHidden: topChrome.feedTabsLayerHidden.value,
+      feedTabsLayerStyle: topChrome.feedTabsLayerStyle.value,
+      viewSwipeTargetVisible: topChrome.viewSwipeTargetVisible.value,
+      feedTabsTargetLayerStyle: topChrome.feedTabsTargetLayerStyle.value,
+      viewSwipeTargetKey: topChrome.viewSwipeTargetKey.value,
+      feedPullActive: topChrome.feedPullActive.value,
+      feedPullRefreshing: topChrome.feedPullRefreshing.value,
+      pullStatusStyle: topChrome.pullStatusStyle.value,
+      pullIconStyle: topChrome.pullIconStyle.value,
+      pullStatusText: topChrome.pullStatusText.value,
+      pullStatusMeta: topChrome.pullStatusMeta.value,
+      pageTitle: topChrome.pageTitle.value,
+      pagePullActive: topChrome.pagePullActive.value,
+      pageTitleLayerStyle: topChrome.pageTitleLayerStyle.value,
+      pagePullStatusStyle: topChrome.pagePullStatusStyle.value,
+      pagePullRefreshing: topChrome.pagePullRefreshing.value,
+      pagePullIconStyle: topChrome.pagePullIconStyle.value,
+      pagePullStatusText: topChrome.pagePullStatusText.value,
+      pagePullStatusMeta: topChrome.pagePullStatusMeta.value,
       sourceReaderOpen: options.sourceReaderOpen.value,
       viewSettling: options.viewSettling.value,
       feedTrackStyle: options.feedTrackStyle.value,

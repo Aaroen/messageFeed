@@ -71,6 +71,7 @@ import { useAppSwipeNavigationState } from '@/composables/useAppSwipeNavigationS
 import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
 import { useAppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
 import { useAppReaderDetailHeaderState } from '@/composables/useAppReaderDetailHeaderState'
+import { useAppTopChromeOutletState } from '@/composables/useAppTopChromeOutletState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1299,18 +1300,11 @@ const handlePageTouchStart = pagePullInteractions.handlePageTouchStart
 const handlePageTouchMove = pagePullInteractions.handlePageTouchMove
 const handlePageTouchEnd = pagePullInteractions.handlePageTouchEnd
 const handlePageTouchCancel = pagePullInteractions.handlePageTouchCancel
-
-const mainOutletBindings = useAppMainOutletBindings({
-  mainClass,
-  mainStyle,
-  swipePhase,
-  swipeDirection,
-  swipeProgress,
-  swipeIsBlocked,
-  topChromePhase,
-  feedHeaderProgress,
-  headerClass,
-  headerStyle,
+const topChromeOutletState = useAppTopChromeOutletState({
+  phase: topChromePhase,
+  progress: feedHeaderProgress,
+  rootClass: headerClass,
+  rootStyle: headerStyle,
   isFeedRoute,
   readerDetailHeader: readerDetailHeaderState,
   feedTabs,
@@ -1334,6 +1328,16 @@ const mainOutletBindings = useAppMainOutletBindings({
   pagePullIconStyle,
   pagePullStatusText,
   pagePullStatusMeta,
+})
+
+const mainOutletBindings = useAppMainOutletBindings({
+  mainClass,
+  mainStyle,
+  swipePhase,
+  swipeDirection,
+  swipeProgress,
+  swipeIsBlocked,
+  topChrome: topChromeOutletState,
   sourceReaderOpen,
   viewSettling,
   feedTrackStyle,
