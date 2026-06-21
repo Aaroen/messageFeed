@@ -131,6 +131,8 @@ const {
   sourceTitleRevealReady,
   sourceNameMorphActive,
   sourceNameMorphVisible,
+  detailMorphSummaryVisible,
+  detailMorphTextVisible,
   detailParkedBehindSource,
   detailChromeVisible,
   detailCommittedListReturn,
@@ -857,21 +859,6 @@ const detailPreviewSummary = computed(
     ) || '暂无摘要。',
 )
 const detailDisplayDate = computed(() => formatItemDate(detailItem.value?.published_at || detailItem.value?.fetched_at))
-const detailMorphSummaryVisible = computed(() => detailSurfaceProgress.value < 0.54)
-const detailMorphTextVisible = computed(() => {
-  if (!detailItem.value || detailCommittedListReturn()) {
-    return false
-  }
-
-  const inTransition =
-    detailEntrySettling.value ||
-    readerBackDragging.value ||
-    detailReturningToFeed.value ||
-    detailRestoringFromSourceReader.value ||
-    detailBackExitProgress.value > 0.001 ||
-    detailSourceExitProgress.value > 0.001
-  return inTransition
-})
 const detailFrameBody = computed(() => {
   const source = detailHTML.value || `<p>${escapeHTML(detailText.value || '暂无正文。')}</p>`
   return sanitizeDetailHTML(source)

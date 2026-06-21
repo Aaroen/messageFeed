@@ -335,6 +335,21 @@ export function useReaderStackState() {
       sourceNameMorphProgress.value < 0.995 &&
       Boolean(detailSourceNameOriginRect.value && detailSourceNameTargetRect.value),
   )
+  const detailMorphSummaryVisible = computed(() => detailSurfaceProgress.value < 0.54)
+  const detailMorphTextVisible = computed(() => {
+    if (!detailItem.value || detailCommittedListReturn()) {
+      return false
+    }
+
+    return (
+      detailEntrySettling.value ||
+      readerBackDragging.value ||
+      detailReturningToFeed.value ||
+      detailRestoringFromSourceReader.value ||
+      detailBackExitProgress.value > 0.001 ||
+      detailSourceExitProgress.value > 0.001
+    )
+  })
 
   function detailCommittedListReturn() {
     return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
@@ -1480,6 +1495,8 @@ export function useReaderStackState() {
     sourceTitleRevealReady,
     sourceNameMorphActive,
     sourceNameMorphVisible,
+    detailMorphSummaryVisible,
+    detailMorphTextVisible,
     detailParkedBehindSource,
     detailChromeVisible,
     detailCommittedListReturn,
