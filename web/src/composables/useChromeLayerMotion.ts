@@ -68,6 +68,43 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
     }
   }
 
+  function feedTabsStyle(payload: {
+    detailReaderOpen: boolean
+    returnProgress: number
+    readerBackDragging: boolean
+    detailBlocksGestures: boolean
+    feedPullActive: boolean
+    headerProgress: number
+  }) {
+    if (payload.detailReaderOpen) {
+      return layerStyle(payload.returnProgress > 0.001, payload.returnProgress, {
+        shift: 7,
+        scaleStart: 0.98,
+        disableTransition: payload.readerBackDragging,
+        pointerEnabled: !payload.detailBlocksGestures,
+      })
+    }
+
+    return layerStyle(!payload.feedPullActive, payload.headerProgress)
+  }
+
+  function feedTabsTargetStyle(payload: {
+    visible: boolean
+    feedPullActive: boolean
+    headerProgress: number
+    targetProgress: number
+  }) {
+    return layerStyle(
+      payload.visible && !payload.feedPullActive,
+      payload.headerProgress * payload.targetProgress,
+      {
+        shift: 6,
+        scaleStart: 0.985,
+        pointerEnabled: false,
+      },
+    )
+  }
+
   function navOpenButtonStyle(progress: number, headerHeight: number, visible: boolean) {
     const safeProgress = finiteNumber(visible ? progress : 0)
     return {
@@ -116,6 +153,8 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
     navOpenButtonStyle,
     refreshStatusStyle,
     refreshIconStyle,
+    feedTabsStyle,
+    feedTabsTargetStyle,
     layerStyle,
   }
 }

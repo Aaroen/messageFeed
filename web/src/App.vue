@@ -433,28 +433,23 @@ const pullIconStyle = computed(() =>
 )
 const pagePullStatusStyle = computed(() => chromeLayerMotion.refreshStatusStyle(pagePullActive.value, pagePullProgress.value))
 const pagePullIconStyle = computed(() => chromeLayerMotion.refreshIconStyle(pagePullRefreshing.value, pagePullProgress.value))
-const feedTabsLayerStyle = computed(() => {
-  if (detailReaderOpen.value) {
-    return chromeLayerMotion.layerStyle(feedHeaderReturnProgress.value > 0.001, feedHeaderReturnProgress.value, {
-      shift: 7,
-      scaleStart: 0.98,
-      disableTransition: readerBackDragging.value,
-      pointerEnabled: !detailBlocksGestures(),
-    })
-  }
-
-  return chromeLayerMotion.layerStyle(!feedPullActive.value, feedHeaderProgress.value)
-})
+const feedTabsLayerStyle = computed(() =>
+  chromeLayerMotion.feedTabsStyle({
+    detailReaderOpen: detailReaderOpen.value,
+    returnProgress: feedHeaderReturnProgress.value,
+    readerBackDragging: readerBackDragging.value,
+    detailBlocksGestures: detailBlocksGestures(),
+    feedPullActive: feedPullActive.value,
+    headerProgress: feedHeaderProgress.value,
+  }),
+)
 const feedTabsTargetLayerStyle = computed(() =>
-  chromeLayerMotion.layerStyle(
-    viewSwipeTargetVisible.value && !feedPullActive.value,
-    feedHeaderProgress.value * viewSwipeTargetProgress.value,
-    {
-      shift: 6,
-      scaleStart: 0.985,
-      pointerEnabled: false,
-    },
-  ),
+  chromeLayerMotion.feedTabsTargetStyle({
+    visible: viewSwipeTargetVisible.value,
+    feedPullActive: feedPullActive.value,
+    headerProgress: feedHeaderProgress.value,
+    targetProgress: viewSwipeTargetProgress.value,
+  }),
 )
 const sourcePullStatusStyle = computed(() =>
   chromeLayerMotion.refreshStatusStyle(sourcePullActive.value, sourcePullProgress.value),
