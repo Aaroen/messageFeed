@@ -105,6 +105,7 @@ import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTa
 import { useAppLifecycle } from '@/composables/useAppLifecycle'
 import { useAppShellEventActions } from '@/composables/useAppShellEventActions'
 import { useAppReaderScrollMemoryActions } from '@/composables/useAppReaderScrollMemoryActions'
+import { useAppReaderRouteSyncAction } from '@/composables/useAppReaderRouteSyncAction'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -345,6 +346,8 @@ const pageSideStretch = pageContentMotion.sideStretch
 const pageContentInnerStyle = pageContentMotion.contentStyle
 const homeExitDoubleBackMs = 1600
 const homeBackGuard = useDoubleBackGuard(homeExitDoubleBackMs)
+const appReaderRouteSyncAction = useAppReaderRouteSyncAction()
+const scheduleReaderURLAndHistorySync = appReaderRouteSyncAction.scheduleReaderURLAndHistorySync
 const appReaderScrollMemoryActions = useAppReaderScrollMemoryActions({
   rememberScrollTop: (surface, scrollTop) => {
     scrollHistory.set(surface, scrollTop)
@@ -456,6 +459,7 @@ const readerRouteSync = useReaderRouteSync({
   setProgrammaticRouteNavigation: routeRuntime.setProgrammaticNavigation,
   syncVirtualHistoryState: virtualBackGuard.syncHistoryState,
 })
+appReaderRouteSyncAction.bindReaderRouteSync(readerRouteSync)
 const feedPagerTransition = useFeedPagerTransition({
   getActiveKey: () => route.name,
   getWindowWidth: () => windowWidth.value,
@@ -787,10 +791,6 @@ const handleClickCapture = appShellEventActions.handleClickCapture
 const suppressFollowingClick = appShellEventActions.suppressFollowingClick
 const handleKeydown = appShellEventActions.handleKeydown
 const handleResize = appShellEventActions.handleResize
-
-function scheduleReaderURLAndHistorySync(forcePush = false) {
-  readerRouteSync.scheduleSync(forcePush)
-}
 
 const {
   setSourceReaderContentElement,
