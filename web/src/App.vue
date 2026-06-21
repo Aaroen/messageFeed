@@ -279,7 +279,6 @@ const navigationDrawer = useNavigationDrawer({
 })
 const navigationOpen = navigationDrawer.open
 const navigationProgress = navigationDrawer.progress
-const navigationSettling = navigationDrawer.settling
 const navigationWidth = navigationDrawer.width
 const navigationVisible = navigationDrawer.visible
 const navigationPanelStyle = navigationDrawer.panelStyle
@@ -1486,7 +1485,6 @@ useAppLifecycle({
   <div class="app-shell" @click.capture="handleClickCapture">
     <AppNavigationLayer
       :navigation-visible="navigationVisible"
-      :navigation-settling="navigationSettling"
       :feed-corner-hidden="feedCornerHidden"
       :detail-chrome-visible="detailChromeVisible"
       :nav-open-button-style="navOpenButtonStyle"

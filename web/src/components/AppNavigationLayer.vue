@@ -16,7 +16,6 @@ type ManagementItem = {
 withDefaults(
   defineProps<{
     navigationVisible?: boolean
-    navigationSettling?: boolean
     feedCornerHidden?: boolean
     detailChromeVisible?: boolean
     navOpenButtonStyle?: StyleValue
@@ -30,7 +29,6 @@ withDefaults(
   }>(),
   {
     navigationVisible: false,
-    navigationSettling: false,
     feedCornerHidden: false,
     detailChromeVisible: false,
     navOpenButtonStyle: undefined,
@@ -81,7 +79,6 @@ const emit = defineEmits<{
   <aside
     v-show="navigationVisible"
     class="nav-panel"
-    :class="{ 'nav-panel--settling': navigationSettling }"
     :style="navigationPanelStyle"
     aria-label="主导航"
   >

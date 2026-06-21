@@ -46,6 +46,7 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
   const panelStyle = computed(() => ({
     width: `${width.value}px`,
     transform: cssTranslate3d((progress.value - 1) * (width.value + 28), 0),
+    transition: settling.value ? 'transform var(--motion-short) var(--ease-standard)' : undefined,
   }))
 
   const scrimStyle = computed(() => ({

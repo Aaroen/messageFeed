@@ -246,10 +246,6 @@ body[arco-theme='dark'] .nav-scrim {
   backdrop-filter: blur(28px) saturate(1.35);
 }
 
-.nav-panel--settling {
-  transition: transform var(--motion-short) var(--ease-standard);
-}
-
 body[arco-theme='dark'] .nav-panel {
   background:
     linear-gradient(135deg, rgba(31, 42, 61, 0.86), rgba(15, 23, 42, 0.74)),
