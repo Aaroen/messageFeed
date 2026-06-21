@@ -120,10 +120,6 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     distance.value = Math.max(0, nextDistance)
   }
 
-  function setRefreshing(nextRefreshing: boolean) {
-    refreshing.value = nextRefreshing
-  }
-
   function beginRefreshing() {
     refreshing.value = true
     setDistance(threshold)
