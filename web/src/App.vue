@@ -17,6 +17,7 @@ import FeedPager from '@/components/FeedPager.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
+import { useReaderBackSwipeCompletion } from '@/composables/useReaderBackSwipeCompletion'
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import {
   type FeedSourceKind,
@@ -1386,43 +1387,27 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   return true
 }
 
-function readerBackSwipeActionHandlers(): Parameters<typeof applyReaderBackSwipeAction>[1] {
-  return {
-    restoreItemExpansion: restoreItemReaderExpansion,
-    restoreDetailFromSourceSwipe: restoreDetailFromSourceSwipe,
-    restoreParkedSource: restoreParkedSourceReader,
-    completeDetailToSource: completeDetailToSourceReader,
-    collapseDetail: collapseItemReader,
-    restoreDetailFromParkedSource: restoreDetailFromParkedSource,
-    reset: resetBackSwipeOffset,
-  }
-}
-
-function finishBackSwipe(deltaX: number, _deltaY: number) {
-  const result = readerBackSwipeFinishResult(deltaX, viewSwitchDistance, pageSideStretch.value)
-
-  swipeTransition.settle(result.committed, {
-    progress: result.progress,
-    isBlocked: result.isBlocked,
-  })
-  scheduleSwipeTransitionReset(motionReaderDuration)
-
-  if (result.committed) {
-    suppressFollowingClick()
-  }
-  applyReaderBackSwipeAction(result.action, readerBackSwipeActionHandlers())
-}
-
-function cancelBackSwipe() {
-  const result = readerBackSwipeCancelResult(pageSideStretch.value)
-
-  swipeTransition.settle(false, {
-    progress: result.progress,
-    isBlocked: result.isBlocked,
-  })
-  scheduleSwipeTransitionReset(motionReaderDuration)
-  applyReaderBackSwipeAction(result.action, readerBackSwipeActionHandlers())
-}
+const readerBackSwipeCompletion = useReaderBackSwipeCompletion({
+  switchDistance: viewSwitchDistance,
+  getFallbackStretch: () => pageSideStretch.value,
+  finishResult: readerBackSwipeFinishResult,
+  cancelResult: readerBackSwipeCancelResult,
+  settleTransition: swipeTransition.settle,
+  scheduleTransitionReset: () => {
+    scheduleSwipeTransitionReset(motionReaderDuration)
+  },
+  suppressFollowingClick,
+  applyAction: applyReaderBackSwipeAction,
+  restoreItemExpansion: restoreItemReaderExpansion,
+  restoreDetailFromSourceSwipe: restoreDetailFromSourceSwipe,
+  restoreParkedSource: restoreParkedSourceReader,
+  completeDetailToSource: completeDetailToSourceReader,
+  collapseDetail: collapseItemReader,
+  restoreDetailFromParkedSource: restoreDetailFromParkedSource,
+  reset: resetBackSwipeOffset,
+})
+const finishBackSwipe = readerBackSwipeCompletion.finishBackSwipe
+const cancelBackSwipe = readerBackSwipeCompletion.cancelBackSwipe
 
 function finishViewSwipe(nextPath: string | null) {
   const result = feedPagerTransition.finishSwipeResult(nextPath)
