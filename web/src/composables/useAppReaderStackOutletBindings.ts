@@ -50,8 +50,6 @@ type AppReaderStackOutletBindingOptions = {
   morphingItemHeight: ReadableRef<number | null>
   feedItemPreviewProgress: ReadableRef<number>
   sourceReaderVisible: ReadableRef<boolean>
-  detailEntrySettling: ReadableRef<boolean>
-  feedChromeSettling: ReadableRef<boolean>
   detailTransitionSurfaceStyle: ReadableRef<StyleValue>
   detailContentStyle: ReadableRef<StyleValue>
   detailLoading: ReadableRef<boolean>
@@ -132,8 +130,6 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       morphingItemHeight: options.morphingItemHeight.value,
       feedItemPreviewProgress: options.feedItemPreviewProgress.value,
       sourceBackgroundRefresh: !options.sourceReaderVisible.value,
-      detailEntrySettling: options.detailEntrySettling.value,
-      detailChromeSettling: options.feedChromeSettling.value,
       detailTransitionStyle: options.detailTransitionSurfaceStyle.value,
       detailItem,
       detailMorphVisible: readerMorph.detailMorphVisible.value,

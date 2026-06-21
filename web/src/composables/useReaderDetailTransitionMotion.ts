@@ -19,6 +19,8 @@ type ReaderDetailTransitionMotionOptions = {
   sourceReturnTargetPending: Ref<boolean>
   blockedBackSwipeActive: Ref<boolean>
   returningToFeed: Ref<boolean>
+  entrySettling: Ref<boolean>
+  chromeSettling: Ref<boolean>
   committedListReturn: () => boolean
 }
 
@@ -39,6 +41,30 @@ function cssPx(value: number) {
 
 function cssTranslate3d(x: number, y: number, z = 0) {
   return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
+}
+
+const chromeSettlingTransition =
+  'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-normal) var(--ease-standard)'
+
+const entrySettlingTransition = [
+  'transform var(--motion-reader) var(--ease-standard)',
+  'height var(--motion-reader) var(--ease-standard)',
+  'width var(--motion-reader) var(--ease-standard)',
+  'opacity var(--motion-normal) var(--ease-standard)',
+  'border-radius var(--motion-reader) var(--ease-standard)',
+].join(', ')
+
+function surfaceTransition(dragging: boolean, entrySettling: boolean, chromeSettling: boolean) {
+  if (dragging) {
+    return 'none'
+  }
+  if (chromeSettling) {
+    return chromeSettlingTransition
+  }
+  if (entrySettling) {
+    return entrySettlingTransition
+  }
+  return undefined
 }
 
 export function useReaderDetailTransitionMotion(options: ReaderDetailTransitionMotionOptions) {
@@ -63,6 +89,11 @@ export function useReaderDetailTransitionMotion(options: ReaderDetailTransitionM
       !options.sourceReturnTargetPending.value
     const committedListReturn = options.committedListReturn()
     const suppressSourceReturnPreview = options.blockedBackSwipeActive.value
+    const transition = surfaceTransition(
+      options.readerBackDragging.value,
+      options.entrySettling.value,
+      options.chromeSettling.value,
+    )
 
     if (!collapsedTarget) {
       const opacity =
@@ -76,7 +107,7 @@ export function useReaderDetailTransitionMotion(options: ReaderDetailTransitionM
         height: cssPx(targetHeight),
         opacity: suppressSourceReturnPreview ? '0' : clamp(opacity).toFixed(3),
         transform: cssTranslate3d(expandedLeft, targetTop + exitProgress * 18),
-        transition: options.readerBackDragging.value ? 'none' : undefined,
+        transition,
         borderRadius: cssPx(16 - exitProgress * 4),
       }
     }
@@ -100,7 +131,7 @@ export function useReaderDetailTransitionMotion(options: ReaderDetailTransitionM
       opacity: suppressSourceReturnPreview ? '0' : clamp(opacity).toFixed(3),
       transform: cssTranslate3d(x, y),
       borderRadius: cssPx(radius),
-      transition: options.readerBackDragging.value ? 'none' : undefined,
+      transition,
     }
   })
 

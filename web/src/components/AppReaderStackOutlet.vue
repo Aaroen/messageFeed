@@ -55,8 +55,6 @@ const props = withDefaults(
     morphingItemHeight?: number | null
     feedItemPreviewProgress?: number
     sourceBackgroundRefresh?: boolean
-    detailEntrySettling?: boolean
-    detailChromeSettling?: boolean
     detailTransitionStyle?: StyleValue
     detailItem?: FeedItem | null
     detailMorphVisible?: boolean
@@ -120,8 +118,6 @@ const props = withDefaults(
     morphingItemHeight: null,
     feedItemPreviewProgress: 0,
     sourceBackgroundRefresh: false,
-    detailEntrySettling: false,
-    detailChromeSettling: false,
     detailTransitionStyle: undefined,
     detailItem: null,
     detailMorphVisible: false,

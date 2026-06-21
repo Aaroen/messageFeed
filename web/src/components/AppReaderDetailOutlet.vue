@@ -6,8 +6,6 @@ import ReaderDetailOverlayContent from '@/components/ReaderDetailOverlayContent.
 
 withDefaults(
   defineProps<{
-    detailEntrySettling?: boolean
-    detailChromeSettling?: boolean
     detailTransitionStyle?: StyleValue
     detailItem?: FeedItem | null
     detailMorphVisible?: boolean
@@ -29,8 +27,6 @@ withDefaults(
     detailProgressThumbStyle?: StyleValue
   }>(),
   {
-    detailEntrySettling: false,
-    detailChromeSettling: false,
     detailTransitionStyle: undefined,
     detailItem: null,
     detailMorphVisible: false,
@@ -67,8 +63,6 @@ const emit = defineEmits<{
 
 <template>
   <ReaderDetailOverlayContent
-    :entry-settling="detailEntrySettling"
-    :chrome-settling="detailChromeSettling"
     :transition-style="detailTransitionStyle"
     :item="detailItem"
     :morph-visible="detailMorphVisible"

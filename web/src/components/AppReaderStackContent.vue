@@ -57,8 +57,6 @@ withDefaults(
     morphingItemHeight?: number | null
     feedItemPreviewProgress?: number
     sourceBackgroundRefresh?: boolean
-    detailEntrySettling?: boolean
-    detailChromeSettling?: boolean
     detailTransitionStyle?: StyleValue
     detailItem?: FeedItem | null
     detailMorphVisible?: boolean
@@ -122,8 +120,6 @@ withDefaults(
     morphingItemHeight: null,
     feedItemPreviewProgress: 0,
     sourceBackgroundRefresh: false,
-    detailEntrySettling: false,
-    detailChromeSettling: false,
     detailTransitionStyle: undefined,
     detailItem: null,
     detailMorphVisible: false,
@@ -227,8 +223,6 @@ const emit = defineEmits<{
 
     <template #detail>
       <AppReaderDetailOutlet
-        :detail-entry-settling="detailEntrySettling"
-        :detail-chrome-settling="detailChromeSettling"
         :detail-transition-style="detailTransitionStyle"
         :detail-item="detailItem"
         :detail-morph-visible="detailMorphVisible"

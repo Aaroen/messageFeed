@@ -1369,21 +1369,6 @@ body[arco-theme='dark'] .reader-transition-surface {
     var(--mf-page);
 }
 
-.reader-transition-surface--entry-settling {
-  transition:
-    transform var(--motion-reader) var(--ease-standard),
-    height var(--motion-reader) var(--ease-standard),
-    width var(--motion-reader) var(--ease-standard),
-    opacity var(--motion-normal) var(--ease-standard),
-    border-radius var(--motion-reader) var(--ease-standard);
-}
-
-.reader-transition-surface--chrome-settling {
-  transition:
-    transform var(--motion-chrome) var(--ease-emphasized),
-    opacity var(--motion-normal) var(--ease-standard);
-}
-
 .reader-overlay__header {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);

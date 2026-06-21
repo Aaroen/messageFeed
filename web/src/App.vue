@@ -643,6 +643,8 @@ const readerMotionState = useAppReaderMotionState({
     sourceReturnTargetPending: sourceReaderReturnTargetPending,
     blockedBackSwipeActive: sourceReaderBlockedBackSwipeActive,
     returningToFeed: detailReturningToFeed,
+    entrySettling: detailEntrySettling,
+    chromeSettling: feedChromeSettling,
     committedListReturn: detailCommittedListReturn,
   },
   detailFrame: {
@@ -1255,8 +1257,6 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   morphingItemHeight,
   feedItemPreviewProgress,
   sourceReaderVisible,
-  detailEntrySettling,
-  feedChromeSettling,
   detailTransitionSurfaceStyle,
   detailContentStyle,
   detailLoading,

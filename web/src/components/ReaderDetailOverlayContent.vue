@@ -9,8 +9,6 @@ import ReaderDetailTransitionSurface from '@/components/ReaderDetailTransitionSu
 
 withDefaults(
   defineProps<{
-    entrySettling?: boolean
-    chromeSettling?: boolean
     transitionStyle?: StyleValue
     item?: FeedItem | null
     morphVisible?: boolean
@@ -32,8 +30,6 @@ withDefaults(
     progressThumbStyle?: StyleValue
   }>(),
   {
-    entrySettling: false,
-    chromeSettling: false,
     transitionStyle: undefined,
     item: null,
     morphVisible: false,
@@ -78,8 +74,6 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
 
 <template>
   <ReaderDetailTransitionSurface
-    :entry-settling="entrySettling"
-    :chrome-settling="chromeSettling"
     :root-style="transitionStyle"
   >
     <ReaderDetailMorphText
