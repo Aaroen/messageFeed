@@ -47,7 +47,10 @@ export function useReaderDetailContentMotion(options: ReaderDetailContentMotionO
       transform:
         sourceExitProgress > 0 ? cssTranslate3d(0, 0) : cssTranslate3d(0, (1 - progress) * 8),
       visibility: !committedListReturn && opacity > 0.01 ? ('visible' as const) : ('hidden' as const),
-      transition: options.dragging.value || committedListReturn ? 'none' : undefined,
+      transition:
+        options.dragging.value || committedListReturn
+          ? 'none'
+          : 'opacity var(--motion-short) var(--ease-standard), transform var(--motion-normal) var(--ease-standard)',
     }
   })
 
