@@ -380,6 +380,21 @@ export function useReaderStackState() {
     const progress = sourceNameMorphProgress.value
     return sourceNameMorphActive.value ? clampProgress(progress / 0.2) * 2.2 : progress * 1.8
   })
+  const detailFeedHeaderReturnProgress = computed(() => {
+    if (!detailReaderOpen.value || detailOpenedFromSourceReader.value) {
+      return 0
+    }
+    if (
+      sourceReaderVisible.value &&
+      !detailReturningToFeed.value &&
+      (detailSourceExitProgress.value > 0.001 ||
+        detailRestoringFromSourceReader.value ||
+        detailListReturnCommitted.value)
+    ) {
+      return 0
+    }
+    return clampProgress(Math.max(detailBackExitProgress.value, detailListReturnCommitted.value ? 1 : 0))
+  })
 
   function detailCommittedListReturn() {
     return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
@@ -1535,6 +1550,7 @@ export function useReaderStackState() {
     detailHeaderFeedTitleProgress,
     sourceNameMorphLabelOpacity,
     sourceNameMorphLabelBlur,
+    detailFeedHeaderReturnProgress,
     detailParkedBehindSource,
     detailChromeVisible,
     detailCommittedListReturn,

@@ -141,6 +141,7 @@ const {
   detailHeaderFeedTitleProgress,
   sourceNameMorphLabelOpacity,
   sourceNameMorphLabelBlur,
+  detailFeedHeaderReturnProgress,
   detailParkedBehindSource,
   detailChromeVisible,
   detailCommittedListReturn,
@@ -363,19 +364,7 @@ const feedTopChromeIsVisiblyOpen = computed(
 )
 const feedTabsVisible = computed(() => isFeedRoute.value && topChromeProgress.value > 0.04)
 const feedChromeHidden = computed(() => isFeedRoute.value && feedHeaderProgress.value <= 0.01 && !feedPullActive.value)
-const feedHeaderReturnProgress = computed(() => {
-  if (!detailReaderOpen.value || !isFeedRoute.value || detailOpenedFromSourceReader.value) {
-    return 0
-  }
-  if (
-    sourceReaderVisible.value &&
-    !detailReturningToFeed.value &&
-    (detailSourceExitProgress.value > 0.001 || detailRestoringFromSourceReader.value || detailListReturnCommitted.value)
-  ) {
-    return 0
-  }
-  return clamp(Math.max(detailBackExitProgress.value, detailListReturnCommitted.value ? 1 : 0))
-})
+const feedHeaderReturnProgress = computed(() => (isFeedRoute.value ? detailFeedHeaderReturnProgress.value : 0))
 const feedTabsLayerHidden = computed(() => {
   if (!isFeedRoute.value || feedPullActive.value) {
     return true
