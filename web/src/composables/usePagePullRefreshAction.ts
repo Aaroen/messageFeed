@@ -15,6 +15,7 @@ type PagePullRefreshActionOptions = {
     releaseDelayMS?: number
     settleDelayMS?: number
     afterRelease?: () => void
+    afterSettled?: () => void
   }) => void
   collapseTopChrome: () => void
 }

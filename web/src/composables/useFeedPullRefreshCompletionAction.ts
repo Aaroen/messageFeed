@@ -28,6 +28,7 @@ type PullRefreshCompletionController = {
     releaseDelayMS?: number
     settleDelayMS?: number
     afterRelease?: () => void
+    afterSettled?: () => void
   }) => void
 }
 
@@ -45,6 +46,7 @@ type FeedPullRefreshCompletionActionOptions = {
   pullStatusText: ReadableRef<string>
   pullStatusMeta: ReadableRef<string>
   isSourceMode: ReadableRef<boolean>
+  afterSettled?: () => void
   feedInteraction: FeedInteractionWriter
   pullRefresh: PullRefreshCompletionController
 }
@@ -101,6 +103,7 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
     })
     options.pullRefresh.settleRefreshCompletion({
       afterRelease: clearPullState,
+      afterSettled: options.afterSettled,
     })
   }
 

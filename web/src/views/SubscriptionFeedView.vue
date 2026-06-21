@@ -6,6 +6,7 @@ import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems
 import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRefreshCompletionAction'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { usePullRefresh } from '@/composables/usePullRefresh'
+import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
 
@@ -66,6 +67,7 @@ const totalCount = ref(0)
 const nextOffset = ref(0)
 const reachedEnd = ref(false)
 const feedPageRef = ref<HTMLElement | null>(null)
+const feedBodyRef = ref<HTMLElement | null>(null)
 const initialSubscriptionFetchAttempted = ref(false)
 
 const pullThreshold = 76
@@ -155,10 +157,12 @@ const feedBodyShift = computed(() => {
   const maxShift = hasItems.value ? 38 : 18
   return Math.min(pullOffset.value * shiftRatio, maxShift)
 })
+const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: feedBodyRef })
 const feedBodyStyle = computed(() => ({
   transform: freezeBodyForTopChromePull.value
     ? 'translate3d(0, 0, 0)'
     : `translate3d(0, ${cssPx(feedBodyShift.value)}, 0)`,
+  ...refreshLayoutFreeze.style.value,
 }))
 const safeMorphingPreviewProgress = computed(() => Math.min(Math.max(props.morphingPreviewProgress, 0), 1))
 
@@ -176,6 +180,7 @@ const feedPullRefreshCompletion = useFeedPullRefreshCompletionAction({
   pullStatusText,
   pullStatusMeta,
   isSourceMode,
+  afterSettled: refreshLayoutFreeze.release,
   feedInteraction,
   pullRefresh,
 })
@@ -408,6 +413,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   const isBackgroundRefresh = isBackground || props.backgroundRefresh
   if (loading.value || refreshing.value || loadingMore.value || (isAppend && !canLoadMore.value)) {
     return
+  }
+  if (isRefresh && !isBackgroundRefresh) {
+    refreshLayoutFreeze.capture()
   }
   error.value = ''
   if (isAppend) {
@@ -654,6 +662,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   pullRefresh.clearTimers()
+  refreshLayoutFreeze.release()
   window.clearTimeout(loadMoreSyncTimer)
   window.clearTimeout(feedNoticeTimer)
   stopLoadMoreObserver()
@@ -738,7 +747,7 @@ watch(
       </div>
     </Teleport>
 
-    <div class="feed-list-body" :style="feedBodyStyle">
+    <div ref="feedBodyRef" class="feed-list-body" :style="feedBodyStyle">
       <a-alert v-if="errorMessage" class="feed-alert" type="warning" :content="errorMessage" show-icon />
 
       <section v-if="loading && !hasItems" class="empty-surface">

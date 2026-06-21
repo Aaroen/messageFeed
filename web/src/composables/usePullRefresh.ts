@@ -14,6 +14,7 @@ type PullRefreshSettleCompletionOptions = {
   releaseDelayMS?: number
   settleDelayMS?: number
   afterRelease?: () => void
+  afterSettled?: () => void
 }
 
 export function usePullRefresh(options: PullRefreshOptions = {}) {
@@ -183,6 +184,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
       options.afterRelease?.()
       settleTimer = window.setTimeout(() => {
         settling.value = false
+        options.afterSettled?.()
       }, Math.max(0, options.settleDelayMS ?? completionSettleDelayMS))
     }, Math.max(0, options.releaseDelayMS ?? completionReleaseDelayMS))
   }
