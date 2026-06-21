@@ -47,41 +47,47 @@ type AppTopChromeOutletStateOptions = {
 }
 
 export type AppTopChromeOutletState = {
-  phase: ReadableRef<ChromePhase>
-  progress: ReadableRef<number>
-  rootClass: ReadableRef<ClassValue>
-  rootStyle: ReadableRef<StyleValue>
-  feedHeaderActive: ReadableRef<boolean>
-  detailReaderOpen: ReadableRef<boolean>
-  detailHeaderVisible: ReadableRef<boolean>
-  detailHeaderLayerStyle: ReadableRef<StyleValue>
-  detailTitle: ReadableRef<string>
-  detailHeaderTitleStyle: ReadableRef<StyleValue>
-  detailHeaderPreviousTitle: ReadableRef<string>
-  detailHeaderPreviousTextStyle: ReadableRef<StyleValue>
-  detailHeaderCurrentTextStyle: ReadableRef<StyleValue>
-  isFeedRoute: ReadableRef<boolean>
-  feedTabs: FeedTab[]
-  activeKey: ReadableRef<string | symbol | null>
-  feedTabsLayerHidden: ReadableRef<boolean>
-  feedTabsLayerStyle: ReadableRef<StyleValue>
-  viewSwipeTargetVisible: ReadableRef<boolean>
-  feedTabsTargetLayerStyle: ReadableRef<StyleValue>
-  viewSwipeTargetKey: ReadableRef<string | null>
-  feedPullActive: ReadableRef<boolean>
-  feedPullRefreshing: ReadableRef<boolean>
-  pullStatusStyle: ReadableRef<StyleValue>
-  pullIconStyle: ReadableRef<StyleValue>
-  pullStatusText: ReadableRef<string>
-  pullStatusMeta: ReadableRef<string>
-  pageTitle: ReadableRef<string>
-  pagePullActive: ReadableRef<boolean>
-  pageTitleLayerStyle: ReadableRef<StyleValue>
-  pagePullStatusStyle: ReadableRef<StyleValue>
-  pagePullRefreshing: ReadableRef<boolean>
-  pagePullIconStyle: ReadableRef<StyleValue>
-  pagePullStatusText: ReadableRef<string>
-  pagePullStatusMeta: ReadableRef<string>
+  chrome: {
+    phase: ReadableRef<ChromePhase>
+    progress: ReadableRef<number>
+    rootClass: ReadableRef<ClassValue>
+    rootStyle: ReadableRef<StyleValue>
+  }
+  feed: {
+    active: ReadableRef<boolean>
+    detailReaderOpen: ReadableRef<boolean>
+    detailHeaderVisible: ReadableRef<boolean>
+    detailHeaderLayerStyle: ReadableRef<StyleValue>
+    detailTitle: ReadableRef<string>
+    detailHeaderTitleStyle: ReadableRef<StyleValue>
+    detailHeaderPreviousTitle: ReadableRef<string>
+    detailHeaderPreviousTextStyle: ReadableRef<StyleValue>
+    detailHeaderCurrentTextStyle: ReadableRef<StyleValue>
+    isFeedRoute: ReadableRef<boolean>
+    feedTabs: FeedTab[]
+    activeKey: ReadableRef<string | symbol | null>
+    feedTabsLayerHidden: ReadableRef<boolean>
+    feedTabsLayerStyle: ReadableRef<StyleValue>
+    viewSwipeTargetVisible: ReadableRef<boolean>
+    feedTabsTargetLayerStyle: ReadableRef<StyleValue>
+    viewSwipeTargetKey: ReadableRef<string | null>
+    feedPullActive: ReadableRef<boolean>
+    feedPullRefreshing: ReadableRef<boolean>
+    pullStatusStyle: ReadableRef<StyleValue>
+    pullIconStyle: ReadableRef<StyleValue>
+    pullStatusText: ReadableRef<string>
+    pullStatusMeta: ReadableRef<string>
+  }
+  page: {
+    title: ReadableRef<string>
+    pullActive: ReadableRef<boolean>
+    titleLayerStyle: ReadableRef<StyleValue>
+    pullStatusStyle: ReadableRef<StyleValue>
+    pullRefreshing: ReadableRef<boolean>
+    pullIconStyle: ReadableRef<StyleValue>
+    pullStatusText: ReadableRef<string>
+    pullStatusMeta: ReadableRef<string>
+  }
 }
 
 export function useAppTopChromeOutletState(
@@ -95,40 +101,46 @@ export function useAppTopChromeOutletState(
   const feedPullRefreshing = computed(() => options.feedPullRefreshing())
 
   return {
-    phase: options.phase,
-    progress: options.progress,
-    rootClass: options.rootClass,
-    rootStyle: options.rootStyle,
-    feedHeaderActive,
-    detailReaderOpen: readerDetailHeader.readerOpen,
-    detailHeaderVisible: readerDetailHeader.visible,
-    detailHeaderLayerStyle: readerDetailHeader.layerStyle,
-    detailTitle: readerDetailHeader.title,
-    detailHeaderTitleStyle: readerDetailHeader.titleStyle,
-    detailHeaderPreviousTitle: readerDetailHeader.previousTitle,
-    detailHeaderPreviousTextStyle: readerDetailHeader.previousTextStyle,
-    detailHeaderCurrentTextStyle: readerDetailHeader.currentTextStyle,
-    isFeedRoute: options.isFeedRoute,
-    feedTabs: options.feedTabs,
-    activeKey,
-    feedTabsLayerHidden: options.feedTabsLayerHidden,
-    feedTabsLayerStyle: options.feedTabsLayerStyle,
-    viewSwipeTargetVisible: options.viewSwipeTargetVisible,
-    feedTabsTargetLayerStyle: options.feedTabsTargetLayerStyle,
-    viewSwipeTargetKey: options.viewSwipeTargetKey,
-    feedPullActive: options.feedPullActive,
-    feedPullRefreshing,
-    pullStatusStyle: options.pullStatusStyle,
-    pullIconStyle: options.pullIconStyle,
-    pullStatusText: options.pullStatusText,
-    pullStatusMeta: options.pullStatusMeta,
-    pageTitle: options.pageTitle,
-    pagePullActive: options.pagePullActive,
-    pageTitleLayerStyle: options.pageTitleLayerStyle,
-    pagePullStatusStyle: options.pagePullStatusStyle,
-    pagePullRefreshing: options.pagePullRefreshing,
-    pagePullIconStyle: options.pagePullIconStyle,
-    pagePullStatusText: options.pagePullStatusText,
-    pagePullStatusMeta: options.pagePullStatusMeta,
+    chrome: {
+      phase: options.phase,
+      progress: options.progress,
+      rootClass: options.rootClass,
+      rootStyle: options.rootStyle,
+    },
+    feed: {
+      active: feedHeaderActive,
+      detailReaderOpen: readerDetailHeader.readerOpen,
+      detailHeaderVisible: readerDetailHeader.visible,
+      detailHeaderLayerStyle: readerDetailHeader.layerStyle,
+      detailTitle: readerDetailHeader.title,
+      detailHeaderTitleStyle: readerDetailHeader.titleStyle,
+      detailHeaderPreviousTitle: readerDetailHeader.previousTitle,
+      detailHeaderPreviousTextStyle: readerDetailHeader.previousTextStyle,
+      detailHeaderCurrentTextStyle: readerDetailHeader.currentTextStyle,
+      isFeedRoute: options.isFeedRoute,
+      feedTabs: options.feedTabs,
+      activeKey,
+      feedTabsLayerHidden: options.feedTabsLayerHidden,
+      feedTabsLayerStyle: options.feedTabsLayerStyle,
+      viewSwipeTargetVisible: options.viewSwipeTargetVisible,
+      feedTabsTargetLayerStyle: options.feedTabsTargetLayerStyle,
+      viewSwipeTargetKey: options.viewSwipeTargetKey,
+      feedPullActive: options.feedPullActive,
+      feedPullRefreshing,
+      pullStatusStyle: options.pullStatusStyle,
+      pullIconStyle: options.pullIconStyle,
+      pullStatusText: options.pullStatusText,
+      pullStatusMeta: options.pullStatusMeta,
+    },
+    page: {
+      title: options.pageTitle,
+      pullActive: options.pagePullActive,
+      titleLayerStyle: options.pageTitleLayerStyle,
+      pullStatusStyle: options.pagePullStatusStyle,
+      pullRefreshing: options.pagePullRefreshing,
+      pullIconStyle: options.pagePullIconStyle,
+      pullStatusText: options.pagePullStatusText,
+      pullStatusMeta: options.pagePullStatusMeta,
+    },
   }
 }

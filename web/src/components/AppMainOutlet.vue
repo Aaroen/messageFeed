@@ -17,12 +17,15 @@ type FeedTab = {
   path: string
 }
 
-type TopChromeOutletProps = {
+type TopChromeChromeProps = {
   phase?: ChromePhase
   progress?: number
   rootClass?: ClassValue
   rootStyle?: StyleValue
-  feedHeaderActive?: boolean
+}
+
+type TopChromeFeedProps = {
+  active?: boolean
   detailReaderOpen?: boolean
   detailHeaderVisible?: boolean
   detailHeaderLayerStyle?: StyleValue
@@ -45,14 +48,23 @@ type TopChromeOutletProps = {
   pullIconStyle?: StyleValue
   pullStatusText?: string
   pullStatusMeta?: string
-  pageTitle?: string
-  pagePullActive?: boolean
-  pageTitleLayerStyle?: StyleValue
-  pagePullStatusStyle?: StyleValue
-  pagePullRefreshing?: boolean
-  pagePullIconStyle?: StyleValue
-  pagePullStatusText?: string
-  pagePullStatusMeta?: string
+}
+
+type TopChromePageProps = {
+  title?: string
+  pullActive?: boolean
+  titleLayerStyle?: StyleValue
+  pullStatusStyle?: StyleValue
+  pullRefreshing?: boolean
+  pullIconStyle?: StyleValue
+  pullStatusText?: string
+  pullStatusMeta?: string
+}
+
+type TopChromeOutletProps = {
+  chrome?: TopChromeChromeProps
+  feed?: TopChromeFeedProps
+  page?: TopChromePageProps
 }
 
 withDefaults(
@@ -84,7 +96,7 @@ withDefaults(
     swipeDirection: null,
     swipeProgress: 0,
     swipeIsBlocked: false,
-    topChrome: () => ({}),
+    topChrome: () => ({ chrome: {}, feed: {}, page: {} }),
     sourceReaderOpen: false,
     viewSettling: false,
     feedTrackStyle: undefined,
@@ -134,14 +146,16 @@ const emit = defineEmits<{
     :data-swipe-blocked="swipeIsBlocked ? 'true' : undefined"
   >
     <AppTopChromeOutlet
-      v-bind="topChrome"
+      :chrome="topChrome.chrome"
+      :feed="topChrome.feed"
+      :page="topChrome.page"
       @navigate="(path) => emit('navigate', path)"
     />
 
     <AppFeedOutlet
-      v-if="topChrome.isFeedRoute"
-      :active-key="topChrome.activeKey"
-      :detail-reader-open="topChrome.detailReaderOpen"
+      v-if="topChrome.feed?.isFeedRoute"
+      :active-key="topChrome.feed?.activeKey"
+      :detail-reader-open="topChrome.feed?.detailReaderOpen"
       :source-reader-open="sourceReaderOpen"
       :view-settling="viewSettling"
       :feed-track-style="feedTrackStyle"
