@@ -433,7 +433,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   if (isAppend) {
     loadingMore.value = true
   } else if (isRefresh && !isBackgroundRefresh) {
-    pullRefresh.setRefreshing(true)
+    pullRefresh.beginRefreshing()
   } else if (!isBackgroundRefresh) {
     loading.value = true
   }
@@ -498,13 +498,13 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     scheduleLoadMoreObserver()
 
     if (!isRefresh) {
-      pullRefresh.setRefreshing(false)
+      pullRefresh.finishRefreshing()
       return
     }
 
     if (isBackgroundRefresh) {
       pullRefresh.setOffset(0)
-      pullRefresh.setRefreshing(false)
+      pullRefresh.finishRefreshing()
       pullRefresh.resetGesture()
       pullRefresh.setSettling(false)
       return
@@ -521,7 +521,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     })
     window.setTimeout(() => {
       pullRefresh.setOffset(0)
-      pullRefresh.setRefreshing(false)
+      pullRefresh.finishRefreshing()
       clearPullState()
       pullRefresh.resetGesture()
       pullSettleTimer = window.setTimeout(() => {

@@ -97,6 +97,16 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     refreshing.value = nextRefreshing
   }
 
+  function beginRefreshing() {
+    refreshing.value = true
+    setDistance(threshold)
+  }
+
+  function finishRefreshing() {
+    refreshing.value = false
+    setDistance(0)
+  }
+
   function setSettling(nextSettling: boolean) {
     settling.value = nextSettling
   }
@@ -165,6 +175,8 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     setOffset,
     setDistance,
     setRefreshing,
+    beginRefreshing,
+    finishRefreshing,
     setSettling,
     clearSettleTimer,
     settleOffset,

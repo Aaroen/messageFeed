@@ -2901,13 +2901,11 @@ async function refreshCurrentPageFromPull() {
     return
   }
 
-  pagePullRefresh.setRefreshing(true)
-  pagePullRefresh.setDistance(pageRefreshThreshold)
+  pagePullRefresh.beginRefreshing()
   try {
     await refreshPage({ noticeDelayMS: 180, suppressStartNotice: true })
   } finally {
-    pagePullRefresh.setRefreshing(false)
-    pagePullRefresh.setDistance(0)
+    pagePullRefresh.finishRefreshing()
     chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
   }
 }
