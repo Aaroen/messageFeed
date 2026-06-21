@@ -9,6 +9,11 @@ import type {
   RectSnapshot,
 } from '@/composables/useReaderSession'
 
+const hiddenSourceCleanupDelay = 180
+const detailHeaderSwapDelay = 320
+const morphingItemContentUnlockDelay = 180
+const readerMotionSettleDelay = 260
+
 type RestoreParkedDetailOptions = {
   onDetailScrollTop?: (scrollTop: number) => void
 }
@@ -771,7 +776,7 @@ export function useReaderStackState() {
     window.clearTimeout(hiddenSourceCleanupTimer)
   }
 
-  function scheduleHiddenSourceReaderCleanupWithDelay(delay = 180) {
+  function scheduleHiddenSourceReaderCleanupWithDelay(delay = hiddenSourceCleanupDelay) {
     clearHiddenSourceCleanupTimer()
     hiddenSourceCleanupTimer = window.setTimeout(() => {
       clearHiddenSourceReader()
@@ -976,7 +981,7 @@ export function useReaderStackState() {
     window.clearTimeout(detailHeaderSwapTimer)
   }
 
-  function startDetailHeaderTitleSwapWithDelay(nextItem: FeedItem, delay = 320) {
+  function startDetailHeaderTitleSwapWithDelay(nextItem: FeedItem, delay = detailHeaderSwapDelay) {
     const result = beginDetailHeaderTitleSwapState(nextItem)
     clearDetailHeaderSwapTimer()
     if (!result.shouldAnimate) {
@@ -1077,7 +1082,7 @@ export function useReaderStackState() {
     window.clearTimeout(morphingHeightUnlockTimer)
   }
 
-  function restoreMorphingItemContentWithDelay(unlockDelay = 180) {
+  function restoreMorphingItemContentWithDelay(unlockDelay = morphingItemContentUnlockDelay) {
     beginRestoreMorphingItemContentState()
     clearMorphingHeightUnlockTimer()
     morphingHeightUnlockTimer = window.setTimeout(() => {
@@ -1102,7 +1107,7 @@ export function useReaderStackState() {
     window.clearTimeout(readerMotionTimer)
   }
 
-  function settleReaderMotionWithDelay(delay = 260, done?: () => void) {
+  function settleReaderMotionWithDelay(delay = readerMotionSettleDelay, done?: () => void) {
     beginReaderMotionSettlingState()
     clearReaderMotionTimer()
     readerMotionTimer = window.setTimeout(() => {

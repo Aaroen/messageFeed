@@ -251,6 +251,7 @@ const pageSideStretch = pageContentMotion.sideStretch
 const pageContentInnerStyle = pageContentMotion.contentStyle
 const motionQuickDuration = 180
 const motionNormalDuration = 260
+const motionHeaderSwapDuration = 320
 const motionReaderDuration = 360
 const motionChromeDuration = 1000
 const readerMorphDuration = motionReaderDuration
@@ -1723,7 +1724,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
   openItemReaderWithTransition(item, sourceKind, {
     openedFromSourceReader,
     originRect: snapshotRect(originRect),
-    headerSwapDelay: motionDelay(320),
+    headerSwapDelay: motionDelay(motionHeaderSwapDuration),
     detailEntryDelay: motionDelay(readerMorphDuration),
     afterBegin: () => {
       chromeState.setStableVisible()
