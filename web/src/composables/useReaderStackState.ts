@@ -119,6 +119,9 @@ type ReaderBackSwipeIntentState =
       clearReturningToFeed?: boolean
     }
 
+export type ReaderBackSwipeTarget = 'detail' | 'source' | 'page' | null
+export type ReaderBackSwipeIntent = 'back' | 'source' | 'blocked' | null
+
 type ReaderBackSwipeVisualState =
   | {
       target: 'detail-back'
@@ -193,6 +196,8 @@ export function useReaderStackState() {
   const detailStretchAnchor = ref<'left' | 'right' | null>(null)
   const sourceStretchAnchor = ref<'left' | 'right' | null>(null)
   const readerBackDragging = ref(false)
+  const backSwipeTarget = ref<ReaderBackSwipeTarget>(null)
+  const backSwipeIntent = ref<ReaderBackSwipeIntent>(null)
   const readerMotionSettling = ref(false)
 
   const readerSource = ref<ReaderSource | null>(null)
@@ -1195,6 +1200,19 @@ export function useReaderStackState() {
     sourceReturnTargetReady.value = false
   }
 
+  function resetReaderBackSwipeTargetState() {
+    backSwipeTarget.value = null
+    backSwipeIntent.value = null
+  }
+
+  function setReaderBackSwipeTargetState(target: ReaderBackSwipeTarget) {
+    backSwipeTarget.value = target
+  }
+
+  function setReaderBackSwipeIntentState(intent: ReaderBackSwipeIntent) {
+    backSwipeIntent.value = intent
+  }
+
   function beginReaderBackSwipeTrackingState() {
     detailEntrySettling.value = false
     sourceReturnTargetReady.value = false
@@ -1287,6 +1305,8 @@ export function useReaderStackState() {
     detailStretchAnchor,
     sourceStretchAnchor,
     readerBackDragging,
+    backSwipeTarget,
+    backSwipeIntent,
     readerMotionSettling,
     readerSource,
     sourceReaderRefreshNonce,
@@ -1380,6 +1400,9 @@ export function useReaderStackState() {
     restoreParkedSourceReaderWithDelay,
     restoreDetailFromParkedSourceWithDelay,
     resetReaderBackSwipeState,
+    resetReaderBackSwipeTargetState,
+    setReaderBackSwipeTargetState,
+    setReaderBackSwipeIntentState,
     beginReaderBackSwipeTrackingState,
     prepareReaderBackSwipeIntentState,
     startReaderBackSwipeDragState,
