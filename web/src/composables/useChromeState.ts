@@ -45,10 +45,6 @@ export function useChromeState() {
   const settling = ref(false)
   let settlingTimer = 0
 
-  function setPhase(nextPhase: ChromePhase) {
-    phase.value = nextPhase
-  }
-
   function setProgress(nextProgress: number, nextPhase?: ChromePhase) {
     const safeProgress = clampProgress(nextProgress)
     progress.value = safeProgress
@@ -157,10 +153,6 @@ export function useChromeState() {
     phase,
     contentCollapsed,
     settling,
-    setPhase,
-    setProgress,
-    setContentCollapsed,
-    setSettling,
     setVisible,
     setCollapsedHidden,
     setStableVisible,
@@ -169,6 +161,5 @@ export function useChromeState() {
     commitRefreshing,
     restoreSnapshot,
     clearSettlingTimer,
-    scheduleSettlingEnd,
   }
 }
