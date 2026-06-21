@@ -2,6 +2,7 @@ import { computed, readonly, ref } from 'vue'
 
 export type SwipePhase = 'idle' | 'dragging' | 'settling' | 'canceled' | 'committed'
 export type SwipeDirection = 'left' | 'right' | 'up' | 'down' | null
+type SwipeSettleOutcome = Extract<SwipePhase, 'canceled' | 'committed'>
 
 export type SwipeTransitionSnapshot<TSurface extends string = string> = {
   from: TSurface | null
@@ -26,7 +27,9 @@ export function useSwipeTransition<TSurface extends string = string>() {
   const direction = ref<SwipeDirection>(null)
   const progress = ref(0)
   const isBlocked = ref(false)
+  const settleOutcome = ref<SwipeSettleOutcome | null>(null)
   let resetTimer = 0
+  let resetFrame = 0
   let resetTimerToken = 0
 
   const snapshot = computed<SwipeTransitionSnapshot<TSurface>>(() => ({
@@ -51,6 +54,7 @@ export function useSwipeTransition<TSurface extends string = string>() {
     direction.value = payload.direction
     progress.value = clampProgress(payload.progress ?? 0)
     isBlocked.value = Boolean(payload.isBlocked)
+    settleOutcome.value = null
     phase.value = 'dragging'
   }
 
@@ -79,7 +83,8 @@ export function useSwipeTransition<TSurface extends string = string>() {
 
   function settle(committed: boolean, payload: { progress?: number; isBlocked?: boolean } = {}) {
     clearTimer()
-    phase.value = committed ? 'committed' : 'canceled'
+    settleOutcome.value = committed ? 'committed' : 'canceled'
+    phase.value = 'settling'
     progress.value = clampProgress(payload.progress ?? (committed ? 1 : 0))
     if (payload.isBlocked !== undefined) {
       isBlocked.value = payload.isBlocked
@@ -94,14 +99,23 @@ export function useSwipeTransition<TSurface extends string = string>() {
     direction.value = null
     progress.value = 0
     isBlocked.value = false
+    settleOutcome.value = null
   }
 
   function clearTimer() {
     if (typeof window !== 'undefined') {
       window.clearTimeout(resetTimer)
+      window.cancelAnimationFrame(resetFrame)
     }
     resetTimer = 0
+    resetFrame = 0
     resetTimerToken += 1
+  }
+
+  function completeSettlement() {
+    if (phase.value === 'settling' && settleOutcome.value) {
+      phase.value = settleOutcome.value
+    }
   }
 
   function scheduleReset(delayMS: number) {
@@ -113,7 +127,14 @@ export function useSwipeTransition<TSurface extends string = string>() {
         return
       }
       resetTimer = 0
-      reset()
+      completeSettlement()
+      resetFrame = window.requestAnimationFrame(() => {
+        if (token !== resetTimerToken) {
+          return
+        }
+        resetFrame = 0
+        reset()
+      })
     }, Math.max(0, delayMS))
   }
 
