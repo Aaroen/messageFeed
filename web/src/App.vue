@@ -76,6 +76,7 @@ import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCom
 import { usePagePullRefreshAction } from '@/composables/usePagePullRefreshAction'
 import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeController'
 import { useReaderBackSwipeTransitionController } from '@/composables/useReaderBackSwipeTransitionController'
+import { useFeedPointerSwipeHandlers } from '@/composables/useFeedPointerSwipeHandlers'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1654,85 +1655,30 @@ function handleTouchEnd(event: TouchEvent) {
   resetGestureTracking()
 }
 
-function handleFeedPointerDown(event: PointerEvent) {
-  if (!isFeedRoute.value || navigationVisible.value || event.isPrimary === false || event.pointerType === 'mouse') {
-    return
-  }
-
-  finishCommittedListReturnForGesture()
-
-  if (!canStartViewSwipe(event.clientX)) {
-    return
-  }
-
-  gestureOrigin.begin(event.clientX, event.clientY, navigationProgress.value)
-  navigationGesture.clearActiveSwipes()
-  feedPagerTransition.beginPointerTracking(event.pointerId)
-}
-
-function handleFeedPointerMove(event: PointerEvent) {
-  if (!feedPagerTransition.isActivePointer(event.pointerId) || event.pointerType === 'mouse') {
-    return
-  }
-
-  const { deltaX, deltaY } = gestureOrigin.delta(event.clientX, event.clientY)
-
-  if (viewSwipeCandidateActive.value && !viewSwipeActive.value) {
-    if (!isViewHorizontalSwipe(deltaX, deltaY)) {
-      return
-    }
-
-    const dragStart = feedPagerTransition.tryBeginDrag(deltaX)
-    if (dragStart.blocked) {
-      feedPagerTransition.cancelPointerCandidate()
-      return
-    }
-
-    if (dragStart.started) {
-      suppressFollowingClick()
-      showTopChromeForViewSwipe()
-      beginViewSwipeTransition(deltaX)
-      ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
-    } else {
-      return
-    }
-  }
-
-  if (!viewSwipeActive.value || !isViewHorizontalSwipe(deltaX, deltaY)) {
-    return
-  }
-
-  const dragUpdate = feedPagerTransition.updateDragDelta(deltaX, { resetBlockedDirection: true })
-  if (dragUpdate.blocked) {
-    return
-  }
-
-  syncViewSwipeTransition(viewDragOffset.value)
-}
-
-function handleFeedPointerUp(event: PointerEvent) {
-  if (!feedPagerTransition.isActivePointer(event.pointerId) || event.pointerType === 'mouse') {
-    return
-  }
-
-  const { deltaX, deltaY } = gestureOrigin.delta(event.clientX, event.clientY)
-  const horizontal = isViewHorizontalSwipe(deltaX, deltaY)
-
-  const nextPath = feedPagerTransition.resolveDragCommitPath(deltaX, horizontal, viewSwitchDistance)
-  if (nextPath) {
-    suppressFollowingClick()
-    finishViewSwipe(nextPath)
-  } else {
-    finishViewSwipe(null)
-  }
-
-  feedPagerTransition.endPointerTracking()
-}
-
-function handleFeedPointerCancel() {
-  feedPagerTransition.endPointerTracking()
-  finishViewSwipe(null)
-}
+const feedPointerSwipeHandlers = useFeedPointerSwipeHandlers({
+  isFeedRoute,
+  navigationVisible,
+  navigationProgress,
+  viewSwipeCandidateActive,
+  viewSwipeActive,
+  viewDragOffset,
+  viewSwitchDistance,
+  gestureOrigin,
+  navigationGesture,
+  feedPagerTransition,
+  canStartViewSwipe,
+  finishCommittedListReturnForGesture,
+  isViewHorizontalSwipe,
+  suppressFollowingClick,
+  showTopChromeForViewSwipe,
+  beginViewSwipeTransition,
+  syncViewSwipeTransition,
+  finishViewSwipe,
+})
+const handleFeedPointerDown = feedPointerSwipeHandlers.handleFeedPointerDown
+const handleFeedPointerMove = feedPointerSwipeHandlers.handleFeedPointerMove
+const handleFeedPointerUp = feedPointerSwipeHandlers.handleFeedPointerUp
+const handleFeedPointerCancel = feedPointerSwipeHandlers.handleFeedPointerCancel
 
 function handleTouchCancel() {
   const hadNavigationGesture = navigationGesture.hasActiveSwipe()
