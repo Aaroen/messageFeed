@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, watch, type ComponentPublicInstance } from 'vue'
+import { onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -92,6 +92,7 @@ import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards'
 import { useAppVirtualBackActions } from '@/composables/useAppVirtualBackActions'
 import { useAppReaderSessionSnapshots } from '@/composables/useAppReaderSessionSnapshots'
+import { useAppRouteSessionWatchers } from '@/composables/useAppRouteSessionWatchers'
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
@@ -1338,66 +1339,43 @@ const handlePageTouchMove = pagePullGestureHandlers.handlePageTouchMove
 const handlePageTouchEnd = pagePullGestureHandlers.handlePageTouchEnd
 const handlePageTouchCancel = pagePullGestureHandlers.handlePageTouchCancel
 
-watch(
-  () => route.name,
-  () => {
-    resetGestureTracking()
-    resetPageTopPullTracking()
-    feedTopPull.finish()
-    pagePullRefresh.resetMotion()
-    feedPagerTransition.resetDragOffset()
-    if (isFeedRoute.value) {
-      setTopChromeVisible(true)
-      nextTick(() => {
-        const current = feedContent.currentScrollTop()
-        feedScroll.update(current)
-        scrollHistory.set('feed', current)
-      })
-    } else {
-      setTopChromeVisible(true)
-      nextTick(() => {
-        scrollHistory.set('page', pageOutlet.currentScrollTop())
-      })
-    }
-    scheduleReaderSessionSave()
-    scheduleReaderURLAndHistorySync()
+useAppRouteSessionWatchers({
+  route,
+  isFeedRoute,
+  navigationVisible,
+  sourceReaderVisible,
+  readerSource,
+  detailItem,
+  detailSourceKind,
+  detailOpenedFromSourceReader,
+  detailListReturnCommitted,
+  sourceReaderReturnMode,
+  sourceReaderBackDetailItemId,
+  parkedDetailStackDepth,
+  detailSourceExitProgress,
+  topChromeProgress,
+  feedContentCollapsed,
+  feedScrollTop,
+  sourceReaderScrollTop,
+  detailScrollTop,
+  resetGestureTracking,
+  resetPageTopPullTracking,
+  finishFeedTopPull: feedTopPull.finish,
+  resetPagePullMotion: pagePullRefresh.resetMotion,
+  resetFeedViewDragOffset: feedPagerTransition.resetDragOffset,
+  setTopChromeVisible,
+  currentFeedScrollTop: feedContent.currentScrollTop,
+  updateFeedScrollTop: feedScroll.update,
+  currentPageScrollTop: pageOutlet.currentScrollTop,
+  rememberFeedScrollTop: (scrollTop) => {
+    scrollHistory.set('feed', scrollTop)
   },
-)
-
-watch(
-  () => [
-    route.fullPath,
-    navigationVisible.value,
-    sourceReaderVisible.value,
-    readerSource.value?.id ?? 0,
-    readerSource.value?.kind ?? '',
-    detailItem.value?.id ?? 0,
-    detailSourceKind.value,
-    detailOpenedFromSourceReader.value,
-    detailListReturnCommitted.value,
-    sourceReaderReturnMode.value,
-    sourceReaderBackDetailItemId.value,
-    parkedDetailStackDepth.value,
-  ],
-  () => {
-    scheduleReaderSessionSave()
-    scheduleReaderURLAndHistorySync()
+  rememberPageScrollTop: (scrollTop) => {
+    scrollHistory.set('page', scrollTop)
   },
-)
-
-watch(
-  () => [
-    detailSourceExitProgress.value,
-    topChromeProgress.value,
-    feedContentCollapsed.value,
-    feedScrollTop.value,
-    sourceReaderScrollTop.value,
-    detailScrollTop.value,
-  ],
-  () => {
-    scheduleReaderSessionSave()
-  },
-)
+  scheduleReaderSessionSave,
+  scheduleReaderURLAndHistorySync,
+})
 
 useFeedRefreshCompletionWatcher({
   pullRefreshing: () => feedInteraction.pullRefreshing,
