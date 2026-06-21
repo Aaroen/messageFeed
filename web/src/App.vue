@@ -89,6 +89,7 @@ import { useReaderRestoreActions } from '@/composables/useReaderRestoreActions'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards'
+import { useAppVirtualBackActions } from '@/composables/useAppVirtualBackActions'
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
@@ -351,6 +352,24 @@ const selectedKeys = appRouteState.selectedKeys
 const pageTitle = appRouteState.pageTitle
 const isFeedRoute = appRouteState.isFeedRoute
 const cornerButtonLabel = appRouteState.cornerButtonLabel
+const appVirtualBackActions = useAppVirtualBackActions({
+  navigationVisible,
+  sourceReaderOpen,
+  detailReaderOpen,
+  detailOpenedFromSourceReader,
+  isFeedRoute,
+  homeBackGuard,
+  hasParkedDetailSourceState,
+  detailCommittedListReturn,
+  sourceReaderShouldReturnToDetail,
+  closeNavigation: () => closeNavigation(),
+  collapseItemReader: () => collapseItemReader(),
+  restoreSourceReaderBackTarget: () => restoreSourceReaderBackTarget(),
+  closeSourceReader: () => closeSourceReader(),
+  goHome: (replace) => goHome(replace),
+})
+const hasVirtualBackTarget = appVirtualBackActions.hasVirtualBackTarget
+const runVirtualBackAnimation = appVirtualBackActions.runVirtualBackAnimation
 const virtualBackGuard = useVirtualBackGuard({
   route,
   router,
@@ -834,60 +853,6 @@ function applyReaderSessionSnapshot(snapshot: ReaderSessionSnapshot) {
 
 async function restoreReaderSession() {
   await readerSession.restore()
-}
-
-function hasVirtualBackTarget() {
-  return (
-    navigationVisible.value ||
-    hasParkedDetailSourceState() ||
-    sourceReaderOpen.value ||
-    detailReaderOpen.value ||
-    (!isFeedRoute.value && !navigationVisible.value)
-  )
-}
-
-function runVirtualBackAnimation() {
-  if (navigationVisible.value) {
-    homeBackGuard.reset()
-    closeNavigation()
-    return true
-  }
-
-  if (detailReaderOpen.value && detailOpenedFromSourceReader.value && !detailCommittedListReturn()) {
-    homeBackGuard.reset()
-    collapseItemReader()
-    return true
-  }
-
-  if (sourceReaderShouldReturnToDetail()) {
-    homeBackGuard.reset()
-    restoreSourceReaderBackTarget()
-    return true
-  }
-
-  if (sourceReaderOpen.value && !detailReaderOpen.value) {
-    homeBackGuard.reset()
-    closeSourceReader()
-    return true
-  }
-
-  if (detailReaderOpen.value) {
-    homeBackGuard.reset()
-    collapseItemReader()
-    return true
-  }
-
-  if (!isFeedRoute.value && !navigationVisible.value) {
-    homeBackGuard.reset()
-    goHome(false)
-    return true
-  }
-
-  if (isFeedRoute.value) {
-    return homeBackGuard.shouldConsumeBack()
-  }
-
-  return false
 }
 
 function restoreParkedDetailSnapshot(snapshot: ParkedDetailSnapshot | null) {
