@@ -19,8 +19,15 @@ function pullProgressFromOffset(offset: number) {
 }
 
 export function usePullActivityState(options: PullActivityStateOptions) {
+  const pullViewKey = computed(() => options.getFeedPullViewKey())
+  const feedPullHasMotion = computed(() => options.getFeedPullActive() || options.getFeedPullOffset() > 1)
+  const feedPullBelongsToSource = computed(() => pullViewKey.value.startsWith('source:'))
   const feedActive = computed(
-    () => options.isFeedRoute.value && (options.getFeedPullActive() || options.getFeedPullOffset() > 1),
+    () =>
+      options.isFeedRoute.value &&
+      !options.sourceReaderOpen.value &&
+      !feedPullBelongsToSource.value &&
+      feedPullHasMotion.value,
   )
   const pageActive = computed(
     () => !options.isFeedRoute.value && (options.pagePullRefreshing.value || options.pagePullOffset.value > 1),
@@ -28,8 +35,8 @@ export function usePullActivityState(options: PullActivityStateOptions) {
   const sourceActive = computed(
     () =>
       options.sourceReaderOpen.value &&
-      options.getFeedPullViewKey().startsWith('source:') &&
-      (options.getFeedPullActive() || options.getFeedPullOffset() > 1),
+      feedPullBelongsToSource.value &&
+      feedPullHasMotion.value,
   )
   const feedOrSourceActive = computed(() => feedActive.value || sourceActive.value)
   const feedProgress = computed(() => pullProgressFromOffset(options.getFeedPullOffset()))
