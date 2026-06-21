@@ -100,6 +100,7 @@ import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibil
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
 import { useAppGestureResetAction } from '@/composables/useAppGestureResetAction'
 import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
+import { useAppWindowEventListeners } from '@/composables/useAppWindowEventListeners'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1297,6 +1298,25 @@ const handlePageTouchMove = pagePullGestureHandlers.handlePageTouchMove
 const handlePageTouchEnd = pagePullGestureHandlers.handlePageTouchEnd
 const handlePageTouchCancel = pagePullGestureHandlers.handlePageTouchCancel
 
+const appWindowEventListeners = useAppWindowEventListeners({
+  handleKeydown,
+  handleResize,
+  handleMessage,
+  handleReaderSettingsChanged,
+  handlePopState: virtualBackGuard.handlePopState,
+  saveReaderSessionNow,
+  handleWindowPointerDown,
+  handleWindowPointerMove,
+  handleWindowPointerUp,
+  handleWindowPointerCancel,
+  handleTouchStart,
+  handleTouchMove,
+  handleTouchEnd,
+  handleTouchCancel,
+})
+const installWindowEventListeners = appWindowEventListeners.installWindowEventListeners
+const uninstallWindowEventListeners = appWindowEventListeners.uninstallWindowEventListeners
+
 useAppRouteSessionWatchers({
   route,
   isFeedRoute,
@@ -1356,39 +1376,13 @@ onMounted(() => {
     routeRuntime.markReaderSessionReady()
     scheduleReaderURLAndHistorySync()
   })
-  window.addEventListener('keydown', handleKeydown)
-  window.addEventListener('resize', handleResize)
-  window.addEventListener('message', handleMessage)
-  window.addEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
-  window.addEventListener('popstate', virtualBackGuard.handlePopState)
-  window.addEventListener('beforeunload', saveReaderSessionNow)
-  window.addEventListener('pointerdown', handleWindowPointerDown, { passive: true })
-  window.addEventListener('pointermove', handleWindowPointerMove, { passive: false })
-  window.addEventListener('pointerup', handleWindowPointerUp, { passive: true })
-  window.addEventListener('pointercancel', handleWindowPointerCancel, { passive: true })
-  window.addEventListener('touchstart', handleTouchStart, { passive: true })
-  window.addEventListener('touchmove', handleTouchMove, { passive: false })
-  window.addEventListener('touchend', handleTouchEnd, { passive: true })
-  window.addEventListener('touchcancel', handleTouchCancel, { passive: true })
+  installWindowEventListeners()
 })
 
 onUnmounted(() => {
   saveReaderSessionNow()
   virtualBackGuard.uninstallRouterGuard()
-  window.removeEventListener('keydown', handleKeydown)
-  window.removeEventListener('resize', handleResize)
-  window.removeEventListener('message', handleMessage)
-  window.removeEventListener('messagefeed-settings-changed', handleReaderSettingsChanged)
-  window.removeEventListener('popstate', virtualBackGuard.handlePopState)
-  window.removeEventListener('beforeunload', saveReaderSessionNow)
-  window.removeEventListener('pointerdown', handleWindowPointerDown)
-  window.removeEventListener('pointermove', handleWindowPointerMove)
-  window.removeEventListener('pointerup', handleWindowPointerUp)
-  window.removeEventListener('pointercancel', handleWindowPointerCancel)
-  window.removeEventListener('touchstart', handleTouchStart)
-  window.removeEventListener('touchmove', handleTouchMove)
-  window.removeEventListener('touchend', handleTouchEnd)
-  window.removeEventListener('touchcancel', handleTouchCancel)
+  uninstallWindowEventListeners()
   feedPagerTransition.clearTimers()
   swipeTransition.clearTimer()
   navigationDrawer.clearTimer()
