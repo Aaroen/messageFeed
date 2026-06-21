@@ -1,11 +1,23 @@
 <script setup lang="ts">
+import { onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 
+import type { PageRefreshOptions } from '@/composables/usePageOutletState'
 import { useAppStatusStore } from '@/stores/appStatus'
 
 const statusStore = useAppStatusStore()
 const { health, readiness, node, lastCheckedAt } = storeToRefs(statusStore)
 const frontendOrigin = window.location.origin
+
+async function refreshPage(_options: PageRefreshOptions = {}) {
+  await statusStore.refresh()
+}
+
+onMounted(() => {
+  void refreshPage().catch(() => undefined)
+})
+
+defineExpose({ refreshPage })
 </script>
 
 <template>
