@@ -597,7 +597,7 @@ function isInteractiveTarget(target: EventTarget | null) {
 }
 
 function resetPullTracking() {
-  pullRefresh.resetGestureTracking()
+  pullRefresh.finishGestureTracking()
 }
 
 function resetPullGesture(force = false) {

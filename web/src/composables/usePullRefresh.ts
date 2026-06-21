@@ -88,6 +88,10 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     setDistance(nextDistance)
   }
 
+  function finishGestureTracking() {
+    resetGestureTracking()
+  }
+
   function setOffset(nextOffset: number) {
     offset.value = Math.max(0, nextOffset)
   }
@@ -222,7 +226,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     gestureDelta,
     beginGestureTracking,
     updateGestureDistance,
-    resetGestureTracking,
+    finishGestureTracking,
     cancelGesture,
     commitRefreshOffset,
     setGestureOffset,

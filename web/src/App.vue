@@ -2581,7 +2581,7 @@ function handleDetailContentScroll(event: Event) {
 }
 
 function resetPageTopPullTracking() {
-  pagePullRefresh.resetGestureTracking(pagePullRefreshing.value ? pageRefreshThreshold : 0)
+  pagePullRefresh.finishGestureTracking()
 }
 
 function pageRubberBandOffset(distance: number) {
