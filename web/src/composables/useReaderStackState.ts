@@ -9,6 +9,7 @@ import type {
   RectSnapshot,
 } from '@/composables/useReaderSession'
 import { useMotionTimings } from '@/composables/useMotionTimings'
+import { useDetailHeaderTitleSwap } from '@/composables/useDetailHeaderTitleSwap'
 
 type RestoreParkedDetailOptions = {
   onDetailScrollTop?: (scrollTop: number) => void
@@ -58,10 +59,6 @@ type FinishOpenItemReaderLoadOptions = {
 }
 
 type BeginDetailEntryStateResult = {
-  shouldAnimate: boolean
-}
-
-type BeginDetailHeaderTitleSwapStateResult = {
   shouldAnimate: boolean
 }
 
@@ -281,8 +278,8 @@ export function useReaderStackState() {
   let readerMotionTimer = 0
   let morphingHeightUnlockTimer = 0
   let hiddenSourceCleanupTimer = 0
-  let detailHeaderSwapTimer = 0
   let detailEntryTimer = 0
+  const detailHeaderTitleSwap = useDetailHeaderTitleSwap()
 
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
   const detailContentRef = ref<HTMLElement | null>(null)
@@ -320,8 +317,8 @@ export function useReaderStackState() {
   const detailOpenedFromSourceReader = ref(false)
   const detailEntryProgress = ref(1)
   const detailEntrySettling = ref(false)
-  const detailHeaderPreviousTitle = ref('')
-  const detailHeaderSwapProgress = ref(1)
+  const detailHeaderPreviousTitle = detailHeaderTitleSwap.previousTitle
+  const detailHeaderSwapProgress = detailHeaderTitleSwap.progress
   const detailBackExitProgress = ref(0)
   const detailSourceExitProgress = ref(0)
   const detailReturningToFeed = ref(false)
@@ -984,49 +981,16 @@ export function useReaderStackState() {
     completeOpenItemReaderLoadState(options.item)
   }
 
-  function beginDetailHeaderTitleSwapState(nextItem: FeedItem): BeginDetailHeaderTitleSwapStateResult {
-    if (!detailItem.value || detailItem.value.id === nextItem.id) {
-      detailHeaderPreviousTitle.value = ''
-      detailHeaderSwapProgress.value = 1
-      return { shouldAnimate: false }
-    }
-
-    detailHeaderPreviousTitle.value = detailItem.value.title
-    detailHeaderSwapProgress.value = 0
-    return { shouldAnimate: true }
-  }
-
-  function commitDetailHeaderTitleSwapState() {
-    detailHeaderSwapProgress.value = 1
-  }
-
-  function finishDetailHeaderTitleSwapState() {
-    detailHeaderPreviousTitle.value = ''
-  }
-
   function resetDetailHeaderTitleSwapState() {
-    clearDetailHeaderSwapTimer()
-    detailHeaderPreviousTitle.value = ''
-    detailHeaderSwapProgress.value = 1
+    detailHeaderTitleSwap.reset()
   }
 
   function clearDetailHeaderSwapTimer() {
-    window.clearTimeout(detailHeaderSwapTimer)
+    detailHeaderTitleSwap.clearTimer()
   }
 
   function startDetailHeaderTitleSwapWithDelay(nextItem: FeedItem, delay = detailHeaderSwapDelay) {
-    const result = beginDetailHeaderTitleSwapState(nextItem)
-    clearDetailHeaderSwapTimer()
-    if (!result.shouldAnimate) {
-      return
-    }
-
-    requestAnimationFrame(() => {
-      commitDetailHeaderTitleSwapState()
-    })
-    detailHeaderSwapTimer = window.setTimeout(() => {
-      finishDetailHeaderTitleSwapState()
-    }, delay)
+    detailHeaderTitleSwap.start(nextItem, detailItem.value, delay)
   }
 
   function openItemReaderWithTransition(
