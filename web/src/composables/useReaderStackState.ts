@@ -121,6 +121,8 @@ type ReaderBackSwipeIntentState =
 
 export type ReaderBackSwipeTarget = 'detail' | 'source' | 'page' | null
 export type ReaderBackSwipeIntent = 'back' | 'source' | 'blocked' | null
+type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
+type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
 type ReaderBackSwipeVisualState =
   | {
@@ -242,6 +244,13 @@ export function useReaderStackState() {
   const detailTransitionRectsLocked = ref(false)
   const detailFeedOriginLocked = ref(false)
   const sourceReturnTargetReady = ref(false)
+  const sourceReaderBlockedBackSwipeActive = computed(
+    () => readerBackDragging.value && backSwipeTarget.value === 'source' && backSwipeIntent.value === 'blocked',
+  )
+  const sourceReaderReturnTargetPending = computed(
+    () => backSwipeTarget.value === 'source' && !sourceReturnTargetReady.value,
+  )
+  const readerBackSwipeCanCommitRight = computed(() => backSwipeTarget.value === 'detail')
 
   const sourceReaderMounted = computed(() => readerSource.value !== null)
   const sourceReaderOpen = computed(() => readerSource.value !== null && sourceReaderVisible.value)
@@ -1213,6 +1222,20 @@ export function useReaderStackState() {
     backSwipeIntent.value = intent
   }
 
+  function getReaderBackSwipeState() {
+    return {
+      target: backSwipeTarget.value,
+      intent: backSwipeIntent.value,
+    }
+  }
+
+  function readerBackSwipeMatches(
+    target: ActiveReaderBackSwipeTarget,
+    intent?: ActiveReaderBackSwipeIntent,
+  ) {
+    return backSwipeTarget.value === target && (intent === undefined || backSwipeIntent.value === intent)
+  }
+
   function beginReaderBackSwipeTrackingState() {
     detailEntrySettling.value = false
     sourceReturnTargetReady.value = false
@@ -1305,8 +1328,9 @@ export function useReaderStackState() {
     detailStretchAnchor,
     sourceStretchAnchor,
     readerBackDragging,
-    backSwipeTarget,
-    backSwipeIntent,
+    sourceReaderBlockedBackSwipeActive,
+    sourceReaderReturnTargetPending,
+    readerBackSwipeCanCommitRight,
     readerMotionSettling,
     readerSource,
     sourceReaderRefreshNonce,
@@ -1347,7 +1371,6 @@ export function useReaderStackState() {
     sourceTimelinePreloadEnabled,
     detailTransitionRectsLocked,
     detailFeedOriginLocked,
-    sourceReturnTargetReady,
     sourceReaderMounted,
     sourceReaderOpen,
     detailReaderOpen,
@@ -1403,6 +1426,8 @@ export function useReaderStackState() {
     resetReaderBackSwipeTargetState,
     setReaderBackSwipeTargetState,
     setReaderBackSwipeIntentState,
+    getReaderBackSwipeState,
+    readerBackSwipeMatches,
     beginReaderBackSwipeTrackingState,
     prepareReaderBackSwipeIntentState,
     startReaderBackSwipeDragState,

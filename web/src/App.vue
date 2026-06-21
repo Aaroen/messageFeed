@@ -74,8 +74,9 @@ const {
   detailStretchAnchor,
   sourceStretchAnchor,
   readerBackDragging,
-  backSwipeTarget,
-  backSwipeIntent,
+  sourceReaderBlockedBackSwipeActive,
+  sourceReaderReturnTargetPending,
+  readerBackSwipeCanCommitRight,
   readerMotionSettling,
   readerSource,
   sourceReaderRefreshNonce,
@@ -116,7 +117,6 @@ const {
   sourceTimelinePreloadEnabled,
   detailTransitionRectsLocked,
   detailFeedOriginLocked,
-  sourceReturnTargetReady,
   sourceReaderMounted,
   sourceReaderOpen,
   detailReaderOpen,
@@ -165,6 +165,8 @@ const {
   resetReaderBackSwipeTargetState,
   setReaderBackSwipeTargetState,
   setReaderBackSwipeIntentState,
+  getReaderBackSwipeState,
+  readerBackSwipeMatches,
   beginReaderBackSwipeTrackingState,
   prepareReaderBackSwipeIntentState,
   startReaderBackSwipeDragState,
@@ -375,9 +377,6 @@ const detailParkedBehindSource = computed(
   () =>
     hasDetailParkedBehindSource() && !readerBackDragging.value,
 )
-const sourceReaderBlockedDamping = computed(
-  () => readerBackDragging.value && backSwipeTarget.value === 'source' && backSwipeIntent.value === 'blocked',
-)
 const headerDetailLayoutActive = computed(
   () => detailChromeVisible.value || (detailReaderOpen.value && isFeedRoute.value && feedHeaderReturnProgress.value > 0.001),
 )
@@ -519,7 +518,8 @@ const detailReaderStyle = computed(() => ({
   transition: readerBackDragging.value ? 'none' : undefined,
   transformOrigin: stretchTransformOrigin(detailReaderStretch.value, detailStretchAnchor.value),
   pointerEvents: detailCommittedListReturn() ? ('none' as const) : ('auto' as const),
-  '--detail-overlay-opacity': sourceReaderBlockedDamping.value || detailCommittedListReturn() || detailReturningToFeed.value
+  '--detail-overlay-opacity':
+    sourceReaderBlockedBackSwipeActive.value || detailCommittedListReturn() || detailReturningToFeed.value
     ? '0'
     : clamp(
         detailEntryProgress.value * (1 - Math.max(detailBackExitProgress.value, detailSourceExitProgress.value)),
@@ -579,9 +579,9 @@ const detailTransitionSurfaceStyle = computed(() => {
   const draggingToList =
     readerBackDragging.value &&
     (detailBackExitProgress.value > 0 || detailSourceExitProgress.value > 0) &&
-    !(backSwipeTarget.value === 'source' && !sourceReturnTargetReady.value)
+    !sourceReaderReturnTargetPending.value
   const committedListReturn = detailCommittedListReturn()
-  const suppressSourceReturnPreview = sourceReaderBlockedDamping.value
+  const suppressSourceReturnPreview = sourceReaderBlockedBackSwipeActive.value
 
   if (!collapsedTarget) {
     const opacity =
@@ -760,7 +760,7 @@ const sourceNameTransitionActive = computed(
   () =>
     Boolean(detailItem.value) &&
     sourceReaderVisible.value &&
-    !sourceReaderBlockedDamping.value &&
+    !sourceReaderBlockedBackSwipeActive.value &&
     !detailReturningToFeed.value &&
     !detailCommittedListReturn() &&
     (readerBackDragging.value ||
@@ -2150,8 +2150,7 @@ function syncViewSwipeTransition(offset: number) {
 }
 
 function beginBackSwipeTransition(deltaX: number) {
-  const target = backSwipeTarget.value
-  const intent = backSwipeIntent.value
+  const { target, intent } = getReaderBackSwipeState()
   swipeTransition.begin({
     from: readerSurfaceForTarget(target),
     to: readerSwipeTargetSurface(target, intent),
@@ -2161,21 +2160,20 @@ function beginBackSwipeTransition(deltaX: number) {
 }
 
 function backSwipeTransitionProgress() {
-  if (backSwipeIntent.value === 'source' && backSwipeTarget.value === 'detail') {
+  if (readerBackSwipeMatches('detail', 'source')) {
     return detailSourceExitProgress.value
   }
-  if (backSwipeIntent.value === 'back' && backSwipeTarget.value === 'source') {
+  if (readerBackSwipeMatches('source', 'back')) {
     return 1 - detailSourceExitProgress.value
   }
-  if (backSwipeIntent.value === 'back' && backSwipeTarget.value === 'detail') {
+  if (readerBackSwipeMatches('detail', 'back')) {
     return detailBackExitProgress.value
   }
   return clamp(Math.abs(detailReaderStretch.value || sourceReaderStretch.value || pageSideStretch.value) / 0.07)
 }
 
 function syncBackSwipeTransition(deltaX: number) {
-  const target = backSwipeTarget.value
-  const intent = backSwipeIntent.value
+  const { target, intent } = getReaderBackSwipeState()
   swipeTransition.update({
     to: readerSwipeTargetSurface(target, intent),
     direction: deltaX < 0 ? 'left' : 'right',
@@ -2186,10 +2184,6 @@ function syncBackSwipeTransition(deltaX: number) {
 
 function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
   return Math.abs(deltaX) > viewDragThreshold && Math.abs(deltaX) > Math.abs(deltaY) * viewDirectionLockRatio
-}
-
-function canCommitRightBackSwipe() {
-  return backSwipeTarget.value === 'detail'
 }
 
 function canReturnSourceReaderToDetail() {
@@ -2287,27 +2281,27 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
 
   trackingBackSwipe = true
   beginReaderBackSwipeTrackingState()
-  if (backSwipeTarget.value === 'source' && deltaX < 0 && canReturnSourceReaderToDetail()) {
+  if (readerBackSwipeMatches('source') && deltaX < 0 && canReturnSourceReaderToDetail()) {
     prepareSourceReaderReturnDrag()
     setReaderBackSwipeIntentState('back')
     showTopChromeForSourceReturn()
     prepareReaderBackSwipeIntentState({ intent: 'source-return' })
   } else if (deltaX > 0) {
-    setReaderBackSwipeIntentState(canCommitRightBackSwipe() ? 'back' : 'blocked')
-    if (backSwipeTarget.value === 'detail' && !detailOpenedFromSourceReader.value) {
+    setReaderBackSwipeIntentState(readerBackSwipeCanCommitRight.value ? 'back' : 'blocked')
+    if (readerBackSwipeMatches('detail') && !detailOpenedFromSourceReader.value) {
       refreshDetailFeedOriginRect(true)
     }
     const revealSourceReader =
-      backSwipeTarget.value === 'detail' && detailOpenedFromSourceReader.value && readerSource.value !== null
+      readerBackSwipeMatches('detail') && detailOpenedFromSourceReader.value && readerSource.value !== null
     prepareReaderBackSwipeIntentState({
       intent: 'detail-back',
-      returningToFeed: backSwipeTarget.value === 'detail' && !detailOpenedFromSourceReader.value,
+      returningToFeed: readerBackSwipeMatches('detail') && !detailOpenedFromSourceReader.value,
       revealSourceReader,
     })
     if (revealSourceReader) {
       captureDetailSourceTransitionRects(12, { lock: true })
     }
-  } else if (backSwipeTarget.value === 'detail' && detailItem.value?.source_id && !detailOpenedFromSourceReader.value) {
+  } else if (readerBackSwipeMatches('detail') && detailItem.value?.source_id && !detailOpenedFromSourceReader.value) {
     setReaderBackSwipeIntentState('source')
     showSourceReaderUnderDetail()
   } else {
@@ -2330,21 +2324,21 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  if (backSwipeTarget.value === 'source' && deltaX < 0 && canReturnSourceReaderToDetail()) {
+  if (readerBackSwipeMatches('source') && deltaX < 0 && canReturnSourceReaderToDetail()) {
     prepareSourceReaderReturnDrag()
     setReaderBackSwipeIntentState('back')
     showTopChromeForSourceReturn()
     prepareReaderBackSwipeIntentState({ intent: 'source-return' })
   } else if (deltaX > 0) {
-    setReaderBackSwipeIntentState(canCommitRightBackSwipe() ? 'back' : 'blocked')
-    if (backSwipeTarget.value === 'detail' && !detailOpenedFromSourceReader.value) {
+    setReaderBackSwipeIntentState(readerBackSwipeCanCommitRight.value ? 'back' : 'blocked')
+    if (readerBackSwipeMatches('detail') && !detailOpenedFromSourceReader.value) {
       refreshDetailFeedOriginRect(true)
     }
     const revealSourceReader =
-      backSwipeTarget.value === 'detail' && detailOpenedFromSourceReader.value && readerSource.value !== null
+      readerBackSwipeMatches('detail') && detailOpenedFromSourceReader.value && readerSource.value !== null
     prepareReaderBackSwipeIntentState({
       intent: 'detail-back',
-      returningToFeed: backSwipeTarget.value === 'detail' && !detailOpenedFromSourceReader.value,
+      returningToFeed: readerBackSwipeMatches('detail') && !detailOpenedFromSourceReader.value,
       revealSourceReader,
       resetSourceExit: true,
     })
@@ -2352,7 +2346,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
       captureDetailSourceTransitionRects(12, { lock: true })
     }
   } else if (
-    backSwipeTarget.value === 'detail' &&
+    readerBackSwipeMatches('detail') &&
     detailItem.value?.source_id &&
     !detailOpenedFromSourceReader.value
   ) {
@@ -2362,38 +2356,38 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     setReaderBackSwipeIntentState('blocked')
     prepareReaderBackSwipeIntentState({ intent: 'blocked', clearReturningToFeed: true })
   }
-  const intent = backSwipeIntent.value
+  const { intent } = getReaderBackSwipeState()
   const offset = backSwipeVisualOffset(deltaX)
   const stretch = blockedSwipeStretch(deltaX, currentX)
 
   resetReaderBackSwipeStretchState()
   pageContentMotion.setSideStretch(0)
 
-  if (intent === 'back' && backSwipeTarget.value === 'detail') {
+  if (intent === 'back' && readerBackSwipeMatches('detail')) {
     applyReaderBackSwipeVisualState({
       target: 'detail-back',
       progress: clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52)),
     })
-  } else if (intent === 'back' && backSwipeTarget.value === 'source') {
+  } else if (intent === 'back' && readerBackSwipeMatches('source')) {
     if (offset < 0 && canReturnSourceReaderToDetail()) {
       const returnProgress = clamp(Math.max(0, -offset) / Math.max(220, windowWidth.value * 0.52))
       applyReaderBackSwipeVisualState({ target: 'source-return', returnProgress })
     } else {
       applyReaderBackSwipeVisualState({ target: 'source-blocked', stretch })
     }
-  } else if (intent === 'back' && backSwipeTarget.value === 'page') {
+  } else if (intent === 'back' && readerBackSwipeMatches('page')) {
     pageContentMotion.setSideOffset(0)
     pageContentMotion.setSideStretch(stretch)
-  } else if (intent === 'source' && backSwipeTarget.value === 'detail') {
+  } else if (intent === 'source' && readerBackSwipeMatches('detail')) {
     applyReaderBackSwipeVisualState({
       target: 'detail-source',
       progress: clamp(Math.max(0, -offset) / Math.max(220, windowWidth.value * 0.52)),
     })
-  } else if (intent === 'blocked' && backSwipeTarget.value === 'detail') {
+  } else if (intent === 'blocked' && readerBackSwipeMatches('detail')) {
     applyReaderBackSwipeVisualState({ target: 'detail-blocked', stretch })
-  } else if (intent === 'blocked' && backSwipeTarget.value === 'source') {
+  } else if (intent === 'blocked' && readerBackSwipeMatches('source')) {
     applyReaderBackSwipeVisualState({ target: 'source-blocked', stretch })
-  } else if (intent === 'blocked' && backSwipeTarget.value === 'page') {
+  } else if (intent === 'blocked' && readerBackSwipeMatches('page')) {
     pageContentMotion.setSideOffset(0)
     pageContentMotion.setSideStretch(stretch)
   }
@@ -2403,8 +2397,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
 }
 
 function finishBackSwipe(deltaX: number, _deltaY: number) {
-  const target = backSwipeTarget.value
-  const intent = backSwipeIntent.value
+  const { target, intent } = getReaderBackSwipeState()
   const shouldCommit =
     intent === 'back' && target === 'detail'
       ? deltaX > 0 && (detailBackExitProgress.value >= 0.42 || deltaX >= viewSwitchDistance)
@@ -2871,8 +2864,7 @@ function handleTouchCancel() {
   const hadNavigationGesture = trackingEdgeSwipe || trackingNavigationClose
   const hadViewGesture = trackingViewSwipe
   const hadBackGesture = trackingBackSwipe
-  const canceledBackIntent = backSwipeIntent.value
-  const canceledBackTarget = backSwipeTarget.value
+  const { intent: canceledBackIntent, target: canceledBackTarget } = getReaderBackSwipeState()
   resetGestureTracking()
   if (hadNavigationGesture && navigationVisible.value && !navigationOpen.value) {
     settleNavigation(false)
@@ -3030,8 +3022,7 @@ function handleMessage(event: MessageEvent) {
 
   if (payload.phase === 'cancel') {
     if (trackingBackSwipe) {
-      const canceledBackIntent = backSwipeIntent.value
-      const canceledBackTarget = backSwipeTarget.value
+      const { intent: canceledBackIntent, target: canceledBackTarget } = getReaderBackSwipeState()
       resetGestureTracking()
       if (canceledBackIntent === 'back' && canceledBackTarget === 'detail') {
         restoreItemReaderExpansion()
