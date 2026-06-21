@@ -15,7 +15,7 @@ import AppPageOutlet from '@/components/AppPageOutlet.vue'
 import AppReaderStackContent from '@/components/AppReaderStackContent.vue'
 import FeedPager from '@/components/FeedPager.vue'
 import TopChrome from '@/components/TopChrome.vue'
-import { type ChromePhase, useChromeState } from '@/composables/useChromeState'
+import { useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import {
@@ -1188,18 +1188,6 @@ function clamp(value: number, min = 0, max = 1) {
   return Math.min(Math.max(value, min), max)
 }
 
-function setChromeProgress(progress: number, phase?: ChromePhase) {
-  chromeState.setProgress(progress, phase)
-}
-
-function setChromeContentCollapsed(collapsed: boolean) {
-  chromeState.setContentCollapsed(collapsed)
-}
-
-function setChromeSettling(settling: boolean, phase?: ChromePhase) {
-  chromeState.setSettling(settling, phase)
-}
-
 function motionDelay(duration = readerMorphDuration) {
   return duration === readerMorphDuration ? readerMorphCleanupDelay : duration + readerMorphCleanupBuffer
 }
@@ -1573,8 +1561,10 @@ function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
 
 function applyReaderSessionSnapshot(snapshot: ReaderSessionSnapshot) {
   feedScrollTop.value = snapshot.feedScrollTop || 0
-  setChromeProgress(typeof snapshot.topChromeProgress === 'number' ? snapshot.topChromeProgress : 1)
-  setChromeContentCollapsed(Boolean(snapshot.feedContentCollapsed))
+  chromeState.restoreSnapshot({
+    progress: snapshot.topChromeProgress,
+    contentCollapsed: snapshot.feedContentCollapsed,
+  })
   applyReaderStackSessionSnapshot(snapshot, {
     onSourceScrollTop: (scrollTop) => {
       lastSourceReaderScrollTop = scrollTop
@@ -2764,10 +2754,7 @@ function handleFeedTopPullEnd(shouldRefresh = false) {
 
   if (shouldRefresh) {
     refreshStartedWithChrome.value = startedWithChrome
-    setChromeContentCollapsed(!startedWithChrome)
-    if (startedWithChrome) {
-      chromeState.setRefreshingProgress(1)
-    }
+    chromeState.commitRefreshing(startedWithChrome)
     return
   }
 

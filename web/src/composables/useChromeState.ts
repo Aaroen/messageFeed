@@ -16,6 +16,11 @@ type SetChromeRefreshingProgressOptions = {
   contentCollapsed?: boolean
 }
 
+type RestoreChromeSnapshotOptions = {
+  progress?: number
+  contentCollapsed?: boolean
+}
+
 function clampProgress(value: number) {
   if (!Number.isFinite(value)) {
     return 0
@@ -135,6 +140,18 @@ export function useChromeState() {
     }
   }
 
+  function commitRefreshing(startedWithVisibleChrome: boolean) {
+    setContentCollapsed(!startedWithVisibleChrome)
+    if (startedWithVisibleChrome) {
+      setRefreshingProgress(1)
+    }
+  }
+
+  function restoreSnapshot(snapshot: RestoreChromeSnapshotOptions) {
+    setProgress(typeof snapshot.progress === 'number' ? snapshot.progress : 1)
+    setContentCollapsed(Boolean(snapshot.contentCollapsed))
+  }
+
   return {
     progress,
     phase,
@@ -149,6 +166,8 @@ export function useChromeState() {
     setStableVisible,
     beginRefreshing,
     setRefreshingProgress,
+    commitRefreshing,
+    restoreSnapshot,
     clearSettlingTimer,
     scheduleSettlingEnd,
   }
