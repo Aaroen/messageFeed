@@ -184,8 +184,7 @@ const {
   resetReaderBackSwipeState,
   resetReaderBackSwipeTargetState,
   setReaderBackSwipeTargetState,
-  setReaderBackSwipeIntentState,
-  readerBackSwipeIntentAction,
+  applyReaderBackSwipeIntentState,
   readerBackSwipeTransitionProgress,
   readerBackSwipeVisualAction,
   readerBackSwipeShouldCommit,
@@ -194,7 +193,6 @@ const {
   readerBackSwipeCancelAction,
   readerBackSwipeTransitionSurfaces,
   beginReaderBackSwipeTrackingState,
-  prepareReaderBackSwipeIntentState,
   startReaderBackSwipeDragState,
   resetReaderBackSwipeStretchState,
   applyReaderBackSwipeVisualState,
@@ -2099,42 +2097,30 @@ function applyReaderBackSwipeIntentAction(
   deltaX: number,
   options: { resetSourceExit?: boolean; prepareBlocked?: boolean } = {},
 ) {
-  const action = readerBackSwipeIntentAction(deltaX)
-  if (action.type === 'source-return') {
-    prepareSourceReaderReturnDrag()
-    setReaderBackSwipeIntentState('back')
-    showTopChromeForSourceReturn()
-    prepareReaderBackSwipeIntentState({ intent: 'source-return' })
-    return
-  }
-
-  if (action.type === 'right-swipe') {
-    setReaderBackSwipeIntentState(action.intent)
-    if (action.returningToFeed) {
+  applyReaderBackSwipeIntentState(deltaX, {
+    ...options,
+    beforeSourceReturnIntent: () => {
+      prepareSourceReaderReturnDrag()
+    },
+    afterSourceReturnIntent: () => {
+      showTopChromeForSourceReturn()
+    },
+    beforeDetailBackPrepare: ({ returningToFeed }) => {
+      if (!returningToFeed) {
+        return
+      }
       refreshDetailFeedOriginRect(true)
-    }
-    prepareReaderBackSwipeIntentState({
-      intent: 'detail-back',
-      returningToFeed: action.returningToFeed,
-      revealSourceReader: action.revealSourceReader,
-      ...(options.resetSourceExit ? { resetSourceExit: true } : {}),
-    })
-    if (action.revealSourceReader) {
+    },
+    afterDetailBackPrepare: ({ revealSourceReader }) => {
+      if (!revealSourceReader) {
+        return
+      }
       captureDetailSourceTransitionRects(12, { lock: true })
-    }
-    return
-  }
-
-  if (action.type === 'detail-source') {
-    setReaderBackSwipeIntentState('source')
-    showSourceReaderUnderDetail()
-    return
-  }
-
-  setReaderBackSwipeIntentState('blocked')
-  if (options.prepareBlocked) {
-    prepareReaderBackSwipeIntentState({ intent: 'blocked', clearReturningToFeed: true })
-  }
+    },
+    afterDetailSourceIntent: () => {
+      showSourceReaderUnderDetail()
+    },
+  })
 }
 
 function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame = false) {

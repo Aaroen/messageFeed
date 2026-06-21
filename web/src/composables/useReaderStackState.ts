@@ -163,6 +163,19 @@ type ReaderBackSwipeIntentAction =
   | {
       type: 'blocked'
     }
+type ReaderBackSwipeIntentSideEffectState = {
+  returningToFeed: boolean
+  revealSourceReader: boolean
+}
+type ApplyReaderBackSwipeIntentStateOptions = {
+  resetSourceExit?: boolean
+  prepareBlocked?: boolean
+  beforeSourceReturnIntent?: () => void
+  afterSourceReturnIntent?: () => void
+  beforeDetailBackPrepare?: (state: ReaderBackSwipeIntentSideEffectState) => void
+  afterDetailBackPrepare?: (state: ReaderBackSwipeIntentSideEffectState) => void
+  afterDetailSourceIntent?: () => void
+}
 type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
 type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
@@ -1451,6 +1464,49 @@ export function useReaderStackState() {
     return { type: 'blocked' }
   }
 
+  function applyReaderBackSwipeIntentState(
+    deltaX: number,
+    options: ApplyReaderBackSwipeIntentStateOptions = {},
+  ) {
+    const action = readerBackSwipeIntentAction(deltaX)
+    if (action.type === 'source-return') {
+      options.beforeSourceReturnIntent?.()
+      setReaderBackSwipeIntentState('back')
+      options.afterSourceReturnIntent?.()
+      prepareReaderBackSwipeIntentState({ intent: 'source-return' })
+      return action
+    }
+
+    if (action.type === 'right-swipe') {
+      const effectState = {
+        returningToFeed: action.returningToFeed,
+        revealSourceReader: action.revealSourceReader,
+      }
+      setReaderBackSwipeIntentState(action.intent)
+      options.beforeDetailBackPrepare?.(effectState)
+      prepareReaderBackSwipeIntentState({
+        intent: 'detail-back',
+        returningToFeed: action.returningToFeed,
+        revealSourceReader: action.revealSourceReader,
+        ...(options.resetSourceExit ? { resetSourceExit: true } : {}),
+      })
+      options.afterDetailBackPrepare?.(effectState)
+      return action
+    }
+
+    if (action.type === 'detail-source') {
+      setReaderBackSwipeIntentState('source')
+      options.afterDetailSourceIntent?.()
+      return action
+    }
+
+    setReaderBackSwipeIntentState('blocked')
+    if (options.prepareBlocked) {
+      prepareReaderBackSwipeIntentState({ intent: 'blocked', clearReturningToFeed: true })
+    }
+    return action
+  }
+
   function readerBackSwipeTransitionProgress(fallbackStretch = 0) {
     if (readerBackSwipeMatches('detail', 'source')) {
       return detailSourceExitProgress.value
@@ -1830,8 +1886,7 @@ export function useReaderStackState() {
     resetReaderBackSwipeState,
     resetReaderBackSwipeTargetState,
     setReaderBackSwipeTargetState,
-    setReaderBackSwipeIntentState,
-    readerBackSwipeIntentAction,
+    applyReaderBackSwipeIntentState,
     readerBackSwipeTransitionProgress,
     readerBackSwipeVisualAction,
     readerBackSwipeShouldCommit,
@@ -1840,7 +1895,6 @@ export function useReaderStackState() {
     readerBackSwipeCancelAction,
     readerBackSwipeTransitionSurfaces,
     beginReaderBackSwipeTrackingState,
-    prepareReaderBackSwipeIntentState,
     startReaderBackSwipeDragState,
     resetReaderBackSwipeStretchState,
     applyReaderBackSwipeVisualState,
