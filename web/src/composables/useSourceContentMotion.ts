@@ -20,6 +20,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   const settling = ref(false)
   let settleTimer = 0
   let settleFrame = 0
+  let motionToken = 0
 
   const contentStyle = computed(() => ({
     paddingTop: cssPx(options.headerSpace.value + 14),
@@ -44,6 +45,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
     }
     settleTimer = 0
     settleFrame = 0
+    motionToken += 1
   }
 
   function reset() {
@@ -59,10 +61,18 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
     }
 
     clearTimer()
+    const token = motionToken + 1
+    motionToken = token
     settling.value = false
     settleOffset.value = options.headerHeight.value
     settleFrame = window.requestAnimationFrame(() => {
+      if (token !== motionToken) {
+        return
+      }
       settleFrame = window.requestAnimationFrame(() => {
+        if (token !== motionToken) {
+          return
+        }
         settleFrame = 0
         if (!options.isVisible()) {
           reset()
@@ -73,6 +83,9 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
       })
     })
     settleTimer = window.setTimeout(() => {
+      if (token !== motionToken) {
+        return
+      }
       settleTimer = 0
       settling.value = false
     }, delay(duration))
