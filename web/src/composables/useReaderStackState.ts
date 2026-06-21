@@ -460,9 +460,9 @@ export function useReaderStackState() {
       return false
     }
 
+    const entryMorphVisible = detailEntrySettling.value && detailSurfaceProgress.value < 0.985
     return (
-      detailEntrySettling.value ||
-      readerBackDragging.value ||
+      entryMorphVisible ||
       detailReturningToFeed.value ||
       detailRestoringFromSourceReader.value ||
       detailBackExitProgress.value > 0.001 ||
