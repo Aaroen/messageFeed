@@ -3,8 +3,10 @@ import { ref } from 'vue'
 export function useClickSuppression(durationMS = 420) {
   const suppressNextClick = ref(false)
   let timer = 0
+  let timerToken = 0
 
   function clearTimer() {
+    timerToken += 1
     if (typeof window !== 'undefined' && timer !== 0) {
       window.clearTimeout(timer)
     }
@@ -14,7 +16,11 @@ export function useClickSuppression(durationMS = 420) {
   function suppressNext() {
     suppressNextClick.value = true
     clearTimer()
+    const token = timerToken
     timer = window.setTimeout(() => {
+      if (token !== timerToken) {
+        return
+      }
       timer = 0
       suppressNextClick.value = false
     }, durationMS)
