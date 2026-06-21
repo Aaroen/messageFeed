@@ -34,9 +34,6 @@ export const useFeedInteractionStore = defineStore('feedInteraction', {
       this.pullOffset = 0
       this.pullActive = false
       this.pullRefreshing = false
-      this.lastUpdatedAt = ''
-      this.statusText = '下拉刷新'
-      this.statusMeta = '尚未更新'
     },
   },
 })
