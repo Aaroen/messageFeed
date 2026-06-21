@@ -47,7 +47,6 @@ type FeedPullRefreshCompletionActionOptions = {
   pullStatusText: ReadableRef<string>
   pullStatusMeta: ReadableRef<string>
   isSourceMode: ReadableRef<boolean>
-  afterSettled?: () => void
   feedInteraction: FeedInteractionWriter
   pullRefresh: PullRefreshCompletionController
 }
@@ -113,7 +112,7 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
     })
     options.pullRefresh.settleRefreshCompletion({
       afterRelease: clearPullState,
-      afterSettled: payload.afterSettled ?? options.afterSettled,
+      afterSettled: payload.afterSettled,
     })
   }
 

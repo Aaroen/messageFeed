@@ -185,7 +185,6 @@ const feedPullRefreshCompletion = useFeedPullRefreshCompletionAction({
   pullStatusText,
   pullStatusMeta,
   isSourceMode,
-  afterSettled: refreshLayoutFreeze.release,
   feedInteraction,
   pullRefresh,
 })
