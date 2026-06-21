@@ -55,6 +55,7 @@ import { useThemeState } from '@/composables/useThemeState'
 import { useFeedScrollState } from '@/composables/useFeedScrollState'
 import { usePageOutletState, type PageViewExpose } from '@/composables/usePageOutletState'
 import { useFeedContentState } from '@/composables/useFeedContentState'
+import { useScrollHistory } from '@/composables/useScrollHistory'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 import { escapeHTML, formatItemDate, plainPreviewText, sanitizeDetailHTML } from '@/utils/readerContent'
 
@@ -70,7 +71,7 @@ const router = useRouter()
 const feedInteraction = useFeedInteractionStore()
 const feedContent = useFeedContentState()
 const pageOutlet = usePageOutletState()
-const pageContentRef = pageOutlet.contentElement
+const scrollHistory = useScrollHistory()
 const {
   sourceReaderContentRef,
   detailContentRef,
@@ -925,10 +926,6 @@ let navigationDragStarted = false
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
-let lastFeedScrollTop = 0
-let lastPageScrollTop = 0
-let lastSourceReaderScrollTop = 0
-let lastDetailScrollTop = 0
 let topPullStartProgress = 1
 
 function resetGestureTracking() {
@@ -1040,6 +1037,14 @@ function setPageContentElement(element: HTMLElement | null) {
 
 function setPageViewInstance(view: PageViewExpose | null) {
   pageOutlet.setViewInstance(view)
+}
+
+function rememberSourceScrollTop(scrollTop: number) {
+  scrollHistory.set('source', scrollTop)
+}
+
+function rememberDetailScrollTop(scrollTop: number) {
+  scrollHistory.set('detail', scrollTop)
 }
 
 function findSourceFeedItemElement(itemID?: number) {
@@ -1231,12 +1236,8 @@ function applyReaderSessionSnapshot(snapshot: ReaderSessionSnapshot) {
     contentCollapsed: snapshot.feedContentCollapsed,
   })
   applyReaderStackSessionSnapshot(snapshot, {
-    onSourceScrollTop: (scrollTop) => {
-      lastSourceReaderScrollTop = scrollTop
-    },
-    onDetailScrollTop: (scrollTop) => {
-      lastDetailScrollTop = scrollTop
-    },
+    onSourceScrollTop: rememberSourceScrollTop,
+    onDetailScrollTop: rememberDetailScrollTop,
     onReaderSourceRestored: (source) => {
       void loadSourceReaderSubscription(source)
     },
@@ -1310,9 +1311,7 @@ function runVirtualBackAnimation() {
 
 function restoreSourceReaderBackTarget() {
   const result = restoreSourceReaderBackTargetState({
-    onDetailScrollTop: (scrollTop) => {
-      lastDetailScrollTop = scrollTop
-    },
+    onDetailScrollTop: rememberDetailScrollTop,
   })
   if (result.action === 'restore-detail') {
     restoreDetailFromParkedSource()
@@ -1324,17 +1323,13 @@ function restoreSourceReaderBackTarget() {
 
 function restoreParkedDetailSnapshot(snapshot: ParkedDetailSnapshot | null) {
   return restoreReaderStackParkedDetailSnapshot(snapshot, {
-    onDetailScrollTop: (scrollTop) => {
-      lastDetailScrollTop = scrollTop
-    },
+    onDetailScrollTop: rememberDetailScrollTop,
   })
 }
 
 function restorePreviousParkedDetail() {
   return restoreReaderStackPreviousParkedDetail({
-    onDetailScrollTop: (scrollTop) => {
-      lastDetailScrollTop = scrollTop
-    },
+    onDetailScrollTop: rememberDetailScrollTop,
   })
 }
 
@@ -1370,7 +1365,7 @@ function openSourceReader(source: ReaderSource, options: { visible?: boolean } =
 
   resetSourceSubscriptionState()
   if (result.resetScroll) {
-    lastSourceReaderScrollTop = 0
+    rememberSourceScrollTop(0)
   }
   nextTick(() => {
     if (result.resetScroll) {
@@ -1396,7 +1391,7 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
     afterBegin: () => {
       chromeState.setStableVisible()
       feedTopPull.finish()
-      lastDetailScrollTop = 0
+      rememberDetailScrollTop(0)
     },
     afterEntry: () => {
       if (openedFromSourceReader) {
@@ -1443,9 +1438,7 @@ function closeSourceReader() {
 
   if (
     restorePreviousParkedDetailIfReaderClosed({
-      onDetailScrollTop: (scrollTop) => {
-        lastDetailScrollTop = scrollTop
-      },
+      onDetailScrollTop: rememberDetailScrollTop,
     })
   ) {
     restoreDetailFromParkedSource()
@@ -1635,9 +1628,7 @@ function settleSourceContentAfterRefresh() {
 
 function prepareSourceReaderReturnDrag() {
   const ready = prepareSourceReaderReturnDragState({
-    onDetailScrollTop: (scrollTop) => {
-      lastDetailScrollTop = scrollTop
-    },
+    onDetailScrollTop: rememberDetailScrollTop,
   })
   if (!ready) {
     return false
@@ -2217,7 +2208,7 @@ function handleDetailProgressChange(progress: number) {
 
   const nextScrollTop = detailScrollMax.value * clamp(progress)
   updateDetailScrollTopState(nextScrollTop)
-  lastDetailScrollTop = nextScrollTop
+  rememberDetailScrollTop(nextScrollTop)
   scrollDetailContentTo(nextScrollTop)
 }
 
@@ -2441,9 +2432,9 @@ function handleFeedContentScroll(event: Event) {
   }
 
   const current = target.scrollTop
+  const scrollUpdate = scrollHistory.update('feed', current)
   feedScroll.update(current)
-  updateTopTabsByScroll(current, lastFeedScrollTop)
-  lastFeedScrollTop = current
+  updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
   scheduleReaderSessionSave()
 }
 
@@ -2454,8 +2445,8 @@ function handlePageContentScroll(event: Event) {
   }
 
   const current = target.scrollTop
-  updateTopTabsByScroll(current, lastPageScrollTop)
-  lastPageScrollTop = current
+  const scrollUpdate = scrollHistory.update('page', current)
+  updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
   scheduleReaderSessionSave()
 }
 
@@ -2466,9 +2457,9 @@ function handleSourceReaderScroll(event: Event) {
   }
 
   const current = target.scrollTop
+  const scrollUpdate = scrollHistory.update('source', current)
   updateSourceReaderScrollTopState(current)
-  updateTopTabsByScroll(current, lastSourceReaderScrollTop)
-  lastSourceReaderScrollTop = current
+  updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
   scheduleReaderSessionSave()
 }
 
@@ -2479,9 +2470,9 @@ function handleDetailContentScroll(event: Event) {
   }
 
   const current = target.scrollTop
+  const scrollUpdate = scrollHistory.update('detail', current)
   updateDetailScrollMetricsState(current, target.scrollHeight, target.clientHeight)
-  updateTopTabsByScroll(current, lastDetailScrollTop)
-  lastDetailScrollTop = current
+  updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
   scheduleReaderSessionSave()
 }
 
@@ -2602,12 +2593,12 @@ watch(
       nextTick(() => {
         const current = feedContent.currentScrollTop()
         feedScroll.update(current)
-        lastFeedScrollTop = current
+        scrollHistory.set('feed', current)
       })
     } else {
       setTopChromeVisible(true)
       nextTick(() => {
-        lastPageScrollTop = pageContentRef.value?.scrollTop ?? 0
+        scrollHistory.set('page', pageOutlet.currentScrollTop())
       })
     }
     scheduleReaderSessionSave()
