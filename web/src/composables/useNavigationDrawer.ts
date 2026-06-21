@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from 'vue'
+import { computed, readonly, ref, type Ref } from 'vue'
 
 type NavigationDrawerOptions = {
   windowWidth: Ref<number>
@@ -109,9 +109,9 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
   }
 
   return {
-    open,
-    progress,
-    settling,
+    open: readonly(open),
+    progress: readonly(progress),
+    settling: readonly(settling),
     width,
     visible,
     panelStyle,
