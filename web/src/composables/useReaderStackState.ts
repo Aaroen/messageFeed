@@ -622,6 +622,7 @@ export function useReaderStackState() {
     snapshot: ReaderSessionSnapshot,
     options: ApplyReaderStackSessionOptions = {},
   ) {
+    resetDetailHeaderTitleSwapState()
     const restoredDetailItem = snapshot.detailItem ? { ...snapshot.detailItem } : null
     const restoredDetailSourceKind = snapshot.detailSourceKind || 'subscriptions'
     const restoredReaderSource =
@@ -697,6 +698,7 @@ export function useReaderStackState() {
       return false
     }
 
+    resetDetailHeaderTitleSwapState()
     detailItem.value = snapshot.item
     detailError.value = ''
     detailLoading.value = false
@@ -1002,6 +1004,12 @@ export function useReaderStackState() {
     detailHeaderPreviousTitle.value = ''
   }
 
+  function resetDetailHeaderTitleSwapState() {
+    clearDetailHeaderSwapTimer()
+    detailHeaderPreviousTitle.value = ''
+    detailHeaderSwapProgress.value = 1
+  }
+
   function clearDetailHeaderSwapTimer() {
     window.clearTimeout(detailHeaderSwapTimer)
   }
@@ -1184,8 +1192,7 @@ export function useReaderStackState() {
     detailItem.value = null
     detailError.value = ''
     detailLoading.value = false
-    detailHeaderPreviousTitle.value = ''
-    detailHeaderSwapProgress.value = 1
+    resetDetailHeaderTitleSwapState()
     detailOpenedFromSourceReader.value = false
     detailRestoringFromSourceReader.value = false
     detailScrollTop.value = 0
