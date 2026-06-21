@@ -149,6 +149,7 @@ const {
   hasParkedDetailSourceState,
   sourceReaderShouldReturnToDetail,
   sourceReaderCanReturnToDetail,
+  sourceReaderCanRestoreReturnOnCancel,
   createReaderStackSessionSnapshot,
   applyReaderStackSessionSnapshot,
   pushParkedDetailSnapshot,
@@ -2752,7 +2753,7 @@ function handleTouchCancel() {
     } else if (
       canceledBackIntent === 'back' &&
       canceledBackTarget === 'source' &&
-      (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)
+      sourceReaderCanRestoreReturnOnCancel()
     ) {
       restoreParkedSourceReader()
     } else {
@@ -2903,7 +2904,7 @@ function handleMessage(event: MessageEvent) {
       } else if (
         canceledBackIntent === 'back' &&
         canceledBackTarget === 'source' &&
-        (hasParkedDetailSourceState() || detailRestoringFromSourceReader.value)
+        sourceReaderCanRestoreReturnOnCancel()
       ) {
         restoreParkedSourceReader()
       } else {

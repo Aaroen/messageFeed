@@ -449,6 +449,10 @@ export function useReaderStackState() {
     return sourceReaderShouldReturnToDetail() || hasParkedDetailSourceState() || detailRestoringFromSourceReader.value
   }
 
+  function sourceReaderCanRestoreReturnOnCancel() {
+    return hasParkedDetailSourceState() || detailRestoringFromSourceReader.value
+  }
+
   function snapshotCurrentDetail(): ParkedDetailSnapshot | null {
     if (!detailItem.value) {
       return null
@@ -1558,6 +1562,7 @@ export function useReaderStackState() {
     hasParkedDetailSourceState,
     sourceReaderShouldReturnToDetail,
     sourceReaderCanReturnToDetail,
+    sourceReaderCanRestoreReturnOnCancel,
     createReaderStackSessionSnapshot,
     applyReaderStackSessionSnapshot,
     snapshotCurrentDetail,
