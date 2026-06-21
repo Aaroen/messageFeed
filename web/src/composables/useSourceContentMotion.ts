@@ -66,8 +66,6 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   }
 
   return {
-    settleOffset,
-    settling,
     contentStyle,
     clearTimer,
     reset,
