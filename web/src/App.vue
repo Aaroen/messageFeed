@@ -3,7 +3,14 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
-import { getFeedItem, listSourceCatalog, listSources, type FeedItem } from '@/api/feed'
+import {
+  getFeedItem,
+  listRecommendationItems,
+  listSourceCatalog,
+  listSources,
+  listTimelineItems,
+  type FeedItem,
+} from '@/api/feed'
 import AppMainOutlet from '@/components/AppMainOutlet.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
 import AppReaderStackOutlet from '@/components/AppReaderStackOutlet.vue'
@@ -859,6 +866,9 @@ const openSourceReader = readerOpenInteractions.openSourceReader
 const showSourceReaderUnderDetail = readerOpenInteractions.showSourceReaderUnderDetail
 const openItemReader = readerOpenInteractions.openItemReader
 
+const routeFeedLookupLimit = 100
+const routeFeedLookupMaxItems = 500
+
 function routeQueryText(value: unknown) {
   const nextValue = Array.isArray(value) ? value[0] : value
   return typeof nextValue === 'string' ? nextValue.trim() : ''
@@ -890,6 +900,60 @@ function readerSourceFromItem(item: FeedItem, kind: FeedSourceKind): ReaderSourc
     name: item.source_name || '未知来源',
     kind,
   }
+}
+
+function routeFeedKindCandidates(kind: FeedSourceKind): FeedSourceKind[] {
+  return kind === 'subscriptions'
+    ? ['subscriptions', 'recommendations']
+    : ['recommendations', 'subscriptions']
+}
+
+async function listRouteFeedPage(kind: FeedSourceKind, sourceID: number, offset: number) {
+  const params = {
+    limit: routeFeedLookupLimit,
+    offset,
+    ...(sourceID ? { source_id: sourceID } : {}),
+  }
+  return kind === 'subscriptions' ? listTimelineItems(params) : listRecommendationItems(params)
+}
+
+async function findRouteFeedItemInKind(itemID: number, kind: FeedSourceKind, sourceID: number) {
+  let offset = 0
+  while (offset < routeFeedLookupMaxItems) {
+    const result = await listRouteFeedPage(kind, sourceID, offset)
+    const item = result.items.find((entry) => entry.id === itemID)
+    if (item) {
+      return item
+    }
+    if (result.items.length < routeFeedLookupLimit || offset + result.items.length >= result.total) {
+      return null
+    }
+    offset += routeFeedLookupLimit
+  }
+  return null
+}
+
+async function resolveRouteFeedItem(itemID: number, preferredKind: FeedSourceKind, sourceID: number) {
+  try {
+    return {
+      item: await getFeedItem(itemID),
+      kind: preferredKind,
+    }
+  } catch {
+    // Some recommendation entries are only available through feed list endpoints.
+  }
+
+  for (const kind of routeFeedKindCandidates(preferredKind)) {
+    try {
+      const item = await findRouteFeedItemInKind(itemID, kind, sourceID)
+      if (item) {
+        return { item, kind }
+      }
+    } catch {
+      continue
+    }
+  }
+  return null
 }
 
 async function resolveRouteReaderSource(sourceID: number, kind: FeedSourceKind, item: FeedItem | null) {
@@ -928,18 +992,19 @@ async function restoreReaderRouteQueryState() {
     return false
   }
 
-  const itemKind = routeQuerySourceKind(route.query.itemKind, feedSourceKindFromRoute())
-  const sourceKind = routeQuerySourceKind(route.query.sourceKind, itemKind)
+  const preferredItemKind = routeQuerySourceKind(route.query.itemKind, feedSourceKindFromRoute())
   let item: FeedItem | null = null
+  let itemKind = preferredItemKind
   let restored = false
   if (itemID) {
-    try {
-      item = await getFeedItem(itemID)
-    } catch {
-      item = null
+    const result = await resolveRouteFeedItem(itemID, preferredItemKind, sourceID)
+    if (result) {
+      item = result.item
+      itemKind = result.kind
     }
   }
 
+  const sourceKind = routeQuerySourceKind(route.query.sourceKind, itemKind)
   if (sourceID) {
     openSourceReader(await resolveRouteReaderSource(sourceID, sourceKind, item))
     restored = true
