@@ -28,6 +28,7 @@ type ReaderDetailMessageHandlerOptions = {
   navigationVisible: ReadableRef<boolean>
   readerBackSwipeTrackingActive: ReadableRef<boolean>
   detailCommittedListReturn: () => boolean
+  isCurrentDetailFrameMessageSource: (source: MessageEventSource | null) => boolean
   updateDetailFrameContentHeight: (scrollHeight: number) => void
   syncDetailContainerMetrics: () => void
   detailFrameViewportOffset: () => ViewportOffset
@@ -44,12 +45,28 @@ type ReaderDetailMessageHandlerOptions = {
 }
 
 export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandlerOptions) {
+  let metricsFrame = 0
+
+  function clearMetricsFrame() {
+    if (typeof window !== 'undefined' && metricsFrame !== 0) {
+      window.cancelAnimationFrame(metricsFrame)
+    }
+    metricsFrame = 0
+  }
+
   function handleDetailScrollMessage(data: DetailScrollPayload) {
     const scrollHeight = Number(data.scrollHeight ?? 0)
-    if (Number.isFinite(scrollHeight)) {
-      options.updateDetailFrameContentHeight(scrollHeight)
-    }
-    requestAnimationFrame(options.syncDetailContainerMetrics)
+    clearMetricsFrame()
+    metricsFrame = window.requestAnimationFrame(() => {
+      metricsFrame = 0
+      if (!options.detailReaderOpen.value || options.detailCommittedListReturn()) {
+        return
+      }
+      if (Number.isFinite(scrollHeight)) {
+        options.updateDetailFrameContentHeight(scrollHeight)
+      }
+      options.syncDetailContainerMetrics()
+    })
   }
 
   function handleDetailGestureMessage(payload: DetailGesturePayload) {
@@ -98,6 +115,10 @@ export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandle
       return
     }
 
+    if (!options.isCurrentDetailFrameMessageSource(event.source)) {
+      return
+    }
+
     if (event.data?.type === 'messagefeed-detail-scroll' && options.detailReaderOpen.value) {
       handleDetailScrollMessage(event.data as DetailScrollPayload)
       return
@@ -112,5 +133,6 @@ export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandle
 
   return {
     handleMessage,
+    clearMetricsFrame,
   }
 }

@@ -3,6 +3,8 @@ type ReadableRef<T> = {
 }
 
 type ReaderDetailProgressHandlersOptions = {
+  detailReaderOpen: ReadableRef<boolean>
+  detailItemID: ReadableRef<number | null>
   detailContentRef: ReadableRef<HTMLElement | null>
   detailScrollMax: ReadableRef<number>
   detailScrollTop: ReadableRef<number>
@@ -19,6 +21,15 @@ function clamp(value: number, min = 0, max = 1) {
 }
 
 export function useReaderDetailProgressHandlers(options: ReaderDetailProgressHandlersOptions) {
+  let frame = 0
+
+  function clearFrame() {
+    if (typeof window !== 'undefined' && frame !== 0) {
+      window.cancelAnimationFrame(frame)
+    }
+    frame = 0
+  }
+
   function syncDetailContainerMetrics() {
     const container = options.detailContentRef.value
     if (!container) {
@@ -59,7 +70,13 @@ export function useReaderDetailProgressHandlers(options: ReaderDetailProgressHan
   }
 
   function handleDetailFrameLoad() {
-    requestAnimationFrame(() => {
+    const itemID = options.detailItemID.value
+    clearFrame()
+    frame = window.requestAnimationFrame(() => {
+      frame = 0
+      if (!options.detailReaderOpen.value || itemID !== options.detailItemID.value) {
+        return
+      }
       syncDetailContainerMetrics()
       if (options.detailScrollTop.value > 0) {
         options.scrollDetailContentElementTo(options.detailScrollTop.value)
@@ -74,5 +91,6 @@ export function useReaderDetailProgressHandlers(options: ReaderDetailProgressHan
     handleDetailProgressDragStart,
     handleDetailProgressDragEnd,
     handleDetailFrameLoad,
+    clearFrame,
   }
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
@@ -1137,6 +1138,8 @@ const handleFeedPointerCancel = pointerGestureInteractions.handleFeedPointerCanc
 
 const readerDetailInteractions = useAppReaderDetailInteractions({
   progress: {
+    detailReaderOpen,
+    detailItemID: computed(() => detailItem.value?.id ?? null),
     detailContentRef,
     detailScrollMax,
     detailScrollTop,
@@ -1152,6 +1155,7 @@ const readerDetailInteractions = useAppReaderDetailInteractions({
     navigationVisible,
     readerBackSwipeTrackingActive,
     detailCommittedListReturn,
+    isCurrentDetailFrameMessageSource: (source) => source === detailFrameRef.value?.contentWindow,
     updateDetailFrameContentHeight: updateDetailFrameContentHeightState,
     detailFrameViewportOffset,
     beginDetailGestureCandidate,
@@ -1170,6 +1174,7 @@ const handleDetailProgressDragStart = readerDetailInteractions.handleDetailProgr
 const handleDetailProgressDragEnd = readerDetailInteractions.handleDetailProgressDragEnd
 const handleDetailFrameLoad = readerDetailInteractions.handleDetailFrameLoad
 const handleMessage = readerDetailInteractions.handleMessage
+const clearReaderDetailFrames = readerDetailInteractions.clearReaderDetailFrames
 const loadReaderSettings = readerDetailInteractions.loadReaderSettings
 const handleReaderSettingsChanged = readerDetailInteractions.handleReaderSettingsChanged
 
@@ -1478,6 +1483,7 @@ useAppLifecycle({
     () => pagePullState.clearTimers(),
     () => clickSuppression.clearTimer(),
     clearSourceNoticeTimer,
+    clearReaderDetailFrames,
     clearReaderStackTimers,
     clearBackSwipeStretchAnchorTimer,
     () => readerSession.clearTimer(),

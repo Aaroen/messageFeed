@@ -23,6 +23,10 @@ export function useAppReaderDetailInteractions(options: AppReaderDetailInteracti
     handleDetailProgressDragEnd: progressHandlers.handleDetailProgressDragEnd,
     handleDetailFrameLoad: progressHandlers.handleDetailFrameLoad,
     handleMessage: messageHandler.handleMessage,
+    clearReaderDetailFrames: () => {
+      progressHandlers.clearFrame()
+      messageHandler.clearMetricsFrame()
+    },
     loadReaderSettings: settingsSync.loadReaderSettings,
     handleReaderSettingsChanged: settingsSync.handleReaderSettingsChanged,
   }
