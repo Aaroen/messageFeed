@@ -20,7 +20,6 @@ type OpenItemReaderTransitionOptions = {
 type ReaderItemOpenActionOptions = {
   sourceReaderOpen: ReadableRef<boolean>
   readerSource: ReadableRef<ReaderSource | null>
-  sourceTimelinePreloadEnabled: ReadableRef<boolean>
   headerSwapDuration: number
   detailEntryDuration: number
   resolveDelay: (duration: number) => number
@@ -64,7 +63,7 @@ export function useReaderItemOpenAction(options: ReaderItemOpenActionOptions) {
       },
     })
 
-    if (!openedFromSourceReader && options.sourceTimelinePreloadEnabled.value && item.source_id) {
+    if (!openedFromSourceReader && item.source_id) {
       options.openSourceReader(
         {
           id: item.source_id,

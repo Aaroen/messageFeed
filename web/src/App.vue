@@ -841,7 +841,6 @@ const readerOpenInteractions = useAppReaderOpenInteractions({
   itemOpen: {
     sourceReaderOpen,
     readerSource,
-    sourceTimelinePreloadEnabled,
     headerSwapDuration: motionHeaderSwapDuration,
     detailEntryDuration: readerMorphDuration,
     resolveDelay: motionDelay,
