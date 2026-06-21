@@ -86,8 +86,6 @@ const trackingPull = pullRefresh.gestureTracking
 const pageSize = 10
 const cacheTTLMS = 60 * 1000
 const verticalLockRatio = 1.18
-const pullReleaseDelay = motionTimings.topRefreshReleaseDelay
-const pullSettleDelay = motionTimings.topRefreshSettleDuration + motionTimings.motionCleanupBuffer
 const noticeRevealDelay = motionTimings.noticeRevealDelay
 let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
@@ -178,8 +176,6 @@ const feedPullRefreshCompletion = useFeedPullRefreshCompletionAction({
   pullStatusText,
   pullStatusMeta,
   isSourceMode,
-  releaseDelayMS: pullReleaseDelay,
-  settleDelayMS: pullSettleDelay,
   feedInteraction,
   pullRefresh,
 })

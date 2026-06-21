@@ -318,8 +318,6 @@ const readerScrollRestoreRetryDelay = motionTimings.readerScrollRestoreRetryDela
 const readerScrollRestoreSettledDelay = motionTimings.readerScrollRestoreSettledDelay
 const readerMorphDuration = motionTimings.readerMorphDuration
 const readerRectRetryDelay = motionTimings.readerRectRetryDelay
-const topRefreshReleaseDelay = motionTimings.topRefreshReleaseDelay
-const topRefreshSettleDelay = motionTimings.topRefreshSettleDuration + motionTimings.motionCleanupBuffer
 const motionDelay = motionTimings.delay
 const navigationDrawer = useNavigationDrawer({
   windowWidth,
@@ -1338,8 +1336,6 @@ const readerStackOutletListeners = readerStackOutletBindings.listeners
 const pagePullRefreshAction = usePagePullRefreshAction({
   refreshing: pagePullRefreshing,
   noticeDelayMS: motionQuickDuration,
-  releaseDelayMS: topRefreshReleaseDelay,
-  settleDelayMS: topRefreshSettleDelay,
   currentRefreshPage: pageOutlet.currentRefreshPage,
   beginRefreshing: pagePullRefresh.beginRefreshing,
   settleRefreshCompletion: pagePullRefresh.settleRefreshCompletion,

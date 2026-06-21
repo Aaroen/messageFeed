@@ -1,21 +1,29 @@
 import { computed, readonly, ref } from 'vue'
 
+import { useMotionTimings } from '@/composables/useMotionTimings'
+
 export type PullRefreshOptions = {
   threshold?: number
   maxOffset?: number
   emptyMaxOffset?: number
+  completionReleaseDelayMS?: number
+  completionSettleDelayMS?: number
 }
 
 type PullRefreshSettleCompletionOptions = {
   releaseDelayMS?: number
-  settleDelayMS: number
+  settleDelayMS?: number
   afterRelease?: () => void
 }
 
 export function usePullRefresh(options: PullRefreshOptions = {}) {
+  const motionTimings = useMotionTimings()
   const threshold = options.threshold ?? 76
   const maxOffset = options.maxOffset ?? 116
   const emptyMaxOffset = options.emptyMaxOffset ?? 88
+  const completionReleaseDelayMS = options.completionReleaseDelayMS ?? motionTimings.topRefreshReleaseDelay
+  const completionSettleDelayMS =
+    options.completionSettleDelayMS ?? motionTimings.topRefreshSettleDuration + motionTimings.motionCleanupBuffer
   const offset = ref(0)
   const distance = ref(0)
   const dragging = ref(false)
@@ -175,8 +183,8 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
       options.afterRelease?.()
       settleTimer = window.setTimeout(() => {
         settling.value = false
-      }, Math.max(0, options.settleDelayMS))
-    }, Math.max(0, options.releaseDelayMS ?? 0))
+      }, Math.max(0, options.settleDelayMS ?? completionSettleDelayMS))
+    }, Math.max(0, options.releaseDelayMS ?? completionReleaseDelayMS))
   }
 
   function reset() {
