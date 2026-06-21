@@ -64,6 +64,7 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
   let syncing = false
   let releaseTimer = 0
   let syncToken = 0
+  let historySyncToken = 0
 
   function clearReleaseTimer() {
     if (typeof window !== 'undefined' && releaseTimer !== 0) {
@@ -74,6 +75,7 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
 
   function clearTimer() {
     syncToken += 1
+    historySyncToken += 1
     clearReleaseTimer()
     syncing = false
     options.setProgrammaticRouteNavigation(false)
@@ -134,8 +136,15 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
   }
 
   function scheduleSync(forcePush = false) {
+    historySyncToken += 1
+    const token = historySyncToken
     void syncURLToState().finally(() => {
-      nextTick(() => options.syncVirtualHistoryState(forcePush))
+      nextTick(() => {
+        if (token !== historySyncToken) {
+          return
+        }
+        options.syncVirtualHistoryState(forcePush)
+      })
     })
   }
 
