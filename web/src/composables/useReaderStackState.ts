@@ -130,6 +130,7 @@ type ReaderBackSwipeFinishAction =
   | 'complete-detail-to-source'
   | 'collapse-detail'
   | 'restore-detail-from-parked-source'
+  | 'return-page'
   | 'reset'
 type ReaderBackSwipeCancelAction =
   | 'restore-item-expansion'
@@ -155,6 +156,7 @@ type ReaderBackSwipeActionHandlers = {
   completeDetailToSource: () => void
   collapseDetail: () => void
   restoreDetailFromParkedSource: () => void
+  returnPage: () => void
   reset: () => void
 }
 type ReaderBackSwipeVisualAction =
@@ -351,7 +353,9 @@ export function useReaderStackState() {
   const sourceReaderReturnTargetPending = computed(
     () => backSwipeTarget.value === 'source' && !sourceReturnTargetReady.value,
   )
-  const readerBackSwipeCanCommitRight = computed(() => backSwipeTarget.value === 'detail')
+  const readerBackSwipeCanCommitRight = computed(
+    () => backSwipeTarget.value === 'detail' || backSwipeTarget.value === 'page',
+  )
 
   const sourceReaderMounted = computed(() => readerSource.value !== null)
   const sourceReaderOpen = computed(() => readerSource.value !== null && sourceReaderVisible.value)
@@ -1698,6 +1702,9 @@ export function useReaderStackState() {
     if (intent === 'back' && target === 'source') {
       return sourceReaderCanReturnToDetail() ? 'restore-detail-from-parked-source' : 'reset'
     }
+    if (intent === 'back' && target === 'page') {
+      return 'return-page'
+    }
     return 'reset'
   }
 
@@ -1764,6 +1771,10 @@ export function useReaderStackState() {
     }
     if (action === 'restore-detail-from-parked-source') {
       handlers.restoreDetailFromParkedSource()
+      return
+    }
+    if (action === 'return-page') {
+      handlers.returnPage()
       return
     }
     handlers.reset()

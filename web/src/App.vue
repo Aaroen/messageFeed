@@ -1021,6 +1021,7 @@ const readerBackSwipeInteractions = useAppReaderBackSwipeInteractions({
     completeDetailToSource: completeDetailToSourceReader,
     collapseDetail: collapseItemReader,
     restoreDetailFromParkedSource: restoreDetailFromParkedSource,
+    returnPage: () => goHome(false),
     reset: resetBackSwipeOffset,
   },
 })

@@ -5,6 +5,7 @@ type ReaderBackSwipeCompletionAction =
   | 'complete-detail-to-source'
   | 'collapse-detail'
   | 'restore-detail-from-parked-source'
+  | 'return-page'
   | 'reset'
 
 type ReaderBackSwipeCompletionActionHandlers = {
@@ -14,6 +15,7 @@ type ReaderBackSwipeCompletionActionHandlers = {
   completeDetailToSource: () => void
   collapseDetail: () => void
   restoreDetailFromParkedSource: () => void
+  returnPage: () => void
   reset: () => void
 }
 
@@ -56,6 +58,7 @@ export function useReaderBackSwipeCompletion(options: ReaderBackSwipeCompletionO
     completeDetailToSource: options.completeDetailToSource,
     collapseDetail: options.collapseDetail,
     restoreDetailFromParkedSource: options.restoreDetailFromParkedSource,
+    returnPage: options.returnPage,
     reset: options.reset,
   }
 
