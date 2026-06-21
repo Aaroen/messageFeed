@@ -167,6 +167,7 @@ const {
   setReaderBackSwipeIntentState,
   getReaderBackSwipeState,
   readerBackSwipeMatches,
+  readerBackSwipeTransitionProgress,
   beginReaderBackSwipeTrackingState,
   prepareReaderBackSwipeIntentState,
   startReaderBackSwipeDragState,
@@ -2159,25 +2160,12 @@ function beginBackSwipeTransition(deltaX: number) {
   })
 }
 
-function backSwipeTransitionProgress() {
-  if (readerBackSwipeMatches('detail', 'source')) {
-    return detailSourceExitProgress.value
-  }
-  if (readerBackSwipeMatches('source', 'back')) {
-    return 1 - detailSourceExitProgress.value
-  }
-  if (readerBackSwipeMatches('detail', 'back')) {
-    return detailBackExitProgress.value
-  }
-  return clamp(Math.abs(detailReaderStretch.value || sourceReaderStretch.value || pageSideStretch.value) / 0.07)
-}
-
 function syncBackSwipeTransition(deltaX: number) {
   const { target, intent } = getReaderBackSwipeState()
   swipeTransition.update({
     to: readerSwipeTargetSurface(target, intent),
     direction: deltaX < 0 ? 'left' : 'right',
-    progress: backSwipeTransitionProgress(),
+    progress: readerBackSwipeTransitionProgress(pageSideStretch.value),
     isBlocked: intent === 'blocked',
   })
 }
@@ -2410,7 +2398,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
           : false
 
   swipeTransition.settle(shouldCommit, {
-    progress: shouldCommit ? 1 : backSwipeTransitionProgress(),
+    progress: shouldCommit ? 1 : readerBackSwipeTransitionProgress(pageSideStretch.value),
     isBlocked: intent === 'blocked',
   })
   scheduleSwipeTransitionReset(360)

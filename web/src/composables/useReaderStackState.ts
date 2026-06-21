@@ -1236,6 +1236,19 @@ export function useReaderStackState() {
     return backSwipeTarget.value === target && (intent === undefined || backSwipeIntent.value === intent)
   }
 
+  function readerBackSwipeTransitionProgress(fallbackStretch = 0) {
+    if (readerBackSwipeMatches('detail', 'source')) {
+      return detailSourceExitProgress.value
+    }
+    if (readerBackSwipeMatches('source', 'back')) {
+      return 1 - detailSourceExitProgress.value
+    }
+    if (readerBackSwipeMatches('detail', 'back')) {
+      return detailBackExitProgress.value
+    }
+    return clampProgress(Math.abs(detailReaderStretch.value || sourceReaderStretch.value || fallbackStretch) / 0.07)
+  }
+
   function beginReaderBackSwipeTrackingState() {
     detailEntrySettling.value = false
     sourceReturnTargetReady.value = false
@@ -1428,6 +1441,7 @@ export function useReaderStackState() {
     setReaderBackSwipeIntentState,
     getReaderBackSwipeState,
     readerBackSwipeMatches,
+    readerBackSwipeTransitionProgress,
     beginReaderBackSwipeTrackingState,
     prepareReaderBackSwipeIntentState,
     startReaderBackSwipeDragState,
