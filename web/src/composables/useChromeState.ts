@@ -160,8 +160,13 @@ export function useChromeState() {
   }
 
   function restoreSnapshot(snapshot: RestoreChromeSnapshotOptions) {
-    setProgress(typeof snapshot.progress === 'number' ? snapshot.progress : 1)
-    setContentCollapsed(Boolean(snapshot.contentCollapsed))
+    clearTimer()
+    settling.value = false
+    const restoredProgress = clampProgress(typeof snapshot.progress === 'number' ? snapshot.progress : 1)
+    setProgress(restoredProgress)
+    setContentCollapsed(
+      restoredProgress <= 0.01 ? true : Boolean(snapshot.contentCollapsed && restoredProgress < 0.99),
+    )
   }
 
   return {

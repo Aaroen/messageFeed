@@ -53,9 +53,10 @@ export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsO
 
   function stableChromeSnapshot(snapshot: ChromeSnapshot): ChromeSnapshot {
     const progress = Number.isFinite(snapshot.progress) ? snapshot.progress : 1
+    const stableProgress = progress >= 0.5 ? 1 : 0
     return {
-      progress: progress >= 0.5 ? 1 : 0,
-      contentCollapsed: snapshot.contentCollapsed,
+      progress: stableProgress,
+      contentCollapsed: stableProgress <= 0.01,
     }
   }
 
