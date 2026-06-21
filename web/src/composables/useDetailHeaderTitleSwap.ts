@@ -29,7 +29,10 @@ export function useDetailHeaderTitleSwap() {
   }
 
   function clearTimer() {
-    window.clearTimeout(timer)
+    if (typeof window !== 'undefined' && timer !== 0) {
+      window.clearTimeout(timer)
+    }
+    timer = 0
     if (frame) {
       cancelAnimationFrame(frame)
       frame = 0
@@ -54,6 +57,7 @@ export function useDetailHeaderTitleSwap() {
       commit()
     })
     timer = window.setTimeout(() => {
+      timer = 0
       finish()
     }, delay)
   }

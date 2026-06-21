@@ -5,15 +5,17 @@ export function useClickSuppression(durationMS = 420) {
   let timer = 0
 
   function clearTimer() {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && timer !== 0) {
       window.clearTimeout(timer)
     }
+    timer = 0
   }
 
   function suppressNext() {
     suppressNextClick.value = true
     clearTimer()
     timer = window.setTimeout(() => {
+      timer = 0
       suppressNextClick.value = false
     }, durationMS)
   }
