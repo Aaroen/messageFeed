@@ -30,6 +30,7 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
   const settling = ref(false)
   let timer = 0
   let frame = 0
+  let motionToken = 0
 
   const width = computed(() => {
     if (options.windowWidth.value <= 420) {
@@ -69,14 +70,20 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
     }
     timer = 0
     frame = 0
+    motionToken += 1
   }
 
   function settle(nextOpen: boolean) {
     clearTimer()
+    const token = motionToken + 1
+    motionToken = token
     settling.value = true
     open.value = nextOpen
     progress.value = nextOpen ? 1 : 0
     timer = window.setTimeout(() => {
+      if (token !== motionToken) {
+        return
+      }
       timer = 0
       settling.value = false
       if (!nextOpen) {
@@ -87,10 +94,15 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
 
   function openPanel() {
     clearTimer()
+    const token = motionToken + 1
+    motionToken = token
     open.value = true
     settling.value = true
     progress.value = 0
     frame = window.requestAnimationFrame(() => {
+      if (token !== motionToken) {
+        return
+      }
       frame = 0
       if (!open.value) {
         return
@@ -98,6 +110,9 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
       progress.value = 1
     })
     timer = window.setTimeout(() => {
+      if (token !== motionToken) {
+        return
+      }
       timer = 0
       settling.value = false
     }, delay(settleDuration()))
