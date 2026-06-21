@@ -726,9 +726,9 @@ export function useReaderStackState() {
     morphingItemId.value = null
     morphingHeightLockItemId.value = null
     morphingItemHeight.value = null
-    detailTransitionRectsLocked.value = false
+    detailOriginRect.value = null
+    clearDetailSourceTransitionTargetState()
     detailFeedOriginLocked.value = false
-    sourceReturnTargetReady.value = false
     parkedDetailStack.value = Array.isArray(snapshot.parkedDetailStack)
       ? snapshot.parkedDetailStack.map(durableParkedDetailSnapshot)
       : []
