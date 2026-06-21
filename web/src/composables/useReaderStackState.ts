@@ -144,6 +144,16 @@ type ReaderBackSwipeFinishResult = {
   isBlocked: boolean
   action: ReaderBackSwipeFinishAction
 }
+type ReaderBackSwipeAction = ReaderBackSwipeFinishAction | ReaderBackSwipeCancelAction
+type ReaderBackSwipeActionHandlers = {
+  restoreItemExpansion: () => void
+  restoreDetailFromSourceSwipe: () => void
+  restoreParkedSource: () => void
+  completeDetailToSource: () => void
+  collapseDetail: () => void
+  restoreDetailFromParkedSource: () => void
+  reset: () => void
+}
 type ReaderBackSwipeVisualAction =
   | {
       type: 'reader'
@@ -1695,6 +1705,37 @@ export function useReaderStackState() {
     }
   }
 
+  function applyReaderBackSwipeAction(
+    action: ReaderBackSwipeAction,
+    handlers: ReaderBackSwipeActionHandlers,
+  ) {
+    if (action === 'restore-item-expansion') {
+      handlers.restoreItemExpansion()
+      return
+    }
+    if (action === 'restore-detail-from-source-swipe') {
+      handlers.restoreDetailFromSourceSwipe()
+      return
+    }
+    if (action === 'restore-parked-source') {
+      handlers.restoreParkedSource()
+      return
+    }
+    if (action === 'complete-detail-to-source') {
+      handlers.completeDetailToSource()
+      return
+    }
+    if (action === 'collapse-detail') {
+      handlers.collapseDetail()
+      return
+    }
+    if (action === 'restore-detail-from-parked-source') {
+      handlers.restoreDetailFromParkedSource()
+      return
+    }
+    handlers.reset()
+  }
+
   function readerBackSwipeTransitionSurfaces<TSurface extends string>(surfaces: {
     activeFeedSurface: TSurface
     pageReturnSurface: TSurface
@@ -2024,6 +2065,7 @@ export function useReaderStackState() {
     updateReaderBackSwipeDragState,
     readerBackSwipeFinishResult,
     readerBackSwipeCancelResult,
+    applyReaderBackSwipeAction,
     readerBackSwipeTransitionBeginPayload,
     readerBackSwipeTransitionUpdatePayload,
     beginReaderBackSwipeDragState,

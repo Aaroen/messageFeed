@@ -186,6 +186,7 @@ const {
   updateReaderBackSwipeDragState,
   readerBackSwipeFinishResult,
   readerBackSwipeCancelResult,
+  applyReaderBackSwipeAction,
   readerBackSwipeTransitionBeginPayload,
   readerBackSwipeTransitionUpdatePayload,
   beginReaderBackSwipeDragState,
@@ -2153,6 +2154,18 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   return true
 }
 
+function readerBackSwipeActionHandlers(): Parameters<typeof applyReaderBackSwipeAction>[1] {
+  return {
+    restoreItemExpansion: restoreItemReaderExpansion,
+    restoreDetailFromSourceSwipe: restoreDetailFromSourceSwipe,
+    restoreParkedSource: restoreParkedSourceReader,
+    completeDetailToSource: completeDetailToSourceReader,
+    collapseDetail: collapseItemReader,
+    restoreDetailFromParkedSource: restoreDetailFromParkedSource,
+    reset: resetBackSwipeOffset,
+  }
+}
+
 function finishBackSwipe(deltaX: number, _deltaY: number) {
   const result = readerBackSwipeFinishResult(deltaX, viewSwitchDistance, pageSideStretch.value)
 
@@ -2165,49 +2178,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
   if (result.committed) {
     suppressFollowingClick()
   }
-  const action = result.action
-  if (action === 'restore-item-expansion') {
-    restoreItemReaderExpansion()
-    return
-  }
-  if (action === 'restore-detail-from-source-swipe') {
-    restoreDetailFromSourceSwipe()
-    return
-  }
-  if (action === 'restore-parked-source') {
-    restoreParkedSourceReader()
-    return
-  }
-  if (action === 'complete-detail-to-source') {
-    completeDetailToSourceReader()
-    return
-  }
-  if (action === 'collapse-detail') {
-    collapseItemReader()
-    return
-  }
-  if (action === 'restore-detail-from-parked-source') {
-    restoreDetailFromParkedSource()
-    return
-  }
-
-  resetBackSwipeOffset()
-}
-
-function applyCanceledBackSwipeAction(action: ReturnType<typeof readerBackSwipeCancelResult>['action']) {
-  if (action === 'restore-item-expansion') {
-    restoreItemReaderExpansion()
-    return
-  }
-  if (action === 'restore-detail-from-source-swipe') {
-    restoreDetailFromSourceSwipe()
-    return
-  }
-  if (action === 'restore-parked-source') {
-    restoreParkedSourceReader()
-    return
-  }
-  resetBackSwipeOffset()
+  applyReaderBackSwipeAction(result.action, readerBackSwipeActionHandlers())
 }
 
 function finishViewSwipe(nextPath: string | null) {
@@ -2611,7 +2582,7 @@ function handleTouchCancel() {
     finishViewSwipe(null)
   }
   if (hadBackGesture) {
-    applyCanceledBackSwipeAction(canceledBackResult.action)
+    applyReaderBackSwipeAction(canceledBackResult.action, readerBackSwipeActionHandlers())
   }
   activeFeedPointerId = null
 }
@@ -2750,7 +2721,7 @@ function handleMessage(event: MessageEvent) {
     if (trackingBackSwipe) {
       const canceledBackResult = readerBackSwipeCancelResult()
       resetGestureTracking()
-      applyCanceledBackSwipeAction(canceledBackResult.action)
+      applyReaderBackSwipeAction(canceledBackResult.action, readerBackSwipeActionHandlers())
     }
     resetGestureTracking()
   }
