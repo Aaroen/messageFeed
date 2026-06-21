@@ -26,17 +26,9 @@ import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
 import { useClickSuppression } from '@/composables/useClickSuppression'
-import { useSourceContentMotion } from '@/composables/useSourceContentMotion'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
 import { useAppChromeLayerState } from '@/composables/useAppChromeLayerState'
-import { useReaderSourceSurfaceMotion } from '@/composables/useReaderSourceSurfaceMotion'
-import { useReaderDetailSurfaceMotion } from '@/composables/useReaderDetailSurfaceMotion'
-import { useReaderDetailContentMotion } from '@/composables/useReaderDetailContentMotion'
 import { useReaderDetailSourceTransitionRects } from '@/composables/useReaderDetailSourceTransitionRects'
-import { useReaderDetailProgressMotion } from '@/composables/useReaderDetailProgressMotion'
-import { useReaderDetailTextMotion } from '@/composables/useReaderDetailTextMotion'
-import { useReaderSourceTitleMotion } from '@/composables/useReaderSourceTitleMotion'
-import { useReaderDetailTransitionMotion } from '@/composables/useReaderDetailTransitionMotion'
 import { useAppShellMotion } from '@/composables/useAppShellMotion'
 import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
@@ -51,8 +43,6 @@ import { useNavigationGestureState } from '@/composables/useNavigationGestureSta
 import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { useGestureDirection } from '@/composables/useGestureDirection'
 import { useMotionTimings } from '@/composables/useMotionTimings'
-import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
-import { useReaderLayoutState } from '@/composables/useReaderLayoutState'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppMainClassState } from '@/composables/useAppMainClassState'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
@@ -94,6 +84,7 @@ import { useAppReaderBackSwipeInteractions } from '@/composables/useAppReaderBac
 import { useAppReaderSourceCloseInteractions } from '@/composables/useAppReaderSourceCloseInteractions'
 import { useAppReaderOpenInteractions } from '@/composables/useAppReaderOpenInteractions'
 import { useAppReaderCloseInteractions } from '@/composables/useAppReaderCloseInteractions'
+import { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -587,133 +578,122 @@ const appMainClassState = useAppMainClassState({
   detailChromeVisible,
 })
 const mainClass = appMainClassState.mainClass
-const readerLayoutState = useReaderLayoutState({
-  windowWidth,
-  windowHeight,
-  feedHeaderHeight,
-  topChromeProgress,
-  feedContentCollapsed,
+const readerMotionState = useAppReaderMotionState({
+  layout: {
+    windowWidth,
+    windowHeight,
+    feedHeaderHeight,
+    topChromeProgress,
+    feedContentCollapsed,
+  },
+  sourceSurface: {
+    feedHeaderHeight,
+    darkTheme,
+    visible: sourceReaderVisible,
+    underDetail: sourceReaderUnderDetail,
+    revealProgress: sourceReaderRevealProgress,
+    offset: sourceReaderOffset,
+    stretch: sourceReaderStretch,
+    stretchAnchor: sourceStretchAnchor,
+    dragging: readerBackDragging,
+    blocksGestures: detailBlocksGestures,
+  },
+  sourceContent: {
+    headerHeight: feedHeaderHeight,
+    isVisible: () => sourceReaderVisible.value,
+    resolveDelay: motionDelay,
+  },
+  detailSurface: {
+    stretch: detailReaderStretch,
+    stretchAnchor: detailStretchAnchor,
+    dragging: readerBackDragging,
+    blockedBackSwipeActive: sourceReaderBlockedBackSwipeActive,
+    returningToFeed: detailReturningToFeed,
+    surfaceProgress: detailSurfaceProgress,
+    committedListReturn: detailCommittedListReturn,
+  },
+  detailContent: {
+    surfaceProgress: detailSurfaceProgress,
+    sourceExitProgress: detailSourceExitProgress,
+    frameContentHeight: detailFrameContentHeight,
+    dragging: readerBackDragging,
+    committedListReturn: detailCommittedListReturn,
+  },
+  detailProgress: {
+    visible: detailProgressVisible,
+    dragging: detailProgressDragging,
+    readerBackDragging,
+    readingProgress: detailReadingProgress,
+  },
+  detailText: {
+    surfaceProgress: detailSurfaceProgress,
+    sourceListTitleProgress: detailSourceListTitleProgress,
+    headerFeedTitleProgress: detailHeaderFeedTitleProgress,
+    feedHeaderReturnProgress,
+    headerTitleSwapping: detailHeaderTitleSwapping,
+    headerSwapProgress: detailHeaderSwapProgress,
+    sourceLabelOpacity: sourceNameMorphLabelOpacity,
+    sourceLabelBlur: sourceNameMorphLabelBlur,
+    readerBackDragging,
+    committedListReturn: detailCommittedListReturn,
+  },
+  sourceTitle: {
+    revealReady: sourceTitleRevealReady,
+    pullActive: sourcePullActive,
+    titleProgress: sourceTitleProgress,
+    revealProgress: sourceTitleRevealProgress,
+    nameOriginRect: detailSourceNameOriginRect,
+    nameTargetRect: detailSourceNameTargetRect,
+    nameMorphProgress: sourceNameMorphProgress,
+    windowWidth,
+    headerHeight: feedHeaderHeight,
+    readerBackDragging,
+  },
+  detailTransition: {
+    originRect: detailOriginRect,
+    sourceItemTargetRect: detailSourceItemTargetRect,
+    restoringFromSourceReader: detailRestoringFromSourceReader,
+    sourceExitProgress: detailSourceExitProgress,
+    backExitProgress: detailBackExitProgress,
+    surfaceProgress: detailSurfaceProgress,
+    windowWidth,
+    windowHeight,
+    darkTheme,
+    readerBackDragging,
+    sourceReturnTargetPending: sourceReaderReturnTargetPending,
+    blockedBackSwipeActive: sourceReaderBlockedBackSwipeActive,
+    returningToFeed: detailReturningToFeed,
+    committedListReturn: detailCommittedListReturn,
+  },
+  detailFrame: {
+    item: detailItem,
+    metricsInitialDelay: detailFrameMetricsInitialDelay,
+    metricsSettledDelay: detailFrameMetricsSettledDelay,
+  },
 })
-const sourceHeaderSpace = readerLayoutState.sourceHeaderSpace
-const detailSourceFallbackTargetRect = readerLayoutState.detailSourceFallbackTargetRect
-const detailSurfaceMargin = readerLayoutState.detailSurfaceMargin
-const detailExpandedTop = readerLayoutState.detailExpandedTop
-const detailFrameMinHeight = readerLayoutState.detailFrameMinHeight
-const sourceSurfaceMotion = useReaderSourceSurfaceMotion({
-  feedHeaderHeight,
-  headerSpace: sourceHeaderSpace,
-  darkTheme,
-  visible: sourceReaderVisible,
-  underDetail: sourceReaderUnderDetail,
-  revealProgress: sourceReaderRevealProgress,
-  offset: sourceReaderOffset,
-  stretch: sourceReaderStretch,
-  stretchAnchor: sourceStretchAnchor,
-  dragging: readerBackDragging,
-  blocksGestures: detailBlocksGestures,
-})
-const sourceContentMotion = useSourceContentMotion({
-  headerSpace: sourceHeaderSpace,
-  headerHeight: feedHeaderHeight,
-  isVisible: () => sourceReaderVisible.value,
-  resolveDelay: motionDelay,
-})
-const sourceContentStyle = sourceContentMotion.contentStyle
-const sourceReaderStyle = sourceSurfaceMotion.surfaceStyle
-const detailSurfaceMotion = useReaderDetailSurfaceMotion({
-  stretch: detailReaderStretch,
-  stretchAnchor: detailStretchAnchor,
-  dragging: readerBackDragging,
-  blockedBackSwipeActive: sourceReaderBlockedBackSwipeActive,
-  returningToFeed: detailReturningToFeed,
-  surfaceProgress: detailSurfaceProgress,
-  committedListReturn: detailCommittedListReturn,
-})
-const detailReaderStyle = detailSurfaceMotion.readerStyle
-const detailContentMotion = useReaderDetailContentMotion({
-  surfaceProgress: detailSurfaceProgress,
-  sourceExitProgress: detailSourceExitProgress,
-  frameMinHeight: detailFrameMinHeight,
-  frameContentHeight: detailFrameContentHeight,
-  dragging: readerBackDragging,
-  committedListReturn: detailCommittedListReturn,
-})
-const detailProgressMotion = useReaderDetailProgressMotion({
-  surfaceMargin: detailSurfaceMargin,
-  expandedTop: detailExpandedTop,
-  visible: detailProgressVisible,
-  dragging: detailProgressDragging,
-  readerBackDragging,
-  readingProgress: detailReadingProgress,
-})
-const detailTextMotion = useReaderDetailTextMotion({
-  surfaceProgress: detailSurfaceProgress,
-  sourceListTitleProgress: detailSourceListTitleProgress,
-  headerFeedTitleProgress: detailHeaderFeedTitleProgress,
-  feedHeaderReturnProgress,
-  headerTitleSwapping: detailHeaderTitleSwapping,
-  headerSwapProgress: detailHeaderSwapProgress,
-  sourceLabelOpacity: sourceNameMorphLabelOpacity,
-  sourceLabelBlur: sourceNameMorphLabelBlur,
-  readerBackDragging,
-  committedListReturn: detailCommittedListReturn,
-})
-const sourceTitleMotion = useReaderSourceTitleMotion({
-  revealReady: sourceTitleRevealReady,
-  pullActive: sourcePullActive,
-  titleProgress: sourceTitleProgress,
-  revealProgress: sourceTitleRevealProgress,
-  nameOriginRect: detailSourceNameOriginRect,
-  nameTargetRect: detailSourceNameTargetRect,
-  nameMorphProgress: sourceNameMorphProgress,
-  windowWidth,
-  headerHeight: feedHeaderHeight,
-  readerBackDragging,
-})
-const detailTransitionMotion = useReaderDetailTransitionMotion({
-  originRect: detailOriginRect,
-  sourceItemTargetRect: detailSourceItemTargetRect,
-  fallbackTargetRect: detailSourceFallbackTargetRect,
-  restoringFromSourceReader: detailRestoringFromSourceReader,
-  sourceExitProgress: detailSourceExitProgress,
-  backExitProgress: detailBackExitProgress,
-  surfaceProgress: detailSurfaceProgress,
-  surfaceMargin: detailSurfaceMargin,
-  expandedTop: detailExpandedTop,
-  windowWidth,
-  windowHeight,
-  darkTheme,
-  readerBackDragging,
-  sourceReturnTargetPending: sourceReaderReturnTargetPending,
-  blockedBackSwipeActive: sourceReaderBlockedBackSwipeActive,
-  returningToFeed: detailReturningToFeed,
-  committedListReturn: detailCommittedListReturn,
-})
-const detailTransitionSurfaceStyle = detailTransitionMotion.surfaceStyle
-const detailContentStyle = detailContentMotion.contentStyle
-const detailProgressStyle = detailProgressMotion.railStyle
-const detailProgressFillStyle = detailProgressMotion.fillStyle
-const detailProgressThumbStyle = detailProgressMotion.thumbStyle
-const detailMorphTextStyle = detailTextMotion.morphTextStyle
-const detailHeaderTitleStyle = detailTextMotion.headerTitleStyle
-const detailHeaderCurrentTextStyle = detailTextMotion.headerCurrentTextStyle
-const detailHeaderPreviousTextStyle = detailTextMotion.headerPreviousTextStyle
-const detailInlineSourceStyle = detailTextMotion.inlineSourceStyle
-const detailMorphSourceLabelStyle = detailTextMotion.morphSourceLabelStyle
-const sourceTitleRevealVisible = sourceTitleMotion.revealVisible
-const sourceNameMorphStyle = sourceTitleMotion.nameMorphStyle
-const sourceTitleLayerStyle = sourceTitleMotion.titleLayerStyle
-const sourceTitleTextStyle = sourceTitleMotion.titleTextStyle
-const sourceTitleRevealStyle = sourceTitleMotion.revealStyle
+const sourceContentStyle = readerMotionState.sourceContentStyle
+const sourceReaderStyle = readerMotionState.sourceReaderStyle
+const detailReaderStyle = readerMotionState.detailReaderStyle
+const detailTransitionSurfaceStyle = readerMotionState.detailTransitionSurfaceStyle
+const detailContentStyle = readerMotionState.detailContentStyle
+const detailProgressStyle = readerMotionState.detailProgressStyle
+const detailProgressFillStyle = readerMotionState.detailProgressFillStyle
+const detailProgressThumbStyle = readerMotionState.detailProgressThumbStyle
+const detailMorphTextStyle = readerMotionState.detailMorphTextStyle
+const detailHeaderTitleStyle = readerMotionState.detailHeaderTitleStyle
+const detailHeaderCurrentTextStyle = readerMotionState.detailHeaderCurrentTextStyle
+const detailHeaderPreviousTextStyle = readerMotionState.detailHeaderPreviousTextStyle
+const detailInlineSourceStyle = readerMotionState.detailInlineSourceStyle
+const detailMorphSourceLabelStyle = readerMotionState.detailMorphSourceLabelStyle
+const sourceTitleRevealVisible = readerMotionState.sourceTitleRevealVisible
+const sourceNameMorphStyle = readerMotionState.sourceNameMorphStyle
+const sourceTitleLayerStyle = readerMotionState.sourceTitleLayerStyle
+const sourceTitleTextStyle = readerMotionState.sourceTitleTextStyle
+const sourceTitleRevealStyle = readerMotionState.sourceTitleRevealStyle
 const mainStyle = appShellMotion.style
-const readerDetailFrame = useReaderDetailFrame({
-  item: detailItem,
-  metricsInitialDelay: detailFrameMetricsInitialDelay,
-  metricsSettledDelay: detailFrameMetricsSettledDelay,
-})
-const detailPreviewSummary = readerDetailFrame.previewSummary
-const detailDisplayDate = readerDetailFrame.displayDate
-const detailSrcdoc = readerDetailFrame.srcdoc
+const detailPreviewSummary = readerMotionState.detailPreviewSummary
+const detailDisplayDate = readerMotionState.detailDisplayDate
+const detailSrcdoc = readerMotionState.detailSrcdoc
 
 const { resetGestureTracking } = useAppGestureResetAction({
   resetNavigationGesture: navigationGesture.reset,
@@ -1471,7 +1451,7 @@ useFeedRefreshCompletionWatcher({
   topPull: feedTopPull,
   settleDelayMS: () => motionDelay(topChromeSettleDuration),
   settleSourceContentAfterRefresh: () => {
-    sourceContentMotion.settleAfterRefresh(topChromeSettleDuration)
+    readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
   },
   collapseTopChrome,
 })
@@ -1494,7 +1474,7 @@ useAppLifecycle({
     () => navigationDrawer.clearTimer(),
     () => refreshCompletion.clearTimer(),
     () => chromeState.clearTimer(),
-    () => sourceContentMotion.clearTimer(),
+    () => readerMotionState.clearSourceContentTimer(),
     () => pagePullState.clearTimers(),
     () => clickSuppression.clearTimer(),
     clearSourceNoticeTimer,
