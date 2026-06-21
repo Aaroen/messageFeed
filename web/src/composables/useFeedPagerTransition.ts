@@ -34,6 +34,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   const dragThreshold = options.dragThreshold ?? 8
   const dragOffset = ref(0)
   const settling = ref(false)
+  const viewSwipeCandidateActive = ref(false)
+  const viewSwipeActive = ref(false)
   let settlingTimer = 0
   let delayedCommitTimer = 0
   let startedWithHiddenChrome = false
@@ -150,9 +152,29 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     setSettling(false)
   }
 
+  function beginViewSwipeCandidate() {
+    viewSwipeCandidateActive.value = true
+    viewSwipeActive.value = false
+  }
+
+  function cancelViewSwipeCandidate() {
+    viewSwipeCandidateActive.value = false
+  }
+
+  function beginViewSwipe() {
+    viewSwipeActive.value = true
+    viewSwipeCandidateActive.value = false
+  }
+
+  function resetViewSwipeTracking() {
+    viewSwipeCandidateActive.value = false
+    viewSwipeActive.value = false
+  }
+
   function beginPointerTracking(pointerId: number) {
     activePointerId = pointerId
     beginDragCandidate()
+    beginViewSwipeCandidate()
   }
 
   function isActivePointer(pointerId: number) {
@@ -222,6 +244,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     clearDelayedCommitTimer()
     clearStartedWithHiddenChrome()
     clearPointerTracking()
+    resetViewSwipeTracking()
     dragOffset.value = 0
     settling.value = false
   }
@@ -230,6 +253,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     dragThreshold,
     dragOffset,
     settling,
+    viewSwipeCandidateActive,
+    viewSwipeActive,
     activeIndex,
     activeSurface,
     trackStyle,
@@ -248,6 +273,10 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     beginProgrammaticNavigation,
     settleProgrammaticNavigation,
     beginDragCandidate,
+    beginViewSwipeCandidate,
+    cancelViewSwipeCandidate,
+    beginViewSwipe,
+    resetViewSwipeTracking,
     beginPointerTracking,
     isActivePointer,
     clearPointerTracking,

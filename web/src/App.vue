@@ -309,6 +309,8 @@ const feedPagerTransition = useFeedPagerTransition({
 })
 const viewDragOffset = feedPagerTransition.dragOffset
 const viewSettling = feedPagerTransition.settling
+const viewSwipeCandidateActive = feedPagerTransition.viewSwipeCandidateActive
+const viewSwipeActive = feedPagerTransition.viewSwipeActive
 const activeFeedIndex = feedPagerTransition.activeIndex
 const feedPullActive = computed(() => isFeedRoute.value && (feedInteraction.pullActive || feedInteraction.pullOffset > 1))
 const pagePullActive = computed(() => !isFeedRoute.value && (pagePullRefreshing.value || pagePullOffset.value > 1))
@@ -1080,10 +1082,8 @@ let touchStartNavigationProgress = 0
 let activeNavigationPointerId: number | null = null
 let trackingEdgeSwipeCandidate = false
 let trackingNavigationCloseCandidate = false
-let trackingViewSwipeCandidate = false
 let trackingEdgeSwipe = false
 let trackingNavigationClose = false
-let trackingViewSwipe = false
 let navigationDragStarted = false
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
@@ -1102,11 +1102,10 @@ let trackingPageTopPull = false
 function resetGestureTracking() {
   trackingEdgeSwipeCandidate = false
   trackingNavigationCloseCandidate = false
-  trackingViewSwipeCandidate = false
+  feedPagerTransition.resetViewSwipeTracking()
   feedPagerTransition.clearStartedWithHiddenChrome()
   trackingEdgeSwipe = false
   trackingNavigationClose = false
-  trackingViewSwipe = false
   navigationDragStarted = false
   resetReaderBackSwipeCandidateState()
 }
@@ -2053,7 +2052,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   beginBackSwipeTransition(deltaX)
   trackingEdgeSwipeCandidate = false
   trackingNavigationCloseCandidate = false
-  trackingViewSwipeCandidate = false
+  feedPagerTransition.cancelViewSwipeCandidate()
   return true
 }
 
@@ -2170,7 +2169,7 @@ function handleTouchStart(event: TouchEvent) {
   if (navigationVisible.value) {
     trackingNavigationCloseCandidate = navigationOpen.value
     trackingEdgeSwipeCandidate = false
-    trackingViewSwipeCandidate = false
+    feedPagerTransition.resetViewSwipeTracking()
     resetReaderBackSwipeCandidateState()
     return
   }
@@ -2189,18 +2188,22 @@ function handleTouchStart(event: TouchEvent) {
 
   trackingEdgeSwipeCandidate = canStartNavigationOpen(touchStartX)
   trackingNavigationCloseCandidate = navigationOpen.value
-  trackingViewSwipeCandidate = canStartViewSwipe(touchStartX)
+  if (canStartViewSwipe(touchStartX)) {
+    feedPagerTransition.beginViewSwipeCandidate()
+  } else {
+    feedPagerTransition.resetViewSwipeTracking()
+  }
 }
 
 function handleTouchMove(event: TouchEvent) {
   if (
     !trackingEdgeSwipeCandidate &&
     !trackingNavigationCloseCandidate &&
-    !trackingViewSwipeCandidate &&
+    !viewSwipeCandidateActive.value &&
     !readerBackSwipeCandidateActive.value &&
     !trackingEdgeSwipe &&
     !trackingNavigationClose &&
-    !trackingViewSwipe &&
+    !viewSwipeActive.value &&
     !readerBackSwipeTrackingActive.value
   ) {
     return
@@ -2224,7 +2227,7 @@ function handleTouchMove(event: TouchEvent) {
   if (trackingEdgeSwipeCandidate && deltaX > 8 && isNavigationDrag(deltaX, deltaY)) {
     trackingEdgeSwipe = true
     trackingEdgeSwipeCandidate = false
-    trackingViewSwipeCandidate = false
+    feedPagerTransition.cancelViewSwipeCandidate()
     trackingNavigationCloseCandidate = false
     navigationDragStarted = true
     navigationSettling.value = false
@@ -2233,13 +2236,13 @@ function handleTouchMove(event: TouchEvent) {
   if (trackingNavigationCloseCandidate && deltaX < -8 && isNavigationDrag(deltaX, deltaY)) {
     trackingNavigationClose = true
     trackingNavigationCloseCandidate = false
-    trackingViewSwipeCandidate = false
+    feedPagerTransition.cancelViewSwipeCandidate()
     trackingEdgeSwipeCandidate = false
     navigationDragStarted = true
     navigationSettling.value = false
   }
 
-  if (trackingEdgeSwipe || trackingNavigationClose || trackingViewSwipe) {
+  if (trackingEdgeSwipe || trackingNavigationClose || viewSwipeActive.value) {
     event.preventDefault()
   }
 
@@ -2253,10 +2256,9 @@ function handleTouchMove(event: TouchEvent) {
     return
   }
 
-  if (trackingViewSwipeCandidate && viewHorizontal) {
+  if (viewSwipeCandidateActive.value && viewHorizontal) {
     if (feedPagerTransition.canStartDrag(deltaX)) {
-      trackingViewSwipe = true
-      trackingViewSwipeCandidate = false
+      feedPagerTransition.beginViewSwipe()
       trackingEdgeSwipeCandidate = false
       trackingNavigationCloseCandidate = false
       showTopChromeForViewSwipe()
@@ -2266,8 +2268,7 @@ function handleTouchMove(event: TouchEvent) {
     }
   }
 
-  if (trackingViewSwipe) {
-    trackingViewSwipe = true
+  if (viewSwipeActive.value) {
     feedPagerTransition.setDragDelta(deltaX)
     syncViewSwipeTransition(viewDragOffset.value)
     return
@@ -2286,7 +2287,7 @@ function handleWindowPointerDown(event: PointerEvent) {
   touchStartNavigationProgress = navigationProgress.value
   trackingEdgeSwipeCandidate = canStartNavigationOpen(touchStartX)
   trackingNavigationCloseCandidate = navigationOpen.value
-  trackingViewSwipeCandidate = false
+  feedPagerTransition.cancelViewSwipeCandidate()
   activeNavigationPointerId =
     trackingEdgeSwipeCandidate || trackingNavigationCloseCandidate ? event.pointerId : null
 }
@@ -2333,7 +2334,7 @@ function handleWindowPointerUp(event: PointerEvent) {
 
   const deltaX = event.clientX - touchStartX
   const deltaY = event.clientY - touchStartY
-  const horizontal = trackingViewSwipe ? isViewHorizontalSwipe(deltaX, deltaY) : isHorizontalSwipe(deltaX, deltaY)
+  const horizontal = viewSwipeActive.value ? isViewHorizontalSwipe(deltaX, deltaY) : isHorizontalSwipe(deltaX, deltaY)
 
   if (trackingEdgeSwipe && navigationDragStarted) {
     settleNavigation(horizontal && (deltaX >= navigationOpenDistance || navigationProgress.value >= 0.42))
@@ -2364,11 +2365,11 @@ function handleTouchEnd(event: TouchEvent) {
   if (
     !trackingEdgeSwipeCandidate &&
     !trackingNavigationCloseCandidate &&
-    !trackingViewSwipeCandidate &&
+    !viewSwipeCandidateActive.value &&
     !readerBackSwipeCandidateActive.value &&
     !trackingEdgeSwipe &&
     !trackingNavigationClose &&
-    !trackingViewSwipe &&
+    !viewSwipeActive.value &&
     !readerBackSwipeTrackingActive.value
   ) {
     return
@@ -2385,7 +2386,7 @@ function handleTouchEnd(event: TouchEvent) {
     return
   }
 
-  if (!trackingEdgeSwipe && !trackingNavigationClose && !trackingViewSwipe) {
+  if (!trackingEdgeSwipe && !trackingNavigationClose && !viewSwipeActive.value) {
     resetGestureTracking()
     return
   }
@@ -2402,7 +2403,7 @@ function handleTouchEnd(event: TouchEvent) {
     }
   }
 
-  if (trackingViewSwipe) {
+  if (viewSwipeActive.value) {
     suppressFollowingClick()
     finishViewSwipe(feedPagerTransition.commitPath(deltaX, horizontal, viewSwitchDistance))
   }
@@ -2424,8 +2425,6 @@ function handleFeedPointerDown(event: PointerEvent) {
   touchStartX = event.clientX
   touchStartY = event.clientY
   touchStartNavigationProgress = navigationProgress.value
-  trackingViewSwipeCandidate = true
-  trackingViewSwipe = false
   trackingEdgeSwipe = false
   trackingNavigationClose = false
   feedPagerTransition.beginPointerTracking(event.pointerId)
@@ -2439,21 +2438,20 @@ function handleFeedPointerMove(event: PointerEvent) {
   const deltaX = event.clientX - touchStartX
   const deltaY = event.clientY - touchStartY
 
-  if (trackingViewSwipeCandidate && !trackingViewSwipe) {
+  if (viewSwipeCandidateActive.value && !viewSwipeActive.value) {
     if (!isViewHorizontalSwipe(deltaX, deltaY)) {
       return
     }
 
     if (feedPagerTransition.isBlockedDragDirection(deltaX)) {
       feedPagerTransition.clearPointerTracking()
-      trackingViewSwipeCandidate = false
+      feedPagerTransition.cancelViewSwipeCandidate()
       return
     }
 
     if (feedPagerTransition.canStartDrag(deltaX)) {
-      trackingViewSwipe = true
+      feedPagerTransition.beginViewSwipe()
       suppressFollowingClick()
-      trackingViewSwipeCandidate = false
       showTopChromeForViewSwipe()
       beginViewSwipeTransition(deltaX)
       ;(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId)
@@ -2462,7 +2460,7 @@ function handleFeedPointerMove(event: PointerEvent) {
     }
   }
 
-  if (!trackingViewSwipe || !isViewHorizontalSwipe(deltaX, deltaY)) {
+  if (!viewSwipeActive.value || !isViewHorizontalSwipe(deltaX, deltaY)) {
     return
   }
 
@@ -2484,7 +2482,7 @@ function handleFeedPointerUp(event: PointerEvent) {
   const deltaY = event.clientY - touchStartY
   const horizontal = isViewHorizontalSwipe(deltaX, deltaY)
 
-  const nextPath = trackingViewSwipe ? feedPagerTransition.commitPath(deltaX, horizontal, viewSwitchDistance) : null
+  const nextPath = viewSwipeActive.value ? feedPagerTransition.commitPath(deltaX, horizontal, viewSwitchDistance) : null
   if (nextPath) {
     suppressFollowingClick()
     finishViewSwipe(nextPath)
@@ -2492,21 +2490,19 @@ function handleFeedPointerUp(event: PointerEvent) {
     finishViewSwipe(null)
   }
 
-  trackingViewSwipe = false
-  trackingViewSwipeCandidate = false
+  feedPagerTransition.resetViewSwipeTracking()
   feedPagerTransition.clearPointerTracking()
 }
 
 function handleFeedPointerCancel() {
-  trackingViewSwipe = false
-  trackingViewSwipeCandidate = false
+  feedPagerTransition.resetViewSwipeTracking()
   feedPagerTransition.clearPointerTracking()
   finishViewSwipe(null)
 }
 
 function handleTouchCancel() {
   const hadNavigationGesture = trackingEdgeSwipe || trackingNavigationClose
-  const hadViewGesture = trackingViewSwipe
+  const hadViewGesture = viewSwipeActive.value
   const hadBackGesture = readerBackSwipeTrackingActive.value
   if (hadBackGesture) {
     cancelBackSwipe()
