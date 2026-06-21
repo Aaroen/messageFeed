@@ -279,6 +279,8 @@ export function useReaderStackState() {
   let morphingHeightUnlockTimer = 0
   let hiddenSourceCleanupTimer = 0
   let readerMotionTimerToken = 0
+  let morphingHeightUnlockTimerToken = 0
+  let hiddenSourceCleanupTimerToken = 0
   let detailEntryTimer = 0
   let detailEntryFrame = 0
   let detailEntrySecondFrame = 0
@@ -802,6 +804,7 @@ export function useReaderStackState() {
   }
 
   function clearHiddenSourceCleanupTimer() {
+    hiddenSourceCleanupTimerToken += 1
     if (typeof window !== 'undefined' && hiddenSourceCleanupTimer !== 0) {
       window.clearTimeout(hiddenSourceCleanupTimer)
     }
@@ -810,7 +813,11 @@ export function useReaderStackState() {
 
   function scheduleHiddenSourceReaderCleanupWithDelay(delay = hiddenSourceCleanupDelay) {
     clearHiddenSourceCleanupTimer()
+    const token = hiddenSourceCleanupTimerToken
     hiddenSourceCleanupTimer = window.setTimeout(() => {
+      if (token !== hiddenSourceCleanupTimerToken) {
+        return
+      }
       hiddenSourceCleanupTimer = 0
       clearHiddenSourceReader()
     }, delay)
@@ -1140,6 +1147,7 @@ export function useReaderStackState() {
   }
 
   function clearMorphingHeightUnlockTimer() {
+    morphingHeightUnlockTimerToken += 1
     if (typeof window !== 'undefined' && morphingHeightUnlockTimer !== 0) {
       window.clearTimeout(morphingHeightUnlockTimer)
     }
@@ -1149,7 +1157,11 @@ export function useReaderStackState() {
   function restoreMorphingItemContentWithDelay(unlockDelay = morphingItemContentUnlockDelay) {
     beginRestoreMorphingItemContentState()
     clearMorphingHeightUnlockTimer()
+    const token = morphingHeightUnlockTimerToken
     morphingHeightUnlockTimer = window.setTimeout(() => {
+      if (token !== morphingHeightUnlockTimerToken) {
+        return
+      }
       morphingHeightUnlockTimer = 0
       finishRestoreMorphingItemContentState()
     }, unlockDelay)
