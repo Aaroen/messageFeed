@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, watch, type ComponentPublicInstance } from 'vue'
+import { nextTick, onMounted, onUnmounted, watch, type ComponentPublicInstance } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
@@ -438,8 +439,7 @@ const feedTabsLayerHidden = feedChromeVisibility.feedTabsLayerHidden
 const feedCornerHidden = feedChromeVisibility.feedCornerHidden
 const detailHeaderVisible = feedChromeVisibility.detailHeaderVisible
 const headerDetailLayoutActive = feedChromeVisibility.headerDetailLayoutActive
-const pullStatusText = computed(() => feedInteraction.statusText)
-const pullStatusMeta = computed(() => feedInteraction.statusMeta)
+const { statusText: pullStatusText, statusMeta: pullStatusMeta } = storeToRefs(feedInteraction)
 const pagePullStatus = usePagePullStatus({
   refreshing: pagePullRefreshing,
   progress: pagePullProgress,
