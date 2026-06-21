@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -53,7 +53,7 @@ import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
 import { useThemeState } from '@/composables/useThemeState'
 import { useFeedScrollState } from '@/composables/useFeedScrollState'
-import { usePageOutletState, type PageViewExpose } from '@/composables/usePageOutletState'
+import { usePageOutletState } from '@/composables/usePageOutletState'
 import { useFeedContentState } from '@/composables/useFeedContentState'
 import { useScrollHistory } from '@/composables/useScrollHistory'
 import { useDoubleBackGuard } from '@/composables/useDoubleBackGuard'
@@ -98,6 +98,7 @@ import { useAppReaderSessionPersistence } from '@/composables/useAppReaderSessio
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
+import { useAppElementRefs } from '@/composables/useAppElementRefs'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -782,21 +783,25 @@ function scheduleReaderURLAndHistorySync(forcePush = false) {
   readerRouteSync.scheduleSync(forcePush)
 }
 
-function setSourceReaderContentElement(element: HTMLElement | null) {
-  setSourceReaderContentElementState(element)
-}
-
-function setFeedContentElement(element: Element | ComponentPublicInstance | null) {
-  feedContent.setContentElement(element instanceof HTMLElement ? element : null)
-}
-
-function setPageContentElement(element: HTMLElement | null) {
-  pageOutlet.setContentElement(element)
-}
-
-function setPageViewInstance(view: PageViewExpose | null) {
-  pageOutlet.setViewInstance(view)
-}
+const {
+  setSourceReaderContentElement,
+  setFeedContentElement,
+  setPageContentElement,
+  setPageViewInstance,
+  detailFrameViewportOffset,
+  setDetailContentElement,
+  setDetailInlineSourceElement,
+  setDetailFrameElement,
+} = useAppElementRefs({
+  detailFrameRef,
+  setSourceReaderContentElement: setSourceReaderContentElementState,
+  setFeedContentElement: feedContent.setContentElement,
+  setPageContentElement: pageOutlet.setContentElement,
+  setPageViewInstance: pageOutlet.setViewInstance,
+  setDetailContentElement: setDetailContentElementState,
+  setDetailInlineSourceElement: setDetailInlineSourceElementState,
+  setDetailFrameElement: setDetailFrameElementState,
+})
 
 function rememberSourceScrollTop(scrollTop: number) {
   scrollHistory.set('source', scrollTop)
@@ -821,26 +826,6 @@ const readerDetailSourceTransitionRects = useReaderDetailSourceTransitionRects({
 const refreshDetailFeedOriginRect = readerDetailSourceTransitionRects.refreshDetailFeedOriginRect
 const captureDetailSourceTransitionRects = readerDetailSourceTransitionRects.captureDetailSourceTransitionRects
 const captureVisibleSourceReturnTarget = readerDetailSourceTransitionRects.captureVisibleSourceReturnTarget
-
-function detailFrameViewportOffset() {
-  const rect = detailFrameRef.value?.getBoundingClientRect()
-  return {
-    left: rect?.left ?? 0,
-    top: rect?.top ?? 0,
-  }
-}
-
-function setDetailContentElement(element: HTMLElement | null) {
-  setDetailContentElementState(element)
-}
-
-function setDetailInlineSourceElement(element: HTMLElement | null) {
-  setDetailInlineSourceElementState(element)
-}
-
-function setDetailFrameElement(element: HTMLIFrameElement | null) {
-  setDetailFrameElementState(element)
-}
 
 function restoreMorphingItemContent(unlockDelay = motionQuickDuration) {
   restoreMorphingItemContentWithDelay(unlockDelay)
