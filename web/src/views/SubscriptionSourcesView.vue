@@ -36,6 +36,7 @@ const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef }
 let noticeTimer = 0
 let noticeTimerToken = 0
 let pageRequestToken = 0
+let pageRefreshingToken = 0
 let disposed = false
 const importFetchConcurrency = 3
 const pageBusy = computed(() => loading.value || catalogLoading.value || actionLoading.value || pageRefreshing.value)
@@ -84,6 +85,19 @@ function invalidatePageRequests() {
 
 function pageRequestIsCurrent(token?: number) {
   return !disposed && (token === undefined || token === pageRequestToken)
+}
+
+function beginPageRefresh(token: number) {
+  pageRefreshingToken = token
+  pageRefreshing.value = true
+}
+
+function finishPageRefresh(token: number) {
+  if (pageRefreshingToken !== token) {
+    return
+  }
+  pageRefreshingToken = 0
+  pageRefreshing.value = false
 }
 
 function showNotice(type: 'success' | 'warning', message: string, durationMS?: number, delayMS = 0) {
@@ -191,7 +205,7 @@ async function refreshPage(options: PageRefreshOptions = {}) {
     return
   }
   const token = nextPageRequestToken()
-  pageRefreshing.value = true
+  beginPageRefresh(token)
   let releaseRefreshLayoutFreeze: (() => void) | undefined
   if (options.onRefreshSettled) {
     releaseRefreshLayoutFreeze = refreshLayoutFreeze.capture()
@@ -240,9 +254,10 @@ async function refreshPage(options: PageRefreshOptions = {}) {
   } finally {
     if (!pageRequestIsCurrent(token)) {
       releaseRefreshLayoutFreeze?.()
+      finishPageRefresh(token)
       return
     }
-    pageRefreshing.value = false
+    finishPageRefresh(token)
   }
 }
 
@@ -520,6 +535,7 @@ onMounted(() => {
 onUnmounted(() => {
   disposed = true
   invalidatePageRequests()
+  finishPageRefresh(pageRefreshingToken)
   clearNoticeTimer()
   refreshLayoutFreeze.release()
 })
