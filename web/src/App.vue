@@ -99,6 +99,7 @@ import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
+import { useAppGestureResetAction } from '@/composables/useAppGestureResetAction'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -713,6 +714,13 @@ const detailPreviewSummary = readerDetailFrame.previewSummary
 const detailDisplayDate = readerDetailFrame.displayDate
 const detailSrcdoc = readerDetailFrame.srcdoc
 
+const { resetGestureTracking } = useAppGestureResetAction({
+  resetNavigationGesture: navigationGesture.reset,
+  resetFeedViewSwipeTracking: feedPagerTransition.resetViewSwipeTracking,
+  clearFeedViewStartedWithHiddenChrome: feedPagerTransition.clearStartedWithHiddenChrome,
+  resetReaderBackSwipeCandidate: resetReaderBackSwipeCandidateState,
+})
+
 const { managementItems, feedTabs } = useAppNavigationConfig()
 const appNavigation = useAppNavigationActions({
   router,
@@ -755,13 +763,6 @@ const setTopChromeVisible = appTopChromeActions.setTopChromeVisible
 const collapseTopChrome = appTopChromeActions.collapseTopChrome
 const currentContentScrollTop = appTopChromeActions.currentContentScrollTop
 const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
-
-function resetGestureTracking() {
-  navigationGesture.reset()
-  feedPagerTransition.resetViewSwipeTracking()
-  feedPagerTransition.clearStartedWithHiddenChrome()
-  resetReaderBackSwipeCandidateState()
-}
 
 function isInteractiveTarget(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, [role="button"]'))
