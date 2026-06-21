@@ -31,14 +31,12 @@ import { useDoubleBackGuard } from '@/composables/useDoubleBackGuard'
 import { useGestureOriginState } from '@/composables/useGestureOriginState'
 import { useNavigationGestureState } from '@/composables/useNavigationGestureState'
 import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
-import { useGestureDirection } from '@/composables/useGestureDirection'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
-import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards'
 import { useAppVirtualBackActions } from '@/composables/useAppVirtualBackActions'
 import { useAppReaderSessionSnapshots } from '@/composables/useAppReaderSessionSnapshots'
 import { useAppRouteSessionWatchers } from '@/composables/useAppRouteSessionWatchers'
@@ -72,6 +70,7 @@ import { useAppFeedChromeInteractions } from '@/composables/useAppFeedChromeInte
 import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
 import { useAppPointerGestureInteractions } from '@/composables/useAppPointerGestureInteractions'
 import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwipeInteractions'
+import { useAppGesturePolicy } from '@/composables/useAppGesturePolicy'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -434,13 +433,26 @@ const feedPagerTransition = useFeedPagerTransition({
   isFeedRoute: () => isFeedRoute.value,
   isDetailReaderOpen: () => detailReaderOpen.value,
 })
-const gestureDirection = useGestureDirection({ viewDragThreshold: feedPagerTransition.dragThreshold })
-const isHorizontalSwipe = gestureDirection.isHorizontalSwipe
-const isViewHorizontalSwipe = gestureDirection.isViewHorizontalSwipe
-const isNavigationDrag = gestureDirection.isNavigationDrag
-const isBackHorizontalSwipe = gestureDirection.isBackHorizontalSwipe
-const shouldCancelTopPull = gestureDirection.shouldCancelTopPull
-const shouldWaitForTopPull = gestureDirection.shouldWaitForTopPull
+const gesturePolicy = useAppGesturePolicy({
+  direction: {
+    viewDragThreshold: feedPagerTransition.dragThreshold,
+  },
+  startGuards: {
+    isFeedRoute,
+    navigationVisible,
+    sourceReaderOpen,
+    isSubscriptionsRoute: () => route.name === 'subscriptions',
+    detailBlocksGestures,
+  },
+})
+const isHorizontalSwipe = gesturePolicy.isHorizontalSwipe
+const isViewHorizontalSwipe = gesturePolicy.isViewHorizontalSwipe
+const isNavigationDrag = gesturePolicy.isNavigationDrag
+const isBackHorizontalSwipe = gesturePolicy.isBackHorizontalSwipe
+const shouldCancelTopPull = gesturePolicy.shouldCancelTopPull
+const shouldWaitForTopPull = gesturePolicy.shouldWaitForTopPull
+const canStartViewSwipe = gesturePolicy.canStartViewSwipe
+const canStartNavigationOpen = gesturePolicy.canStartNavigationOpen
 const viewDragOffset = feedPagerTransition.dragOffset
 const viewSettling = feedPagerTransition.settling
 const viewSwipeCandidateActive = feedPagerTransition.viewSwipeCandidateActive
@@ -907,16 +919,6 @@ const restoreParkedSourceReader = readerCloseInteractions.restoreParkedSourceRea
 const restoreItemReaderExpansion = readerCloseInteractions.restoreItemReaderExpansion
 const restoreDetailFromSourceSwipe = readerCloseInteractions.restoreDetailFromSourceSwipe
 const completeDetailToSourceReader = readerCloseInteractions.completeDetailToSourceReader
-
-const appGestureStartGuards = useAppGestureStartGuards({
-  isFeedRoute,
-  navigationVisible,
-  sourceReaderOpen,
-  isSubscriptionsRoute: () => route.name === 'subscriptions',
-  detailBlocksGestures,
-})
-const canStartViewSwipe = appGestureStartGuards.canStartViewSwipe
-const canStartNavigationOpen = appGestureStartGuards.canStartNavigationOpen
 
 const feedViewSwipeInteractions = useAppFeedViewSwipeInteractions({
   topChromeProgress,
