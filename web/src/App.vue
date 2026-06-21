@@ -20,7 +20,6 @@ import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
 import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
-import { useAppChromeLayerState } from '@/composables/useAppChromeLayerState'
 import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
 import { useThemeState } from '@/composables/useThemeState'
@@ -35,7 +34,6 @@ import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { useGestureDirection } from '@/composables/useGestureDirection'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useAppRouteState } from '@/composables/useAppRouteState'
-import { useAppMainClassState } from '@/composables/useAppMainClassState'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeController'
@@ -75,6 +73,7 @@ import { useAppReaderSourceSubscription } from '@/composables/useAppReaderSource
 import { useAppReaderSession } from '@/composables/useAppReaderSession'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 import { useAppFeedChromeInteractions } from '@/composables/useAppFeedChromeInteractions'
+import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -502,62 +501,64 @@ const feedTrackStyle = feedPagerTransition.trackStyle
 const viewSwipeTargetKey = feedPagerTransition.targetKey
 const viewSwipeTargetVisible = feedPagerTransition.targetVisible
 const viewSwipeTargetProgress = feedPagerTransition.targetProgress
-const appChromeLayerState = useAppChromeLayerState({
-  feedPullActive,
-  feedPullRefreshing: () => feedInteraction.pullRefreshing,
-  pullProgress,
-  pagePullActive,
-  pagePullRefreshing,
-  pagePullProgress,
-  detailReaderOpen,
-  feedHeaderReturnProgress,
-  readerBackDragging,
-  detailBlocksGestures,
-  feedHeaderProgress,
-  viewSwipeTargetVisible,
-  viewSwipeTargetProgress,
-  sourcePullActive,
-  sourcePullProgress,
-  topChromeProgress,
-  feedHeaderHeight,
-  feedChromeSettling,
-  feedRefreshSettling,
-  feedTopPulling,
-  feedCornerHidden,
-  detailHeaderVisible,
-  headerDetailLayoutActive,
+const chromeVisualState = useAppChromeVisualState({
+  layer: {
+    feedPullActive,
+    feedPullRefreshing: () => feedInteraction.pullRefreshing,
+    pullProgress,
+    pagePullActive,
+    pagePullRefreshing,
+    pagePullProgress,
+    detailReaderOpen,
+    feedHeaderReturnProgress,
+    readerBackDragging,
+    detailBlocksGestures,
+    feedHeaderProgress,
+    viewSwipeTargetVisible,
+    viewSwipeTargetProgress,
+    sourcePullActive,
+    sourcePullProgress,
+    topChromeProgress,
+    feedHeaderHeight,
+    feedChromeSettling,
+    feedRefreshSettling,
+    feedTopPulling,
+    feedCornerHidden,
+    detailHeaderVisible,
+    headerDetailLayoutActive,
+  },
+  mainClass: {
+    isFeedRoute,
+    feedChromeHidden,
+    feedPullActive,
+    feedPullRefreshing: () => feedInteraction.pullRefreshing,
+    pagePullActive,
+    freezeFeedBodyDuringTopRefresh,
+    feedRefreshSettling,
+    feedChromeSettling,
+    pagePullSettling,
+    viewSettling,
+    detailReaderOpen,
+    detailReturningToFeed,
+    detailChromeVisible,
+  },
 })
-const pullStatusStyle = appChromeLayerState.pullStatusStyle
-const pullIconStyle = appChromeLayerState.pullIconStyle
-const pagePullStatusStyle = appChromeLayerState.pagePullStatusStyle
-const pagePullIconStyle = appChromeLayerState.pagePullIconStyle
-const feedTabsLayerStyle = appChromeLayerState.feedTabsLayerStyle
-const feedTabsTargetLayerStyle = appChromeLayerState.feedTabsTargetLayerStyle
-const sourcePullStatusStyle = appChromeLayerState.sourcePullStatusStyle
-const sourcePullIconStyle = appChromeLayerState.sourcePullIconStyle
-const sourceHeaderStyle = appChromeLayerState.sourceHeaderStyle
-const detailHeaderLayerStyle = appChromeLayerState.detailHeaderLayerStyle
-const pageTitleLayerStyle = appChromeLayerState.pageTitleLayerStyle
-const sourceMainLayerStyle = appChromeLayerState.sourceMainLayerStyle
-const headerClass = appChromeLayerState.headerClass
-const headerStyle = appChromeLayerState.headerStyle
-const navOpenButtonStyle = appChromeLayerState.navOpenButtonStyle
-const appMainClassState = useAppMainClassState({
-  isFeedRoute,
-  feedChromeHidden,
-  feedPullActive,
-  feedPullRefreshing: () => feedInteraction.pullRefreshing,
-  pagePullActive,
-  freezeFeedBodyDuringTopRefresh,
-  feedRefreshSettling,
-  feedChromeSettling,
-  pagePullSettling,
-  viewSettling,
-  detailReaderOpen,
-  detailReturningToFeed,
-  detailChromeVisible,
-})
-const mainClass = appMainClassState.mainClass
+const pullStatusStyle = chromeVisualState.pullStatusStyle
+const pullIconStyle = chromeVisualState.pullIconStyle
+const pagePullStatusStyle = chromeVisualState.pagePullStatusStyle
+const pagePullIconStyle = chromeVisualState.pagePullIconStyle
+const feedTabsLayerStyle = chromeVisualState.feedTabsLayerStyle
+const feedTabsTargetLayerStyle = chromeVisualState.feedTabsTargetLayerStyle
+const sourcePullStatusStyle = chromeVisualState.sourcePullStatusStyle
+const sourcePullIconStyle = chromeVisualState.sourcePullIconStyle
+const sourceHeaderStyle = chromeVisualState.sourceHeaderStyle
+const detailHeaderLayerStyle = chromeVisualState.detailHeaderLayerStyle
+const pageTitleLayerStyle = chromeVisualState.pageTitleLayerStyle
+const sourceMainLayerStyle = chromeVisualState.sourceMainLayerStyle
+const headerClass = chromeVisualState.headerClass
+const headerStyle = chromeVisualState.headerStyle
+const navOpenButtonStyle = chromeVisualState.navOpenButtonStyle
+const mainClass = chromeVisualState.mainClass
 const readerMotionState = useAppReaderMotionState({
   layout: {
     windowWidth,
