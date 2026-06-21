@@ -108,6 +108,13 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     return null
   }
 
+  function resolveDragCommitPath(deltaX: number, horizontal: boolean, switchDistance: number) {
+    if (!viewSwipeActive.value) {
+      return null
+    }
+    return commitPath(deltaX, horizontal, switchDistance)
+  }
+
   function directionFromOffset(offset: number) {
     return offset < 0 ? ('left' as const) : ('right' as const)
   }
@@ -306,7 +313,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     targetVisible,
     targetProgress,
     surfaceFromOffset,
-    commitPath,
+    resolveDragCommitPath,
     swipeTransitionBeginPayload,
     swipeTransitionUpdatePayload,
     finishSwipeResult,

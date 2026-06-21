@@ -2405,7 +2405,7 @@ function handleTouchEnd(event: TouchEvent) {
 
   if (viewSwipeActive.value) {
     suppressFollowingClick()
-    finishViewSwipe(feedPagerTransition.commitPath(deltaX, horizontal, viewSwitchDistance))
+    finishViewSwipe(feedPagerTransition.resolveDragCommitPath(deltaX, horizontal, viewSwitchDistance))
   }
 
   resetGestureTracking()
@@ -2481,7 +2481,7 @@ function handleFeedPointerUp(event: PointerEvent) {
   const deltaY = event.clientY - touchStartY
   const horizontal = isViewHorizontalSwipe(deltaX, deltaY)
 
-  const nextPath = viewSwipeActive.value ? feedPagerTransition.commitPath(deltaX, horizontal, viewSwitchDistance) : null
+  const nextPath = feedPagerTransition.resolveDragCommitPath(deltaX, horizontal, viewSwitchDistance)
   if (nextPath) {
     suppressFollowingClick()
     finishViewSwipe(nextPath)
