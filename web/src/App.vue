@@ -61,6 +61,7 @@ import { useGestureOriginState } from '@/composables/useGestureOriginState'
 import { useNavigationGestureState } from '@/composables/useNavigationGestureState'
 import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { useGestureDirection } from '@/composables/useGestureDirection'
+import { useMotionTimings } from '@/composables/useMotionTimings'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 import { escapeHTML, formatItemDate, plainPreviewText, sanitizeDetailHTML } from '@/utils/readerContent'
 
@@ -264,6 +265,20 @@ const clickSuppression = useClickSuppression()
 const viewportSize = useViewportSize({ defaultWidth: 1440, defaultHeight: 900 })
 const windowWidth = viewportSize.width
 const windowHeight = viewportSize.height
+const motionTimings = useMotionTimings()
+const motionQuickDuration = motionTimings.quickDuration
+const motionNormalDuration = motionTimings.normalDuration
+const motionStretchAnchorClearDuration = motionTimings.stretchAnchorClearDuration
+const motionHeaderSwapDuration = motionTimings.headerSwapDuration
+const motionReaderDuration = motionTimings.readerDuration
+const motionChromeDuration = motionTimings.chromeDuration
+const detailFrameMetricsInitialDelay = motionTimings.detailFrameMetricsInitialDelay
+const detailFrameMetricsSettledDelay = motionTimings.detailFrameMetricsSettledDelay
+const readerScrollRestoreRetryDelay = motionTimings.readerScrollRestoreRetryDelay
+const readerScrollRestoreSettledDelay = motionTimings.readerScrollRestoreSettledDelay
+const readerMorphDuration = motionTimings.readerMorphDuration
+const readerRectRetryDelay = motionTimings.readerRectRetryDelay
+const motionDelay = motionTimings.delay
 const navigationDrawer = useNavigationDrawer({ windowWidth, resolveDelay: motionDelay })
 const navigationOpen = navigationDrawer.open
 const navigationProgress = navigationDrawer.progress
@@ -297,20 +312,6 @@ const trackingPageTopPull = pagePullRefresh.gestureTracking
 const pageContentMotion = usePageContentMotion({ pullOffset: pagePullOffset })
 const pageSideStretch = pageContentMotion.sideStretch
 const pageContentInnerStyle = pageContentMotion.contentStyle
-const motionQuickDuration = 180
-const motionNormalDuration = 260
-const motionStretchAnchorClearDuration = 280
-const motionHeaderSwapDuration = 320
-const motionReaderDuration = 360
-const motionChromeDuration = 1000
-const detailFrameMetricsInitialDelay = motionQuickDuration
-const detailFrameMetricsSettledDelay = 520
-const readerScrollRestoreRetryDelay = 120
-const readerScrollRestoreSettledDelay = detailFrameMetricsSettledDelay
-const readerMorphDuration = motionReaderDuration
-const readerMorphCleanupBuffer = 96
-const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
-const readerRectRetryDelay = 64
 const homeExitDoubleBackMs = 1600
 const homeBackGuard = useDoubleBackGuard(homeExitDoubleBackMs)
 const readerSession = useReaderSession<ReaderSessionSnapshot>({
@@ -987,10 +988,6 @@ function navigateTo(path: string) {
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.min(Math.max(value, min), max)
-}
-
-function motionDelay(duration = readerMorphDuration) {
-  return duration === readerMorphDuration ? readerMorphCleanupDelay : duration + readerMorphCleanupBuffer
 }
 
 function clearStretchAnchors(delay = motionStretchAnchorClearDuration) {
