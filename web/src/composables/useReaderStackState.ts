@@ -1542,6 +1542,14 @@ export function useReaderStackState() {
     }
 
     if (action.type === 'right-swipe') {
+      if (action.intent === 'blocked') {
+        setReaderBackSwipeIntentState('blocked')
+        if (options.prepareBlocked) {
+          prepareReaderBackSwipeIntentState({ intent: 'blocked', clearReturningToFeed: true })
+        }
+        return action
+      }
+
       const effectState = {
         returningToFeed: action.returningToFeed,
         revealSourceReader: action.revealSourceReader,
