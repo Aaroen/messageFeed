@@ -204,6 +204,8 @@ const {
   detailBlocksGestures,
   setSourceReaderContentElement: setSourceReaderContentElementState,
   setDetailContentElement: setDetailContentElementState,
+  setDetailInlineSourceElement: setDetailInlineSourceElementState,
+  setDetailFrameElement: setDetailFrameElementState,
 } = useReaderStackState()
 const {
   sourceToggleLabel,
@@ -1221,11 +1223,11 @@ function setDetailContentElement(element: HTMLElement | null) {
 }
 
 function setDetailInlineSourceElement(element: HTMLElement | null) {
-  detailInlineSourceRef.value = element
+  setDetailInlineSourceElementState(element)
 }
 
 function setDetailFrameElement(element: HTMLIFrameElement | null) {
-  detailFrameRef.value = element
+  setDetailFrameElementState(element)
 }
 
 function restoreMorphingItemContent(unlockDelay = motionQuickDuration) {

@@ -1983,6 +1983,14 @@ export function useReaderStackState() {
     detailContentRef.value = element
   }
 
+  function setDetailInlineSourceElement(element: HTMLElement | null) {
+    detailInlineSourceRef.value = element
+  }
+
+  function setDetailFrameElement(element: HTMLIFrameElement | null) {
+    detailFrameRef.value = element
+  }
+
   return {
     sourceReaderContentRef,
     detailContentRef,
@@ -2128,5 +2136,7 @@ export function useReaderStackState() {
     detailBlocksGestures,
     setSourceReaderContentElement,
     setDetailContentElement,
+    setDetailInlineSourceElement,
+    setDetailFrameElement,
   }
 }
