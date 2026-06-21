@@ -2940,9 +2940,7 @@ watch(
     resetGestureTracking()
     resetPageTopPullTracking()
     feedTopPulling.value = false
-    pagePullRefresh.setOffset(0)
-    pagePullRefresh.setDistance(0)
-    pagePullRefresh.setSettling(false)
+    pagePullRefresh.resetMotion()
     feedPagerTransition.resetDragOffset()
     if (isFeedRoute.value) {
       setTopChromeVisible(true)

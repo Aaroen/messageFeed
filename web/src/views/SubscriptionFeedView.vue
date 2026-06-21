@@ -503,10 +503,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     }
 
     if (isBackgroundRefresh) {
-      pullRefresh.setOffset(0)
-      pullRefresh.finishRefreshing()
-      pullRefresh.resetGesture()
-      pullRefresh.setSettling(false)
+      pullRefresh.finishBackgroundRefresh()
       return
     }
 
