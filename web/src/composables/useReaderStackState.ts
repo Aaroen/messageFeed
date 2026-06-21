@@ -278,6 +278,7 @@ export function useReaderStackState() {
   let readerMotionTimer = 0
   let morphingHeightUnlockTimer = 0
   let hiddenSourceCleanupTimer = 0
+  let readerMotionTimerToken = 0
   let detailEntryTimer = 0
   let detailEntryFrame = 0
   let detailEntrySecondFrame = 0
@@ -1168,6 +1169,7 @@ export function useReaderStackState() {
   }
 
   function clearReaderMotionTimer() {
+    readerMotionTimerToken += 1
     if (typeof window !== 'undefined' && readerMotionTimer !== 0) {
       window.clearTimeout(readerMotionTimer)
     }
@@ -1177,7 +1179,11 @@ export function useReaderStackState() {
   function settleReaderMotionWithDelay(delay = readerMotionSettleDelay, done?: () => void) {
     beginReaderMotionSettlingState()
     clearReaderMotionTimer()
+    const token = readerMotionTimerToken
     readerMotionTimer = window.setTimeout(() => {
+      if (token !== readerMotionTimerToken) {
+        return
+      }
       readerMotionTimer = 0
       finishReaderMotionSettlingState()
       done?.()
