@@ -58,12 +58,10 @@ import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
 import { useReaderLayoutState } from '@/composables/useReaderLayoutState'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppMainClassState } from '@/composables/useAppMainClassState'
-import { usePagePullGestureHandlers } from '@/composables/usePagePullGestureHandlers'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useTopChromeScrollBehavior } from '@/composables/useTopChromeScrollBehavior'
 import { useFeedTopPullHandlers } from '@/composables/useFeedTopPullHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
-import { usePagePullRefreshAction } from '@/composables/usePagePullRefreshAction'
 import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeController'
 import { useReaderBackSwipeTransitionController } from '@/composables/useReaderBackSwipeTransitionController'
 import { useFeedPointerSwipeHandlers } from '@/composables/useFeedPointerSwipeHandlers'
@@ -102,6 +100,7 @@ import { useAppReaderRouteSyncAction } from '@/composables/useAppReaderRouteSync
 import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStackOutletBindings'
 import { useAppMainOutletBindings } from '@/composables/useAppMainOutletBindings'
 import { useAppPagePullState } from '@/composables/useAppPagePullState'
+import { useAppPagePullInteractions } from '@/composables/useAppPagePullInteractions'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1328,22 +1327,13 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
 const readerStackOutletProps = readerStackOutletBindings.props
 const readerStackOutletListeners = readerStackOutletBindings.listeners
 
-const pagePullRefreshAction = usePagePullRefreshAction({
-  refreshing: pagePullRefreshing,
-  noticeDelayMS: topRefreshNoticeDelay,
-  currentRefreshPage: pageOutlet.currentRefreshPage,
-  beginRefreshing: pagePullRefresh.beginRefreshing,
-  settleRefreshCompletion: pagePullRefresh.settleRefreshCompletion,
-  collapseTopChrome,
-})
-const refreshCurrentPageFromPull = pagePullRefreshAction.refreshCurrentPageFromPull
-
-const pagePullGestureHandlers = usePagePullGestureHandlers({
+const pagePullInteractions = useAppPagePullInteractions({
+  pagePull: pagePullState,
   isFeedRoute,
-  refreshThreshold: pagePullRefresh.threshold,
-  pullRefresh: pagePullRefresh,
-  currentContentScrollTop,
+  topRefreshNoticeDelay,
+  currentRefreshPage: pageOutlet.currentRefreshPage,
   hasRefreshPage: pageOutlet.hasRefreshPage,
+  currentContentScrollTop,
   isControlTarget: isPageTopPullControlTarget,
   shouldCancelTopPull,
   shouldWaitForTopPull,
@@ -1352,13 +1342,13 @@ const pagePullGestureHandlers = usePagePullGestureHandlers({
     feedTopPull.finish()
   },
   settlePullOffset: settlePagePullOffset,
-  refreshCurrentPageFromPull,
+  collapseTopChrome,
 })
-const resetPageTopPullTracking = pagePullGestureHandlers.resetPageTopPullTracking
-const handlePageTouchStart = pagePullGestureHandlers.handlePageTouchStart
-const handlePageTouchMove = pagePullGestureHandlers.handlePageTouchMove
-const handlePageTouchEnd = pagePullGestureHandlers.handlePageTouchEnd
-const handlePageTouchCancel = pagePullGestureHandlers.handlePageTouchCancel
+const resetPageTopPullTracking = pagePullInteractions.resetPageTopPullTracking
+const handlePageTouchStart = pagePullInteractions.handlePageTouchStart
+const handlePageTouchMove = pagePullInteractions.handlePageTouchMove
+const handlePageTouchEnd = pagePullInteractions.handlePageTouchEnd
+const handlePageTouchCancel = pagePullInteractions.handlePageTouchCancel
 
 const mainOutletBindings = useAppMainOutletBindings({
   mainClass,

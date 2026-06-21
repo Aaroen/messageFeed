@@ -31,3 +31,5 @@ export function useAppPagePullState(options: AppPagePullStateOptions) {
     statusMeta: status.meta,
   }
 }
+
+export type AppPagePullState = ReturnType<typeof useAppPagePullState>
