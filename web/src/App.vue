@@ -42,6 +42,7 @@ import { useSourceContentMotion } from '@/composables/useSourceContentMotion'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
 import { useChromeLayerMotion } from '@/composables/useChromeLayerMotion'
 import { useReaderSourceSurfaceMotion } from '@/composables/useReaderSourceSurfaceMotion'
+import { useReaderDetailSurfaceMotion } from '@/composables/useReaderDetailSurfaceMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -508,16 +509,16 @@ const sourceHeaderStyle = computed(() =>
 const detailHeaderLayerStyle = computed(() => chromeLayerMotion.layerStyle(detailHeaderVisible.value, topChromeProgress.value))
 const pageTitleLayerStyle = computed(() => chromeLayerMotion.layerStyle(!pagePullActive.value, feedHeaderProgress.value))
 const sourceMainLayerStyle = computed(() => chromeLayerMotion.layerStyle(!sourcePullActive.value, topChromeProgress.value))
-const detailReaderStyle = computed(() => ({
-  transform: `translate3d(0, 0, 0) scaleX(${(1 + Math.abs(detailReaderStretch.value)).toFixed(4)})`,
-  transition: readerBackDragging.value ? 'none' : undefined,
-  transformOrigin: stretchTransformOrigin(detailReaderStretch.value, detailStretchAnchor.value),
-  pointerEvents: detailCommittedListReturn() ? ('none' as const) : ('auto' as const),
-  '--detail-overlay-opacity':
-    sourceReaderBlockedBackSwipeActive.value || detailCommittedListReturn() || detailReturningToFeed.value
-    ? '0'
-    : detailSurfaceProgress.value.toFixed(3),
-}))
+const detailSurfaceMotion = useReaderDetailSurfaceMotion({
+  stretch: detailReaderStretch,
+  stretchAnchor: detailStretchAnchor,
+  dragging: readerBackDragging,
+  blockedBackSwipeActive: sourceReaderBlockedBackSwipeActive,
+  returningToFeed: detailReturningToFeed,
+  surfaceProgress: detailSurfaceProgress,
+  committedListReturn: detailCommittedListReturn,
+})
+const detailReaderStyle = detailSurfaceMotion.readerStyle
 const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
   const side = windowWidth.value <= 720 ? 24 : 46
   const top = feedHeaderHeight.value + 24
