@@ -75,6 +75,7 @@ import { useFeedTopPullHandlers } from '@/composables/useFeedTopPullHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 import { usePagePullRefreshAction } from '@/composables/usePagePullRefreshAction'
 import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeController'
+import { useReaderBackSwipeTransitionController } from '@/composables/useReaderBackSwipeTransitionController'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1256,21 +1257,17 @@ const scheduleSwipeTransitionReset = feedViewSwipeController.scheduleSwipeTransi
 const beginViewSwipeTransition = feedViewSwipeController.beginViewSwipeTransition
 const syncViewSwipeTransition = feedViewSwipeController.syncViewSwipeTransition
 
-function beginBackSwipeTransition(deltaX: number) {
-  const payload = readerBackSwipeTransitionBeginPayload(deltaX, {
-    activeFeedSurface: feedPagerTransition.activeSurface.value,
-    pageReturnSurface: 'feed:recommendations',
-  })
-  swipeTransition.begin(payload)
-}
-
-function syncBackSwipeTransition(deltaX: number) {
-  const payload = readerBackSwipeTransitionUpdatePayload(deltaX, pageSideStretch.value, {
-    activeFeedSurface: feedPagerTransition.activeSurface.value,
-    pageReturnSurface: 'feed:recommendations',
-  })
-  swipeTransition.update(payload)
-}
+const readerBackSwipeTransitionController = useReaderBackSwipeTransitionController({
+  activeFeedSurface: feedPagerTransition.activeSurface,
+  pageReturnSurface: 'feed:recommendations',
+  fallbackStretch: pageSideStretch,
+  beginSwipeTransition: swipeTransition.begin,
+  updateSwipeTransition: swipeTransition.update,
+  transitionBeginPayload: readerBackSwipeTransitionBeginPayload,
+  transitionUpdatePayload: readerBackSwipeTransitionUpdatePayload,
+})
+const beginBackSwipeTransition = readerBackSwipeTransitionController.beginBackSwipeTransition
+const syncBackSwipeTransition = readerBackSwipeTransitionController.syncBackSwipeTransition
 
 function showTopChromeForSourceReturn() {
   if (topChromeProgress.value < 0.99 || feedContentCollapsed.value) {
