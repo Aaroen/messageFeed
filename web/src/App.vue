@@ -2889,9 +2889,7 @@ function handlePageTouchMove(event: TouchEvent) {
   if (trackingPageTopPull.value) {
     event.preventDefault()
     pagePullRefresh.updateGestureDistance(deltaY)
-    pagePullRefresh.setSettling(false)
-    pagePullRefresh.clearSettleTimer()
-    pagePullRefresh.setOffset(pageRubberBandOffset(deltaY))
+    pagePullRefresh.setGestureOffset(pageRubberBandOffset(deltaY))
   }
 }
 

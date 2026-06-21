@@ -96,6 +96,12 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     offset.value = Math.max(0, nextOffset)
   }
 
+  function setGestureOffset(nextOffset: number) {
+    clearSettleTimer()
+    settling.value = false
+    setOffset(nextOffset)
+  }
+
   function setDistance(nextDistance: number) {
     distance.value = Math.max(0, nextDistance)
   }
@@ -207,6 +213,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     updateGestureDistance,
     resetGestureTracking,
     setOffset,
+    setGestureOffset,
     beginRefreshing,
     finishRefreshing,
     resetMotion,

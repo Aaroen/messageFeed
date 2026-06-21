@@ -656,11 +656,11 @@ function handleTouchMove(event: TouchEvent) {
     emit('topPullMove', Math.max(0, deltaY))
     const refreshDistance = Math.max(0, deltaY - touchStartChromeDistance)
     if (refreshDistance <= 0) {
-      pullRefresh.setOffset(0)
+      pullRefresh.setGestureOffset(0)
       clearPullState()
       return
     }
-    pullRefresh.setOffset(pullRefresh.rubberBandDistance(refreshDistance, hasItems.value))
+    pullRefresh.setGestureOffset(pullRefresh.rubberBandDistance(refreshDistance, hasItems.value))
   }
 }
 
