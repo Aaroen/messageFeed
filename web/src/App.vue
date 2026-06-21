@@ -249,7 +249,11 @@ const trackingPageTopPull = pagePullRefresh.gestureTracking
 const pageContentMotion = usePageContentMotion({ pullOffset: pagePullOffset })
 const pageSideStretch = pageContentMotion.sideStretch
 const pageContentInnerStyle = pageContentMotion.contentStyle
-const readerMorphDuration = 360
+const motionQuickDuration = 180
+const motionNormalDuration = 260
+const motionReaderDuration = 360
+const motionChromeDuration = 1000
+const readerMorphDuration = motionReaderDuration
 const readerMorphCleanupBuffer = 96
 const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
 const readerRectRetryDelay = 64
@@ -1078,7 +1082,7 @@ const viewDirectionLockRatio = 1.35
 const topPullDirectionLockRatio = 1.18
 const viewDragThreshold = feedPagerTransition.dragThreshold
 const viewSwipeChromeRevealDelay = 520
-const topChromeSettleDuration = 1000
+const topChromeSettleDuration = motionChromeDuration
 let touchStartX = 0
 let touchStartY = 0
 let touchStartNavigationProgress = 0
@@ -1174,7 +1178,7 @@ function handleCornerButtonClick() {
 function navigateTo(path: string) {
   feedPagerTransition.beginProgrammaticNavigation()
   void pushRoute(path)
-  feedPagerTransition.settleProgrammaticNavigation(motionDelay(260))
+  feedPagerTransition.settleProgrammaticNavigation(motionDelay(motionNormalDuration))
 }
 
 function clamp(value: number, min = 0, max = 1) {
@@ -1474,11 +1478,11 @@ function setDetailFrameElement(element: HTMLIFrameElement | null) {
   detailFrameRef.value = element
 }
 
-function restoreMorphingItemContent(unlockDelay = 180) {
+function restoreMorphingItemContent(unlockDelay = motionQuickDuration) {
   restoreMorphingItemContentWithDelay(unlockDelay)
 }
 
-function scheduleHiddenSourceReaderCleanup(delay = 180) {
+function scheduleHiddenSourceReaderCleanup(delay = motionQuickDuration) {
   scheduleHiddenSourceReaderCleanupWithDelay(delay)
 }
 
@@ -1502,7 +1506,7 @@ function showSourceReaderUnderDetail() {
   captureDetailSourceTransitionRects(12, { lock: true })
 }
 
-function settleReaderMotion(duration = 260, done?: () => void) {
+function settleReaderMotion(duration = motionNormalDuration, done?: () => void) {
   settleReaderMotionWithDelay(motionDelay(duration), done)
 }
 
@@ -1798,7 +1802,7 @@ function closeSourceReader() {
   }
 }
 
-function restoreDetailFromParkedSource(duration = 360) {
+function restoreDetailFromParkedSource(duration = motionReaderDuration) {
   if (!detailReaderOpen.value) {
     closeSourceReader()
     return
@@ -1820,7 +1824,7 @@ function restoreDetailFromParkedSource(duration = 360) {
   })
 }
 
-function restoreParkedSourceReader(duration = 260) {
+function restoreParkedSourceReader(duration = motionNormalDuration) {
   if (!restoreParkedSourceReaderWithDelay(motionDelay(duration))) {
     resetBackSwipeOffset()
   }
@@ -1836,7 +1840,7 @@ function closeItemReader() {
   }
 }
 
-function collapseItemReader(duration = 360) {
+function collapseItemReader(duration = motionReaderDuration) {
   if (!detailReaderOpen.value) {
     return
   }
@@ -1859,15 +1863,15 @@ function collapseItemReader(duration = 360) {
   })
 }
 
-function restoreItemReaderExpansion(duration = 360) {
+function restoreItemReaderExpansion(duration = motionReaderDuration) {
   restoreItemReaderExpansionWithDelay(motionDelay(duration))
 }
 
-function restoreDetailFromSourceSwipe(duration = 360) {
+function restoreDetailFromSourceSwipe(duration = motionReaderDuration) {
   restoreDetailFromSourceSwipeWithDelay(motionDelay(duration))
 }
 
-function completeDetailToSourceReader(duration = 360) {
+function completeDetailToSourceReader(duration = motionReaderDuration) {
   completeDetailToSourceReaderWithDelay(motionDelay(duration), {
     afterBegin: () => {
       setTopChromeVisible(true)
@@ -1921,7 +1925,7 @@ function canStartNavigationOpen(_clientX: number) {
   )
 }
 
-function scheduleSwipeTransitionReset(duration = 260) {
+function scheduleSwipeTransitionReset(duration = motionNormalDuration) {
   swipeTransition.scheduleReset(motionDelay(duration))
 }
 
@@ -2104,7 +2108,7 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
     progress: result.progress,
     isBlocked: result.isBlocked,
   })
-  scheduleSwipeTransitionReset(360)
+  scheduleSwipeTransitionReset(motionReaderDuration)
 
   if (result.committed) {
     suppressFollowingClick()
@@ -2119,7 +2123,7 @@ function cancelBackSwipe() {
     progress: result.progress,
     isBlocked: result.isBlocked,
   })
-  scheduleSwipeTransitionReset(360)
+  scheduleSwipeTransitionReset(motionReaderDuration)
   applyReaderBackSwipeAction(result.action, readerBackSwipeActionHandlers())
 }
 
@@ -2132,16 +2136,16 @@ function finishViewSwipe(nextPath: string | null) {
       if (nextPath) {
         void pushRoute(nextPath)
       }
-      feedPagerTransition.settleFinishedSwipe(motionDelay(260))
+      feedPagerTransition.settleFinishedSwipe(motionDelay(motionNormalDuration))
     })
-    scheduleSwipeTransitionReset(viewSwipeChromeRevealDelay + 260)
+    scheduleSwipeTransitionReset(viewSwipeChromeRevealDelay + motionNormalDuration)
     return
   }
   if (nextPath) {
     void pushRoute(nextPath)
   }
-  feedPagerTransition.settleFinishedSwipe(motionDelay(260))
-  scheduleSwipeTransitionReset(260)
+  feedPagerTransition.settleFinishedSwipe(motionDelay(motionNormalDuration))
+  scheduleSwipeTransitionReset(motionNormalDuration)
 }
 
 function showTopChromeForViewSwipe() {
@@ -2901,7 +2905,7 @@ async function refreshCurrentPageFromPull() {
 
   pagePullRefresh.beginRefreshing()
   try {
-    await refreshPage({ noticeDelayMS: 180, suppressStartNotice: true })
+    await refreshPage({ noticeDelayMS: motionQuickDuration, suppressStartNotice: true })
   } finally {
     pagePullRefresh.finishRefreshing()
     chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
