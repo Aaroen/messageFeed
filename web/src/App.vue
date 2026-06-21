@@ -77,6 +77,7 @@ import { usePagePullRefreshAction } from '@/composables/usePagePullRefreshAction
 import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeController'
 import { useReaderBackSwipeTransitionController } from '@/composables/useReaderBackSwipeTransitionController'
 import { useFeedPointerSwipeHandlers } from '@/composables/useFeedPointerSwipeHandlers'
+import { useNavigationPointerHandlers } from '@/composables/useNavigationPointerHandlers'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1529,84 +1530,27 @@ function handleTouchMove(event: TouchEvent) {
   }
 }
 
-function handleWindowPointerDown(event: PointerEvent) {
-  if (event.pointerType === 'mouse' || event.isPrimary === false) {
-    return
-  }
-
-  finishCommittedListReturnForGesture()
-
-  gestureOrigin.begin(event.clientX, event.clientY, navigationProgress.value)
-  navigationGesture.setCandidates({
-    edgeSwipe: canStartNavigationOpen(gestureOrigin.originX()),
-    closeSwipe: navigationOpen.value,
-  })
-  feedPagerTransition.cancelViewSwipeCandidate()
-  gestureOrigin.setActivePointerId(
-    navigationGesture.hasCandidate() ? event.pointerId : null,
-  )
-}
-
-function handleWindowPointerMove(event: PointerEvent) {
-  if (!gestureOrigin.isActivePointer(event.pointerId)) {
-    return
-  }
-
-  const { deltaX, deltaY } = gestureOrigin.delta(event.clientX, event.clientY)
-
-  if (navigationGesture.edgeSwipeCandidate() && deltaX > 8 && isNavigationDrag(deltaX, deltaY)) {
-    navigationGesture.beginEdgeSwipe()
-    navigationDrawer.beginDrag()
-  }
-
-  if (navigationGesture.closeSwipeCandidate() && deltaX < -8 && isNavigationDrag(deltaX, deltaY)) {
-    navigationGesture.beginCloseSwipe()
-    navigationDrawer.beginDrag()
-  }
-
-  if (navigationGesture.hasActiveSwipe()) {
-    event.preventDefault()
-  }
-
-  if (navigationGesture.edgeSwipe()) {
-    navigationDrawer.updateOpeningDrag(deltaX)
-  } else if (navigationGesture.closeSwipe()) {
-    navigationDrawer.updateClosingDrag(gestureOrigin.navigationProgress(), deltaX)
-  }
-}
-
-function handleWindowPointerUp(event: PointerEvent) {
-  if (!gestureOrigin.isActivePointer(event.pointerId)) {
-    return
-  }
-
-  const { deltaX, deltaY } = gestureOrigin.delta(event.clientX, event.clientY)
-  const horizontal = viewSwipeActive.value ? isViewHorizontalSwipe(deltaX, deltaY) : isHorizontalSwipe(deltaX, deltaY)
-
-  if (navigationGesture.edgeSwipe() && navigationGesture.dragStarted()) {
-    settleNavigation(horizontal && (deltaX >= navigationOpenDistance || navigationProgress.value >= 0.42))
-  }
-
-  if (navigationGesture.closeSwipe() && navigationGesture.dragStarted()) {
-    settleNavigation(!(horizontal && (deltaX <= -navigationOpenDistance || navigationProgress.value <= 0.58)))
-  }
-
-  gestureOrigin.clearActivePointer()
-  resetGestureTracking()
-}
-
-function handleWindowPointerCancel(event: PointerEvent) {
-  if (!gestureOrigin.isActivePointer(event.pointerId)) {
-    return
-  }
-
-  gestureOrigin.clearActivePointer()
-  const hadNavigationGesture = navigationGesture.hasActiveSwipe()
-  resetGestureTracking()
-  if (hadNavigationGesture) {
-    settleNavigation(navigationProgress.value >= 0.42)
-  }
-}
+const navigationPointerHandlers = useNavigationPointerHandlers({
+  navigationOpen,
+  navigationProgress,
+  viewSwipeActive,
+  navigationOpenDistance,
+  gestureOrigin,
+  navigationGesture,
+  navigationDrawer,
+  finishCommittedListReturnForGesture,
+  canStartNavigationOpen,
+  cancelViewSwipeCandidate: feedPagerTransition.cancelViewSwipeCandidate,
+  isNavigationDrag,
+  isHorizontalSwipe,
+  isViewHorizontalSwipe,
+  settleNavigation,
+  resetGestureTracking,
+})
+const handleWindowPointerDown = navigationPointerHandlers.handleWindowPointerDown
+const handleWindowPointerMove = navigationPointerHandlers.handleWindowPointerMove
+const handleWindowPointerUp = navigationPointerHandlers.handleWindowPointerUp
+const handleWindowPointerCancel = navigationPointerHandlers.handleWindowPointerCancel
 
 function handleTouchEnd(event: TouchEvent) {
   if (
