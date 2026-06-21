@@ -5,6 +5,7 @@ import { IconMenuUnfold } from '@arco-design/web-vue/es/icon'
 import type { FeedItem } from '@/api/feed'
 import type { ChromePhase } from '@/composables/useChromeState'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
+import RefreshStatusLayer from '@/components/RefreshStatusLayer.vue'
 import ReaderSourceChromeContent from '@/components/ReaderSourceChromeContent.vue'
 import ReaderSourceFeed from '@/components/ReaderSourceFeed.vue'
 import ReaderSourceNotice from '@/components/ReaderSourceNotice.vue'
@@ -113,16 +114,21 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
       :title-text-style="titleTextStyle"
       :title-layer-style="titleLayerStyle"
       :main-layer-style="mainLayerStyle"
-      :pull-status-style="pullStatusStyle"
-      :pull-icon-style="pullIconStyle"
       :pull-active="pullActive"
-      :pull-refreshing="pullRefreshing"
-      :pull-status-text="pullStatusText"
-      :pull-status-meta="pullStatusMeta"
       :toggle-active="toggleActive"
       :toggle-label="toggleLabel"
       :toggle-disabled="toggleDisabled"
       @toggle-subscription="emit('toggle-subscription')"
+    />
+    <RefreshStatusLayer
+      root-class="reader-source-refresh-layer"
+      hidden-class="reader-source-layer--hidden"
+      :hidden="!pullActive"
+      :root-style="pullStatusStyle"
+      :refreshing="pullRefreshing"
+      :icon-style="pullIconStyle"
+      :title="pullStatusText"
+      :meta="pullStatusMeta"
     />
   </TopChrome>
   <div

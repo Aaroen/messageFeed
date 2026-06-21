@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import type { StyleValue } from 'vue'
 
-import RefreshStatusLayer from '@/components/RefreshStatusLayer.vue'
-
 withDefaults(
   defineProps<{
     sourceName?: string
@@ -10,12 +8,7 @@ withDefaults(
     titleTextStyle?: StyleValue
     titleLayerStyle?: StyleValue
     mainLayerStyle?: StyleValue
-    pullStatusStyle?: StyleValue
-    pullIconStyle?: StyleValue
     pullActive?: boolean
-    pullRefreshing?: boolean
-    pullStatusText?: string
-    pullStatusMeta?: string
     toggleActive?: boolean
     toggleLabel?: string
     toggleDisabled?: boolean
@@ -26,12 +19,7 @@ withDefaults(
     titleTextStyle: undefined,
     titleLayerStyle: undefined,
     mainLayerStyle: undefined,
-    pullStatusStyle: undefined,
-    pullIconStyle: undefined,
     pullActive: false,
-    pullRefreshing: false,
-    pullStatusText: '',
-    pullStatusMeta: '',
     toggleActive: false,
     toggleLabel: '',
     toggleDisabled: false,
@@ -66,15 +54,5 @@ const emit = defineEmits<{
         {{ toggleLabel }}
       </button>
     </div>
-    <RefreshStatusLayer
-      root-class="reader-source-layer reader-source-layer--refresh"
-      hidden-class="reader-source-layer--hidden"
-      :hidden="!pullActive"
-      :root-style="pullStatusStyle"
-      :refreshing="pullRefreshing"
-      :icon-style="pullIconStyle"
-      :title="pullStatusText"
-      :meta="pullStatusMeta"
-    />
   </div>
 </template>
