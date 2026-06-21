@@ -2017,28 +2017,6 @@ function prepareSourceReaderReturnDrag() {
   return captureVisibleSourceReturnTarget()
 }
 
-function blockedSwipeStretch(deltaX: number, currentX = touchStartX + deltaX) {
-  const width = Math.max(1, windowWidth.value)
-  const edgeStopZone = Math.min(54, width * 0.12)
-  const availableDistance =
-    deltaX < 0
-      ? Math.max(1, touchStartX - edgeStopZone)
-      : Math.max(1, width - touchStartX - edgeStopZone)
-  const travelledToEdge =
-    deltaX < 0
-      ? Math.max(0, touchStartX - currentX)
-      : Math.max(0, currentX - touchStartX)
-  const edgeProgress = clamp(travelledToEdge / availableDistance)
-  const distanceProgress = Math.log1p(edgeProgress * 14) / Math.log1p(14)
-  const stretch = 0.07 * distanceProgress
-  return deltaX < 0 ? -stretch : stretch
-}
-
-function backSwipeVisualOffset(deltaX: number) {
-  const limit = Math.round(windowWidth.value * 0.72)
-  return Math.max(-limit, Math.min(limit, deltaX))
-}
-
 function resetBackSwipeOffset() {
   resetReaderBackSwipeDragState()
   pageContentMotion.resetSideMotion()
@@ -2129,11 +2107,9 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  const offset = backSwipeVisualOffset(deltaX)
-  const stretch = blockedSwipeStretch(deltaX, currentX)
   updateReaderBackSwipeDragState(
     deltaX,
-    { offset, stretch, width: windowWidth.value },
+    { currentX, startX: touchStartX, width: windowWidth.value },
     {
       intent: readerBackSwipeIntentOptions({ resetSourceExit: true, prepareBlocked: true }),
       visual: {

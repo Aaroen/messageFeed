@@ -204,6 +204,11 @@ type UpdateReaderBackSwipeDragStateOptions = {
   intent?: ApplyReaderBackSwipeIntentStateOptions
   visual?: ApplyReaderBackSwipeVisualActionOptions
 }
+type ReaderBackSwipeDragMetrics = {
+  currentX: number
+  startX: number
+  width: number
+}
 type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
 type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
@@ -1903,20 +1908,40 @@ export function useReaderStackState() {
     return action
   }
 
+  function readerBackSwipeVisualOffset(deltaX: number, width: number) {
+    const limit = Math.round(Math.max(1, width) * 0.72)
+    return Math.max(-limit, Math.min(limit, deltaX))
+  }
+
+  function readerBackSwipeBlockedStretch(deltaX: number, metrics: ReaderBackSwipeDragMetrics) {
+    const width = Math.max(1, metrics.width)
+    const edgeStopZone = Math.min(54, width * 0.12)
+    const availableDistance =
+      deltaX < 0
+        ? Math.max(1, metrics.startX - edgeStopZone)
+        : Math.max(1, width - metrics.startX - edgeStopZone)
+    const travelledToEdge =
+      deltaX < 0
+        ? Math.max(0, metrics.startX - metrics.currentX)
+        : Math.max(0, metrics.currentX - metrics.startX)
+    const edgeProgress = clampProgress(travelledToEdge / availableDistance)
+    const distanceProgress = Math.log1p(edgeProgress * 14) / Math.log1p(14)
+    const stretch = 0.07 * distanceProgress
+    return deltaX < 0 ? -stretch : stretch
+  }
+
   function updateReaderBackSwipeDragState(
     deltaX: number,
-    visual: {
-      offset: number
-      stretch: number
-      width: number
-    },
+    metrics: ReaderBackSwipeDragMetrics,
     options: UpdateReaderBackSwipeDragStateOptions = {},
   ) {
+    const offset = readerBackSwipeVisualOffset(deltaX, metrics.width)
+    const stretch = readerBackSwipeBlockedStretch(deltaX, metrics)
     const intentAction = applyReaderBackSwipeIntentState(deltaX, options.intent)
     const visualAction = applyReaderBackSwipeVisualActionState(
-      visual.offset,
-      visual.stretch,
-      visual.width,
+      offset,
+      stretch,
+      metrics.width,
       options.visual,
     )
     return {
