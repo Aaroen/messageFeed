@@ -911,15 +911,6 @@ body[arco-theme='dark'] .feed-tab--active {
 
 .feed-list-body {
   will-change: transform;
-  transition: transform var(--motion-chrome) var(--ease-emphasized);
-}
-
-.feed-list-page--dragging .feed-list-body {
-  transition: none;
-}
-
-.feed-list-page--settling .feed-list-body {
-  transition: transform var(--motion-chrome) var(--ease-emphasized);
 }
 
 .feed-refresh-row {

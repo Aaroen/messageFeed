@@ -159,8 +159,6 @@ const pullStatusMeta = computed(() => (lastUpdatedAt.value ? `最近更新 ${las
 const errorMessage = computed(() => error.value.trim())
 const pageClass = computed(() => ({
   'feed-list-page--pulling': pullActive.value,
-  'feed-list-page--dragging': pullDragging.value,
-  'feed-list-page--settling': !pullDragging.value && pullOffset.value > 0,
   'feed-list-page--empty': !hasItems.value && !loading.value,
 }))
 const freezeBodyForTopChromePull = computed(
@@ -176,6 +174,7 @@ const feedBodyStyle = computed(() => ({
   transform: freezeBodyForTopChromePull.value
     ? 'translate3d(0, 0, 0)'
     : `translate3d(0, ${cssPx(feedBodyShift.value)}, 0)`,
+  transition: pullDragging.value ? 'none' : 'transform var(--motion-chrome) var(--ease-emphasized)',
   ...refreshLayoutFreeze.style.value,
 }))
 const safeMorphingPreviewProgress = computed(() => Math.min(Math.max(props.morphingPreviewProgress, 0), 1))
