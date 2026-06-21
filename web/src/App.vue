@@ -1165,8 +1165,7 @@ function handleMenuClick(key: string) {
 
 function goHome(closePanel = navigationVisible.value) {
   void pushRoute('/recommendations')
-  setChromeProgress(1, 'visible')
-  setChromeContentCollapsed(false)
+  chromeState.setStableVisible()
   feedPagerTransition.reset()
   if (closePanel) {
     closeNavigation()
@@ -1740,11 +1739,8 @@ async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, origin
     headerSwapDelay: motionDelay(320),
     detailEntryDelay: motionDelay(readerMorphDuration),
     afterBegin: () => {
-      setChromeSettling(false, 'visible')
+      chromeState.setStableVisible()
       feedTopPulling.value = false
-      setChromeContentCollapsed(false)
-      setChromeProgress(1, 'visible')
-      chromeState.clearSettlingTimer()
       lastDetailScrollTop = 0
     },
     afterEntry: () => {

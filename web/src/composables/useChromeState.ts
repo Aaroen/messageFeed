@@ -105,6 +105,14 @@ export function useChromeState() {
     scheduleSettlingEndIfNeeded(options.settleDelayMS)
   }
 
+  function setStableVisible() {
+    clearSettlingTimer()
+    progress.value = 1
+    phase.value = 'visible'
+    contentCollapsed.value = false
+    settling.value = false
+  }
+
   return {
     progress,
     phase,
@@ -115,6 +123,7 @@ export function useChromeState() {
     setContentCollapsed,
     setSettling,
     setVisible,
+    setStableVisible,
     clearSettlingTimer,
     scheduleSettlingEnd,
   }
