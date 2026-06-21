@@ -135,6 +135,18 @@ type ReaderBackSwipeCancelAction =
   | 'restore-detail-from-source-swipe'
   | 'restore-parked-source'
   | 'reset'
+type ReaderBackSwipeVisualAction =
+  | {
+      type: 'reader'
+      state: ReaderBackSwipeVisualState
+    }
+  | {
+      type: 'page'
+      stretch: number
+    }
+  | {
+      type: 'none'
+    }
 type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
 type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
@@ -1382,13 +1394,6 @@ export function useReaderStackState() {
     backSwipeIntent.value = intent
   }
 
-  function getReaderBackSwipeState() {
-    return {
-      target: backSwipeTarget.value,
-      intent: backSwipeIntent.value,
-    }
-  }
-
   function readerBackSwipeMatches(
     target: ActiveReaderBackSwipeTarget,
     intent?: ActiveReaderBackSwipeIntent,
@@ -1419,6 +1424,64 @@ export function useReaderStackState() {
       return detailBackExitProgress.value
     }
     return clampProgress(Math.abs(detailReaderStretch.value || sourceReaderStretch.value || fallbackStretch) / 0.07)
+  }
+
+  function readerBackSwipeVisualAction(offset: number, stretch: number, width: number): ReaderBackSwipeVisualAction {
+    const intent = backSwipeIntent.value
+    const target = backSwipeTarget.value
+    const progressBase = Math.max(220, width * 0.52)
+    if (intent === 'back' && target === 'detail') {
+      return {
+        type: 'reader',
+        state: {
+          target: 'detail-back',
+          progress: clampProgress(Math.max(0, offset) / progressBase),
+        },
+      }
+    }
+    if (intent === 'back' && target === 'source') {
+      if (offset < 0 && sourceReaderCanReturnToDetail()) {
+        return {
+          type: 'reader',
+          state: {
+            target: 'source-return',
+            returnProgress: clampProgress(Math.max(0, -offset) / progressBase),
+          },
+        }
+      }
+      return {
+        type: 'reader',
+        state: { target: 'source-blocked', stretch },
+      }
+    }
+    if (intent === 'back' && target === 'page') {
+      return { type: 'page', stretch }
+    }
+    if (intent === 'source' && target === 'detail') {
+      return {
+        type: 'reader',
+        state: {
+          target: 'detail-source',
+          progress: clampProgress(Math.max(0, -offset) / progressBase),
+        },
+      }
+    }
+    if (intent === 'blocked' && target === 'detail') {
+      return {
+        type: 'reader',
+        state: { target: 'detail-blocked', stretch },
+      }
+    }
+    if (intent === 'blocked' && target === 'source') {
+      return {
+        type: 'reader',
+        state: { target: 'source-blocked', stretch },
+      }
+    }
+    if (intent === 'blocked' && target === 'page') {
+      return { type: 'page', stretch }
+    }
+    return { type: 'none' }
   }
 
   function readerBackSwipeShouldCommit(deltaX: number, switchDistance: number) {
@@ -1732,12 +1795,12 @@ export function useReaderStackState() {
     resetReaderBackSwipeTargetState,
     setReaderBackSwipeTargetState,
     setReaderBackSwipeIntentState,
-    getReaderBackSwipeState,
     readerBackSwipeMatches,
     readerBackSwipeReturningToFeed,
     readerBackSwipeRevealsSourceReader,
     readerBackSwipeCanOpenSourceFromDetail,
     readerBackSwipeTransitionProgress,
+    readerBackSwipeVisualAction,
     readerBackSwipeShouldCommit,
     readerBackSwipeIsBlocked,
     readerBackSwipeFinishAction,

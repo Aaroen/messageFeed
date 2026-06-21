@@ -187,12 +187,12 @@ const {
   resetReaderBackSwipeTargetState,
   setReaderBackSwipeTargetState,
   setReaderBackSwipeIntentState,
-  getReaderBackSwipeState,
   readerBackSwipeMatches,
   readerBackSwipeReturningToFeed,
   readerBackSwipeRevealsSourceReader,
   readerBackSwipeCanOpenSourceFromDetail,
   readerBackSwipeTransitionProgress,
+  readerBackSwipeVisualAction,
   readerBackSwipeShouldCommit,
   readerBackSwipeIsBlocked,
   readerBackSwipeFinishAction,
@@ -2179,40 +2179,18 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     setReaderBackSwipeIntentState('blocked')
     prepareReaderBackSwipeIntentState({ intent: 'blocked', clearReturningToFeed: true })
   }
-  const { intent } = getReaderBackSwipeState()
   const offset = backSwipeVisualOffset(deltaX)
   const stretch = blockedSwipeStretch(deltaX, currentX)
+  const visualAction = readerBackSwipeVisualAction(offset, stretch, windowWidth.value)
 
   resetReaderBackSwipeStretchState()
   pageContentMotion.setSideStretch(0)
 
-  if (intent === 'back' && readerBackSwipeMatches('detail')) {
-    applyReaderBackSwipeVisualState({
-      target: 'detail-back',
-      progress: clamp(Math.max(0, offset) / Math.max(220, windowWidth.value * 0.52)),
-    })
-  } else if (intent === 'back' && readerBackSwipeMatches('source')) {
-    if (offset < 0 && sourceReaderCanReturnToDetail()) {
-      const returnProgress = clamp(Math.max(0, -offset) / Math.max(220, windowWidth.value * 0.52))
-      applyReaderBackSwipeVisualState({ target: 'source-return', returnProgress })
-    } else {
-      applyReaderBackSwipeVisualState({ target: 'source-blocked', stretch })
-    }
-  } else if (intent === 'back' && readerBackSwipeMatches('page')) {
+  if (visualAction.type === 'reader') {
+    applyReaderBackSwipeVisualState(visualAction.state)
+  } else if (visualAction.type === 'page') {
     pageContentMotion.setSideOffset(0)
-    pageContentMotion.setSideStretch(stretch)
-  } else if (intent === 'source' && readerBackSwipeMatches('detail')) {
-    applyReaderBackSwipeVisualState({
-      target: 'detail-source',
-      progress: clamp(Math.max(0, -offset) / Math.max(220, windowWidth.value * 0.52)),
-    })
-  } else if (intent === 'blocked' && readerBackSwipeMatches('detail')) {
-    applyReaderBackSwipeVisualState({ target: 'detail-blocked', stretch })
-  } else if (intent === 'blocked' && readerBackSwipeMatches('source')) {
-    applyReaderBackSwipeVisualState({ target: 'source-blocked', stretch })
-  } else if (intent === 'blocked' && readerBackSwipeMatches('page')) {
-    pageContentMotion.setSideOffset(0)
-    pageContentMotion.setSideStretch(stretch)
+    pageContentMotion.setSideStretch(visualAction.stretch)
   }
 
   syncBackSwipeTransition(deltaX)
