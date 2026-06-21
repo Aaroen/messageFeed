@@ -15,6 +15,7 @@ import TopChrome from '@/components/TopChrome.vue'
 import { useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
 import { useReaderBackSwipeCompletion } from '@/composables/useReaderBackSwipeCompletion'
+import { useReaderBackSwipeDragHandlers } from '@/composables/useReaderBackSwipeDragHandlers'
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import {
   type FeedSourceKind,
@@ -1161,129 +1162,49 @@ const readerBackSwipeTransitionController = useReaderBackSwipeTransitionControll
 const beginBackSwipeTransition = readerBackSwipeTransitionController.beginBackSwipeTransition
 const syncBackSwipeTransition = readerBackSwipeTransitionController.syncBackSwipeTransition
 
-function showTopChromeForSourceReturn() {
-  if (topChromeProgress.value < 0.99 || feedContentCollapsed.value) {
-    chromeState.beginGestureReturn({ settleDelayMS: motionDelay(topChromeSettleDuration) })
-  }
-}
-
-function prepareSourceReaderReturnDrag() {
-  const ready = prepareSourceReaderReturnDragState({
-    onDetailScrollTop: rememberDetailScrollTop,
-  })
-  if (!ready) {
-    return false
-  }
-
-  return captureVisibleSourceReturnTarget()
-}
-
 function resetBackSwipeOffset() {
   resetReaderBackSwipeDragState()
   pageContentMotion.resetSideMotion()
   clearStretchAnchors()
 }
 
-function prepareDetailSourceReaderPreload() {
-  if (!detailItem.value?.source_id || readerSource.value) {
-    return
-  }
-
-  openSourceReader(
-    {
-      id: detailItem.value.source_id,
-      name: detailItem.value.source_name || '未知来源',
-      kind: detailSourceKind.value,
-    },
-    { visible: false },
-  )
-}
-
-function beginDetailGestureCandidate(startX: number, startY: number) {
-  resetGestureTracking()
-  gestureOrigin.begin(startX, startY, navigationProgress.value)
-  beginReaderBackSwipeCandidateState('detail')
-  if (sourceTimelinePreloadEnabled.value) {
-    prepareDetailSourceReaderPreload()
-  }
-}
-
-function isDetailFrameHorizontalSwipe(deltaX: number, deltaY: number) {
-  return Math.abs(deltaX) > 3 && Math.abs(deltaX) > Math.abs(deltaY) * 0.52
-}
-
-function readerBackSwipeIntentOptions(
-  options: { resetSourceExit?: boolean; prepareBlocked?: boolean } = {},
-): NonNullable<Parameters<typeof beginReaderBackSwipeDragState>[1]> {
-  return {
-    ...options,
-    beforeSourceReturnIntent: () => {
-      prepareSourceReaderReturnDrag()
-    },
-    afterSourceReturnIntent: () => {
-      showTopChromeForSourceReturn()
-    },
-    beforeDetailBackPrepare: ({ returningToFeed }) => {
-      if (!returningToFeed) {
-        return
-      }
-      refreshDetailFeedOriginRect(true)
-    },
-    afterDetailBackPrepare: ({ revealSourceReader }) => {
-      if (!revealSourceReader) {
-        return
-      }
-      captureDetailSourceTransitionRects(12, { lock: true })
-    },
-    afterDetailSourceIntent: () => {
-      showSourceReaderUnderDetail()
-    },
-  }
-}
-
-function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame = false) {
-  const horizontal = fromDetailFrame ? isDetailFrameHorizontalSwipe(deltaX, deltaY) : isBackHorizontalSwipe(deltaX, deltaY)
-  if (!readerBackSwipeCandidateActive.value || !horizontal) {
-    return false
-  }
-
-  beginReaderBackSwipeDragState(deltaX, readerBackSwipeIntentOptions())
-  beginBackSwipeTransition(deltaX)
-  navigationGesture.cancelCandidates()
-  feedPagerTransition.cancelViewSwipeCandidate()
-  return true
-}
-
-function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false, currentX = gestureOrigin.originX() + deltaX) {
-  beginBackSwipeIfAllowed(deltaX, deltaY, fromDetailFrame)
-
-  if (!readerBackSwipeTrackingActive.value) {
-    return false
-  }
-
-  suppressFollowingClick()
-  updateReaderBackSwipeDragState(
-    deltaX,
-    { currentX, startX: gestureOrigin.originX(), width: windowWidth.value },
-    {
-      intent: readerBackSwipeIntentOptions({ resetSourceExit: true, prepareBlocked: true }),
-      visual: {
-        resetPageStretch: () => {
-          pageContentMotion.setSideStretch(0)
-        },
-        resetPageOffset: () => {
-          pageContentMotion.setSideOffset(0)
-        },
-        applyPageStretch: (nextStretch: number) => {
-          pageContentMotion.setSideStretch(nextStretch)
-        },
-      },
-    },
-  )
-
-  syncBackSwipeTransition(deltaX)
-  return true
-}
+const readerBackSwipeDragHandlers = useReaderBackSwipeDragHandlers({
+  topChromeProgress,
+  feedContentCollapsed,
+  navigationProgress,
+  sourceTimelinePreloadEnabled,
+  detailItem,
+  readerSource,
+  detailSourceKind,
+  readerBackSwipeCandidateActive,
+  readerBackSwipeTrackingActive,
+  windowWidth,
+  chromeSettleDuration: topChromeSettleDuration,
+  resolveDelay: motionDelay,
+  gestureOrigin,
+  resetGestureTracking,
+  beginReaderBackSwipeCandidateState,
+  prepareSourceReaderReturnDragState,
+  rememberDetailScrollTop,
+  captureVisibleSourceReturnTarget,
+  openSourceReader,
+  beginReaderBackSwipeDragState,
+  updateReaderBackSwipeDragState,
+  beginBackSwipeTransition,
+  syncBackSwipeTransition,
+  cancelNavigationCandidates: navigationGesture.cancelCandidates,
+  cancelViewSwipeCandidate: feedPagerTransition.cancelViewSwipeCandidate,
+  isBackHorizontalSwipe,
+  suppressFollowingClick,
+  beginTopChromeGestureReturn: chromeState.beginGestureReturn,
+  refreshDetailFeedOriginRect,
+  captureDetailSourceTransitionRects,
+  showSourceReaderUnderDetail,
+  setPageSideStretch: pageContentMotion.setSideStretch,
+  setPageSideOffset: pageContentMotion.setSideOffset,
+})
+const beginDetailGestureCandidate = readerBackSwipeDragHandlers.beginDetailGestureCandidate
+const updateBackSwipe = readerBackSwipeDragHandlers.updateBackSwipe
 
 const readerBackSwipeCompletion = useReaderBackSwipeCompletion({
   switchDistance: viewSwitchDistance,
