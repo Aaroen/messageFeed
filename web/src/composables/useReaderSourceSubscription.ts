@@ -42,6 +42,7 @@ type ReaderSourceSubscriptionOptions = {
 export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
   const motionTimings = useMotionTimings()
   let sourceNoticeTimer = 0
+  let sourceNoticeTimerToken = 0
   let sourceRequestToken = 0
   const sourceToggleLabel = computed(() => {
     if (options.sourceSubscriptionLoading.value) {
@@ -53,6 +54,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
   const sourceToggleDisabled = computed(() => options.sourceSubscriptionLoading.value)
 
   function clearNoticeTimer() {
+    sourceNoticeTimerToken += 1
     if (typeof window !== 'undefined' && sourceNoticeTimer !== 0) {
       window.clearTimeout(sourceNoticeTimer)
     }
@@ -84,11 +86,15 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
       options.setSourceNotice(null)
       return
     }
-    options.setSourceNotice({ type, message: normalized })
     clearNoticeTimer()
+    const token = sourceNoticeTimerToken
+    options.setSourceNotice({ type, message: normalized })
     const duration = durationMS ?? motionTimings.noticeDuration(type)
     if (duration > 0 && typeof window !== 'undefined') {
       sourceNoticeTimer = window.setTimeout(() => {
+        if (token !== sourceNoticeTimerToken) {
+          return
+        }
         sourceNoticeTimer = 0
         options.setSourceNotice(null)
       }, duration)

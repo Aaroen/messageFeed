@@ -93,6 +93,7 @@ let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
 let loadMoreSyncToken = 0
 let feedNoticeTimer = 0
+let feedNoticeTimerToken = 0
 let loadRequestToken = 0
 let disposed = false
 let loadMoreObserver: IntersectionObserver | null = null
@@ -363,6 +364,7 @@ function feedItemStyle(item: FeedItem) {
 }
 
 function clearFeedNoticeTimer() {
+  feedNoticeTimerToken += 1
   window.clearTimeout(feedNoticeTimer)
   feedNoticeTimer = 0
 }
@@ -379,15 +381,25 @@ function showFeedNotice(type: FeedNotice['type'], message: string, delayMS = 0) 
     return
   }
   clearFeedNoticeTimer()
+  const token = feedNoticeTimerToken
   const show = () => {
+    if (token !== feedNoticeTimerToken) {
+      return
+    }
     feedNotice.value = { type, message: normalized }
     feedNoticeTimer = window.setTimeout(() => {
+      if (token !== feedNoticeTimerToken) {
+        return
+      }
       feedNoticeTimer = 0
       feedNotice.value = null
     }, motionTimings.noticeDuration(type))
   }
   if (delayMS > 0) {
     feedNoticeTimer = window.setTimeout(() => {
+      if (token !== feedNoticeTimerToken) {
+        return
+      }
       feedNoticeTimer = 0
       show()
     }, delayMS)

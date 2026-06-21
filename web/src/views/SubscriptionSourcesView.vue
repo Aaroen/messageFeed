@@ -34,6 +34,7 @@ const notice = ref<{ type: 'success' | 'warning'; message: string } | null>(null
 const motionTimings = useMotionTimings()
 const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef })
 let noticeTimer = 0
+let noticeTimerToken = 0
 let pageRequestToken = 0
 let disposed = false
 const importFetchConcurrency = 3
@@ -62,6 +63,7 @@ const sourceByNormalizedURL = computed(() => {
 })
 
 function clearNoticeTimer() {
+  noticeTimerToken += 1
   window.clearTimeout(noticeTimer)
   noticeTimer = 0
 }
@@ -94,14 +96,18 @@ function showNotice(type: 'success' | 'warning', message: string, durationMS?: n
     return
   }
   clearNoticeTimer()
+  const token = noticeTimerToken
   const show = () => {
-    if (disposed) {
+    if (disposed || token !== noticeTimerToken) {
       return
     }
     notice.value = { type, message: normalized }
     const duration = durationMS ?? motionTimings.noticeDuration(type)
     if (duration > 0) {
       noticeTimer = window.setTimeout(() => {
+        if (token !== noticeTimerToken) {
+          return
+        }
         noticeTimer = 0
         notice.value = null
       }, duration)
@@ -109,6 +115,9 @@ function showNotice(type: 'success' | 'warning', message: string, durationMS?: n
   }
   if (delayMS > 0) {
     noticeTimer = window.setTimeout(() => {
+      if (token !== noticeTimerToken) {
+        return
+      }
       noticeTimer = 0
       show()
     }, delayMS)
