@@ -199,6 +199,9 @@ const {
   detailBlocksGestures,
 } = useReaderStackState()
 const {
+  sourceToggleLabel,
+  sourceToggleActive,
+  sourceToggleDisabled,
   clearNoticeTimer: clearSourceNoticeTimer,
   resetSourceSubscriptionState,
   loadSourceReaderSubscription,
@@ -437,13 +440,6 @@ const sourcePullStatusStyle = computed(() => ({
 const sourcePullIconStyle = computed(() => ({
   transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(sourcePullProgress.value * 300),
 }))
-const sourceToggleLabel = computed(() => {
-  if (sourceSubscriptionLoading.value) {
-    return '处理中'
-  }
-  return sourceSubscription.value?.status === 'active' ? '关闭' : '开启'
-})
-const sourceToggleActive = computed(() => sourceSubscription.value?.status === 'active')
 const feedTrackStyle = feedPagerTransition.trackStyle
 const viewSwipeProgress = feedPagerTransition.swipeProgress
 const viewSwipeTargetKey = feedPagerTransition.targetKey
@@ -3490,7 +3486,7 @@ onUnmounted(() => {
       :pull-status-meta="pullStatusMeta"
       :source-toggle-active="sourceToggleActive"
       :source-toggle-label="sourceToggleLabel"
-      :source-toggle-disabled="sourceSubscriptionLoading"
+      :source-toggle-disabled="sourceToggleDisabled"
       :source-content-style="sourceContentStyle"
       :reader-source="readerSource"
       :source-refresh-nonce="sourceReaderRefreshNonce"

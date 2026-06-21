@@ -1,4 +1,4 @@
-import type { Ref } from 'vue'
+import { computed, type Ref } from 'vue'
 
 import { formatAPIError } from '@/api/client'
 import {
@@ -32,6 +32,14 @@ type ReaderSourceSubscriptionOptions = {
 
 export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
   let sourceNoticeTimer = 0
+  const sourceToggleLabel = computed(() => {
+    if (options.sourceSubscriptionLoading.value) {
+      return '处理中'
+    }
+    return options.sourceSubscription.value?.status === 'active' ? '关闭' : '开启'
+  })
+  const sourceToggleActive = computed(() => options.sourceSubscription.value?.status === 'active')
+  const sourceToggleDisabled = computed(() => options.sourceSubscriptionLoading.value)
 
   function clearNoticeTimer() {
     if (typeof window === 'undefined') {
@@ -158,6 +166,9 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
   }
 
   return {
+    sourceToggleLabel,
+    sourceToggleActive,
+    sourceToggleDisabled,
     clearNoticeTimer,
     showSourceNotice,
     resetSourceSubscriptionState,
