@@ -227,7 +227,6 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     finishRefreshing,
     resetMotion,
     finishBackgroundRefresh,
-    setSettling,
     clearSettleTimer,
     settleOffset,
     settleRefreshCompletion,
