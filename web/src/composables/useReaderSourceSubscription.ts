@@ -42,6 +42,7 @@ type ReaderSourceSubscriptionOptions = {
 export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
   const motionTimings = useMotionTimings()
   let sourceNoticeTimer = 0
+  let sourceRequestToken = 0
   const sourceToggleLabel = computed(() => {
     if (options.sourceSubscriptionLoading.value) {
       return '处理中'
@@ -52,10 +53,28 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
   const sourceToggleDisabled = computed(() => options.sourceSubscriptionLoading.value)
 
   function clearNoticeTimer() {
-    if (typeof window === 'undefined') {
-      return
+    if (typeof window !== 'undefined' && sourceNoticeTimer !== 0) {
+      window.clearTimeout(sourceNoticeTimer)
     }
-    window.clearTimeout(sourceNoticeTimer)
+    sourceNoticeTimer = 0
+  }
+
+  function nextSourceRequestToken() {
+    sourceRequestToken += 1
+    return sourceRequestToken
+  }
+
+  function invalidateSourceRequests() {
+    sourceRequestToken += 1
+  }
+
+  function readerSourceMatches(source: ReaderSource | null) {
+    const current = options.getReaderSource()
+    return Boolean(current && source && current.id === source.id && current.kind === source.kind)
+  }
+
+  function sourceRequestIsCurrent(token: number, source: ReaderSource | null) {
+    return token === sourceRequestToken && readerSourceMatches(source)
   }
 
   function showSourceNotice(type: SourceNotice['type'], message: string, durationMS?: number) {
@@ -70,20 +89,30 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     const duration = durationMS ?? motionTimings.noticeDuration(type)
     if (duration > 0 && typeof window !== 'undefined') {
       sourceNoticeTimer = window.setTimeout(() => {
+        sourceNoticeTimer = 0
         options.setSourceNotice(null)
       }, duration)
     }
   }
 
   function resetSourceSubscriptionState() {
+    invalidateSourceRequests()
     clearNoticeTimer()
     options.setSourceCatalogEntry(null)
     options.setSourceSubscription(null)
+    options.setSourceSubscriptionLoading(false)
     options.setSourceNotice(null)
   }
 
-  async function fetchNow(source: Source): Promise<FetchNowResult> {
-    showSourceNotice('success', `抓取中：正在抓取 ${source.name} 的最新内容`, 0)
+  function clearSourceSubscriptionRuntime() {
+    invalidateSourceRequests()
+    clearNoticeTimer()
+  }
+
+  async function fetchNow(source: Source, token: number, readerSource: ReaderSource): Promise<FetchNowResult> {
+    if (sourceRequestIsCurrent(token, readerSource)) {
+      showSourceNotice('success', `抓取中：正在抓取 ${source.name} 的最新内容`, 0)
+    }
     try {
       await fetchSource(source.id)
       return { success: true }
@@ -92,13 +121,23 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     }
   }
 
-  async function loadSourceReaderSubscription(source: ReaderSource) {
+  async function loadSourceReaderSubscription(
+    source: ReaderSource,
+    requestOptions: { token?: number } = {},
+  ) {
+    const token = requestOptions.token ?? nextSourceRequestToken()
+    if (!readerSourceMatches(source)) {
+      return
+    }
     options.setSourceSubscriptionLoading(true)
     try {
       const [sources, catalogResult] = await Promise.all([
         listSources(),
         listSourceCatalog({ limit: 200, offset: 0 }),
       ])
+      if (!sourceRequestIsCurrent(token, source)) {
+        return
+      }
       const directSource = sources.find((item) => item.id === source.id)
       const catalogEntry =
         catalogResult.entries.find((entry) => entry.id === source.id) ??
@@ -111,9 +150,13 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
       options.setSourceCatalogEntry(catalogEntry ?? null)
       options.setSourceSubscription(directSource ?? catalogSource ?? null)
     } catch (err) {
-      showSourceNotice('warning', `加载失败：来源状态未同步。详细原因：${formatAPIError(err)}`)
+      if (sourceRequestIsCurrent(token, source)) {
+        showSourceNotice('warning', `加载失败：来源状态未同步。详细原因：${formatAPIError(err)}`)
+      }
     } finally {
-      options.setSourceSubscriptionLoading(false)
+      if (sourceRequestIsCurrent(token, source)) {
+        options.setSourceSubscriptionLoading(false)
+      }
     }
   }
 
@@ -123,15 +166,23 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
       return
     }
 
+    const token = nextSourceRequestToken()
     options.setSourceSubscriptionLoading(true)
     try {
-      if (options.sourceSubscription.value) {
-        const nextStatus = options.sourceSubscription.value.status === 'active' ? 'inactive' : 'active'
-        const updated = await updateSourceStatus(options.sourceSubscription.value.id, nextStatus)
+      const currentSubscription = options.sourceSubscription.value
+      if (currentSubscription) {
+        const nextStatus = currentSubscription.status === 'active' ? 'inactive' : 'active'
+        const updated = await updateSourceStatus(currentSubscription.id, nextStatus)
+        if (!sourceRequestIsCurrent(token, readerSource)) {
+          return
+        }
         options.setSourceSubscription(updated)
         let fetchResult: FetchNowResult = { success: true }
         if (updated.status === 'active') {
-          fetchResult = await fetchNow(updated)
+          fetchResult = await fetchNow(updated, token, readerSource)
+          if (!sourceRequestIsCurrent(token, readerSource)) {
+            return
+          }
         }
         if (updated.status === 'active' && !fetchResult.success) {
           showSourceNotice(
@@ -141,37 +192,48 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
         } else {
           showSourceNotice('success', `${updated.name} 已${updated.status === 'active' ? '开启并抓取最新内容' : '关闭'}`)
         }
-        await loadSourceReaderSubscription(readerSource)
+        await loadSourceReaderSubscription(readerSource, { token })
         return
       }
 
-      if (!options.sourceCatalogEntry.value) {
+      const currentCatalogEntry = options.sourceCatalogEntry.value
+      if (!currentCatalogEntry) {
         showSourceNotice('warning', '该来源不在官方目录中，暂不支持直接开启')
         return
       }
 
-      const result = await importCatalogSources([options.sourceCatalogEntry.value.id])
+      const result = await importCatalogSources([currentCatalogEntry.id])
+      if (!sourceRequestIsCurrent(token, readerSource)) {
+        return
+      }
       const imported = result.sources[0]
       let fetchResult: FetchNowResult = { success: true }
       if (imported) {
         options.setSourceSubscription(imported)
-        fetchResult = await fetchNow(imported)
+        fetchResult = await fetchNow(imported, token, readerSource)
+        if (!sourceRequestIsCurrent(token, readerSource)) {
+          return
+        }
       }
       if (!fetchResult.success) {
         showSourceNotice(
           'warning',
-          `${options.sourceCatalogEntry.value.name} 已开启，但抓取失败。详细原因：${
+          `${currentCatalogEntry.name} 已开启，但抓取失败。详细原因：${
             fetchResult.error || '服务未返回具体错误原因'
           }`,
         )
       } else {
-        showSourceNotice('success', `${options.sourceCatalogEntry.value.name} 已开启并抓取最新内容`)
+        showSourceNotice('success', `${currentCatalogEntry.name} 已开启并抓取最新内容`)
       }
-      await loadSourceReaderSubscription(readerSource)
+      await loadSourceReaderSubscription(readerSource, { token })
     } catch (err) {
-      showSourceNotice('warning', `操作失败：来源订阅状态未更新。详细原因：${formatAPIError(err)}`)
+      if (sourceRequestIsCurrent(token, readerSource)) {
+        showSourceNotice('warning', `操作失败：来源订阅状态未更新。详细原因：${formatAPIError(err)}`)
+      }
     } finally {
-      options.setSourceSubscriptionLoading(false)
+      if (sourceRequestIsCurrent(token, readerSource)) {
+        options.setSourceSubscriptionLoading(false)
+      }
     }
   }
 
@@ -180,6 +242,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     sourceToggleActive,
     sourceToggleDisabled,
     clearNoticeTimer,
+    clearSourceSubscriptionRuntime,
     showSourceNotice,
     resetSourceSubscriptionState,
     loadSourceReaderSubscription,
