@@ -1475,6 +1475,7 @@ export function useReaderStackState() {
     detailEntrySettling.value = false
     detailListReturnCommitted.value = true
     detailSourceExitProgress.value = 1
+    clearDetailSourceTransitionTargetState()
   }
 
   function completeDetailToSourceReaderWithDelay(
@@ -1517,6 +1518,7 @@ export function useReaderStackState() {
     detailRestoringFromSourceReader.value = false
     detailSourceExitProgress.value = 1
     detailListReturnCommitted.value = true
+    clearDetailSourceTransitionTargetState()
   }
 
   function restoreParkedSourceReaderWithDelay(delay: number) {
