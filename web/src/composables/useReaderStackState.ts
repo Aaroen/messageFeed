@@ -1609,7 +1609,7 @@ export function useReaderStackState() {
     sourceReaderStretch.value = 0
     sourceReaderOffset.value = 0
     readerBackDragging.value = false
-    sourceReturnTargetReady.value = false
+    clearDetailSourceTransitionTargetState()
   }
 
   function resetReaderBackSwipeDragState() {
@@ -1998,7 +1998,7 @@ export function useReaderStackState() {
     readerBackSwipeCandidateTracking.value = false
     readerBackSwipeGestureTracking.value = true
     detailEntrySettling.value = false
-    sourceReturnTargetReady.value = false
+    clearDetailSourceTransitionTargetState()
   }
 
   function prepareReaderBackSwipeIntentState(state: ReaderBackSwipeIntentState) {
