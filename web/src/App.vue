@@ -52,8 +52,6 @@ import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeContro
 import { useFeedPointerSwipeHandlers } from '@/composables/useFeedPointerSwipeHandlers'
 import { useNavigationPointerHandlers } from '@/composables/useNavigationPointerHandlers'
 import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHandlers'
-import { useReaderDetailProgressHandlers } from '@/composables/useReaderDetailProgressHandlers'
-import { useReaderDetailMessageHandler } from '@/composables/useReaderDetailMessageHandler'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards'
@@ -69,7 +67,6 @@ import { useAppElementRefs } from '@/composables/useAppElementRefs'
 import { useAppGestureResetAction } from '@/composables/useAppGestureResetAction'
 import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
 import { useAppWindowEventListeners } from '@/composables/useAppWindowEventListeners'
-import { useReaderSettingsSync } from '@/composables/useReaderSettingsSync'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
 import { useAppLifecycle } from '@/composables/useAppLifecycle'
 import { useAppShellEventActions } from '@/composables/useAppShellEventActions'
@@ -85,6 +82,7 @@ import { useAppReaderOpenInteractions } from '@/composables/useAppReaderOpenInte
 import { useAppReaderCloseInteractions } from '@/composables/useAppReaderCloseInteractions'
 import { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
 import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitionRects'
+import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1123,44 +1121,43 @@ const handleFeedPointerCancel = feedPointerSwipeHandlers.handleFeedPointerCancel
 
 const handleTouchCancel = appTouchGestureHandlers.handleTouchCancel
 
-const readerDetailProgressHandlers = useReaderDetailProgressHandlers({
-  detailContentRef,
-  detailScrollMax,
-  detailScrollTop,
-  updateDetailScrollMetrics: updateDetailScrollMetricsState,
-  updateDetailScrollTop: updateDetailScrollTopState,
-  rememberDetailScrollTop,
-  scrollDetailContentElementTo,
-  suppressFollowingClick,
-  setDetailProgressDragging: setDetailProgressDraggingState,
+const readerDetailInteractions = useAppReaderDetailInteractions({
+  progress: {
+    detailContentRef,
+    detailScrollMax,
+    detailScrollTop,
+    updateDetailScrollMetrics: updateDetailScrollMetricsState,
+    updateDetailScrollTop: updateDetailScrollTopState,
+    rememberDetailScrollTop,
+    scrollDetailContentElementTo,
+    suppressFollowingClick,
+    setDetailProgressDragging: setDetailProgressDraggingState,
+  },
+  message: {
+    detailReaderOpen,
+    navigationVisible,
+    readerBackSwipeTrackingActive,
+    detailCommittedListReturn,
+    updateDetailFrameContentHeight: updateDetailFrameContentHeightState,
+    detailFrameViewportOffset,
+    beginDetailGestureCandidate,
+    updateBackSwipe,
+    finishBackSwipe,
+    cancelBackSwipe,
+    resetGestureTracking,
+  },
+  settings: {
+    setSourceTimelinePreloadEnabled: setSourceTimelinePreloadEnabledState,
+  },
 })
-const syncDetailContainerMetrics = readerDetailProgressHandlers.syncDetailContainerMetrics
-const handleDetailProgressChange = readerDetailProgressHandlers.handleDetailProgressChange
-const handleDetailProgressDragStart = readerDetailProgressHandlers.handleDetailProgressDragStart
-const handleDetailProgressDragEnd = readerDetailProgressHandlers.handleDetailProgressDragEnd
-const handleDetailFrameLoad = readerDetailProgressHandlers.handleDetailFrameLoad
-
-const readerDetailMessageHandler = useReaderDetailMessageHandler({
-  detailReaderOpen,
-  navigationVisible,
-  readerBackSwipeTrackingActive,
-  detailCommittedListReturn,
-  updateDetailFrameContentHeight: updateDetailFrameContentHeightState,
-  syncDetailContainerMetrics,
-  detailFrameViewportOffset,
-  beginDetailGestureCandidate,
-  updateBackSwipe,
-  finishBackSwipe,
-  cancelBackSwipe,
-  resetGestureTracking,
-})
-const handleMessage = readerDetailMessageHandler.handleMessage
-
-const readerSettingsSync = useReaderSettingsSync({
-  setSourceTimelinePreloadEnabled: setSourceTimelinePreloadEnabledState,
-})
-const loadReaderSettings = readerSettingsSync.loadReaderSettings
-const handleReaderSettingsChanged = readerSettingsSync.handleReaderSettingsChanged
+const syncDetailContainerMetrics = readerDetailInteractions.syncDetailContainerMetrics
+const handleDetailProgressChange = readerDetailInteractions.handleDetailProgressChange
+const handleDetailProgressDragStart = readerDetailInteractions.handleDetailProgressDragStart
+const handleDetailProgressDragEnd = readerDetailInteractions.handleDetailProgressDragEnd
+const handleDetailFrameLoad = readerDetailInteractions.handleDetailFrameLoad
+const handleMessage = readerDetailInteractions.handleMessage
+const loadReaderSettings = readerDetailInteractions.loadReaderSettings
+const handleReaderSettingsChanged = readerDetailInteractions.handleReaderSettingsChanged
 
 const feedTopPullHandlers = useFeedTopPullHandlers({
   isFeedRoute,
