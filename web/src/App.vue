@@ -1078,7 +1078,6 @@ let touchStartX = 0
 let touchStartY = 0
 let touchStartNavigationProgress = 0
 let activeNavigationPointerId: number | null = null
-let activeFeedPointerId: number | null = null
 let trackingEdgeSwipeCandidate = false
 let trackingNavigationCloseCandidate = false
 let trackingViewSwipeCandidate = false
@@ -2429,12 +2428,11 @@ function handleFeedPointerDown(event: PointerEvent) {
   trackingViewSwipe = false
   trackingEdgeSwipe = false
   trackingNavigationClose = false
-  activeFeedPointerId = event.pointerId
-  feedPagerTransition.beginDragCandidate()
+  feedPagerTransition.beginPointerTracking(event.pointerId)
 }
 
 function handleFeedPointerMove(event: PointerEvent) {
-  if (activeFeedPointerId !== event.pointerId || event.pointerType === 'mouse') {
+  if (!feedPagerTransition.isActivePointer(event.pointerId) || event.pointerType === 'mouse') {
     return
   }
 
@@ -2447,7 +2445,7 @@ function handleFeedPointerMove(event: PointerEvent) {
     }
 
     if (feedPagerTransition.isBlockedDragDirection(deltaX)) {
-      activeFeedPointerId = null
+      feedPagerTransition.clearPointerTracking()
       trackingViewSwipeCandidate = false
       return
     }
@@ -2478,7 +2476,7 @@ function handleFeedPointerMove(event: PointerEvent) {
 }
 
 function handleFeedPointerUp(event: PointerEvent) {
-  if (activeFeedPointerId !== event.pointerId || event.pointerType === 'mouse') {
+  if (!feedPagerTransition.isActivePointer(event.pointerId) || event.pointerType === 'mouse') {
     return
   }
 
@@ -2496,13 +2494,13 @@ function handleFeedPointerUp(event: PointerEvent) {
 
   trackingViewSwipe = false
   trackingViewSwipeCandidate = false
-  activeFeedPointerId = null
+  feedPagerTransition.clearPointerTracking()
 }
 
 function handleFeedPointerCancel() {
   trackingViewSwipe = false
   trackingViewSwipeCandidate = false
-  activeFeedPointerId = null
+  feedPagerTransition.clearPointerTracking()
   finishViewSwipe(null)
 }
 
@@ -2520,7 +2518,7 @@ function handleTouchCancel() {
   if (hadViewGesture) {
     finishViewSwipe(null)
   }
-  activeFeedPointerId = null
+  feedPagerTransition.clearPointerTracking()
 }
 
 function toggleTheme() {

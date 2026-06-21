@@ -37,6 +37,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   let settlingTimer = 0
   let delayedCommitTimer = 0
   let startedWithHiddenChrome = false
+  let activePointerId: number | null = null
 
   const activeIndex = computed(() => (options.getActiveKey() === 'recommendations' ? 1 : 0))
   const activeSurface = computed<FeedSwipeSurface>(() =>
@@ -149,6 +150,19 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     setSettling(false)
   }
 
+  function beginPointerTracking(pointerId: number) {
+    activePointerId = pointerId
+    beginDragCandidate()
+  }
+
+  function isActivePointer(pointerId: number) {
+    return activePointerId === pointerId
+  }
+
+  function clearPointerTracking() {
+    activePointerId = null
+  }
+
   function setDragOffset(nextOffset: number) {
     dragOffset.value = Number.isFinite(nextOffset) ? nextOffset : 0
   }
@@ -207,6 +221,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     clearSettlingTimer()
     clearDelayedCommitTimer()
     clearStartedWithHiddenChrome()
+    clearPointerTracking()
     dragOffset.value = 0
     settling.value = false
   }
@@ -233,6 +248,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     beginProgrammaticNavigation,
     settleProgrammaticNavigation,
     beginDragCandidate,
+    beginPointerTracking,
+    isActivePointer,
+    clearPointerTracking,
     resetDragOffset,
     markStartedWithHiddenChrome,
     clearStartedWithHiddenChrome,
