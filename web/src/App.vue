@@ -104,6 +104,7 @@ import { useReaderSettingsSync } from '@/composables/useReaderSettingsSync'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
 import { useAppLifecycle } from '@/composables/useAppLifecycle'
 import { useAppShellEventActions } from '@/composables/useAppShellEventActions'
+import { useAppReaderScrollMemoryActions } from '@/composables/useAppReaderScrollMemoryActions'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -344,6 +345,13 @@ const pageSideStretch = pageContentMotion.sideStretch
 const pageContentInnerStyle = pageContentMotion.contentStyle
 const homeExitDoubleBackMs = 1600
 const homeBackGuard = useDoubleBackGuard(homeExitDoubleBackMs)
+const appReaderScrollMemoryActions = useAppReaderScrollMemoryActions({
+  rememberScrollTop: (surface, scrollTop) => {
+    scrollHistory.set(surface, scrollTop)
+  },
+})
+const rememberSourceScrollTop = appReaderScrollMemoryActions.rememberSourceScrollTop
+const rememberDetailScrollTop = appReaderScrollMemoryActions.rememberDetailScrollTop
 const appReaderSessionSnapshots = useAppReaderSessionSnapshots({
   feedScrollTop,
   topChromeProgress,
@@ -803,14 +811,6 @@ const {
   setDetailInlineSourceElement: setDetailInlineSourceElementState,
   setDetailFrameElement: setDetailFrameElementState,
 })
-
-function rememberSourceScrollTop(scrollTop: number) {
-  scrollHistory.set('source', scrollTop)
-}
-
-function rememberDetailScrollTop(scrollTop: number) {
-  scrollHistory.set('detail', scrollTop)
-}
 
 const readerDetailSourceTransitionRects = useReaderDetailSourceTransitionRects({
   sourceReaderContentRef,
