@@ -37,8 +37,6 @@ import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppMainClassState } from '@/composables/useAppMainClassState'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
-import { useTopChromeScrollBehavior } from '@/composables/useTopChromeScrollBehavior'
-import { useFeedTopPullHandlers } from '@/composables/useFeedTopPullHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeController'
 import { useFeedPointerSwipeHandlers } from '@/composables/useFeedPointerSwipeHandlers'
@@ -76,6 +74,7 @@ import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetail
 import { useAppReaderSourceSubscription } from '@/composables/useAppReaderSourceSubscription'
 import { useAppReaderSession } from '@/composables/useAppReaderSession'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
+import { useAppFeedChromeInteractions } from '@/composables/useAppFeedChromeInteractions'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1141,38 +1140,39 @@ const handleMessage = readerDetailInteractions.handleMessage
 const loadReaderSettings = readerDetailInteractions.loadReaderSettings
 const handleReaderSettingsChanged = readerDetailInteractions.handleReaderSettingsChanged
 
-const feedTopPullHandlers = useFeedTopPullHandlers({
-  isFeedRoute,
-  topPull: feedTopPull,
-  topChromeProgress,
-  feedTopChromeIsVisiblyOpen,
-  feedHeaderHeight,
-  feedPullRefreshing: () => feedInteraction.pullRefreshing,
-  currentContentScrollTop,
-  beginRefreshingChrome: chromeState.beginRefreshing,
-  setRefreshingProgress: chromeState.setRefreshingProgress,
-  commitRefreshingChrome: chromeState.commitRefreshing,
-  recordRefreshStartedWithChrome: refreshCompletion.recordStartedWithChrome,
-  collapseTopChrome,
-  setTopChromeVisible,
+const feedChromeInteractions = useAppFeedChromeInteractions({
+  topPull: {
+    isFeedRoute,
+    topPull: feedTopPull,
+    topChromeProgress,
+    feedTopChromeIsVisiblyOpen,
+    feedHeaderHeight,
+    feedPullRefreshing: () => feedInteraction.pullRefreshing,
+    currentContentScrollTop,
+    beginRefreshingChrome: chromeState.beginRefreshing,
+    setRefreshingProgress: chromeState.setRefreshingProgress,
+    commitRefreshingChrome: chromeState.commitRefreshing,
+    recordRefreshStartedWithChrome: refreshCompletion.recordStartedWithChrome,
+    collapseTopChrome,
+    setTopChromeVisible,
+  },
+  scroll: {
+    topChromeProgress,
+    feedPullActive,
+    sourcePullActive,
+    feedTopPulling,
+    feedChromeSettling,
+    detailReaderOpen,
+    detailScrollMax,
+    feedHeaderHeight,
+    isFeedRoute,
+    setTopChromeVisible,
+  },
 })
-const handleFeedTopPullStart = feedTopPullHandlers.handleFeedTopPullStart
-const handleFeedTopPullMove = feedTopPullHandlers.handleFeedTopPullMove
-const handleFeedTopPullEnd = feedTopPullHandlers.handleFeedTopPullEnd
-
-const topChromeScrollBehavior = useTopChromeScrollBehavior({
-  topChromeProgress,
-  feedPullActive,
-  sourcePullActive,
-  feedTopPulling,
-  feedChromeSettling,
-  detailReaderOpen,
-  detailScrollMax,
-  feedHeaderHeight,
-  isFeedRoute,
-  setTopChromeVisible,
-})
-const updateTopTabsByScroll = topChromeScrollBehavior.updateByScroll
+const handleFeedTopPullStart = feedChromeInteractions.handleFeedTopPullStart
+const handleFeedTopPullMove = feedChromeInteractions.handleFeedTopPullMove
+const handleFeedTopPullEnd = feedChromeInteractions.handleFeedTopPullEnd
+const updateTopTabsByScroll = feedChromeInteractions.updateTopTabsByScroll
 
 const appScrollHandlers = useAppScrollHandlers({
   scrollHistory,
