@@ -86,7 +86,6 @@ const verticalLockRatio = 1.18
 const motionCleanupBuffer = 96
 const pullSettleDuration = 1000
 let touchStartChromeDistance = 0
-let pullSettleTimer = 0
 let loadMoreSyncTimer = 0
 let feedNoticeTimer = 0
 let loadMoreObserver: IntersectionObserver | null = null
@@ -507,8 +506,6 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       return
     }
 
-    pullRefresh.setSettling(true)
-    window.clearTimeout(pullSettleTimer)
     setPullState({
       offset: pullOffset.value,
       active: true,
@@ -516,15 +513,11 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       statusText: isSourceMode.value ? '抓取中' : '正在刷新',
       statusMeta: pullStatusMeta.value,
     })
-    window.setTimeout(() => {
-      pullRefresh.setOffset(0)
-      pullRefresh.finishRefreshing()
-      clearPullState()
-      pullRefresh.resetGesture()
-      pullSettleTimer = window.setTimeout(() => {
-        pullRefresh.setSettling(false)
-      }, pullSettleDuration + motionCleanupBuffer)
-    }, 120)
+    pullRefresh.settleRefreshCompletion({
+      releaseDelayMS: 120,
+      settleDelayMS: pullSettleDuration + motionCleanupBuffer,
+      afterRelease: clearPullState,
+    })
   }
 }
 
@@ -704,7 +697,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  window.clearTimeout(pullSettleTimer)
+  pullRefresh.clearSettleTimer()
   window.clearTimeout(loadMoreSyncTimer)
   window.clearTimeout(feedNoticeTimer)
   stopLoadMoreObserver()
@@ -771,7 +764,7 @@ watch(
       clearPullState()
       return
     }
-    window.clearTimeout(pullSettleTimer)
+    pullRefresh.clearSettleTimer()
     setPullState({
       offset: pullOffset.value,
       active: pullActive.value,

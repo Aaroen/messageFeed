@@ -6,6 +6,12 @@ export type PullRefreshOptions = {
   emptyMaxOffset?: number
 }
 
+type PullRefreshSettleCompletionOptions = {
+  releaseDelayMS?: number
+  settleDelayMS: number
+  afterRelease?: () => void
+}
+
 export function usePullRefresh(options: PullRefreshOptions = {}) {
   const threshold = options.threshold ?? 76
   const maxOffset = options.maxOffset ?? 116
@@ -22,6 +28,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   const gestureCandidate = ref(false)
   const gestureTracking = ref(false)
   let settleTimer = 0
+  let releaseTimer = 0
 
   const progress = computed(() => Math.min(offset.value / threshold, 1))
   const distanceProgress = computed(() => Math.min(distance.value / threshold, 1))
@@ -127,6 +134,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   function clearSettleTimer() {
     if (typeof window !== 'undefined') {
       window.clearTimeout(settleTimer)
+      window.clearTimeout(releaseTimer)
     }
   }
 
@@ -137,6 +145,20 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     settleTimer = window.setTimeout(() => {
       settling.value = false
     }, Math.max(0, delayMS))
+  }
+
+  function settleRefreshCompletion(options: PullRefreshSettleCompletionOptions) {
+    clearSettleTimer()
+    settling.value = true
+    releaseTimer = window.setTimeout(() => {
+      setOffset(0)
+      finishRefreshing()
+      resetGesture()
+      options.afterRelease?.()
+      settleTimer = window.setTimeout(() => {
+        settling.value = false
+      }, Math.max(0, options.settleDelayMS))
+    }, Math.max(0, options.releaseDelayMS ?? 0))
   }
 
   function reset() {
@@ -195,6 +217,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     setSettling,
     clearSettleTimer,
     settleOffset,
+    settleRefreshCompletion,
     reset,
     resetGesture,
   }
