@@ -137,6 +137,8 @@ const {
   detailMorphSummaryVisible,
   detailMorphTextVisible,
   detailHeaderTitleSwapping,
+  detailSourceListTitleProgress,
+  detailHeaderFeedTitleProgress,
   detailParkedBehindSource,
   detailChromeVisible,
   detailCommittedListReturn,
@@ -661,16 +663,11 @@ const detailMorphTextStyle = computed(() => {
   }
 })
 const detailHeaderTitleStyle = computed(() => {
-  const progress = detailSurfaceProgress.value
-  const sourceReturnProgress = sourceNameMorphProgress.value
-  const sourceListTitleProgress =
-    sourceReaderVisible.value && !detailReturningToFeed.value
-      ? clamp((1 - sourceReturnProgress) / 0.52)
-      : 0
+  const sourceListTitleProgress = detailSourceListTitleProgress.value
   const opacity =
     sourceListTitleProgress > 0
       ? sourceListTitleProgress
-      : clamp((progress - 0.58) / 0.22) * (1 - feedHeaderReturnProgress.value)
+      : detailHeaderFeedTitleProgress.value * (1 - feedHeaderReturnProgress.value)
   return {
     opacity: opacity.toFixed(3),
     transform: cssTranslate3d(0, (1 - opacity) * 8),

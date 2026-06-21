@@ -364,6 +364,14 @@ export function useReaderStackState() {
   const detailHeaderTitleSwapping = computed(() =>
     Boolean(detailHeaderPreviousTitle.value) && detailHeaderSwapProgress.value < 0.999,
   )
+  const detailSourceListTitleProgress = computed(() =>
+    sourceReaderVisible.value && !detailReturningToFeed.value
+      ? clampProgress((1 - sourceNameMorphProgress.value) / 0.52)
+      : 0,
+  )
+  const detailHeaderFeedTitleProgress = computed(() =>
+    clampProgress((detailSurfaceProgress.value - 0.58) / 0.22),
+  )
 
   function detailCommittedListReturn() {
     return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
@@ -1515,6 +1523,8 @@ export function useReaderStackState() {
     detailMorphSummaryVisible,
     detailMorphTextVisible,
     detailHeaderTitleSwapping,
+    detailSourceListTitleProgress,
+    detailHeaderFeedTitleProgress,
     detailParkedBehindSource,
     detailChromeVisible,
     detailCommittedListReturn,
