@@ -15,6 +15,13 @@ function cssTranslate3d(x: number, y: number, z = 0) {
   return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
 }
 
+function clampProgress(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0
+  }
+  return Math.min(Math.max(value, 0), 1)
+}
+
 export function useNavigationDrawer(options: NavigationDrawerOptions) {
   const open = ref(false)
   const progress = ref(0)
@@ -88,6 +95,19 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
     settle(false)
   }
 
+  function beginDrag() {
+    clearTimer()
+    settling.value = false
+  }
+
+  function updateOpeningDrag(deltaX: number) {
+    progress.value = clampProgress(deltaX / width.value)
+  }
+
+  function updateClosingDrag(startProgress: number, deltaX: number) {
+    progress.value = clampProgress(startProgress + deltaX / width.value)
+  }
+
   return {
     open,
     progress,
@@ -100,5 +120,8 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
     settle,
     openPanel,
     closePanel,
+    beginDrag,
+    updateOpeningDrag,
+    updateClosingDrag,
   }
 }

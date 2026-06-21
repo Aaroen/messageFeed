@@ -1980,7 +1980,7 @@ function handleTouchMove(event: TouchEvent) {
     feedPagerTransition.cancelViewSwipeCandidate()
     trackingNavigationCloseCandidate = false
     navigationDragStarted = true
-    navigationSettling.value = false
+    navigationDrawer.beginDrag()
   }
 
   if (trackingNavigationCloseCandidate && deltaX < -8 && isNavigationDrag(deltaX, deltaY)) {
@@ -1989,7 +1989,7 @@ function handleTouchMove(event: TouchEvent) {
     feedPagerTransition.cancelViewSwipeCandidate()
     trackingEdgeSwipeCandidate = false
     navigationDragStarted = true
-    navigationSettling.value = false
+    navigationDrawer.beginDrag()
   }
 
   if (trackingEdgeSwipe || trackingNavigationClose || viewSwipeActive.value) {
@@ -1997,12 +1997,12 @@ function handleTouchMove(event: TouchEvent) {
   }
 
   if (trackingEdgeSwipe) {
-    navigationProgress.value = clamp(deltaX / navigationWidth.value)
+    navigationDrawer.updateOpeningDrag(deltaX)
     return
   }
 
   if (trackingNavigationClose) {
-    navigationProgress.value = clamp(touchStartNavigationProgress + deltaX / navigationWidth.value)
+    navigationDrawer.updateClosingDrag(touchStartNavigationProgress, deltaX)
     return
   }
 
@@ -2055,7 +2055,7 @@ function handleWindowPointerMove(event: PointerEvent) {
     trackingEdgeSwipeCandidate = false
     trackingNavigationCloseCandidate = false
     navigationDragStarted = true
-    navigationSettling.value = false
+    navigationDrawer.beginDrag()
   }
 
   if (trackingNavigationCloseCandidate && deltaX < -8 && isNavigationDrag(deltaX, deltaY)) {
@@ -2063,7 +2063,7 @@ function handleWindowPointerMove(event: PointerEvent) {
     trackingNavigationCloseCandidate = false
     trackingEdgeSwipeCandidate = false
     navigationDragStarted = true
-    navigationSettling.value = false
+    navigationDrawer.beginDrag()
   }
 
   if (trackingEdgeSwipe || trackingNavigationClose) {
@@ -2071,9 +2071,9 @@ function handleWindowPointerMove(event: PointerEvent) {
   }
 
   if (trackingEdgeSwipe) {
-    navigationProgress.value = clamp(deltaX / navigationWidth.value)
+    navigationDrawer.updateOpeningDrag(deltaX)
   } else if (trackingNavigationClose) {
-    navigationProgress.value = clamp(touchStartNavigationProgress + deltaX / navigationWidth.value)
+    navigationDrawer.updateClosingDrag(touchStartNavigationProgress, deltaX)
   }
 }
 
