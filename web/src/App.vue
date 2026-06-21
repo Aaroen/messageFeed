@@ -52,6 +52,7 @@ import { useAppShellMotion } from '@/composables/useAppShellMotion'
 import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
 import { useThemeState } from '@/composables/useThemeState'
+import { useFeedScrollState } from '@/composables/useFeedScrollState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -237,7 +238,8 @@ const {
   setSourceSubscriptionLoading: setSourceSubscriptionLoadingState,
   setSourceNotice: setSourceNoticeState,
 })
-const feedScrollTop = ref(0)
+const feedScroll = useFeedScrollState()
+const feedScrollTop = feedScroll.scrollTop
 const chromeState = useChromeState()
 const topChromeProgress = chromeState.progress
 const topChromePhase = chromeState.phase
@@ -1309,7 +1311,7 @@ function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
 }
 
 function applyReaderSessionSnapshot(snapshot: ReaderSessionSnapshot) {
-  feedScrollTop.value = snapshot.feedScrollTop || 0
+  feedScroll.restore(snapshot.feedScrollTop)
   chromeState.restoreSnapshot({
     progress: snapshot.topChromeProgress,
     contentCollapsed: snapshot.feedContentCollapsed,
@@ -2525,7 +2527,7 @@ function handleFeedContentScroll(event: Event) {
   }
 
   const current = target.scrollTop
-  feedScrollTop.value = current
+  feedScroll.update(current)
   updateTopTabsByScroll(current, lastFeedScrollTop)
   lastFeedScrollTop = current
   scheduleReaderSessionSave()
@@ -2685,7 +2687,7 @@ watch(
       setTopChromeVisible(true)
       nextTick(() => {
         const current = feedContentRef.value?.scrollTop ?? 0
-        feedScrollTop.value = current
+        feedScroll.update(current)
         lastFeedScrollTop = current
       })
     } else {
