@@ -285,6 +285,8 @@ export function useReaderStackState() {
   const sourceReaderStretch = ref(0)
   const detailStretchAnchor = ref<'left' | 'right' | null>(null)
   const sourceStretchAnchor = ref<'left' | 'right' | null>(null)
+  const readerBackSwipeCandidateTracking = ref(false)
+  const readerBackSwipeGestureTracking = ref(false)
   const readerBackDragging = ref(false)
   const backSwipeTarget = ref<ReaderBackSwipeTarget>(null)
   const backSwipeIntent = ref<ReaderBackSwipeIntent>(null)
@@ -332,6 +334,8 @@ export function useReaderStackState() {
   const detailTransitionRectsLocked = ref(false)
   const detailFeedOriginLocked = ref(false)
   const sourceReturnTargetReady = ref(false)
+  const readerBackSwipeCandidateActive = computed(() => readerBackSwipeCandidateTracking.value)
+  const readerBackSwipeTrackingActive = computed(() => readerBackSwipeGestureTracking.value)
   const sourceReaderBlockedBackSwipeActive = computed(
     () => readerBackDragging.value && backSwipeTarget.value === 'source' && backSwipeIntent.value === 'blocked',
   )
@@ -1431,6 +1435,8 @@ export function useReaderStackState() {
 
   function resetReaderBackSwipeState() {
     const keepDetailParkedBehindSource = hasParkedDetailSourceState()
+    readerBackSwipeCandidateTracking.value = false
+    readerBackSwipeGestureTracking.value = false
     detailReaderTouchOffset.value = 0
     detailBackExitProgress.value = 0
     detailSourceExitProgress.value = keepDetailParkedBehindSource ? 1 : 0
@@ -1453,6 +1459,8 @@ export function useReaderStackState() {
   }
 
   function resetReaderBackSwipeCandidateState() {
+    readerBackSwipeCandidateTracking.value = false
+    readerBackSwipeGestureTracking.value = false
     resetReaderBackSwipeTargetState()
     clearSourceReturnTargetReadyState()
   }
@@ -1462,6 +1470,8 @@ export function useReaderStackState() {
   }
 
   function beginReaderBackSwipeCandidateState(target: Exclude<ReaderBackSwipeTarget, null>) {
+    readerBackSwipeCandidateTracking.value = true
+    readerBackSwipeGestureTracking.value = false
     setReaderBackSwipeTargetState(target)
   }
 
@@ -1804,6 +1814,8 @@ export function useReaderStackState() {
   }
 
   function beginReaderBackSwipeTrackingState() {
+    readerBackSwipeCandidateTracking.value = false
+    readerBackSwipeGestureTracking.value = true
     detailEntrySettling.value = false
     sourceReturnTargetReady.value = false
   }
@@ -1966,6 +1978,8 @@ export function useReaderStackState() {
     sourceReaderStretch,
     detailStretchAnchor,
     sourceStretchAnchor,
+    readerBackSwipeCandidateActive,
+    readerBackSwipeTrackingActive,
     readerBackDragging,
     sourceReaderBlockedBackSwipeActive,
     sourceReaderReturnTargetPending,

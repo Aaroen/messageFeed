@@ -180,6 +180,8 @@ const {
   completeDetailToSourceReaderWithDelay,
   restoreParkedSourceReaderWithDelay,
   restoreDetailFromParkedSourceWithDelay,
+  readerBackSwipeCandidateActive,
+  readerBackSwipeTrackingActive,
   resetReaderBackSwipeDragState,
   resetReaderBackSwipeCandidateState,
   beginReaderBackSwipeCandidateState,
@@ -1081,11 +1083,9 @@ let activeFeedPointerId: number | null = null
 let trackingEdgeSwipeCandidate = false
 let trackingNavigationCloseCandidate = false
 let trackingViewSwipeCandidate = false
-let trackingBackSwipeCandidate = false
 let trackingEdgeSwipe = false
 let trackingNavigationClose = false
 let trackingViewSwipe = false
-let trackingBackSwipe = false
 let navigationDragStarted = false
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
@@ -1106,11 +1106,9 @@ function resetGestureTracking() {
   trackingNavigationCloseCandidate = false
   trackingViewSwipeCandidate = false
   feedPagerTransition.clearStartedWithHiddenChrome()
-  trackingBackSwipeCandidate = false
   trackingEdgeSwipe = false
   trackingNavigationClose = false
   trackingViewSwipe = false
-  trackingBackSwipe = false
   navigationDragStarted = false
   resetReaderBackSwipeCandidateState()
 }
@@ -2042,8 +2040,6 @@ function beginDetailGestureCandidate(startX: number, startY: number) {
   resetGestureTracking()
   touchStartX = startX
   touchStartY = startY
-  trackingBackSwipeCandidate = true
-  trackingBackSwipe = false
   beginReaderBackSwipeCandidateState('detail')
   if (sourceTimelinePreloadEnabled.value) {
     prepareDetailSourceReaderPreload()
@@ -2085,14 +2081,12 @@ function readerBackSwipeIntentOptions(
 
 function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame = false) {
   const horizontal = fromDetailFrame ? isDetailFrameHorizontalSwipe(deltaX, deltaY) : isBackHorizontalSwipe(deltaX, deltaY)
-  if (!trackingBackSwipeCandidate || !horizontal) {
+  if (!readerBackSwipeCandidateActive.value || !horizontal) {
     return false
   }
 
-  trackingBackSwipe = true
   beginReaderBackSwipeDragState(deltaX, readerBackSwipeIntentOptions())
   beginBackSwipeTransition(deltaX)
-  trackingBackSwipeCandidate = false
   trackingEdgeSwipeCandidate = false
   trackingNavigationCloseCandidate = false
   trackingViewSwipeCandidate = false
@@ -2102,7 +2096,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
 function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false, currentX = touchStartX + deltaX) {
   beginBackSwipeIfAllowed(deltaX, deltaY, fromDetailFrame)
 
-  if (!trackingBackSwipe) {
+  if (!readerBackSwipeTrackingActive.value) {
     return false
   }
 
@@ -2209,7 +2203,7 @@ function handleTouchStart(event: TouchEvent) {
     trackingNavigationCloseCandidate = navigationOpen.value
     trackingEdgeSwipeCandidate = false
     trackingViewSwipeCandidate = false
-    trackingBackSwipeCandidate = false
+    resetReaderBackSwipeCandidateState()
     return
   }
 
@@ -2218,12 +2212,10 @@ function handleTouchStart(event: TouchEvent) {
     return
   }
   if (sourceReaderOpen.value) {
-    trackingBackSwipeCandidate = true
     beginReaderBackSwipeCandidateState('source')
     return
   }
   if (!isFeedRoute.value && !navigationVisible.value) {
-    trackingBackSwipeCandidate = true
     beginReaderBackSwipeCandidateState('page')
   }
 
@@ -2237,11 +2229,11 @@ function handleTouchMove(event: TouchEvent) {
     !trackingEdgeSwipeCandidate &&
     !trackingNavigationCloseCandidate &&
     !trackingViewSwipeCandidate &&
-    !trackingBackSwipeCandidate &&
+    !readerBackSwipeCandidateActive.value &&
     !trackingEdgeSwipe &&
     !trackingNavigationClose &&
     !trackingViewSwipe &&
-    !trackingBackSwipe
+    !readerBackSwipeTrackingActive.value
   ) {
     return
   }
@@ -2252,7 +2244,7 @@ function handleTouchMove(event: TouchEvent) {
   const horizontal = isHorizontalSwipe(deltaX, deltaY)
   const viewHorizontal = isViewHorizontalSwipe(deltaX, deltaY)
 
-  if (trackingBackSwipeCandidate || trackingBackSwipe) {
+  if (readerBackSwipeCandidateActive.value || readerBackSwipeTrackingActive.value) {
     const handledBackSwipe = updateBackSwipe(deltaX, deltaY, false, touch.clientX)
     if (!handledBackSwipe) {
       return
@@ -2405,11 +2397,11 @@ function handleTouchEnd(event: TouchEvent) {
     !trackingEdgeSwipeCandidate &&
     !trackingNavigationCloseCandidate &&
     !trackingViewSwipeCandidate &&
-    !trackingBackSwipeCandidate &&
+    !readerBackSwipeCandidateActive.value &&
     !trackingEdgeSwipe &&
     !trackingNavigationClose &&
     !trackingViewSwipe &&
-    !trackingBackSwipe
+    !readerBackSwipeTrackingActive.value
   ) {
     return
   }
@@ -2419,7 +2411,7 @@ function handleTouchEnd(event: TouchEvent) {
   const deltaY = touch.clientY - touchStartY
   const horizontal = isHorizontalSwipe(deltaX, deltaY)
 
-  if (trackingBackSwipe) {
+  if (readerBackSwipeTrackingActive.value) {
     finishBackSwipe(deltaX, deltaY)
     resetGestureTracking()
     return
@@ -2548,7 +2540,7 @@ function handleFeedPointerCancel() {
 function handleTouchCancel() {
   const hadNavigationGesture = trackingEdgeSwipe || trackingNavigationClose
   const hadViewGesture = trackingViewSwipe
-  const hadBackGesture = trackingBackSwipe
+  const hadBackGesture = readerBackSwipeTrackingActive.value
   const canceledBackResult = readerBackSwipeCancelResult()
   resetGestureTracking()
   if (hadNavigationGesture && navigationVisible.value && !navigationOpen.value) {
@@ -2684,7 +2676,7 @@ function handleMessage(event: MessageEvent) {
   }
 
   if (payload.phase === 'end') {
-    if (trackingBackSwipe) {
+    if (readerBackSwipeTrackingActive.value) {
       finishBackSwipe(deltaX, deltaY)
       resetGestureTracking()
       return
@@ -2694,7 +2686,7 @@ function handleMessage(event: MessageEvent) {
   }
 
   if (payload.phase === 'cancel') {
-    if (trackingBackSwipe) {
+    if (readerBackSwipeTrackingActive.value) {
       const canceledBackResult = readerBackSwipeCancelResult()
       resetGestureTracking()
       applyReaderBackSwipeAction(canceledBackResult.action, readerBackSwipeActionHandlers())
