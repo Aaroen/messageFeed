@@ -53,11 +53,15 @@ type FeedPullRefreshCompletionActionOptions = {
 }
 
 export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompletionActionOptions) {
+  function ownsPullState() {
+    return options.feedInteraction.pullViewKey === options.viewKey.value
+  }
+
   function canWritePullState(force = false) {
     if (!options.usesGlobalPullState.value) {
       return false
     }
-    return options.active.value || force || options.feedInteraction.pullViewKey === options.viewKey.value
+    return options.active.value || ownsPullState() || (force && !options.feedInteraction.pullViewKey)
   }
 
   function setPullState(payload: FeedPullStatePayload, force = false) {
@@ -73,6 +77,9 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
 
   function clearPullState(force = false) {
     if (!canWritePullState(force)) {
+      return
+    }
+    if (options.feedInteraction.pullViewKey && !ownsPullState()) {
       return
     }
     options.feedInteraction.resetPullState()
