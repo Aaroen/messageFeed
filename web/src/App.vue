@@ -2445,8 +2445,7 @@ function handleFeedPointerMove(event: PointerEvent) {
 
     const dragStart = feedPagerTransition.tryBeginDrag(deltaX)
     if (dragStart.blocked) {
-      feedPagerTransition.clearPointerTracking()
-      feedPagerTransition.cancelViewSwipeCandidate()
+      feedPagerTransition.cancelPointerCandidate()
       return
     }
 
@@ -2489,13 +2488,11 @@ function handleFeedPointerUp(event: PointerEvent) {
     finishViewSwipe(null)
   }
 
-  feedPagerTransition.resetViewSwipeTracking()
-  feedPagerTransition.clearPointerTracking()
+  feedPagerTransition.endPointerTracking()
 }
 
 function handleFeedPointerCancel() {
-  feedPagerTransition.resetViewSwipeTracking()
-  feedPagerTransition.clearPointerTracking()
+  feedPagerTransition.endPointerTracking()
   finishViewSwipe(null)
 }
 
@@ -2513,7 +2510,7 @@ function handleTouchCancel() {
   if (hadViewGesture) {
     finishViewSwipe(null)
   }
-  feedPagerTransition.clearPointerTracking()
+  feedPagerTransition.endPointerTracking()
 }
 
 function toggleTheme() {

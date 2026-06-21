@@ -221,6 +221,16 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     activePointerId = null
   }
 
+  function cancelPointerCandidate() {
+    clearPointerTracking()
+    cancelViewSwipeCandidate()
+  }
+
+  function endPointerTracking() {
+    resetViewSwipeTracking()
+    clearPointerTracking()
+  }
+
   function setDragOffset(nextOffset: number) {
     dragOffset.value = Number.isFinite(nextOffset) ? nextOffset : 0
   }
@@ -327,7 +337,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     resetViewSwipeTracking,
     beginPointerTracking,
     isActivePointer,
-    clearPointerTracking,
+    cancelPointerCandidate,
+    endPointerTracking,
     resetDragOffset,
     markStartedWithHiddenChrome,
     clearStartedWithHiddenChrome,
