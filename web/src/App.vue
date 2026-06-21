@@ -793,31 +793,10 @@ const headerClass = computed(() => ({
     feedHeaderProgress.value <= 0.01 && !feedChromeSettling.value && !feedTopPulling.value,
   'app-header--detail': headerDetailLayoutActive.value,
 }))
-const headerStyle = computed(() => {
-  const progress = feedHeaderProgress.value
-  return {
-    opacity: progress.toFixed(3),
-    pointerEvents: progress > 0.86 ? ('auto' as const) : ('none' as const),
-    transform: cssTranslate3d(0, (progress - 1) * feedHeaderHeight.value),
-  }
-})
-const navOpenButtonStyle = computed(() => {
-  const progress = feedCornerHidden.value ? 0 : feedHeaderProgress.value
-  const settling = feedChromeSettling.value || feedRefreshSettling.value
-  return {
-    top: cssPx((feedHeaderHeight.value - 44) / 2),
-    opacity: progress.toFixed(3),
-    pointerEvents: progress > 0.86 && !feedCornerHidden.value ? ('auto' as const) : ('none' as const),
-    transform: `${cssTranslate3d(0, (progress - 1) * feedHeaderHeight.value)} scale(${(
-      0.92 +
-      progress * 0.08
-    ).toFixed(3)})`,
-    transition: settling
-      ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard), visibility var(--motion-chrome) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard)'
-      : undefined,
-    visibility: progress > 0.01 && !feedCornerHidden.value ? ('visible' as const) : ('hidden' as const),
-  }
-})
+const headerStyle = computed(() => chromeLayerMotion.headerStyle(feedHeaderProgress.value, feedHeaderHeight.value))
+const navOpenButtonStyle = computed(() =>
+  chromeLayerMotion.navOpenButtonStyle(feedHeaderProgress.value, feedHeaderHeight.value, !feedCornerHidden.value),
+)
 const detailHTML = computed(() => detailItem.value?.content_html || detailItem.value?.content_snippet || '')
 const detailText = computed(() => detailItem.value?.content_text || detailItem.value?.summary || detailItem.value?.content_snippet || '')
 const detailPreviewSummary = computed(

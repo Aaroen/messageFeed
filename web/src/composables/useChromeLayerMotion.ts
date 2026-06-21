@@ -28,7 +28,37 @@ function cssTranslate3d(x: number, y: number, z = 0) {
   return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
 }
 
+function finiteNumber(value: number) {
+  return Number.isFinite(value) ? value : 0
+}
+
 export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
+  function headerStyle(progress: number, headerHeight: number) {
+    const safeProgress = finiteNumber(progress)
+    return {
+      opacity: safeProgress.toFixed(3),
+      pointerEvents: safeProgress > 0.86 ? ('auto' as const) : ('none' as const),
+      transform: cssTranslate3d(0, (safeProgress - 1) * headerHeight),
+    }
+  }
+
+  function navOpenButtonStyle(progress: number, headerHeight: number, visible: boolean) {
+    const safeProgress = finiteNumber(visible ? progress : 0)
+    return {
+      top: cssPx((headerHeight - 44) / 2),
+      opacity: safeProgress.toFixed(3),
+      pointerEvents: safeProgress > 0.86 && visible ? ('auto' as const) : ('none' as const),
+      transform: `${cssTranslate3d(0, (safeProgress - 1) * headerHeight)} scale(${(
+        0.92 +
+        safeProgress * 0.08
+      ).toFixed(3)})`,
+      transition: options.isSettling?.()
+        ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard), visibility var(--motion-chrome) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard), background var(--motion-fast) var(--ease-standard)'
+        : undefined,
+      visibility: safeProgress > 0.01 && visible ? ('visible' as const) : ('hidden' as const),
+    }
+  }
+
   function layerStyle(
     visible: boolean,
     progress: number,
@@ -55,6 +85,8 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
   }
 
   return {
+    headerStyle,
+    navOpenButtonStyle,
     layerStyle,
   }
 }
