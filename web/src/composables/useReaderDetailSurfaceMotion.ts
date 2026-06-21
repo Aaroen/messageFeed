@@ -28,7 +28,7 @@ export function useReaderDetailSurfaceMotion(options: ReaderDetailSurfaceMotionO
     const stretch = options.stretch.value
     return {
       transform: `translate3d(0, 0, 0) scaleX(${(1 + Math.abs(stretch)).toFixed(4)})`,
-      transition: options.dragging.value ? 'none' : undefined,
+      transition: options.dragging.value ? 'none' : 'transform var(--motion-quick) var(--ease-standard)',
       transformOrigin: stretchTransformOrigin(stretch, options.stretchAnchor.value),
       pointerEvents: committedListReturn ? ('none' as const) : ('auto' as const),
       '--detail-overlay-opacity':
