@@ -94,6 +94,7 @@ import { useAppVirtualBackActions } from '@/composables/useAppVirtualBackActions
 import { useAppReaderSessionSnapshots } from '@/composables/useAppReaderSessionSnapshots'
 import { useAppRouteSessionWatchers } from '@/composables/useAppRouteSessionWatchers'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
+import { useAppReaderSessionPersistence } from '@/composables/useAppReaderSessionPersistence'
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
@@ -379,6 +380,16 @@ const readerSession = useReaderSession<ReaderSessionSnapshot>({
   restoreSnapshot: applyReaderSessionSnapshot,
   afterRestore: scheduleReaderURLAndHistorySync,
 })
+const appReaderSessionPersistence = useAppReaderSessionPersistence({
+  restoring: readerSession.restoring,
+  canSaveReaderSession: routeRuntime.canSaveReaderSession,
+  saveNow: readerSession.saveNow,
+  scheduleSave: readerSession.scheduleSave,
+  restore: readerSession.restore,
+})
+const saveReaderSessionNow = appReaderSessionPersistence.saveReaderSessionNow
+const scheduleReaderSessionSave = appReaderSessionPersistence.scheduleReaderSessionSave
+const restoreReaderSession = appReaderSessionPersistence.restoreReaderSession
 
 const appRouteState = useAppRouteState(route)
 const selectedKeys = appRouteState.selectedKeys
@@ -841,24 +852,6 @@ function scheduleHiddenSourceReaderCleanup(delay = motionQuickDuration) {
 
 function settleReaderMotion(duration = motionNormalDuration, done?: () => void) {
   settleReaderMotionWithDelay(motionDelay(duration), done)
-}
-
-function saveReaderSessionNow() {
-  if (!routeRuntime.canSaveReaderSession(readerSession.restoring.value)) {
-    return
-  }
-  readerSession.saveNow()
-}
-
-function scheduleReaderSessionSave() {
-  if (!routeRuntime.canSaveReaderSession(readerSession.restoring.value)) {
-    return
-  }
-  readerSession.scheduleSave()
-}
-
-async function restoreReaderSession() {
-  await readerSession.restore()
 }
 
 function restoreParkedDetailSnapshot(snapshot: ParkedDetailSnapshot | null) {
