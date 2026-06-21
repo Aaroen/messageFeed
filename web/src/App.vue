@@ -187,9 +187,7 @@ const {
   applyReaderBackSwipeIntentState,
   readerBackSwipeTransitionProgress,
   applyReaderBackSwipeVisualActionState,
-  readerBackSwipeShouldCommit,
-  readerBackSwipeIsBlocked,
-  readerBackSwipeFinishAction,
+  readerBackSwipeFinishResult,
   readerBackSwipeCancelAction,
   readerBackSwipeTransitionSurfaces,
   beginReaderBackSwipeDragState,
@@ -2170,18 +2168,18 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
 }
 
 function finishBackSwipe(deltaX: number, _deltaY: number) {
-  const shouldCommit = readerBackSwipeShouldCommit(deltaX, viewSwitchDistance)
+  const result = readerBackSwipeFinishResult(deltaX, viewSwitchDistance, pageSideStretch.value)
 
-  swipeTransition.settle(shouldCommit, {
-    progress: shouldCommit ? 1 : readerBackSwipeTransitionProgress(pageSideStretch.value),
-    isBlocked: readerBackSwipeIsBlocked(),
+  swipeTransition.settle(result.committed, {
+    progress: result.progress,
+    isBlocked: result.isBlocked,
   })
   scheduleSwipeTransitionReset(360)
 
-  const action = readerBackSwipeFinishAction(shouldCommit)
-  if (shouldCommit) {
+  if (result.committed) {
     suppressFollowingClick()
   }
+  const action = result.action
   if (action === 'restore-item-expansion') {
     restoreItemReaderExpansion()
     return

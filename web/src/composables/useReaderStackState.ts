@@ -135,6 +135,12 @@ type ReaderBackSwipeCancelAction =
   | 'restore-detail-from-source-swipe'
   | 'restore-parked-source'
   | 'reset'
+type ReaderBackSwipeFinishResult = {
+  committed: boolean
+  progress: number
+  isBlocked: boolean
+  action: ReaderBackSwipeFinishAction
+}
 type ReaderBackSwipeVisualAction =
   | {
       type: 'reader'
@@ -1634,6 +1640,20 @@ export function useReaderStackState() {
     return 'reset'
   }
 
+  function readerBackSwipeFinishResult(
+    deltaX: number,
+    switchDistance: number,
+    fallbackStretch = 0,
+  ): ReaderBackSwipeFinishResult {
+    const committed = readerBackSwipeShouldCommit(deltaX, switchDistance)
+    return {
+      committed,
+      progress: committed ? 1 : readerBackSwipeTransitionProgress(fallbackStretch),
+      isBlocked: readerBackSwipeIsBlocked(),
+      action: readerBackSwipeFinishAction(committed),
+    }
+  }
+
   function readerBackSwipeCancelAction(): ReaderBackSwipeCancelAction {
     const target = backSwipeTarget.value
     const intent = backSwipeIntent.value
@@ -1924,9 +1944,7 @@ export function useReaderStackState() {
     applyReaderBackSwipeIntentState,
     readerBackSwipeTransitionProgress,
     applyReaderBackSwipeVisualActionState,
-    readerBackSwipeShouldCommit,
-    readerBackSwipeIsBlocked,
-    readerBackSwipeFinishAction,
+    readerBackSwipeFinishResult,
     readerBackSwipeCancelAction,
     readerBackSwipeTransitionSurfaces,
     beginReaderBackSwipeDragState,
