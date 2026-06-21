@@ -367,6 +367,21 @@ function handleVisibilityRefresh() {
   }
 }
 
+function refreshVisibleSourceIfEmpty() {
+  if (
+    !shouldRefreshVisibleSource.value ||
+    backgroundRefreshing.value ||
+    hasItems.value ||
+    loading.value ||
+    refreshing.value ||
+    loadingMore.value
+  ) {
+    return
+  }
+
+  void loadItems({ refresh: true })
+}
+
 function feedItemStyle(item: FeedItem) {
   const style: Record<string, string> = {}
   const locksHeight =
@@ -890,6 +905,13 @@ watch(
     scheduleLoadMoreObserver()
   },
   { flush: 'post' },
+)
+
+watch(
+  [() => props.backgroundRefresh, backgroundRefreshing],
+  () => {
+    refreshVisibleSourceIfEmpty()
+  },
 )
 
 watch(
