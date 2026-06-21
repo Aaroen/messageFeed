@@ -8,11 +8,7 @@ import type {
   ReaderSource,
   RectSnapshot,
 } from '@/composables/useReaderSession'
-
-const hiddenSourceCleanupDelay = 180
-const detailHeaderSwapDelay = 320
-const morphingItemContentUnlockDelay = 180
-const readerMotionSettleDelay = 260
+import { useMotionTimings } from '@/composables/useMotionTimings'
 
 type RestoreParkedDetailOptions = {
   onDetailScrollTop?: (scrollTop: number) => void
@@ -274,6 +270,12 @@ function updateStretchAnchor(anchorRef: { value: 'left' | 'right' | null }, stre
 }
 
 export function useReaderStackState() {
+  const motionTimings = useMotionTimings()
+  const hiddenSourceCleanupDelay = motionTimings.hiddenSourceCleanupDelay
+  const detailHeaderSwapDelay = motionTimings.detailHeaderSwapDelay
+  const morphingItemContentUnlockDelay = motionTimings.morphingItemContentUnlockDelay
+  const readerMotionSettleDelay = motionTimings.readerMotionSettleDelay
+
   let readerMotionTimer = 0
   let morphingHeightUnlockTimer = 0
   let hiddenSourceCleanupTimer = 0
