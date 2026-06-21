@@ -192,8 +192,7 @@ const {
   readerBackSwipeFinishAction,
   readerBackSwipeCancelAction,
   readerBackSwipeTransitionSurfaces,
-  beginReaderBackSwipeTrackingState,
-  startReaderBackSwipeDragState,
+  beginReaderBackSwipeDragState,
   resetReaderBackSwipeStretchState,
   applyReaderBackSwipeVisualState,
   detailBlocksGestures,
@@ -2093,11 +2092,10 @@ function isDetailFrameHorizontalSwipe(deltaX: number, deltaY: number) {
   return Math.abs(deltaX) > 3 && Math.abs(deltaX) > Math.abs(deltaY) * 0.52
 }
 
-function applyReaderBackSwipeIntentAction(
-  deltaX: number,
+function readerBackSwipeIntentOptions(
   options: { resetSourceExit?: boolean; prepareBlocked?: boolean } = {},
-) {
-  applyReaderBackSwipeIntentState(deltaX, {
+): NonNullable<Parameters<typeof applyReaderBackSwipeIntentState>[1]> {
+  return {
     ...options,
     beforeSourceReturnIntent: () => {
       prepareSourceReaderReturnDrag()
@@ -2120,7 +2118,14 @@ function applyReaderBackSwipeIntentAction(
     afterDetailSourceIntent: () => {
       showSourceReaderUnderDetail()
     },
-  })
+  }
+}
+
+function applyReaderBackSwipeIntentAction(
+  deltaX: number,
+  options: { resetSourceExit?: boolean; prepareBlocked?: boolean } = {},
+) {
+  applyReaderBackSwipeIntentState(deltaX, readerBackSwipeIntentOptions(options))
 }
 
 function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame = false) {
@@ -2130,9 +2135,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
   }
 
   trackingBackSwipe = true
-  beginReaderBackSwipeTrackingState()
-  applyReaderBackSwipeIntentAction(deltaX)
-  startReaderBackSwipeDragState()
+  beginReaderBackSwipeDragState(deltaX, readerBackSwipeIntentOptions())
   beginBackSwipeTransition(deltaX)
   trackingBackSwipeCandidate = false
   trackingEdgeSwipeCandidate = false

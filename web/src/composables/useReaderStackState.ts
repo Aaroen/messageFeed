@@ -1705,6 +1705,16 @@ export function useReaderStackState() {
     readerBackDragging.value = true
   }
 
+  function beginReaderBackSwipeDragState(
+    deltaX: number,
+    options: ApplyReaderBackSwipeIntentStateOptions = {},
+  ) {
+    beginReaderBackSwipeTrackingState()
+    const action = applyReaderBackSwipeIntentState(deltaX, options)
+    startReaderBackSwipeDragState()
+    return action
+  }
+
   function resetReaderBackSwipeStretchState() {
     detailReaderStretch.value = 0
     sourceReaderStretch.value = 0
@@ -1894,8 +1904,7 @@ export function useReaderStackState() {
     readerBackSwipeFinishAction,
     readerBackSwipeCancelAction,
     readerBackSwipeTransitionSurfaces,
-    beginReaderBackSwipeTrackingState,
-    startReaderBackSwipeDragState,
+    beginReaderBackSwipeDragState,
     resetReaderBackSwipeStretchState,
     applyReaderBackSwipeVisualState,
     detailBlocksGestures,
