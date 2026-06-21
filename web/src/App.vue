@@ -9,7 +9,6 @@ import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
 import AppReaderStackOutlet from '@/components/AppReaderStackOutlet.vue'
 import { useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
-import { useReaderBackSwipeResetAction } from '@/composables/useReaderBackSwipeResetAction'
 import {
   type FeedSourceKind,
   type ReaderSessionSnapshot,
@@ -66,8 +65,6 @@ import { useNavigationPointerHandlers } from '@/composables/useNavigationPointer
 import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHandlers'
 import { useReaderDetailProgressHandlers } from '@/composables/useReaderDetailProgressHandlers'
 import { useReaderDetailMessageHandler } from '@/composables/useReaderDetailMessageHandler'
-import { useReaderItemCloseAction } from '@/composables/useReaderItemCloseAction'
-import { useReaderRestoreActions } from '@/composables/useReaderRestoreActions'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards'
@@ -96,6 +93,7 @@ import { useAppPagePullInteractions } from '@/composables/useAppPagePullInteract
 import { useAppReaderBackSwipeInteractions } from '@/composables/useAppReaderBackSwipeInteractions'
 import { useAppReaderSourceCloseInteractions } from '@/composables/useAppReaderSourceCloseInteractions'
 import { useAppReaderOpenInteractions } from '@/composables/useAppReaderOpenInteractions'
+import { useAppReaderCloseInteractions } from '@/composables/useAppReaderCloseInteractions'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -903,54 +901,53 @@ const restoreDetailFromParkedSource = readerSourceCloseInteractions.restoreDetai
 const restoreSourceReaderBackTarget = readerSourceCloseInteractions.restoreSourceReaderBackTarget
 const closeSourceReader = readerSourceCloseInteractions.closeSourceReader
 
-const readerItemCloseAction = useReaderItemCloseAction({
-  detailReaderOpen,
-  isFeedRoute,
-  readerDuration: motionReaderDuration,
-  resolveDelay: motionDelay,
-  detailCommittedListReturn,
-  hasDetailParkedBehindSource,
-  clearDetailEntryTimer,
-  closeItemReaderWithTransition,
-  collapseItemReaderWithDelay,
-  setTopChromeVisible,
-  scheduleHiddenSourceReaderCleanup,
-  suppressFollowingClick,
-  refreshDetailFeedOriginRect,
-  restorePreviousParkedDetail,
-  scheduleReaderURLAndHistorySync,
+const readerCloseInteractions = useAppReaderCloseInteractions({
+  backSwipeReset: {
+    readerBackDragging,
+    stretchAnchorClearDuration: motionStretchAnchorClearDuration,
+    resetReaderBackSwipeDragState,
+    resetPageSideMotion: pagePullState.resetSideMotion,
+    clearReaderStretchAnchorsIfIdle,
+    clearPageStretchAnchorIfIdle: pagePullState.clearStretchAnchorIfIdle,
+  },
+  itemClose: {
+    detailReaderOpen,
+    isFeedRoute,
+    readerDuration: motionReaderDuration,
+    resolveDelay: motionDelay,
+    detailCommittedListReturn,
+    hasDetailParkedBehindSource,
+    clearDetailEntryTimer,
+    closeItemReaderWithTransition,
+    collapseItemReaderWithDelay,
+    setTopChromeVisible,
+    scheduleHiddenSourceReaderCleanup,
+    suppressFollowingClick,
+    refreshDetailFeedOriginRect,
+    restorePreviousParkedDetail,
+    scheduleReaderURLAndHistorySync,
+  },
+  restoreActions: {
+    normalDuration: motionNormalDuration,
+    readerDuration: motionReaderDuration,
+    resolveDelay: motionDelay,
+    restoreParkedSourceReaderWithDelay,
+    restoreItemReaderExpansionWithDelay,
+    restoreDetailFromSourceSwipeWithDelay,
+    completeDetailToSourceReaderWithDelay,
+    setTopChromeVisible,
+    captureDetailSourceTransitionRects,
+    restoreMorphingItemContent,
+  },
 })
-const finishCommittedListReturnForGesture = readerItemCloseAction.finishCommittedListReturnForGesture
-const closeItemReader = readerItemCloseAction.closeItemReader
-const collapseItemReader = readerItemCloseAction.collapseItemReader
-
-const readerBackSwipeResetAction = useReaderBackSwipeResetAction({
-  readerBackDragging,
-  stretchAnchorClearDuration: motionStretchAnchorClearDuration,
-  resetReaderBackSwipeDragState,
-  resetPageSideMotion: pagePullState.resetSideMotion,
-  clearReaderStretchAnchorsIfIdle,
-  clearPageStretchAnchorIfIdle: pagePullState.clearStretchAnchorIfIdle,
-})
-const resetBackSwipeOffset = readerBackSwipeResetAction.resetBackSwipeOffset
-
-const readerRestoreActions = useReaderRestoreActions({
-  normalDuration: motionNormalDuration,
-  readerDuration: motionReaderDuration,
-  resolveDelay: motionDelay,
-  restoreParkedSourceReaderWithDelay,
-  restoreItemReaderExpansionWithDelay,
-  restoreDetailFromSourceSwipeWithDelay,
-  completeDetailToSourceReaderWithDelay,
-  resetBackSwipeOffset,
-  setTopChromeVisible,
-  captureDetailSourceTransitionRects,
-  restoreMorphingItemContent,
-})
-const restoreParkedSourceReader = readerRestoreActions.restoreParkedSourceReader
-const restoreItemReaderExpansion = readerRestoreActions.restoreItemReaderExpansion
-const restoreDetailFromSourceSwipe = readerRestoreActions.restoreDetailFromSourceSwipe
-const completeDetailToSourceReader = readerRestoreActions.completeDetailToSourceReader
+const finishCommittedListReturnForGesture = readerCloseInteractions.finishCommittedListReturnForGesture
+const closeItemReader = readerCloseInteractions.closeItemReader
+const collapseItemReader = readerCloseInteractions.collapseItemReader
+const resetBackSwipeOffset = readerCloseInteractions.resetBackSwipeOffset
+const restoreParkedSourceReader = readerCloseInteractions.restoreParkedSourceReader
+const restoreItemReaderExpansion = readerCloseInteractions.restoreItemReaderExpansion
+const restoreDetailFromSourceSwipe = readerCloseInteractions.restoreDetailFromSourceSwipe
+const completeDetailToSourceReader = readerCloseInteractions.completeDetailToSourceReader
 
 const appGestureStartGuards = useAppGestureStartGuards({
   isFeedRoute,
