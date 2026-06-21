@@ -2825,7 +2825,7 @@ onUnmounted(() => {
   window.removeEventListener('touchend', handleTouchEnd)
   window.removeEventListener('touchcancel', handleTouchCancel)
   feedPagerTransition.clearTimers()
-  swipeTransition.clearResetTimer()
+  swipeTransition.clearTimer()
   navigationDrawer.clearTimer()
   refreshCompletion.clearTimer()
   chromeState.clearTimer()

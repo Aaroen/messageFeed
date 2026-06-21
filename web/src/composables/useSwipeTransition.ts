@@ -92,14 +92,14 @@ export function useSwipeTransition<TSurface extends string = string>() {
     isBlocked.value = false
   }
 
-  function clearResetTimer() {
+  function clearTimer() {
     if (typeof window !== 'undefined') {
       window.clearTimeout(resetTimer)
     }
   }
 
   function scheduleReset(delayMS: number) {
-    clearResetTimer()
+    clearTimer()
     resetTimer = window.setTimeout(() => {
       reset()
     }, Math.max(0, delayMS))
@@ -118,6 +118,6 @@ export function useSwipeTransition<TSurface extends string = string>() {
     settle,
     reset,
     scheduleReset,
-    clearResetTimer,
+    clearTimer,
   }
 }
