@@ -193,6 +193,7 @@ const {
   readerBackSwipeShouldCommit,
   readerBackSwipeIsBlocked,
   readerBackSwipeFinishAction,
+  readerBackSwipeCancelAction,
   readerBackSwipeTransitionSurfaces,
   beginReaderBackSwipeTrackingState,
   prepareReaderBackSwipeIntentState,
@@ -2652,7 +2653,7 @@ function handleTouchCancel() {
   const hadNavigationGesture = trackingEdgeSwipe || trackingNavigationClose
   const hadViewGesture = trackingViewSwipe
   const hadBackGesture = trackingBackSwipe
-  const { intent: canceledBackIntent, target: canceledBackTarget } = getReaderBackSwipeState()
+  const canceledBackAction = readerBackSwipeCancelAction()
   resetGestureTracking()
   if (hadNavigationGesture && navigationVisible.value && !navigationOpen.value) {
     settleNavigation(false)
@@ -2661,15 +2662,11 @@ function handleTouchCancel() {
     finishViewSwipe(null)
   }
   if (hadBackGesture) {
-    if (canceledBackIntent === 'back' && canceledBackTarget === 'detail') {
+    if (canceledBackAction === 'restore-item-expansion') {
       restoreItemReaderExpansion()
-    } else if (canceledBackIntent === 'source' && canceledBackTarget === 'detail') {
+    } else if (canceledBackAction === 'restore-detail-from-source-swipe') {
       restoreDetailFromSourceSwipe()
-    } else if (
-      canceledBackIntent === 'back' &&
-      canceledBackTarget === 'source' &&
-      sourceReaderCanRestoreReturnOnCancel()
-    ) {
+    } else if (canceledBackAction === 'restore-parked-source') {
       restoreParkedSourceReader()
     } else {
       resetBackSwipeOffset()
@@ -2810,17 +2807,13 @@ function handleMessage(event: MessageEvent) {
 
   if (payload.phase === 'cancel') {
     if (trackingBackSwipe) {
-      const { intent: canceledBackIntent, target: canceledBackTarget } = getReaderBackSwipeState()
+      const canceledBackAction = readerBackSwipeCancelAction()
       resetGestureTracking()
-      if (canceledBackIntent === 'back' && canceledBackTarget === 'detail') {
+      if (canceledBackAction === 'restore-item-expansion') {
         restoreItemReaderExpansion()
-      } else if (canceledBackIntent === 'source' && canceledBackTarget === 'detail') {
+      } else if (canceledBackAction === 'restore-detail-from-source-swipe') {
         restoreDetailFromSourceSwipe()
-      } else if (
-        canceledBackIntent === 'back' &&
-        canceledBackTarget === 'source' &&
-        sourceReaderCanRestoreReturnOnCancel()
-      ) {
+      } else if (canceledBackAction === 'restore-parked-source') {
         restoreParkedSourceReader()
       } else {
         resetBackSwipeOffset()

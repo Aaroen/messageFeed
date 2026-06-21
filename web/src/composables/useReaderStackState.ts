@@ -130,6 +130,11 @@ type ReaderBackSwipeFinishAction =
   | 'collapse-detail'
   | 'restore-detail-from-parked-source'
   | 'reset'
+type ReaderBackSwipeCancelAction =
+  | 'restore-item-expansion'
+  | 'restore-detail-from-source-swipe'
+  | 'restore-parked-source'
+  | 'reset'
 type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
 type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
@@ -1455,6 +1460,21 @@ export function useReaderStackState() {
     return 'reset'
   }
 
+  function readerBackSwipeCancelAction(): ReaderBackSwipeCancelAction {
+    const target = backSwipeTarget.value
+    const intent = backSwipeIntent.value
+    if (intent === 'back' && target === 'detail') {
+      return 'restore-item-expansion'
+    }
+    if (intent === 'source' && target === 'detail') {
+      return 'restore-detail-from-source-swipe'
+    }
+    if (intent === 'back' && target === 'source' && sourceReaderCanRestoreReturnOnCancel()) {
+      return 'restore-parked-source'
+    }
+    return 'reset'
+  }
+
   function readerBackSwipeTransitionSurfaces<TSurface extends string>(surfaces: {
     activeFeedSurface: TSurface
     pageReturnSurface: TSurface
@@ -1706,6 +1726,7 @@ export function useReaderStackState() {
     readerBackSwipeShouldCommit,
     readerBackSwipeIsBlocked,
     readerBackSwipeFinishAction,
+    readerBackSwipeCancelAction,
     readerBackSwipeTransitionSurfaces,
     beginReaderBackSwipeTrackingState,
     prepareReaderBackSwipeIntentState,
