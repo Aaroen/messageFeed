@@ -15,9 +15,7 @@ import {
 } from '@/composables/useReaderSession'
 import { useReaderStackState } from '@/composables/useReaderStackState'
 import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
-import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
-import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
 import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
 import { useTopPullState } from '@/composables/useTopPullState'
@@ -71,6 +69,7 @@ import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
 import { useAppPointerGestureInteractions } from '@/composables/useAppPointerGestureInteractions'
 import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwipeInteractions'
 import { useAppGesturePolicy } from '@/composables/useAppGesturePolicy'
+import { useAppSwipeNavigationState } from '@/composables/useAppSwipeNavigationState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -261,11 +260,6 @@ const topChromeProgress = chromeState.progress
 const topChromePhase = chromeState.phase
 const feedContentCollapsed = chromeState.contentCollapsed
 const feedChromeSettling = chromeState.settling
-const swipeTransition = useSwipeTransition<SwipeSurface>()
-const swipePhase = swipeTransition.phase
-const swipeDirection = swipeTransition.direction
-const swipeProgress = swipeTransition.progress
-const swipeIsBlocked = swipeTransition.isBlocked
 const clickSuppression = useClickSuppression()
 const viewportSize = useViewportSize({ defaultWidth: 1440, defaultHeight: 900 })
 const windowWidth = viewportSize.width
@@ -427,15 +421,27 @@ useAppReaderRouteSyncBinding({
   setProgrammaticRouteNavigation: routeRuntime.setProgrammaticNavigation,
   syncVirtualHistoryState: virtualBackGuard.syncHistoryState,
 })
-const feedPagerTransition = useFeedPagerTransition({
-  getActiveKey: () => route.name,
-  getWindowWidth: () => windowWidth.value,
-  isFeedRoute: () => isFeedRoute.value,
-  isDetailReaderOpen: () => detailReaderOpen.value,
+const appSwipeNavigationState = useAppSwipeNavigationState<SwipeSurface>({
+  feedPager: {
+    getActiveKey: () => route.name,
+    getWindowWidth: () => windowWidth.value,
+    isFeedRoute: () => isFeedRoute.value,
+    isDetailReaderOpen: () => detailReaderOpen.value,
+  },
 })
+const swipePhase = appSwipeNavigationState.swipePhase
+const swipeDirection = appSwipeNavigationState.swipeDirection
+const swipeProgress = appSwipeNavigationState.swipeProgress
+const swipeIsBlocked = appSwipeNavigationState.swipeIsBlocked
+const beginSwipeTransition = appSwipeNavigationState.beginSwipeTransition
+const updateSwipeTransition = appSwipeNavigationState.updateSwipeTransition
+const settleSwipeTransition = appSwipeNavigationState.settleSwipeTransition
+const scheduleSwipeReset = appSwipeNavigationState.scheduleSwipeReset
+const clearSwipeTransitionTimer = appSwipeNavigationState.clearSwipeTransitionTimer
+const feedPagerTransition = appSwipeNavigationState.feedPagerTransition
 const gesturePolicy = useAppGesturePolicy({
   direction: {
-    viewDragThreshold: feedPagerTransition.dragThreshold,
+    viewDragThreshold: appSwipeNavigationState.feedPagerDragThreshold,
   },
   startGuards: {
     isFeedRoute,
@@ -453,11 +459,11 @@ const shouldCancelTopPull = gesturePolicy.shouldCancelTopPull
 const shouldWaitForTopPull = gesturePolicy.shouldWaitForTopPull
 const canStartViewSwipe = gesturePolicy.canStartViewSwipe
 const canStartNavigationOpen = gesturePolicy.canStartNavigationOpen
-const viewDragOffset = feedPagerTransition.dragOffset
-const viewSettling = feedPagerTransition.settling
-const viewSwipeCandidateActive = feedPagerTransition.viewSwipeCandidateActive
-const viewSwipeActive = feedPagerTransition.viewSwipeActive
-const activeFeedIndex = feedPagerTransition.activeIndex
+const viewDragOffset = appSwipeNavigationState.viewDragOffset
+const viewSettling = appSwipeNavigationState.viewSettling
+const viewSwipeCandidateActive = appSwipeNavigationState.viewSwipeCandidateActive
+const viewSwipeActive = appSwipeNavigationState.viewSwipeActive
+const activeFeedIndex = appSwipeNavigationState.activeFeedIndex
 const feedChromeState = useAppFeedChromeState({
   pullActivity: {
     isFeedRoute,
@@ -507,10 +513,10 @@ const feedCornerHidden = feedChromeState.feedCornerHidden
 const detailHeaderVisible = feedChromeState.detailHeaderVisible
 const headerDetailLayoutActive = feedChromeState.headerDetailLayoutActive
 const { statusText: pullStatusText, statusMeta: pullStatusMeta } = storeToRefs(feedInteraction)
-const feedTrackStyle = feedPagerTransition.trackStyle
-const viewSwipeTargetKey = feedPagerTransition.targetKey
-const viewSwipeTargetVisible = feedPagerTransition.targetVisible
-const viewSwipeTargetProgress = feedPagerTransition.targetProgress
+const feedTrackStyle = appSwipeNavigationState.feedTrackStyle
+const viewSwipeTargetKey = appSwipeNavigationState.viewSwipeTargetKey
+const viewSwipeTargetVisible = appSwipeNavigationState.viewSwipeTargetVisible
+const viewSwipeTargetProgress = appSwipeNavigationState.viewSwipeTargetProgress
 const chromeVisualState = useAppChromeVisualState({
   layer: {
     feedPullActive,
@@ -687,8 +693,8 @@ const detailSrcdoc = readerMotionState.detailSrcdoc
 
 const { resetGestureTracking } = useAppGestureResetAction({
   resetNavigationGesture: navigationGesture.reset,
-  resetFeedViewSwipeTracking: feedPagerTransition.resetViewSwipeTracking,
-  clearFeedViewStartedWithHiddenChrome: feedPagerTransition.clearStartedWithHiddenChrome,
+  resetFeedViewSwipeTracking: appSwipeNavigationState.resetFeedViewSwipeTracking,
+  clearFeedViewStartedWithHiddenChrome: appSwipeNavigationState.clearFeedViewStartedWithHiddenChrome,
   resetReaderBackSwipeCandidate: resetReaderBackSwipeCandidateState,
 })
 
@@ -926,10 +932,10 @@ const feedViewSwipeInteractions = useAppFeedViewSwipeInteractions({
   viewSwipeChromeRevealDelay,
   motionNormalDuration,
   resolveDelay: motionDelay,
-  beginSwipeTransition: swipeTransition.begin,
-  updateSwipeTransition: swipeTransition.update,
-  settleSwipeTransition: swipeTransition.settle,
-  scheduleSwipeReset: swipeTransition.scheduleReset,
+  beginSwipeTransition,
+  updateSwipeTransition,
+  settleSwipeTransition,
+  scheduleSwipeReset,
   swipeTransitionBeginPayload: feedPagerTransition.swipeTransitionBeginPayload,
   swipeTransitionUpdatePayload: feedPagerTransition.swipeTransitionUpdatePayload,
   finishSwipeResult: feedPagerTransition.finishSwipeResult,
@@ -946,10 +952,10 @@ const syncViewSwipeTransition = feedViewSwipeInteractions.syncViewSwipeTransitio
 const readerBackSwipeInteractions = useAppReaderBackSwipeInteractions({
   pagePull: pagePullState,
   transition: {
-    activeFeedSurface: feedPagerTransition.activeSurface,
+    activeFeedSurface: appSwipeNavigationState.activeFeedSurface,
     pageReturnSurface: 'feed:recommendations',
-    beginSwipeTransition: swipeTransition.begin,
-    updateSwipeTransition: swipeTransition.update,
+    beginSwipeTransition,
+    updateSwipeTransition,
     transitionBeginPayload: readerBackSwipeTransitionBeginPayload,
     transitionUpdatePayload: readerBackSwipeTransitionUpdatePayload,
   },
@@ -988,7 +994,7 @@ const readerBackSwipeInteractions = useAppReaderBackSwipeInteractions({
     switchDistance: viewSwitchDistance,
     finishResult: readerBackSwipeFinishResult,
     cancelResult: readerBackSwipeCancelResult,
-    settleTransition: swipeTransition.settle,
+    settleTransition: settleSwipeTransition,
     scheduleTransitionReset: () => {
       scheduleSwipeTransitionReset(motionReaderDuration)
     },
@@ -1407,7 +1413,7 @@ useAppRouteSessionWatchers({
   resetPageTopPullTracking,
   finishFeedTopPull: feedTopPull.finish,
   resetPagePullMotion: pagePullState.resetMotion,
-  resetFeedViewDragOffset: feedPagerTransition.resetDragOffset,
+  resetFeedViewDragOffset: appSwipeNavigationState.resetFeedViewDragOffset,
   setTopChromeVisible,
   currentFeedScrollTop: feedContent.currentScrollTop,
   updateFeedScrollTop: feedScroll.update,
@@ -1448,8 +1454,8 @@ useAppLifecycle({
   uninstallWindowEventListeners,
   saveReaderSessionNow,
   clearRuntimeTimers: [
-    () => feedPagerTransition.clearTimers(),
-    () => swipeTransition.clearTimer(),
+    () => appSwipeNavigationState.clearFeedPagerTimers(),
+    () => clearSwipeTransitionTimer(),
     () => navigationDrawer.clearTimer(),
     () => refreshCompletion.clearTimer(),
     () => chromeState.clearTimer(),
