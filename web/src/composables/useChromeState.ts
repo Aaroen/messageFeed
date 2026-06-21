@@ -123,6 +123,13 @@ export function useChromeState() {
     settling.value = false
   }
 
+  function beginGestureReturn(options: SetChromeVisibleOptions = {}) {
+    setSettling(true, 'gesture-returning')
+    setContentCollapsed(false)
+    setProgress(1, 'gesture-returning')
+    scheduleSettlingEndIfNeeded(options.settleDelayMS)
+  }
+
   function beginRefreshing() {
     clearTimer()
     settling.value = false
@@ -156,6 +163,7 @@ export function useChromeState() {
     setVisible,
     setCollapsedHidden,
     setStableVisible,
+    beginGestureReturn,
     beginRefreshing,
     setRefreshingProgress,
     commitRefreshing,

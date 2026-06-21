@@ -1707,7 +1707,7 @@ function isBackHorizontalSwipe(deltaX: number, deltaY: number) {
 
 function showTopChromeForSourceReturn() {
   if (topChromeProgress.value < 0.99 || feedContentCollapsed.value) {
-    setTopChromeVisible(true)
+    chromeState.beginGestureReturn({ settleDelayMS: motionDelay(topChromeSettleDuration) })
   }
 }
 
