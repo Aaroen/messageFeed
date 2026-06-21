@@ -50,6 +50,7 @@ import { useReaderSourceTitleMotion } from '@/composables/useReaderSourceTitleMo
 import { useReaderDetailTransitionMotion } from '@/composables/useReaderDetailTransitionMotion'
 import { useAppShellMotion } from '@/composables/useAppShellMotion'
 import { useTopPullState } from '@/composables/useTopPullState'
+import { useViewportSize } from '@/composables/useViewportSize'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -247,8 +248,9 @@ const swipeDirection = swipeTransition.direction
 const swipeProgress = swipeTransition.progress
 const swipeIsBlocked = swipeTransition.isBlocked
 const clickSuppression = useClickSuppression()
-const windowWidth = ref(typeof window === 'undefined' ? 1440 : window.innerWidth)
-const windowHeight = ref(typeof window === 'undefined' ? 900 : window.innerHeight)
+const viewportSize = useViewportSize({ defaultWidth: 1440, defaultHeight: 900 })
+const windowWidth = viewportSize.width
+const windowHeight = viewportSize.height
 const navigationDrawer = useNavigationDrawer({ windowWidth, resolveDelay: motionDelay })
 const navigationOpen = navigationDrawer.open
 const navigationProgress = navigationDrawer.progress
@@ -2278,8 +2280,7 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 function handleResize() {
-  windowWidth.value = window.innerWidth
-  windowHeight.value = window.innerHeight
+  viewportSize.sync()
 }
 
 function syncDetailContainerMetrics() {
