@@ -8,7 +8,6 @@ import AppMainOutlet from '@/components/AppMainOutlet.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
 import AppReaderStackOutlet from '@/components/AppReaderStackOutlet.vue'
 import { useChromeState } from '@/composables/useChromeState'
-import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
 import {
   type FeedSourceKind,
   type ReaderSessionSnapshot,
@@ -83,6 +82,7 @@ import { useAppReaderCloseInteractions } from '@/composables/useAppReaderCloseIn
 import { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
 import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitionRects'
 import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
+import { useAppReaderSourceSubscription } from '@/composables/useAppReaderSourceSubscription'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -255,12 +255,12 @@ const {
   resetSourceSubscriptionState,
   loadSourceReaderSubscription,
   toggleSourceReaderSubscription,
-} = useReaderSourceSubscription({
+} = useAppReaderSourceSubscription({
+  readerSource,
   sourceCatalogEntry,
   sourceSubscription,
   sourceSubscriptionLoading,
   sourceNotice,
-  getReaderSource: () => readerSource.value,
   setSourceCatalogEntry: setSourceCatalogEntryState,
   setSourceSubscription: setSourceSubscriptionState,
   setSourceSubscriptionLoading: setSourceSubscriptionLoadingState,
