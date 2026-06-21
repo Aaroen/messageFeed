@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance, StyleValue } from 'vue'
 
+import type { PageViewExpose } from '@/composables/usePageOutletState'
 import type { ReaderSource } from '@/composables/useReaderSession'
-
-type PageViewExpose = {
-  refreshPage?: (options?: { noticeDelayMS?: number; suppressStartNotice?: boolean }) => Promise<void> | void
-}
 
 withDefaults(
   defineProps<{

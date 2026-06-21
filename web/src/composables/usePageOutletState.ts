@@ -1,0 +1,40 @@
+import { readonly, ref } from 'vue'
+
+export type PageRefreshOptions = {
+  noticeDelayMS?: number
+  suppressStartNotice?: boolean
+}
+
+export type PageViewExpose = {
+  refreshPage?: (options?: PageRefreshOptions) => Promise<void> | void
+}
+
+export function usePageOutletState() {
+  const contentElement = ref<HTMLElement | null>(null)
+  const viewInstance = ref<PageViewExpose | null>(null)
+
+  function setContentElement(element: HTMLElement | null) {
+    contentElement.value = element
+  }
+
+  function setViewInstance(view: PageViewExpose | null) {
+    viewInstance.value = view
+  }
+
+  function currentScrollTop() {
+    return contentElement.value?.scrollTop ?? 0
+  }
+
+  function currentRefreshPage() {
+    return viewInstance.value?.refreshPage ?? null
+  }
+
+  return {
+    contentElement: readonly(contentElement),
+    viewInstance: readonly(viewInstance),
+    setContentElement,
+    setViewInstance,
+    currentScrollTop,
+    currentRefreshPage,
+  }
+}

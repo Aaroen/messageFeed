@@ -53,6 +53,7 @@ import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
 import { useThemeState } from '@/composables/useThemeState'
 import { useFeedScrollState } from '@/composables/useFeedScrollState'
+import { usePageOutletState, type PageViewExpose } from '@/composables/usePageOutletState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -60,16 +61,13 @@ type SwipeSurface =
   | 'reader:detail'
   | 'reader:source'
   | 'page:management'
-type PageViewExpose = {
-  refreshPage?: (options?: { noticeDelayMS?: number; suppressStartNotice?: boolean }) => Promise<void> | void
-}
 
 const route = useRoute()
 const router = useRouter()
 const feedInteraction = useFeedInteractionStore()
 const feedContentRef = ref<HTMLElement | null>(null)
-const pageContentRef = ref<HTMLElement | null>(null)
-const pageViewRef = ref<PageViewExpose | null>(null)
+const pageOutlet = usePageOutletState()
+const pageContentRef = pageOutlet.contentElement
 const {
   sourceReaderContentRef,
   detailContentRef,
@@ -1111,11 +1109,11 @@ function setSourceReaderContentElement(element: HTMLElement | null) {
 }
 
 function setPageContentElement(element: HTMLElement | null) {
-  pageContentRef.value = element
+  pageOutlet.setContentElement(element)
 }
 
 function setPageViewInstance(view: PageViewExpose | null) {
-  pageViewRef.value = view
+  pageOutlet.setViewInstance(view)
 }
 
 function findSourceFeedItemElement(itemID?: number) {
@@ -2419,7 +2417,7 @@ function currentContentScrollTop() {
     return feedScrollTop.value
   }
 
-  return pageContentRef.value?.scrollTop ?? 0
+  return pageOutlet.currentScrollTop()
 }
 
 function handleFeedTopPullStart(startedWithVisibleChrome = false) {
@@ -2637,7 +2635,7 @@ function handlePageTouchMove(event: TouchEvent) {
 }
 
 async function refreshCurrentPageFromPull() {
-  const refreshPage = pageViewRef.value?.refreshPage
+  const refreshPage = pageOutlet.currentRefreshPage()
   if (!refreshPage || pagePullRefreshing.value) {
     return
   }
