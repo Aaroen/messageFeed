@@ -36,7 +36,6 @@ import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
-import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeController'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards'
@@ -72,6 +71,7 @@ import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyn
 import { useAppFeedChromeInteractions } from '@/composables/useAppFeedChromeInteractions'
 import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
 import { useAppPointerGestureInteractions } from '@/composables/useAppPointerGestureInteractions'
+import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwipeInteractions'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -918,7 +918,7 @@ const appGestureStartGuards = useAppGestureStartGuards({
 const canStartViewSwipe = appGestureStartGuards.canStartViewSwipe
 const canStartNavigationOpen = appGestureStartGuards.canStartNavigationOpen
 
-const feedViewSwipeController = useFeedViewSwipeController({
+const feedViewSwipeInteractions = useAppFeedViewSwipeInteractions({
   topChromeProgress,
   feedContentCollapsed,
   viewSwipeChromeRevealDelay,
@@ -937,9 +937,9 @@ const feedViewSwipeController = useFeedViewSwipeController({
   setTopChromeVisible,
   pushRoute,
 })
-const scheduleSwipeTransitionReset = feedViewSwipeController.scheduleSwipeTransitionReset
-const beginViewSwipeTransition = feedViewSwipeController.beginViewSwipeTransition
-const syncViewSwipeTransition = feedViewSwipeController.syncViewSwipeTransition
+const scheduleSwipeTransitionReset = feedViewSwipeInteractions.scheduleSwipeTransitionReset
+const beginViewSwipeTransition = feedViewSwipeInteractions.beginViewSwipeTransition
+const syncViewSwipeTransition = feedViewSwipeInteractions.syncViewSwipeTransition
 
 const readerBackSwipeInteractions = useAppReaderBackSwipeInteractions({
   pagePull: pagePullState,
@@ -1006,8 +1006,8 @@ const updateBackSwipe = readerBackSwipeInteractions.updateBackSwipe
 const finishBackSwipe = readerBackSwipeInteractions.finishBackSwipe
 const cancelBackSwipe = readerBackSwipeInteractions.cancelBackSwipe
 
-const finishViewSwipe = feedViewSwipeController.finishViewSwipe
-const showTopChromeForViewSwipe = feedViewSwipeController.showTopChromeForViewSwipe
+const finishViewSwipe = feedViewSwipeInteractions.finishViewSwipe
+const showTopChromeForViewSwipe = feedViewSwipeInteractions.showTopChromeForViewSwipe
 
 const pointerGestureInteractions = useAppPointerGestureInteractions({
   touch: {
