@@ -69,6 +69,7 @@ import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwi
 import { useAppGesturePolicy } from '@/composables/useAppGesturePolicy'
 import { useAppSwipeNavigationState } from '@/composables/useAppSwipeNavigationState'
 import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
+import { useAppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -677,6 +678,21 @@ const sourceTitleRevealStyle = readerMotionState.sourceTitleRevealStyle
 const detailPreviewSummary = readerMotionState.detailPreviewSummary
 const detailDisplayDate = readerMotionState.detailDisplayDate
 const detailSrcdoc = readerMotionState.detailSrcdoc
+const readerMorphVisibilityState = useAppReaderMorphVisibilityState({
+  readerSource,
+  sourceToggleActive,
+  sourceTitleRevealVisible,
+  sourceTitleRevealStyle,
+  detailItem,
+  sourceNameMorphVisible,
+  sourceNameMorphStyle,
+  detailMorphTextVisible,
+  detailMorphTextStyle,
+  detailMorphSourceLabelStyle,
+  detailDisplayDate,
+  detailMorphSummaryVisible,
+  detailPreviewSummary,
+})
 
 const { resetGestureTracking } = useAppGestureResetAction({
   resetNavigationGesture: navigationGesture.reset,
@@ -1184,12 +1200,9 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   sourceReaderUnderDetail,
   sourceReaderStyle,
   readerSource,
-  sourceTitleRevealVisible,
-  sourceTitleRevealStyle,
   sourceToggleActive,
   detailItem,
-  sourceNameMorphVisible,
-  sourceNameMorphStyle,
+  readerMorph: readerMorphVisibilityState,
   detailReaderOpen,
   readerMotionSettling,
   detailReturningToFeed,
@@ -1221,12 +1234,6 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   detailEntrySettling,
   feedChromeSettling,
   detailTransitionSurfaceStyle,
-  detailMorphTextVisible,
-  detailMorphTextStyle,
-  detailMorphSourceLabelStyle,
-  detailDisplayDate,
-  detailMorphSummaryVisible,
-  detailPreviewSummary,
   detailContentStyle,
   detailLoading,
   detailError,

@@ -2,6 +2,7 @@ import { computed } from 'vue'
 import type { StyleValue } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
+import type { AppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
 import type { ChromePhase } from '@/composables/useChromeState'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
 
@@ -19,12 +20,9 @@ type AppReaderStackOutletBindingOptions = {
   sourceReaderUnderDetail: ReadableRef<boolean>
   sourceReaderStyle: ReadableRef<StyleValue>
   readerSource: ReadableRef<ReaderSource | null>
-  sourceTitleRevealVisible: ReadableRef<boolean>
-  sourceTitleRevealStyle: ReadableRef<StyleValue>
   sourceToggleActive: ReadableRef<boolean>
   detailItem: ReadableRef<FeedItem | null>
-  sourceNameMorphVisible: ReadableRef<boolean>
-  sourceNameMorphStyle: ReadableRef<StyleValue>
+  readerMorph: AppReaderMorphVisibilityState
   detailReaderOpen: ReadableRef<boolean>
   readerMotionSettling: ReadableRef<boolean>
   detailReturningToFeed: ReadableRef<boolean>
@@ -56,12 +54,6 @@ type AppReaderStackOutletBindingOptions = {
   detailEntrySettling: ReadableRef<boolean>
   feedChromeSettling: ReadableRef<boolean>
   detailTransitionSurfaceStyle: ReadableRef<StyleValue>
-  detailMorphTextVisible: ReadableRef<boolean>
-  detailMorphTextStyle: ReadableRef<StyleValue>
-  detailMorphSourceLabelStyle: ReadableRef<StyleValue>
-  detailDisplayDate: ReadableRef<string>
-  detailMorphSummaryVisible: ReadableRef<boolean>
-  detailPreviewSummary: ReadableRef<string>
   detailContentStyle: ReadableRef<StyleValue>
   detailLoading: ReadableRef<boolean>
   detailError: ReadableRef<string>
@@ -96,20 +88,21 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
     const readerSource = options.readerSource.value
     const detailItem = options.detailItem.value
     const sourceName = readerSource?.name || ''
+    const readerMorph = options.readerMorph
 
     return {
       sourceMounted: options.sourceReaderMounted.value && Boolean(readerSource),
       sourceUnderDetail: options.sourceReaderUnderDetail.value,
       sourceStyle: options.sourceReaderStyle.value,
-      sourceTitleRevealMounted: Boolean(readerSource),
-      sourceTitleRevealVisible: options.sourceTitleRevealVisible.value,
-      sourceTitleRevealStyle: options.sourceTitleRevealStyle.value,
-      sourceTitle: sourceName,
-      sourceMeta: options.sourceToggleActive.value ? '已订阅' : '未订阅',
-      sourceNameMorphMounted: Boolean(detailItem),
-      sourceNameMorphVisible: options.sourceNameMorphVisible.value,
-      sourceNameMorphStyle: options.sourceNameMorphStyle.value,
-      sourceNameMorphText: detailItem?.source_name || '未知来源',
+      sourceTitleRevealMounted: readerMorph.sourceTitleRevealMounted.value,
+      sourceTitleRevealVisible: readerMorph.sourceTitleRevealVisible.value,
+      sourceTitleRevealStyle: readerMorph.sourceTitleRevealStyle.value,
+      sourceTitle: readerMorph.sourceTitle.value,
+      sourceMeta: readerMorph.sourceMeta.value,
+      sourceNameMorphMounted: readerMorph.sourceNameMorphMounted.value,
+      sourceNameMorphVisible: readerMorph.sourceNameMorphVisible.value,
+      sourceNameMorphStyle: readerMorph.sourceNameMorphStyle.value,
+      sourceNameMorphText: readerMorph.sourceNameMorphText.value,
       detailOpen: options.detailReaderOpen.value,
       detailMotionSettling: options.readerMotionSettling.value,
       detailReturningFeed: options.detailReturningToFeed.value,
@@ -145,12 +138,12 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       detailChromeSettling: options.feedChromeSettling.value,
       detailTransitionStyle: options.detailTransitionSurfaceStyle.value,
       detailItem,
-      detailMorphVisible: options.detailMorphTextVisible.value,
-      detailMorphTextStyle: options.detailMorphTextStyle.value,
-      detailMorphSourceLabelStyle: options.detailMorphSourceLabelStyle.value,
-      detailDisplayDate: options.detailDisplayDate.value,
-      detailMorphSummaryVisible: options.detailMorphSummaryVisible.value,
-      detailPreviewSummary: options.detailPreviewSummary.value,
+      detailMorphVisible: readerMorph.detailMorphVisible.value,
+      detailMorphTextStyle: readerMorph.detailMorphTextStyle.value,
+      detailMorphSourceLabelStyle: readerMorph.detailMorphSourceLabelStyle.value,
+      detailDisplayDate: readerMorph.detailDisplayDate.value,
+      detailMorphSummaryVisible: readerMorph.detailMorphSummaryVisible.value,
+      detailPreviewSummary: readerMorph.detailPreviewSummary.value,
       detailContentStyle: options.detailContentStyle.value,
       detailLoading: options.detailLoading.value,
       detailError: options.detailError.value,
