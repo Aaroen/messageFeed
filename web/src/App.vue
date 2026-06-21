@@ -51,6 +51,7 @@ import { useReaderDetailTransitionMotion } from '@/composables/useReaderDetailTr
 import { useAppShellMotion } from '@/composables/useAppShellMotion'
 import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
+import { useThemeState } from '@/composables/useThemeState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -259,7 +260,9 @@ const navigationWidth = navigationDrawer.width
 const navigationVisible = navigationDrawer.visible
 const navigationPanelStyle = navigationDrawer.panelStyle
 const navigationScrimStyle = navigationDrawer.scrimStyle
-const darkTheme = ref(false)
+const themeState = useThemeState()
+const darkTheme = themeState.dark
+const toggleTheme = themeState.toggle
 const refreshCompletion = useRefreshCompletionState()
 const refreshStartedWithChrome = refreshCompletion.startedWithChrome
 const feedRefreshSettling = refreshCompletion.settling
@@ -2262,17 +2265,6 @@ function handleTouchCancel() {
   feedPagerTransition.endPointerTracking()
 }
 
-function toggleTheme() {
-  darkTheme.value = !darkTheme.value
-  if (!darkTheme.value) {
-    document.body.removeAttribute('arco-theme')
-    localStorage.setItem('messagefeed-theme', 'light')
-    return
-  }
-  document.body.setAttribute('arco-theme', 'dark')
-  localStorage.setItem('messagefeed-theme', 'dark')
-}
-
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     closeNavigation()
@@ -2776,10 +2768,7 @@ watch(
 
 onMounted(() => {
   loadReaderSettings()
-  if (localStorage.getItem('messagefeed-theme') === 'dark') {
-    document.body.setAttribute('arco-theme', 'dark')
-    darkTheme.value = true
-  }
+  themeState.load()
   removeSystemBackGuard = virtualBackGuard.installRouterGuard()
   void router.isReady().then(() => restoreReaderSession()).finally(() => {
     readerSessionInitialized = true
