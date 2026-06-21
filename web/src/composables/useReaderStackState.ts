@@ -756,7 +756,7 @@ export function useReaderStackState() {
       return false
     }
 
-    parkedDetailStack.value.push(snapshot)
+    parkedDetailStack.value.push(cloneParkedDetailSnapshot(snapshot))
     return true
   }
 
@@ -768,22 +768,23 @@ export function useReaderStackState() {
       return false
     }
 
+    const restoredSnapshot = cloneParkedDetailSnapshot(snapshot)
     resetDetailHeaderTitleSwapState()
-    detailItem.value = snapshot.item
+    detailItem.value = restoredSnapshot.item
     detailError.value = ''
     detailLoading.value = false
-    detailSourceKind.value = snapshot.sourceKind
+    detailSourceKind.value = restoredSnapshot.sourceKind
     detailOpenedFromSourceReader.value = false
-    detailOriginRect.value = snapshot.originRect
-    detailSourceItemTargetRect.value = snapshot.sourceItemTargetRect
-    detailSourceNameOriginRect.value = snapshot.sourceNameOriginRect
-    detailSourceNameTargetRect.value = snapshot.sourceNameTargetRect
-    detailScrollTop.value = snapshot.scrollTop
-    options.onDetailScrollTop?.(snapshot.scrollTop)
+    detailOriginRect.value = restoredSnapshot.originRect
+    detailSourceItemTargetRect.value = restoredSnapshot.sourceItemTargetRect
+    detailSourceNameOriginRect.value = restoredSnapshot.sourceNameOriginRect
+    detailSourceNameTargetRect.value = restoredSnapshot.sourceNameTargetRect
+    detailScrollTop.value = restoredSnapshot.scrollTop
+    options.onDetailScrollTop?.(restoredSnapshot.scrollTop)
     detailFrameContentHeight.value = 0
     morphingItemId.value = null
     morphingHeightLockItemId.value = null
-    morphingItemHeight.value = snapshot.morphingItemHeight
+    morphingItemHeight.value = restoredSnapshot.morphingItemHeight
     detailEntryProgress.value = 1
     detailEntrySettling.value = false
     detailReaderTouchOffset.value = 0
@@ -1454,7 +1455,10 @@ export function useReaderStackState() {
 
     const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 0
     if (!sourceReaderBackDetail.value) {
-      sourceReaderBackDetail.value = snapshotCurrentDetail()
+      const currentDetailSnapshot = snapshotCurrentDetail()
+      sourceReaderBackDetail.value = currentDetailSnapshot
+        ? cloneParkedDetailSnapshot(currentDetailSnapshot)
+        : null
     }
     sourceReaderReturnMode.value = 'detail'
     sourceReaderVisible.value = true
