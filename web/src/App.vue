@@ -1176,11 +1176,9 @@ function handleCornerButtonClick() {
 }
 
 function navigateTo(path: string) {
-  feedPagerTransition.setSettling(true)
-  feedPagerTransition.setDragOffset(0)
+  feedPagerTransition.beginProgrammaticNavigation()
   void pushRoute(path)
-  feedPagerTransition.clearDelayedCommitTimer()
-  feedPagerTransition.scheduleSettlingEnd(motionDelay(260))
+  feedPagerTransition.settleProgrammaticNavigation(motionDelay(260))
 }
 
 function clamp(value: number, min = 0, max = 1) {

@@ -135,6 +135,16 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     scheduleSettlingEnd(delay)
   }
 
+  function beginProgrammaticNavigation() {
+    setSettling(true)
+    setDragOffset(0)
+  }
+
+  function settleProgrammaticNavigation(delay: number) {
+    clearDelayedCommitTimer()
+    scheduleSettlingEnd(delay)
+  }
+
   function setDragOffset(nextOffset: number) {
     dragOffset.value = Number.isFinite(nextOffset) ? nextOffset : 0
   }
@@ -212,6 +222,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     swipeTransitionUpdatePayload,
     finishSwipeResult,
     settleFinishedSwipe,
+    beginProgrammaticNavigation,
+    settleProgrammaticNavigation,
     setDragOffset,
     setSettling,
     markStartedWithHiddenChrome,
