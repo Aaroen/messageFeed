@@ -101,7 +101,14 @@ let loadMoreObserver: IntersectionObserver | null = null
 const viewKey = computed(() => `${props.mode}:${props.sourceKind}:${props.sourceId}`)
 const hasItems = computed(() => items.value.length > 0)
 const canLoadMore = computed(
-  () => props.active && hasItems.value && !loading.value && !refreshing.value && !loadingMore.value && !reachedEnd.value,
+  () =>
+    props.active &&
+    !props.backgroundRefresh &&
+    hasItems.value &&
+    !loading.value &&
+    !refreshing.value &&
+    !loadingMore.value &&
+    !reachedEnd.value,
 )
 const loadMoreTriggerIndex = computed(() => Math.max(items.value.length - 3, 0))
 const isRecommendations = computed(() => props.mode === 'recommendations')
@@ -838,7 +845,15 @@ watch(
 )
 
 watch(
-  [() => items.value.length, () => props.active, loading, refreshing, loadingMore, reachedEnd],
+  [
+    () => items.value.length,
+    () => props.active,
+    () => props.backgroundRefresh,
+    loading,
+    refreshing,
+    loadingMore,
+    reachedEnd,
+  ],
   () => {
     scheduleLoadMoreObserver()
   },
