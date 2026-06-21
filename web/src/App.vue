@@ -102,6 +102,7 @@ import { useAppGestureResetAction } from '@/composables/useAppGestureResetAction
 import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
 import { useAppWindowEventListeners } from '@/composables/useAppWindowEventListeners'
 import { useReaderSettingsSync } from '@/composables/useReaderSettingsSync'
+import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -764,13 +765,8 @@ const collapseTopChrome = appTopChromeActions.collapseTopChrome
 const currentContentScrollTop = appTopChromeActions.currentContentScrollTop
 const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
 
-function isInteractiveTarget(target: EventTarget | null) {
-  return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, [role="button"]'))
-}
-
-function isPageTopPullControlTarget(target: EventTarget | null) {
-  return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select'))
-}
+const appInteractionTargetGuards = useAppInteractionTargetGuards()
+const isPageTopPullControlTarget = appInteractionTargetGuards.isPageTopPullControlTarget
 
 function handleClickCapture(event: MouseEvent) {
   clickSuppression.consume(event)
