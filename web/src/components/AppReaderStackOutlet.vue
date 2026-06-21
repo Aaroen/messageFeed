@@ -69,7 +69,6 @@ const props = withDefaults(
     detailSrcdoc?: string
     detailInlineSourceStyle?: StyleValue
     detailProgressVisible?: boolean
-    detailProgressDragging?: boolean
     detailReadingProgress?: number
     detailProgressStyle?: StyleValue
     detailProgressFillStyle?: StyleValue
@@ -132,7 +131,6 @@ const props = withDefaults(
     detailSrcdoc: '',
     detailInlineSourceStyle: undefined,
     detailProgressVisible: false,
-    detailProgressDragging: false,
     detailReadingProgress: 0,
     detailProgressStyle: undefined,
     detailProgressFillStyle: undefined,

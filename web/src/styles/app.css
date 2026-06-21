@@ -1690,10 +1690,6 @@ body[arco-theme='dark'] .reader-back-button {
   cursor: pointer;
   opacity: 0;
   touch-action: none;
-  transition:
-    top var(--motion-chrome) var(--ease-emphasized),
-    bottom var(--motion-chrome) var(--ease-emphasized),
-    opacity var(--motion-quick) var(--ease-standard);
   user-select: none;
 }
 
@@ -1719,16 +1715,10 @@ body[arco-theme='dark'] .reader-back-button {
   border-radius: inherit;
   background: var(--mf-primary);
   opacity: 1;
-  transition: height var(--motion-micro) var(--ease-linear);
 }
 
 .reader-detail-progress__thumb {
   display: none;
-}
-
-.reader-detail-progress--dragging .reader-detail-progress__fill,
-.reader-detail-progress--dragging .reader-detail-progress__thumb {
-  transition: none;
 }
 
 body[arco-theme='dark'] .reader-detail-progress__track {

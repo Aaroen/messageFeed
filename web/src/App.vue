@@ -1264,7 +1264,6 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   detailSrcdoc,
   detailInlineSourceStyle,
   detailProgressVisible,
-  detailProgressDragging,
   detailReadingProgress,
   detailProgressStyle,
   detailProgressFillStyle,

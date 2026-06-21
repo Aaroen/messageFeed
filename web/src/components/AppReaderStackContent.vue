@@ -71,7 +71,6 @@ withDefaults(
     detailSrcdoc?: string
     detailInlineSourceStyle?: StyleValue
     detailProgressVisible?: boolean
-    detailProgressDragging?: boolean
     detailReadingProgress?: number
     detailProgressStyle?: StyleValue
     detailProgressFillStyle?: StyleValue
@@ -134,7 +133,6 @@ withDefaults(
     detailSrcdoc: '',
     detailInlineSourceStyle: undefined,
     detailProgressVisible: false,
-    detailProgressDragging: false,
     detailReadingProgress: 0,
     detailProgressStyle: undefined,
     detailProgressFillStyle: undefined,
@@ -237,7 +235,6 @@ const emit = defineEmits<{
         :detail-srcdoc="detailSrcdoc"
         :detail-inline-source-style="detailInlineSourceStyle"
         :detail-progress-visible="detailProgressVisible"
-        :detail-progress-dragging="detailProgressDragging"
         :detail-reading-progress="detailReadingProgress"
         :detail-progress-style="detailProgressStyle"
         :detail-progress-fill-style="detailProgressFillStyle"

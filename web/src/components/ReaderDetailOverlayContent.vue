@@ -23,7 +23,6 @@ withDefaults(
     srcdoc?: string
     inlineSourceStyle?: StyleValue
     progressVisible?: boolean
-    progressDragging?: boolean
     readingProgress?: number
     progressStyle?: StyleValue
     progressFillStyle?: StyleValue
@@ -44,7 +43,6 @@ withDefaults(
     srcdoc: '',
     inlineSourceStyle: undefined,
     progressVisible: false,
-    progressDragging: false,
     readingProgress: 0,
     progressStyle: undefined,
     progressFillStyle: undefined,
@@ -106,7 +104,6 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
   </ReaderDetailTransitionSurface>
   <ReaderDetailProgress
     :visible="progressVisible"
-    :dragging="progressDragging"
     :progress="readingProgress"
     :root-style="progressStyle"
     :fill-style="progressFillStyle"

@@ -17,6 +17,12 @@ function cssPx(value: number) {
   return `${cssNumber(value)}px`
 }
 
+const railTransition = [
+  'top var(--motion-chrome) var(--ease-emphasized)',
+  'bottom var(--motion-chrome) var(--ease-emphasized)',
+  'opacity var(--motion-quick) var(--ease-standard)',
+].join(', ')
+
 export function useReaderDetailProgressMotion(options: ReaderDetailProgressMotionOptions) {
   const railStyle = computed(() => {
     const margin = options.surfaceMargin.value
@@ -27,12 +33,15 @@ export function useReaderDetailProgressMotion(options: ReaderDetailProgressMotio
       bottom: `${margin}px`,
       opacity: options.visible.value ? '1' : '0',
       pointerEvents: options.visible.value ? ('auto' as const) : ('none' as const),
-      transition: options.dragging.value || options.readerBackDragging.value ? 'none' : undefined,
+      transition: options.dragging.value || options.readerBackDragging.value ? 'none' : railTransition,
     }
   })
 
   const fillStyle = computed(() => ({
     height: `${(options.readingProgress.value * 100).toFixed(2)}%`,
+    transition: options.dragging.value
+      ? 'none'
+      : 'height var(--motion-micro) var(--ease-linear)',
   }))
 
   const thumbStyle = computed(() => {

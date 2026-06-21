@@ -57,7 +57,6 @@ type AppReaderStackOutletBindingOptions = {
   detailSrcdoc: ReadableRef<string>
   detailInlineSourceStyle: ReadableRef<StyleValue>
   detailProgressVisible: ReadableRef<boolean>
-  detailProgressDragging: ReadableRef<boolean>
   detailReadingProgress: ReadableRef<number>
   detailProgressStyle: ReadableRef<StyleValue>
   detailProgressFillStyle: ReadableRef<StyleValue>
@@ -144,7 +143,6 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       detailSrcdoc: options.detailSrcdoc.value,
       detailInlineSourceStyle: options.detailInlineSourceStyle.value,
       detailProgressVisible: options.detailProgressVisible.value,
-      detailProgressDragging: options.detailProgressDragging.value,
       detailReadingProgress: options.detailReadingProgress.value,
       detailProgressStyle: options.detailProgressStyle.value,
       detailProgressFillStyle: options.detailProgressFillStyle.value,

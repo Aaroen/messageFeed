@@ -4,7 +4,6 @@ import { ref, type StyleValue } from 'vue'
 const props = withDefaults(
   defineProps<{
     visible?: boolean
-    dragging?: boolean
     progress?: number
     rootStyle?: StyleValue
     fillStyle?: StyleValue
@@ -12,7 +11,6 @@ const props = withDefaults(
   }>(),
   {
     visible: false,
-    dragging: false,
     progress: 0,
     rootStyle: undefined,
     fillStyle: undefined,
@@ -90,7 +88,6 @@ function finishDrag(event?: PointerEvent) {
 <template>
   <div
     class="reader-detail-progress"
-    :class="{ 'reader-detail-progress--dragging': props.dragging }"
     role="scrollbar"
     aria-label="正文阅读进度"
     aria-orientation="vertical"
