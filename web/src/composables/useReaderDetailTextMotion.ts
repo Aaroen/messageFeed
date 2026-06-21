@@ -32,6 +32,9 @@ function cssTranslate3d(x: number, y: number, z = 0) {
   return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
 }
 
+const morphTextTransition =
+  'opacity var(--motion-fast) var(--ease-linear), transform var(--motion-quick) var(--ease-standard)'
+
 export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions) {
   const morphTextStyle = computed(() => {
     const progress = options.surfaceProgress.value
@@ -45,7 +48,7 @@ export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions
       '--morph-summary-opacity': summaryOpacity.toFixed(3),
       '--morph-source-pointer-events': textOpacity > 0.12 ? 'auto' : 'none',
       transform: cssTranslate3d(0, progress * -4),
-      transition: options.readerBackDragging.value || committedListReturn ? 'none' : undefined,
+      transition: options.readerBackDragging.value || committedListReturn ? 'none' : morphTextTransition,
     }
   })
 

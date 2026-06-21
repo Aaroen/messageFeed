@@ -1525,9 +1525,6 @@ body[arco-theme='dark'] .reader-back-button {
   padding: 16px;
   overflow: hidden;
   pointer-events: none;
-  transition:
-    opacity var(--motion-fast) var(--ease-linear),
-    transform var(--motion-quick) var(--ease-standard);
 }
 
 .reader-morph-text__meta {
