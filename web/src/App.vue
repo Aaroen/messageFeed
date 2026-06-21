@@ -4,13 +4,11 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { getFeedItem } from '@/api/feed'
-import AppFeedHeaderContent from '@/components/AppFeedHeaderContent.vue'
 import AppFeedOutlet from '@/components/AppFeedOutlet.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
-import AppPageHeaderContent from '@/components/AppPageHeaderContent.vue'
 import AppPageOutlet from '@/components/AppPageOutlet.vue'
 import AppReaderStackContent from '@/components/AppReaderStackContent.vue'
-import TopChrome from '@/components/TopChrome.vue'
+import AppTopChromeOutlet from '@/components/AppTopChromeOutlet.vue'
 import { useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
 import { useReaderBackSwipeCompletion } from '@/composables/useReaderBackSwipeCompletion'
@@ -1412,53 +1410,44 @@ useAppLifecycle({
       :data-swipe-progress="swipeProgress.toFixed(3)"
       :data-swipe-blocked="swipeIsBlocked ? 'true' : undefined"
     >
-      <TopChrome
-        variant="app"
+      <AppTopChromeOutlet
         :phase="topChromePhase"
         :progress="feedHeaderProgress"
         :root-class="headerClass"
         :root-style="headerStyle"
-      >
-        <div class="app-header-slot" :class="{ 'app-header-slot--feed': isFeedRoute || detailChromeVisible }">
-          <AppFeedHeaderContent
-            v-if="isFeedRoute || detailChromeVisible"
-            :detail-reader-open="detailReaderOpen"
-            :detail-header-visible="detailHeaderVisible"
-            :detail-header-layer-style="detailHeaderLayerStyle"
-            :detail-title="detailItem?.title"
-            :detail-header-title-style="detailHeaderTitleStyle"
-            :detail-header-previous-title="detailHeaderPreviousTitle"
-            :detail-header-previous-text-style="detailHeaderPreviousTextStyle"
-            :detail-header-current-text-style="detailHeaderCurrentTextStyle"
-            :is-feed-route="isFeedRoute"
-            :feed-tabs="feedTabs"
-            :active-key="route.name"
-            :feed-tabs-layer-hidden="feedTabsLayerHidden"
-            :feed-tabs-layer-style="feedTabsLayerStyle"
-            :view-swipe-target-visible="viewSwipeTargetVisible"
-            :feed-tabs-target-layer-style="feedTabsTargetLayerStyle"
-            :view-swipe-target-key="viewSwipeTargetKey"
-            :feed-pull-active="feedPullActive"
-            :pull-status-style="pullStatusStyle"
-            :pull-refreshing="feedInteraction.pullRefreshing"
-            :pull-icon-style="pullIconStyle"
-            :pull-status-text="pullStatusText"
-            :pull-status-meta="pullStatusMeta"
-            @navigate="navigateTo"
-          />
-          <AppPageHeaderContent
-            v-else
-            :page-title="pageTitle"
-            :page-pull-active="pagePullActive"
-            :page-title-layer-style="pageTitleLayerStyle"
-            :page-pull-status-style="pagePullStatusStyle"
-            :page-pull-refreshing="pagePullRefreshing"
-            :page-pull-icon-style="pagePullIconStyle"
-            :page-pull-status-text="pagePullStatusText"
-            :page-pull-status-meta="pagePullStatusMeta"
-          />
-        </div>
-      </TopChrome>
+        :feed-header-active="isFeedRoute || detailChromeVisible"
+        :detail-reader-open="detailReaderOpen"
+        :detail-header-visible="detailHeaderVisible"
+        :detail-header-layer-style="detailHeaderLayerStyle"
+        :detail-title="detailItem?.title"
+        :detail-header-title-style="detailHeaderTitleStyle"
+        :detail-header-previous-title="detailHeaderPreviousTitle"
+        :detail-header-previous-text-style="detailHeaderPreviousTextStyle"
+        :detail-header-current-text-style="detailHeaderCurrentTextStyle"
+        :is-feed-route="isFeedRoute"
+        :feed-tabs="feedTabs"
+        :active-key="route.name"
+        :feed-tabs-layer-hidden="feedTabsLayerHidden"
+        :feed-tabs-layer-style="feedTabsLayerStyle"
+        :view-swipe-target-visible="viewSwipeTargetVisible"
+        :feed-tabs-target-layer-style="feedTabsTargetLayerStyle"
+        :view-swipe-target-key="viewSwipeTargetKey"
+        :feed-pull-active="feedPullActive"
+        :pull-status-style="pullStatusStyle"
+        :pull-refreshing="feedInteraction.pullRefreshing"
+        :pull-icon-style="pullIconStyle"
+        :pull-status-text="pullStatusText"
+        :pull-status-meta="pullStatusMeta"
+        :page-title="pageTitle"
+        :page-pull-active="pagePullActive"
+        :page-title-layer-style="pageTitleLayerStyle"
+        :page-pull-status-style="pagePullStatusStyle"
+        :page-pull-refreshing="pagePullRefreshing"
+        :page-pull-icon-style="pagePullIconStyle"
+        :page-pull-status-text="pagePullStatusText"
+        :page-pull-status-meta="pagePullStatusMeta"
+        @navigate="navigateTo"
+      />
 
       <AppFeedOutlet
         v-if="isFeedRoute"
