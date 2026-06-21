@@ -93,6 +93,7 @@ import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards
 import { useAppVirtualBackActions } from '@/composables/useAppVirtualBackActions'
 import { useAppReaderSessionSnapshots } from '@/composables/useAppReaderSessionSnapshots'
 import { useAppRouteSessionWatchers } from '@/composables/useAppRouteSessionWatchers'
+import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
@@ -726,6 +727,22 @@ const navigationOpenDistance = 72
 const viewSwitchDistance = 62
 const viewSwipeChromeRevealDelay = 520
 const topChromeSettleDuration = motionChromeDuration
+const appTopChromeActions = useAppTopChromeActions({
+  sourceReaderOpen,
+  sourceReaderScrollTop,
+  isFeedRoute,
+  feedScrollTop,
+  topChromeSettleDuration,
+  resolveDelay: motionDelay,
+  setChromeVisible: chromeState.setVisible,
+  setChromeCollapsedHidden: chromeState.setCollapsedHidden,
+  currentPageScrollTop: pageOutlet.currentScrollTop,
+  settlePagePullOffset: pagePullRefresh.settleOffset,
+})
+const setTopChromeVisible = appTopChromeActions.setTopChromeVisible
+const collapseTopChrome = appTopChromeActions.collapseTopChrome
+const currentContentScrollTop = appTopChromeActions.currentContentScrollTop
+const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
 
 function resetGestureTracking() {
   navigationGesture.reset()
@@ -1238,22 +1255,6 @@ function handleReaderSettingsChanged(event: Event) {
   }
 }
 
-function setTopChromeVisible(visible: boolean) {
-  chromeState.setVisible(visible, { settleDelayMS: motionDelay(topChromeSettleDuration) })
-}
-
-function currentContentScrollTop() {
-  if (sourceReaderOpen.value) {
-    return sourceReaderScrollTop.value
-  }
-
-  if (isFeedRoute.value) {
-    return feedScrollTop.value
-  }
-
-  return pageOutlet.currentScrollTop()
-}
-
 const feedTopPullHandlers = useFeedTopPullHandlers({
   isFeedRoute,
   topPull: feedTopPull,
@@ -1266,9 +1267,7 @@ const feedTopPullHandlers = useFeedTopPullHandlers({
   setRefreshingProgress: chromeState.setRefreshingProgress,
   commitRefreshingChrome: chromeState.commitRefreshing,
   recordRefreshStartedWithChrome: refreshCompletion.recordStartedWithChrome,
-  collapseTopChrome: () => {
-    chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
-  },
+  collapseTopChrome,
   setTopChromeVisible,
 })
 const handleFeedTopPullStart = feedTopPullHandlers.handleFeedTopPullStart
@@ -1302,19 +1301,13 @@ const handlePageContentScroll = appScrollHandlers.handlePageContentScroll
 const handleSourceReaderScroll = appScrollHandlers.handleSourceReaderScroll
 const handleDetailContentScroll = appScrollHandlers.handleDetailContentScroll
 
-function settlePagePullOffset() {
-  pagePullRefresh.settleOffset(motionDelay(topChromeSettleDuration))
-}
-
 const pagePullRefreshAction = usePagePullRefreshAction({
   refreshing: pagePullRefreshing,
   noticeDelayMS: motionQuickDuration,
   currentRefreshPage: pageOutlet.currentRefreshPage,
   beginRefreshing: pagePullRefresh.beginRefreshing,
   finishRefreshing: pagePullRefresh.finishRefreshing,
-  collapseTopChrome: () => {
-    chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
-  },
+  collapseTopChrome,
 })
 const refreshCurrentPageFromPull = pagePullRefreshAction.refreshCurrentPageFromPull
 
@@ -1387,9 +1380,7 @@ useFeedRefreshCompletionWatcher({
   settleSourceContentAfterRefresh: () => {
     sourceContentMotion.settleAfterRefresh(topChromeSettleDuration)
   },
-  collapseTopChrome: () => {
-    chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
-  },
+  collapseTopChrome,
 })
 
 onMounted(() => {
