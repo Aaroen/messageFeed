@@ -16,6 +16,11 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   const settling = ref(false)
   const refreshing = ref(false)
   const startedWithVisibleChrome = ref(false)
+  const gestureStartX = ref(0)
+  const gestureStartY = ref(0)
+  const gestureDistance = ref(0)
+  const gestureCandidate = ref(false)
+  const gestureTracking = ref(false)
   let settleTimer = 0
 
   const progress = computed(() => Math.min(offset.value / threshold, 1))
@@ -41,6 +46,43 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
 
   function stopDragging() {
     dragging.value = false
+  }
+
+  function beginGestureCandidate(startX: number, startY: number) {
+    gestureStartX.value = Number.isFinite(startX) ? startX : 0
+    gestureStartY.value = Number.isFinite(startY) ? startY : 0
+    gestureDistance.value = 0
+    gestureCandidate.value = true
+    gestureTracking.value = false
+  }
+
+  function gestureDelta(clientX: number, clientY: number) {
+    return {
+      deltaX: clientX - gestureStartX.value,
+      deltaY: clientY - gestureStartY.value,
+    }
+  }
+
+  function beginGestureTracking() {
+    gestureTracking.value = true
+    gestureCandidate.value = false
+    startDragging()
+  }
+
+  function updateGestureDistance(deltaY: number) {
+    gestureDistance.value = Math.max(gestureDistance.value, Number.isFinite(deltaY) ? deltaY : 0)
+    setDistance(gestureDistance.value)
+    return gestureDistance.value
+  }
+
+  function resetGestureTracking(nextDistance = refreshing.value ? threshold : 0) {
+    gestureStartX.value = 0
+    gestureStartY.value = 0
+    gestureDistance.value = 0
+    gestureCandidate.value = false
+    gestureTracking.value = false
+    stopDragging()
+    setDistance(nextDistance)
   }
 
   function setOffset(nextOffset: number) {
@@ -81,11 +123,18 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     settling.value = false
     refreshing.value = false
     startedWithVisibleChrome.value = false
+    gestureStartX.value = 0
+    gestureStartY.value = 0
+    gestureDistance.value = 0
+    gestureCandidate.value = false
+    gestureTracking.value = false
   }
 
   function resetGesture() {
     dragging.value = false
     startedWithVisibleChrome.value = false
+    gestureCandidate.value = false
+    gestureTracking.value = false
   }
 
   return {
@@ -98,6 +147,9 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     settling,
     refreshing,
     startedWithVisibleChrome,
+    gestureDistance,
+    gestureCandidate,
+    gestureTracking,
     progress,
     distanceProgress,
     active,
@@ -105,6 +157,11 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     begin,
     startDragging,
     stopDragging,
+    beginGestureCandidate,
+    gestureDelta,
+    beginGestureTracking,
+    updateGestureDistance,
+    resetGestureTracking,
     setOffset,
     setDistance,
     setRefreshing,

@@ -243,6 +243,9 @@ const pagePullOffset = pagePullRefresh.offset
 const pagePullDistance = pagePullRefresh.distance
 const pagePullSettling = pagePullRefresh.settling
 const pagePullRefreshing = pagePullRefresh.refreshing
+const pageTopPullDistance = pagePullRefresh.gestureDistance
+const trackingPageTopPullCandidate = pagePullRefresh.gestureCandidate
+const trackingPageTopPull = pagePullRefresh.gestureTracking
 const pageContentMotion = usePageContentMotion({ pullOffset: pagePullOffset })
 const pageSideStretch = pageContentMotion.sideStretch
 const pageContentInnerStyle = pageContentMotion.contentStyle
@@ -1093,11 +1096,6 @@ let lastPageScrollTop = 0
 let lastSourceReaderScrollTop = 0
 let lastDetailScrollTop = 0
 let topPullStartProgress = 1
-let pageTouchStartX = 0
-let pageTouchStartY = 0
-let pageTopPullDistance = 0
-let trackingPageTopPullCandidate = false
-let trackingPageTopPull = false
 
 function resetGestureTracking() {
   trackingEdgeSwipeCandidate = false
@@ -2831,10 +2829,7 @@ function handleDetailContentScroll(event: Event) {
 }
 
 function resetPageTopPullTracking() {
-  pageTopPullDistance = 0
-  pagePullRefresh.setDistance(pagePullRefreshing.value ? pageRefreshThreshold : 0)
-  trackingPageTopPullCandidate = false
-  trackingPageTopPull = false
+  pagePullRefresh.resetGestureTracking(pagePullRefreshing.value ? pageRefreshThreshold : 0)
 }
 
 function pageRubberBandOffset(distance: number) {
@@ -2861,11 +2856,7 @@ function handlePageTouchStart(event: TouchEvent) {
   }
 
   const touch = event.touches[0]
-  pageTouchStartX = touch.clientX
-  pageTouchStartY = touch.clientY
-  pageTopPullDistance = 0
-  trackingPageTopPullCandidate = true
-  trackingPageTopPull = false
+  pagePullRefresh.beginGestureCandidate(touch.clientX, touch.clientY)
 }
 
 function handlePageTouchMove(event: TouchEvent) {
@@ -2873,16 +2864,15 @@ function handlePageTouchMove(event: TouchEvent) {
     isFeedRoute.value ||
     event.touches.length !== 1 ||
     currentContentScrollTop() > 0 ||
-    (!trackingPageTopPullCandidate && !trackingPageTopPull)
+    (!trackingPageTopPullCandidate.value && !trackingPageTopPull.value)
   ) {
     return
   }
 
   const touch = event.touches[0]
-  const deltaX = touch.clientX - pageTouchStartX
-  const deltaY = touch.clientY - pageTouchStartY
+  const { deltaX, deltaY } = pagePullRefresh.gestureDelta(touch.clientX, touch.clientY)
 
-  if (!trackingPageTopPull) {
+  if (!trackingPageTopPull.value) {
     if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY) * topPullDirectionLockRatio) {
       resetPageTopPullTracking()
       return
@@ -2892,15 +2882,13 @@ function handlePageTouchMove(event: TouchEvent) {
       return
     }
 
-    trackingPageTopPull = true
-    trackingPageTopPullCandidate = false
+    pagePullRefresh.beginGestureTracking()
     setTopChromeVisible(true)
   }
 
-  if (trackingPageTopPull) {
+  if (trackingPageTopPull.value) {
     event.preventDefault()
-    pageTopPullDistance = Math.max(pageTopPullDistance, deltaY)
-    pagePullRefresh.setDistance(pageTopPullDistance)
+    pagePullRefresh.updateGestureDistance(deltaY)
     pagePullRefresh.setSettling(false)
     pagePullRefresh.clearSettleTimer()
     pagePullRefresh.setOffset(pageRubberBandOffset(deltaY))
@@ -2925,22 +2913,22 @@ async function refreshCurrentPageFromPull() {
 }
 
 function handlePageTouchEnd() {
-  if (trackingPageTopPull) {
-    const shouldRefresh = pageTopPullDistance >= pageRefreshThreshold
+  if (trackingPageTopPull.value) {
+    const shouldRefresh = pageTopPullDistance.value >= pageRefreshThreshold
     feedTopPulling.value = false
     setTopChromeVisible(true)
     settlePagePullOffset()
     if (shouldRefresh) {
       void refreshCurrentPageFromPull()
     }
-  } else if (trackingPageTopPullCandidate) {
+  } else if (trackingPageTopPullCandidate.value) {
     feedTopPulling.value = false
   }
   resetPageTopPullTracking()
 }
 
 function handlePageTouchCancel() {
-  if (trackingPageTopPull || trackingPageTopPullCandidate) {
+  if (trackingPageTopPull.value || trackingPageTopPullCandidate.value) {
     feedTopPulling.value = false
     setTopChromeVisible(true)
     settlePagePullOffset()
