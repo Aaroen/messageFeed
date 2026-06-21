@@ -10,6 +10,7 @@ export function useMotionTimings() {
   const chromeDuration = 1000
   const noticeSuccessDuration = 1000
   const noticeFailureDuration = 3000
+  const homeExitDoubleBackTimeout = 1600
   const noticeRevealDelay = quickDuration
   const topRefreshReleaseDelay = 120
   const topRefreshSettleDuration = chromeDuration
@@ -48,6 +49,7 @@ export function useMotionTimings() {
     chromeDuration,
     noticeSuccessDuration,
     noticeFailureDuration,
+    homeExitDoubleBackTimeout,
     noticeRevealDelay,
     topRefreshReleaseDelay,
     topRefreshSettleDuration,
