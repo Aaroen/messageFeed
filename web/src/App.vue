@@ -124,6 +124,7 @@ const {
   sourceReaderRevealProgress,
   sourceNameMorphProgress,
   detailSurfaceProgress,
+  feedItemPreviewProgress,
   detailParkedBehindSource,
   detailChromeVisible,
   detailCommittedListReturn,
@@ -515,24 +516,6 @@ const detailReaderStyle = computed(() => ({
     ? '0'
     : detailSurfaceProgress.value.toFixed(3),
 }))
-const feedItemPreviewProgress = computed(() => {
-  if (
-    sourceReaderVisible.value &&
-    detailReaderOpen.value &&
-    !detailParkedBehindSource.value &&
-    (detailSourceExitProgress.value > 0 ||
-      detailRestoringFromSourceReader.value ||
-      (detailOpenedFromSourceReader.value && detailBackExitProgress.value > 0))
-  ) {
-    return clamp(Math.max(detailSourceExitProgress.value, detailBackExitProgress.value))
-  }
-
-  if (detailParkedBehindSource.value) {
-    return 1
-  }
-
-  return clamp(Math.max(detailBackExitProgress.value, detailListReturnCommitted.value ? 1 : 0))
-})
 const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
   const side = windowWidth.value <= 720 ? 24 : 46
   const top = feedHeaderHeight.value + 24
