@@ -103,6 +103,7 @@ import { useAppShellEventActions } from '@/composables/useAppShellEventActions'
 import { useAppReaderScrollMemoryActions } from '@/composables/useAppReaderScrollMemoryActions'
 import { useAppReaderRouteSyncAction } from '@/composables/useAppReaderRouteSyncAction'
 import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStackOutletBindings'
+import { useAppMainOutletBindings } from '@/composables/useAppMainOutletBindings'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1358,6 +1359,83 @@ const handlePageTouchMove = pagePullGestureHandlers.handlePageTouchMove
 const handlePageTouchEnd = pagePullGestureHandlers.handlePageTouchEnd
 const handlePageTouchCancel = pagePullGestureHandlers.handlePageTouchCancel
 
+const mainOutletBindings = useAppMainOutletBindings({
+  mainClass,
+  mainStyle,
+  swipePhase,
+  swipeDirection,
+  swipeProgress,
+  swipeIsBlocked,
+  topChromePhase,
+  feedHeaderProgress,
+  headerClass,
+  headerStyle,
+  isFeedRoute,
+  detailChromeVisible,
+  detailReaderOpen,
+  detailHeaderVisible,
+  detailHeaderLayerStyle,
+  detailTitle: () => detailItem.value?.title || '',
+  detailHeaderTitleStyle,
+  detailHeaderPreviousTitle,
+  detailHeaderPreviousTextStyle,
+  detailHeaderCurrentTextStyle,
+  feedTabs,
+  activeKey: () => route.name,
+  feedTabsLayerHidden,
+  feedTabsLayerStyle,
+  viewSwipeTargetVisible,
+  feedTabsTargetLayerStyle,
+  viewSwipeTargetKey,
+  feedPullActive,
+  feedPullRefreshing: () => feedInteraction.pullRefreshing,
+  pullStatusStyle,
+  pullIconStyle,
+  pullStatusText,
+  pullStatusMeta,
+  pageTitle,
+  pagePullActive,
+  pageTitleLayerStyle,
+  pagePullStatusStyle,
+  pagePullRefreshing,
+  pagePullIconStyle,
+  pagePullStatusText,
+  pagePullStatusMeta,
+  sourceReaderOpen,
+  viewSettling,
+  feedTrackStyle,
+  feedScrollTop,
+  topChromeProgress,
+  feedHeaderHeight,
+  freezeFeedBodyDuringTopRefresh,
+  morphingItemId,
+  morphingHeightLockItemId,
+  morphingItemHeight,
+  feedItemPreviewProgress,
+  pageContentInnerStyle,
+  navigateTo,
+  setFeedContentElement,
+  handleFeedContentScroll,
+  handleFeedPointerDown,
+  handleFeedPointerMove,
+  handleFeedPointerUp,
+  handleFeedPointerCancel,
+  handleFeedTopPullStart,
+  handleFeedTopPullMove,
+  handleFeedTopPullEnd,
+  openItemReader,
+  setPageContentElement,
+  setPageViewInstance,
+  handlePageContentScroll,
+  handlePageTouchStart,
+  handlePageTouchMove,
+  handlePageTouchEnd,
+  handlePageTouchCancel,
+  openSourceReader,
+})
+const mainOutletProps = mainOutletBindings.props
+const mainOutletListeners = mainOutletBindings.listeners
+
 const appWindowEventListeners = useAppWindowEventListeners({
   handleKeydown,
   handleResize,
@@ -1479,80 +1557,7 @@ useAppLifecycle({
       @open-settings="pushRoute('/settings'); closeNavigation()"
     />
 
-    <AppMainOutlet
-      :main-class="mainClass"
-      :main-style="mainStyle"
-      :swipe-phase="swipePhase"
-      :swipe-direction="swipeDirection"
-      :swipe-progress="swipeProgress"
-      :swipe-is-blocked="swipeIsBlocked"
-      :top-chrome-phase="topChromePhase"
-      :feed-header-progress="feedHeaderProgress"
-      :header-class="headerClass"
-      :header-style="headerStyle"
-      :feed-header-active="isFeedRoute || detailChromeVisible"
-      :detail-reader-open="detailReaderOpen"
-      :detail-header-visible="detailHeaderVisible"
-      :detail-header-layer-style="detailHeaderLayerStyle"
-      :detail-title="detailItem?.title"
-      :detail-header-title-style="detailHeaderTitleStyle"
-      :detail-header-previous-title="detailHeaderPreviousTitle"
-      :detail-header-previous-text-style="detailHeaderPreviousTextStyle"
-      :detail-header-current-text-style="detailHeaderCurrentTextStyle"
-      :is-feed-route="isFeedRoute"
-      :feed-tabs="feedTabs"
-      :active-key="route.name"
-      :feed-tabs-layer-hidden="feedTabsLayerHidden"
-      :feed-tabs-layer-style="feedTabsLayerStyle"
-      :view-swipe-target-visible="viewSwipeTargetVisible"
-      :feed-tabs-target-layer-style="feedTabsTargetLayerStyle"
-      :view-swipe-target-key="viewSwipeTargetKey"
-      :feed-pull-active="feedPullActive"
-      :feed-pull-refreshing="feedInteraction.pullRefreshing"
-      :pull-status-style="pullStatusStyle"
-      :pull-icon-style="pullIconStyle"
-      :pull-status-text="pullStatusText"
-      :pull-status-meta="pullStatusMeta"
-      :page-title="pageTitle"
-      :page-pull-active="pagePullActive"
-      :page-title-layer-style="pageTitleLayerStyle"
-      :page-pull-status-style="pagePullStatusStyle"
-      :page-pull-refreshing="pagePullRefreshing"
-      :page-pull-icon-style="pagePullIconStyle"
-      :page-pull-status-text="pagePullStatusText"
-      :page-pull-status-meta="pagePullStatusMeta"
-      :source-reader-open="sourceReaderOpen"
-      :view-settling="viewSettling"
-      :feed-track-style="feedTrackStyle"
-      :feed-scroll-top="feedScrollTop"
-      :top-chrome-progress="topChromeProgress"
-      :feed-header-height="feedHeaderHeight"
-      :freeze-body-during-top-refresh="freezeFeedBodyDuringTopRefresh"
-      :morphing-item-id="morphingItemId"
-      :morphing-height-lock-item-id="morphingHeightLockItemId"
-      :morphing-item-height="morphingItemHeight"
-      :feed-item-preview-progress="feedItemPreviewProgress"
-      :page-content-inner-style="pageContentInnerStyle"
-      @navigate="navigateTo"
-      @feed-content-ref="setFeedContentElement"
-      @feed-content-scroll="handleFeedContentScroll"
-      @feed-pointer-down="handleFeedPointerDown"
-      @feed-pointer-move="handleFeedPointerMove"
-      @feed-pointer-up="handleFeedPointerUp"
-      @feed-pointer-cancel="handleFeedPointerCancel"
-      @feed-top-pull-start="handleFeedTopPullStart"
-      @feed-top-pull-move="handleFeedTopPullMove"
-      @feed-top-pull-end="handleFeedTopPullEnd"
-      @open-item="openItemReader"
-      @page-content-ref="setPageContentElement"
-      @page-view-ref="setPageViewInstance"
-      @page-content-scroll="handlePageContentScroll"
-      @page-touch-start="handlePageTouchStart"
-      @page-touch-move="handlePageTouchMove"
-      @page-touch-end="handlePageTouchEnd"
-      @page-touch-cancel="handlePageTouchCancel"
-      @open-source="openSourceReader"
-    />
+    <AppMainOutlet v-bind="mainOutletProps" v-on="mainOutletListeners" />
 
     <AppReaderStackOutlet v-bind="readerStackOutletProps" v-on="readerStackOutletListeners" />
   </div>
