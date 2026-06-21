@@ -112,6 +112,11 @@ export function useFeedPointerSwipeHandlers(options: FeedPointerSwipeHandlersOpt
       return
     }
 
+    if (!options.viewSwipeActive.value) {
+      options.feedPagerTransition.endPointerTracking()
+      return
+    }
+
     const { deltaX, deltaY } = options.gestureOrigin.delta(event.clientX, event.clientY)
     const horizontal = options.isViewHorizontalSwipe(deltaX, deltaY)
 
@@ -135,8 +140,11 @@ export function useFeedPointerSwipeHandlers(options: FeedPointerSwipeHandlersOpt
       return
     }
 
+    const hadViewSwipe = options.viewSwipeActive.value
     options.feedPagerTransition.endPointerTracking()
-    options.finishViewSwipe(null)
+    if (hadViewSwipe) {
+      options.finishViewSwipe(null)
+    }
   }
 
   return {
