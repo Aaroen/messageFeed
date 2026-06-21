@@ -334,6 +334,7 @@ const appReaderSessionSnapshots = useAppReaderSessionSnapshots({
 })
 const readerSessionSnapshot = appReaderSessionSnapshots.readerSessionSnapshot
 const applyReaderSessionSnapshot = appReaderSessionSnapshots.applyReaderSessionSnapshot
+const clearReaderSessionScrollRestoreTimers = appReaderSessionSnapshots.clearScrollRestoreTimers
 const readerSession = useAppReaderSession({
   createSnapshot: readerSessionSnapshot,
   getCurrentRouteFullPath: () => route.fullPath,
@@ -1484,6 +1485,7 @@ useAppLifecycle({
     () => clickSuppression.clearTimer(),
     clearSourceNoticeTimer,
     clearReaderDetailFrames,
+    clearReaderSessionScrollRestoreTimers,
     clearReaderStackTimers,
     clearBackSwipeStretchAnchorTimer,
     () => readerSession.clearTimer(),

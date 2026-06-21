@@ -1,6 +1,7 @@
 import { nextTick } from 'vue'
 
 import type { ReaderSessionSnapshot, ReaderSource } from '@/composables/useReaderSession'
+import { normalizeReaderRouteFullPath } from '@/composables/useReaderRouteSync'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -46,6 +47,40 @@ type AppReaderSessionSnapshotsOptions = {
 }
 
 export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsOptions) {
+  let scrollRestoreToken = 0
+  let scrollRestoreRetryTimer = 0
+  let scrollRestoreSettledTimer = 0
+
+  function clearScrollRestoreHandles() {
+    if (typeof window !== 'undefined' && scrollRestoreRetryTimer !== 0) {
+      window.clearTimeout(scrollRestoreRetryTimer)
+    }
+    if (typeof window !== 'undefined' && scrollRestoreSettledTimer !== 0) {
+      window.clearTimeout(scrollRestoreSettledTimer)
+    }
+    scrollRestoreRetryTimer = 0
+    scrollRestoreSettledTimer = 0
+  }
+
+  function clearScrollRestoreTimers() {
+    scrollRestoreToken += 1
+    clearScrollRestoreHandles()
+  }
+
+  function nextScrollRestoreToken() {
+    scrollRestoreToken += 1
+    clearScrollRestoreHandles()
+    return scrollRestoreToken
+  }
+
+  function scrollRestoreIsCurrent(token: number, snapshotRouteFullPath: string) {
+    return (
+      token === scrollRestoreToken &&
+      normalizeReaderRouteFullPath(options.getRouteFullPath()) ===
+        normalizeReaderRouteFullPath(snapshotRouteFullPath)
+    )
+  }
+
   function readerSessionSnapshot(): ReaderSessionSnapshot {
     return {
       savedAt: Date.now(),
@@ -58,7 +93,11 @@ export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsO
   }
 
   function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
+    const token = nextScrollRestoreToken()
     const apply = () => {
+      if (!scrollRestoreIsCurrent(token, snapshot.routeFullPath)) {
+        return
+      }
       options.scrollFeedContentTo(snapshot.feedScrollTop)
       options.scrollSourceReaderContentTo(snapshot.sourceReaderScrollTop)
       if (options.scrollDetailContentTo(snapshot.detailScrollTop)) {
@@ -68,8 +107,17 @@ export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsO
 
     nextTick(() => {
       apply()
-      window.setTimeout(apply, options.scrollRestoreRetryDelay)
-      window.setTimeout(apply, options.scrollRestoreSettledDelay)
+      if (!scrollRestoreIsCurrent(token, snapshot.routeFullPath)) {
+        return
+      }
+      scrollRestoreRetryTimer = window.setTimeout(() => {
+        scrollRestoreRetryTimer = 0
+        apply()
+      }, options.scrollRestoreRetryDelay)
+      scrollRestoreSettledTimer = window.setTimeout(() => {
+        scrollRestoreSettledTimer = 0
+        apply()
+      }, options.scrollRestoreSettledDelay)
     })
   }
 
@@ -92,5 +140,6 @@ export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsO
   return {
     readerSessionSnapshot,
     applyReaderSessionSnapshot,
+    clearScrollRestoreTimers,
   }
 }
