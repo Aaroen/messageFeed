@@ -68,6 +68,7 @@ import { useReaderLayoutState } from '@/composables/useReaderLayoutState'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppMainClassState } from '@/composables/useAppMainClassState'
 import { usePagePullStatus } from '@/composables/usePagePullStatus'
+import { usePagePullGestureHandlers } from '@/composables/usePagePullGestureHandlers'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -308,14 +309,10 @@ const feedTopPulling = feedTopPull.pulling
 const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
 const feedTopPullStartProgress = feedTopPull.startProgress
 const pagePullRefresh = usePullRefresh({ threshold: 52 })
-const pageRefreshThreshold = pagePullRefresh.threshold
 const pagePullOffset = pagePullRefresh.offset
 const pagePullDistance = pagePullRefresh.distance
 const pagePullSettling = pagePullRefresh.settling
 const pagePullRefreshing = pagePullRefresh.refreshing
-const pageTopPullDistance = pagePullRefresh.gestureDistance
-const trackingPageTopPullCandidate = pagePullRefresh.gestureCandidate
-const trackingPageTopPull = pagePullRefresh.gestureTracking
 const pageContentMotion = usePageContentMotion({ pullOffset: pagePullOffset })
 const pageSideStretch = pageContentMotion.sideStretch
 const pageContentInnerStyle = pageContentMotion.contentStyle
@@ -2070,69 +2067,8 @@ function handleDetailContentScroll(event: Event) {
   scheduleReaderSessionSave()
 }
 
-function resetPageTopPullTracking() {
-  pagePullRefresh.finishGestureTracking()
-}
-
-function pageRubberBandOffset(distance: number) {
-  if (distance <= 0) {
-    return 0
-  }
-  return Math.min(22, Math.log1p(distance) * 4.8)
-}
-
 function settlePagePullOffset() {
   pagePullRefresh.settleOffset(motionDelay(topChromeSettleDuration))
-}
-
-function handlePageTouchStart(event: TouchEvent) {
-  if (
-    isFeedRoute.value ||
-    event.touches.length !== 1 ||
-    pagePullRefreshing.value ||
-    currentContentScrollTop() > 0 ||
-    isPageTopPullControlTarget(event.target)
-  ) {
-    resetPageTopPullTracking()
-    return
-  }
-
-  const touch = event.touches[0]
-  pagePullRefresh.beginGestureCandidate(touch.clientX, touch.clientY)
-}
-
-function handlePageTouchMove(event: TouchEvent) {
-  if (
-    isFeedRoute.value ||
-    event.touches.length !== 1 ||
-    currentContentScrollTop() > 0 ||
-    (!trackingPageTopPullCandidate.value && !trackingPageTopPull.value)
-  ) {
-    return
-  }
-
-  const touch = event.touches[0]
-  const { deltaX, deltaY } = pagePullRefresh.gestureDelta(touch.clientX, touch.clientY)
-
-  if (!trackingPageTopPull.value) {
-    if (shouldCancelTopPull(deltaX, deltaY)) {
-      resetPageTopPullTracking()
-      return
-    }
-
-    if (shouldWaitForTopPull(deltaX, deltaY)) {
-      return
-    }
-
-    pagePullRefresh.beginGestureTracking()
-    setTopChromeVisible(true)
-  }
-
-  if (trackingPageTopPull.value) {
-    event.preventDefault()
-    pagePullRefresh.updateGestureDistance(deltaY)
-    pagePullRefresh.setGestureOffset(pageRubberBandOffset(deltaY))
-  }
 }
 
 async function refreshCurrentPageFromPull() {
@@ -2150,29 +2086,26 @@ async function refreshCurrentPageFromPull() {
   }
 }
 
-function handlePageTouchEnd() {
-  if (trackingPageTopPull.value) {
-    const shouldRefresh = pageTopPullDistance.value >= pageRefreshThreshold
+const pagePullGestureHandlers = usePagePullGestureHandlers({
+  isFeedRoute,
+  refreshThreshold: pagePullRefresh.threshold,
+  pullRefresh: pagePullRefresh,
+  currentContentScrollTop,
+  isControlTarget: isPageTopPullControlTarget,
+  shouldCancelTopPull,
+  shouldWaitForTopPull,
+  setTopChromeVisible,
+  finishFeedTopPull: () => {
     feedTopPull.finish()
-    setTopChromeVisible(true)
-    settlePagePullOffset()
-    if (shouldRefresh) {
-      void refreshCurrentPageFromPull()
-    }
-  } else if (trackingPageTopPullCandidate.value) {
-    feedTopPull.finish()
-  }
-  resetPageTopPullTracking()
-}
-
-function handlePageTouchCancel() {
-  if (trackingPageTopPull.value || trackingPageTopPullCandidate.value) {
-    feedTopPull.finish()
-    setTopChromeVisible(true)
-    settlePagePullOffset()
-  }
-  resetPageTopPullTracking()
-}
+  },
+  settlePullOffset: settlePagePullOffset,
+  refreshCurrentPageFromPull,
+})
+const resetPageTopPullTracking = pagePullGestureHandlers.resetPageTopPullTracking
+const handlePageTouchStart = pagePullGestureHandlers.handlePageTouchStart
+const handlePageTouchMove = pagePullGestureHandlers.handlePageTouchMove
+const handlePageTouchEnd = pagePullGestureHandlers.handlePageTouchEnd
+const handlePageTouchCancel = pagePullGestureHandlers.handlePageTouchCancel
 
 watch(
   () => route.name,
