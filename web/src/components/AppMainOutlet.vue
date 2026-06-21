@@ -77,7 +77,6 @@ withDefaults(
     swipeIsBlocked?: boolean
     topChrome?: TopChromeOutletProps
     sourceReaderOpen?: boolean
-    viewSettling?: boolean
     feedTrackStyle?: StyleValue
     feedScrollTop?: number
     topChromeProgress?: number
@@ -98,7 +97,6 @@ withDefaults(
     swipeIsBlocked: false,
     topChrome: () => ({ chrome: {}, feed: {}, page: {} }),
     sourceReaderOpen: false,
-    viewSettling: false,
     feedTrackStyle: undefined,
     feedScrollTop: 0,
     topChromeProgress: 1,
@@ -157,7 +155,6 @@ const emit = defineEmits<{
       :active-key="topChrome.feed?.activeKey"
       :detail-reader-open="topChrome.feed?.detailReaderOpen"
       :source-reader-open="sourceReaderOpen"
-      :view-settling="viewSettling"
       :feed-track-style="feedTrackStyle"
       :feed-scroll-top="feedScrollTop"
       :top-chrome-progress="topChromeProgress"

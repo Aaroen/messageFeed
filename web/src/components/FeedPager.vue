@@ -11,7 +11,6 @@ const props = withDefaults(
     activeKey?: string | symbol | null
     detailReaderOpen?: boolean
     sourceReaderOpen?: boolean
-    viewSettling?: boolean
     feedTrackStyle?: StyleValue
     feedScrollTop?: number
     topChromeProgress?: number
@@ -26,7 +25,6 @@ const props = withDefaults(
     activeKey: null,
     detailReaderOpen: false,
     sourceReaderOpen: false,
-    viewSettling: false,
     feedTrackStyle: undefined,
     feedScrollTop: 0,
     topChromeProgress: 1,
@@ -57,11 +55,7 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
 
 <template>
   <div class="feed-stage">
-    <div
-      class="feed-track"
-      :class="{ 'feed-track--settling': viewSettling }"
-      :style="feedTrackStyle"
-    >
+    <div class="feed-track" :style="feedTrackStyle">
       <section class="feed-pane">
         <SubscriptionFeedView
           mode="subscriptions"

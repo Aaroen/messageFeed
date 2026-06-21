@@ -10,7 +10,6 @@ withDefaults(
     activeKey?: string | symbol | null
     detailReaderOpen?: boolean
     sourceReaderOpen?: boolean
-    viewSettling?: boolean
     feedTrackStyle?: StyleValue
     feedScrollTop?: number
     topChromeProgress?: number
@@ -25,7 +24,6 @@ withDefaults(
     activeKey: null,
     detailReaderOpen: false,
     sourceReaderOpen: false,
-    viewSettling: false,
     feedTrackStyle: undefined,
     feedScrollTop: 0,
     topChromeProgress: 1,
@@ -70,7 +68,6 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
       :active-key="activeKey"
       :detail-reader-open="detailReaderOpen"
       :source-reader-open="sourceReaderOpen"
-      :view-settling="viewSettling"
       :feed-track-style="feedTrackStyle"
       :feed-scroll-top="feedScrollTop"
       :top-chrome-progress="topChromeProgress"

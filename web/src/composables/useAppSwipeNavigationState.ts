@@ -24,7 +24,6 @@ export function useAppSwipeNavigationState<TSurface extends string>(
     feedPagerTransition,
     feedPagerDragThreshold: feedPagerTransition.dragThreshold,
     viewDragOffset: feedPagerTransition.dragOffset,
-    viewSettling: feedPagerTransition.settling,
     viewSwipeCandidateActive: feedPagerTransition.viewSwipeCandidateActive,
     viewSwipeActive: feedPagerTransition.viewSwipeActive,
     activeFeedIndex: feedPagerTransition.activeIndex,

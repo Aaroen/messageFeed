@@ -63,6 +63,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   const trackStyle = computed(() => ({
     transform: `translate3d(calc(${-activeIndex.value * 100}% + ${cssPx(dragOffset.value)}), 0, 0)`,
+    transition: settling.value ? 'transform var(--motion-normal) var(--ease-standard)' : undefined,
   }))
 
   const swipeProgress = computed(() =>

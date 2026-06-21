@@ -890,10 +890,6 @@ body[arco-theme='dark'] .feed-tab--active {
   will-change: transform;
 }
 
-.feed-track--settling {
-  transition: transform var(--motion-normal) var(--ease-standard);
-}
-
 .feed-header-layer--view-target {
   pointer-events: none;
 }

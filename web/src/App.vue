@@ -437,7 +437,6 @@ const shouldWaitForTopPull = gesturePolicy.shouldWaitForTopPull
 const canStartViewSwipe = gesturePolicy.canStartViewSwipe
 const canStartNavigationOpen = gesturePolicy.canStartNavigationOpen
 const viewDragOffset = appSwipeNavigationState.viewDragOffset
-const viewSettling = appSwipeNavigationState.viewSettling
 const viewSwipeCandidateActive = appSwipeNavigationState.viewSwipeCandidateActive
 const viewSwipeActive = appSwipeNavigationState.viewSwipeActive
 const activeFeedIndex = appSwipeNavigationState.activeFeedIndex
@@ -533,7 +532,6 @@ const chromeVisualState = useAppChromeVisualState({
     feedRefreshSettling,
     feedChromeSettling,
     readerBackDragging,
-    viewSettling,
     detailReaderOpen,
     detailReturningToFeed,
     detailChromeVisible,
@@ -1347,7 +1345,6 @@ const mainOutletBindings = useAppMainOutletBindings({
   swipeIsBlocked,
   topChrome: topChromeOutletState,
   sourceReaderOpen,
-  viewSettling,
   feedTrackStyle,
   feedScrollTop,
   topChromeProgress,
