@@ -44,6 +44,7 @@ export function useChromeState() {
   const contentCollapsed = ref(false)
   const settling = ref(false)
   let settlingTimer = 0
+  let settlingTimerToken = 0
 
   function setProgress(nextProgress: number, nextPhase?: ChromePhase) {
     const safeProgress = clampProgress(nextProgress)
@@ -72,11 +73,17 @@ export function useChromeState() {
       window.clearTimeout(settlingTimer)
     }
     settlingTimer = 0
+    settlingTimerToken += 1
   }
 
   function scheduleSettlingEnd(delayMS: number) {
     clearTimer()
+    const token = settlingTimerToken + 1
+    settlingTimerToken = token
     settlingTimer = window.setTimeout(() => {
+      if (token !== settlingTimerToken) {
+        return
+      }
       settlingTimer = 0
       setSettling(false)
     }, Math.max(0, delayMS))
