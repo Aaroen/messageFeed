@@ -1119,18 +1119,17 @@ export function useReaderStackState() {
     sourceTargetRect: RectSnapshot | null,
   ) {
     if (!itemRect) {
+      detailSourceItemTargetRect.value = null
+      detailSourceNameOriginRect.value = null
+      detailSourceNameTargetRect.value = null
       sourceReturnTargetReady.value = false
       return false
     }
 
     detailSourceItemTargetRect.value = itemRect
     morphingItemHeight.value = itemRect.height
-    if (sourceTargetRect) {
-      detailSourceNameTargetRect.value = sourceTargetRect
-    }
-    if (sourceOriginRect) {
-      detailSourceNameOriginRect.value = sourceOriginRect
-    }
+    detailSourceNameOriginRect.value = sourceOriginRect
+    detailSourceNameTargetRect.value = sourceTargetRect
     sourceReturnTargetReady.value = true
     return true
   }
