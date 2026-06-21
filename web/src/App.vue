@@ -73,6 +73,7 @@ import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useTopChromeScrollBehavior } from '@/composables/useTopChromeScrollBehavior'
 import { useFeedTopPullHandlers } from '@/composables/useFeedTopPullHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
+import { usePagePullRefreshAction } from '@/composables/usePagePullRefreshAction'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1974,20 +1975,17 @@ function settlePagePullOffset() {
   pagePullRefresh.settleOffset(motionDelay(topChromeSettleDuration))
 }
 
-async function refreshCurrentPageFromPull() {
-  const refreshPage = pageOutlet.currentRefreshPage()
-  if (!refreshPage || pagePullRefreshing.value) {
-    return
-  }
-
-  pagePullRefresh.beginRefreshing()
-  try {
-    await refreshPage({ noticeDelayMS: motionQuickDuration, suppressStartNotice: true })
-  } finally {
-    pagePullRefresh.finishRefreshing()
+const pagePullRefreshAction = usePagePullRefreshAction({
+  refreshing: pagePullRefreshing,
+  noticeDelayMS: motionQuickDuration,
+  currentRefreshPage: pageOutlet.currentRefreshPage,
+  beginRefreshing: pagePullRefresh.beginRefreshing,
+  finishRefreshing: pagePullRefresh.finishRefreshing,
+  collapseTopChrome: () => {
     chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
-  }
-}
+  },
+})
+const refreshCurrentPageFromPull = pagePullRefreshAction.refreshCurrentPageFromPull
 
 const pagePullGestureHandlers = usePagePullGestureHandlers({
   isFeedRoute,
