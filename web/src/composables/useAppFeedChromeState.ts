@@ -6,7 +6,10 @@ import { usePullActivityState } from '@/composables/usePullActivityState'
 type AppFeedChromeStateOptions = {
   pullActivity: Parameters<typeof usePullActivityState>[0]
   layout: Omit<Parameters<typeof useFeedChromeLayoutState>[0], 'feedPullActive' | 'pullProgress'>
-  shellMotion: Omit<Parameters<typeof useAppShellMotion>[0], 'feedHeaderHeight' | 'feedContentSpace'>
+  shellMotion: Omit<
+    Parameters<typeof useAppShellMotion>[0],
+    'feedHeaderHeight' | 'feedContentSpace' | 'freezeFeedBodyDuringTopRefresh'
+  >
   visibility: Omit<
     Parameters<typeof useFeedChromeVisibilityState>[0],
     'feedHeaderProgress' | 'feedPullActive' | 'feedHeaderReturnProgress'
@@ -24,6 +27,7 @@ export function useAppFeedChromeState(options: AppFeedChromeStateOptions) {
     ...options.shellMotion,
     feedHeaderHeight: layout.headerHeight,
     feedContentSpace: layout.contentSpace,
+    freezeFeedBodyDuringTopRefresh: layout.freezeBodyDuringTopRefresh,
   })
   const visibility = useFeedChromeVisibilityState({
     ...options.visibility,

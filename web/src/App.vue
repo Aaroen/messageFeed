@@ -461,6 +461,9 @@ const feedChromeState = useAppFeedChromeState({
   },
   shellMotion: {
     detailSurfaceProgress,
+    feedRefreshSettling,
+    feedChromeSettling,
+    readerBackDragging,
   },
   visibility: {
     isFeedRoute,
@@ -524,12 +527,7 @@ const chromeVisualState = useAppChromeVisualState({
     isFeedRoute,
     feedChromeHidden,
     feedPullActive,
-    feedPullRefreshing: () => feedInteraction.pullRefreshing,
     pagePullActive,
-    freezeFeedBodyDuringTopRefresh,
-    feedRefreshSettling,
-    feedChromeSettling,
-    readerBackDragging,
     detailReaderOpen,
     detailReturningToFeed,
     detailChromeVisible,

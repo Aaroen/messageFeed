@@ -43,6 +43,9 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
       opacity: safeProgress.toFixed(3),
       pointerEvents: safeProgress > 0.86 ? ('auto' as const) : ('none' as const),
       transform: cssTranslate3d(0, (safeProgress - 1) * headerHeight),
+      transition: options.isSettling?.()
+        ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard)'
+        : undefined,
     }
   }
 
