@@ -19,6 +19,11 @@ type FeedPagerSwipeFinishResult = {
   shouldRevealChromeFirst: boolean
 }
 
+type FeedPagerDragStartResult = {
+  started: boolean
+  blocked: boolean
+}
+
 function clamp(value: number) {
   if (!Number.isFinite(value)) {
     return 0
@@ -166,6 +171,22 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     viewSwipeCandidateActive.value = false
   }
 
+  function tryBeginDrag(deltaX: number): FeedPagerDragStartResult {
+    const blocked = isBlockedDragDirection(deltaX)
+    if (blocked || !canStartDrag(deltaX)) {
+      return {
+        started: false,
+        blocked,
+      }
+    }
+
+    beginViewSwipe()
+    return {
+      started: true,
+      blocked: false,
+    }
+  }
+
   function resetViewSwipeTracking() {
     viewSwipeCandidateActive.value = false
     viewSwipeActive.value = false
@@ -264,7 +285,6 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     targetProgress,
     surfaceFromOffset,
     isBlockedDragDirection,
-    canStartDrag,
     commitPath,
     swipeTransitionBeginPayload,
     swipeTransitionUpdatePayload,
@@ -275,7 +295,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     beginDragCandidate,
     beginViewSwipeCandidate,
     cancelViewSwipeCandidate,
-    beginViewSwipe,
+    tryBeginDrag,
     resetViewSwipeTracking,
     beginPointerTracking,
     isActivePointer,

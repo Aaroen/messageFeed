@@ -2257,8 +2257,8 @@ function handleTouchMove(event: TouchEvent) {
   }
 
   if (viewSwipeCandidateActive.value && viewHorizontal) {
-    if (feedPagerTransition.canStartDrag(deltaX)) {
-      feedPagerTransition.beginViewSwipe()
+    const dragStart = feedPagerTransition.tryBeginDrag(deltaX)
+    if (dragStart.started) {
       trackingEdgeSwipeCandidate = false
       trackingNavigationCloseCandidate = false
       showTopChromeForViewSwipe()
@@ -2443,14 +2443,14 @@ function handleFeedPointerMove(event: PointerEvent) {
       return
     }
 
-    if (feedPagerTransition.isBlockedDragDirection(deltaX)) {
+    const dragStart = feedPagerTransition.tryBeginDrag(deltaX)
+    if (dragStart.blocked) {
       feedPagerTransition.clearPointerTracking()
       feedPagerTransition.cancelViewSwipeCandidate()
       return
     }
 
-    if (feedPagerTransition.canStartDrag(deltaX)) {
-      feedPagerTransition.beginViewSwipe()
+    if (dragStart.started) {
       suppressFollowingClick()
       showTopChromeForViewSwipe()
       beginViewSwipeTransition(deltaX)
