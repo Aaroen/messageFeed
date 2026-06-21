@@ -1396,6 +1396,18 @@ export function useReaderStackState() {
     return backSwipeTarget.value === target && (intent === undefined || backSwipeIntent.value === intent)
   }
 
+  function readerBackSwipeReturningToFeed() {
+    return readerBackSwipeMatches('detail') && !detailOpenedFromSourceReader.value
+  }
+
+  function readerBackSwipeRevealsSourceReader() {
+    return readerBackSwipeMatches('detail') && detailOpenedFromSourceReader.value && readerSource.value !== null
+  }
+
+  function readerBackSwipeCanOpenSourceFromDetail() {
+    return readerBackSwipeMatches('detail') && Boolean(detailItem.value?.source_id) && !detailOpenedFromSourceReader.value
+  }
+
   function readerBackSwipeTransitionProgress(fallbackStretch = 0) {
     if (readerBackSwipeMatches('detail', 'source')) {
       return detailSourceExitProgress.value
@@ -1722,6 +1734,9 @@ export function useReaderStackState() {
     setReaderBackSwipeIntentState,
     getReaderBackSwipeState,
     readerBackSwipeMatches,
+    readerBackSwipeReturningToFeed,
+    readerBackSwipeRevealsSourceReader,
+    readerBackSwipeCanOpenSourceFromDetail,
     readerBackSwipeTransitionProgress,
     readerBackSwipeShouldCommit,
     readerBackSwipeIsBlocked,

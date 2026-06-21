@@ -189,6 +189,9 @@ const {
   setReaderBackSwipeIntentState,
   getReaderBackSwipeState,
   readerBackSwipeMatches,
+  readerBackSwipeReturningToFeed,
+  readerBackSwipeRevealsSourceReader,
+  readerBackSwipeCanOpenSourceFromDetail,
   readerBackSwipeTransitionProgress,
   readerBackSwipeShouldCommit,
   readerBackSwipeIsBlocked,
@@ -2112,20 +2115,20 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
     prepareReaderBackSwipeIntentState({ intent: 'source-return' })
   } else if (deltaX > 0) {
     setReaderBackSwipeIntentState(readerBackSwipeCanCommitRight.value ? 'back' : 'blocked')
-    if (readerBackSwipeMatches('detail') && !detailOpenedFromSourceReader.value) {
+    const returningToFeed = readerBackSwipeReturningToFeed()
+    if (returningToFeed) {
       refreshDetailFeedOriginRect(true)
     }
-    const revealSourceReader =
-      readerBackSwipeMatches('detail') && detailOpenedFromSourceReader.value && readerSource.value !== null
+    const revealSourceReader = readerBackSwipeRevealsSourceReader()
     prepareReaderBackSwipeIntentState({
       intent: 'detail-back',
-      returningToFeed: readerBackSwipeMatches('detail') && !detailOpenedFromSourceReader.value,
+      returningToFeed,
       revealSourceReader,
     })
     if (revealSourceReader) {
       captureDetailSourceTransitionRects(12, { lock: true })
     }
-  } else if (readerBackSwipeMatches('detail') && detailItem.value?.source_id && !detailOpenedFromSourceReader.value) {
+  } else if (readerBackSwipeCanOpenSourceFromDetail()) {
     setReaderBackSwipeIntentState('source')
     showSourceReaderUnderDetail()
   } else {
@@ -2155,25 +2158,21 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
     prepareReaderBackSwipeIntentState({ intent: 'source-return' })
   } else if (deltaX > 0) {
     setReaderBackSwipeIntentState(readerBackSwipeCanCommitRight.value ? 'back' : 'blocked')
-    if (readerBackSwipeMatches('detail') && !detailOpenedFromSourceReader.value) {
+    const returningToFeed = readerBackSwipeReturningToFeed()
+    if (returningToFeed) {
       refreshDetailFeedOriginRect(true)
     }
-    const revealSourceReader =
-      readerBackSwipeMatches('detail') && detailOpenedFromSourceReader.value && readerSource.value !== null
+    const revealSourceReader = readerBackSwipeRevealsSourceReader()
     prepareReaderBackSwipeIntentState({
       intent: 'detail-back',
-      returningToFeed: readerBackSwipeMatches('detail') && !detailOpenedFromSourceReader.value,
+      returningToFeed,
       revealSourceReader,
       resetSourceExit: true,
     })
     if (revealSourceReader) {
       captureDetailSourceTransitionRects(12, { lock: true })
     }
-  } else if (
-    readerBackSwipeMatches('detail') &&
-    detailItem.value?.source_id &&
-    !detailOpenedFromSourceReader.value
-  ) {
+  } else if (readerBackSwipeCanOpenSourceFromDetail()) {
     setReaderBackSwipeIntentState('source')
     showSourceReaderUnderDetail()
   } else {
