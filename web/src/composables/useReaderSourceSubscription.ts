@@ -129,7 +129,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
 
   async function loadSourceReaderSubscription(
     source: ReaderSource,
-    requestOptions: { token?: number } = {},
+    requestOptions: { token?: number; silent?: boolean } = {},
   ) {
     const token = requestOptions.token ?? nextSourceRequestToken()
     if (!readerSourceMatches(source)) {
@@ -156,7 +156,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
       options.setSourceCatalogEntry(catalogEntry ?? null)
       options.setSourceSubscription(directSource ?? catalogSource ?? null)
     } catch (err) {
-      if (sourceRequestIsCurrent(token, source)) {
+      if (sourceRequestIsCurrent(token, source) && !requestOptions.silent) {
         showSourceNotice('warning', `加载失败：来源状态未同步。详细原因：${formatAPIError(err)}`)
       }
     } finally {

@@ -23,7 +23,10 @@ type ReaderSourceOpenActionOptions = {
   clearHiddenSourceCleanupTimer: () => void
   setTopChromeVisible: (visible: boolean) => void
   captureDetailSourceTransitionRects: (retry?: number, options?: { force?: boolean; lock?: boolean }) => void
-  loadSourceReaderSubscription: (source: ReaderSource) => Promise<unknown> | unknown
+  loadSourceReaderSubscription: (
+    source: ReaderSource,
+    options?: { silent?: boolean },
+  ) => Promise<unknown> | unknown
   resetSourceSubscriptionState: () => void
   rememberSourceScrollTop: (scrollTop: number) => void
   scrollSourceReaderContentElementTo: (scrollTop: number) => void
@@ -57,7 +60,7 @@ export function useReaderSourceOpenAction(options: ReaderSourceOpenActionOptions
         options.captureDetailSourceTransitionRects(12, { lock: true })
       }
       if (result.loadSubscription) {
-        void options.loadSourceReaderSubscription(source)
+        void options.loadSourceReaderSubscription(source, { silent: !nextVisible })
       }
       return
     }
@@ -78,7 +81,7 @@ export function useReaderSourceOpenAction(options: ReaderSourceOpenActionOptions
       }
     })
     if (result.loadSubscription) {
-      void options.loadSourceReaderSubscription(source)
+      void options.loadSourceReaderSubscription(source, { silent: !nextVisible })
     }
   }
 
