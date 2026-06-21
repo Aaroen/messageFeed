@@ -67,6 +67,7 @@ import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
+import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 
 type SwipeSurface =
@@ -399,51 +400,31 @@ const feedOrSourcePullActive = pullActivity.feedOrSourceActive
 const pullProgress = pullActivity.feedProgress
 const pagePullProgress = pagePullRefresh.distanceProgress
 const sourcePullProgress = pullActivity.sourceProgress
-const feedHeaderHeight = computed(() => (windowWidth.value <= 720 ? 78 : 86))
-const feedHeaderProgress = computed(() => {
-  if (!isFeedRoute.value) {
-    return topChromeProgress.value
-  }
-
-  if (feedPullActive.value) {
-    return Math.max(topChromeProgress.value, pullProgress.value)
-  }
-
-  return topChromeProgress.value
+const feedChromeLayout = useFeedChromeLayoutState({
+  windowWidth,
+  isFeedRoute,
+  topChromeProgress,
+  feedPullActive,
+  pullProgress,
+  feedTopPullStartedWithChrome,
+  refreshStartedWithChrome,
+  feedTopPulling,
+  feedContentCollapsed,
+  detailFeedHeaderReturnProgress,
 })
-const feedContentSpace = computed(() => {
-  if (feedTopPullStartedWithChrome.value || refreshStartedWithChrome.value) {
-    return feedHeaderHeight.value
-  }
-
-  if (feedTopPulling.value) {
-    return feedHeaderHeight.value * (feedPullActive.value ? pullProgress.value : topChromeProgress.value)
-  }
-
-  if (feedPullActive.value) {
-    return feedHeaderHeight.value * Math.max(topChromeProgress.value, pullProgress.value)
-  }
-
-  if (feedContentCollapsed.value && topChromeProgress.value <= 0.01) {
-    return 0
-  }
-
-  return feedHeaderHeight.value
-})
+const feedHeaderHeight = feedChromeLayout.headerHeight
+const feedHeaderProgress = feedChromeLayout.headerProgress
+const feedContentSpace = feedChromeLayout.contentSpace
+const freezeFeedBodyDuringTopRefresh = feedChromeLayout.freezeBodyDuringTopRefresh
+const feedTopChromeIsVisiblyOpen = feedChromeLayout.topChromeIsVisiblyOpen
+const feedHeaderReturnProgress = feedChromeLayout.headerReturnProgress
 const appShellMotion = useAppShellMotion({
   feedHeaderHeight,
   feedContentSpace,
   detailSurfaceProgress,
 })
-const freezeFeedBodyDuringTopRefresh = computed(
-  () => feedTopPullStartedWithChrome.value || refreshStartedWithChrome.value,
-)
-const feedTopChromeIsVisiblyOpen = computed(
-  () => !feedContentCollapsed.value || topChromeProgress.value > 0.04,
-)
 const feedTabsVisible = computed(() => isFeedRoute.value && topChromeProgress.value > 0.04)
 const feedChromeHidden = computed(() => isFeedRoute.value && feedHeaderProgress.value <= 0.01 && !feedPullActive.value)
-const feedHeaderReturnProgress = computed(() => (isFeedRoute.value ? detailFeedHeaderReturnProgress.value : 0))
 const feedTabsLayerHidden = computed(() => {
   if (!isFeedRoute.value || feedPullActive.value) {
     return true
