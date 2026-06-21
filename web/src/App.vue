@@ -48,6 +48,7 @@ import { useReaderDetailProgressMotion } from '@/composables/useReaderDetailProg
 import { useReaderDetailTextMotion } from '@/composables/useReaderDetailTextMotion'
 import { useReaderSourceTitleMotion } from '@/composables/useReaderSourceTitleMotion'
 import { useReaderDetailTransitionMotion } from '@/composables/useReaderDetailTransitionMotion'
+import { useAppShellMotion } from '@/composables/useAppShellMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -379,6 +380,11 @@ const feedContentSpace = computed(() => {
 
   return feedHeaderHeight.value
 })
+const appShellMotion = useAppShellMotion({
+  feedHeaderHeight,
+  feedContentSpace,
+  detailSurfaceProgress,
+})
 const freezeFeedBodyDuringTopRefresh = computed(
   () => feedTopPullStartedWithChrome.value || refreshStartedWithChrome.value,
 )
@@ -610,20 +616,7 @@ const sourceNameMorphStyle = sourceTitleMotion.nameMorphStyle
 const sourceTitleLayerStyle = sourceTitleMotion.titleLayerStyle
 const sourceTitleTextStyle = sourceTitleMotion.titleTextStyle
 const sourceTitleRevealStyle = sourceTitleMotion.revealStyle
-const mainStyle = computed(() => {
-  const baseStyle = {
-    '--feed-header-height': `${feedHeaderHeight.value}px`,
-    '--feed-header-space': cssPx(feedContentSpace.value),
-    '--detail-underlay-blur': `${(detailSurfaceProgress.value * 7).toFixed(2)}px`,
-    '--detail-underlay-opacity': (1 - detailSurfaceProgress.value * 0.08).toFixed(3),
-  }
-
-  if (!isFeedRoute.value) {
-    return baseStyle
-  }
-
-  return baseStyle
-})
+const mainStyle = appShellMotion.style
 const headerClass = computed(() => ({
   'app-header--feed-inactive':
     feedHeaderProgress.value <= 0.01 && !feedChromeSettling.value && !feedTopPulling.value,
@@ -1003,28 +996,6 @@ function clamp(value: number, min = 0, max = 1) {
 
 function motionDelay(duration = readerMorphDuration) {
   return duration === readerMorphDuration ? readerMorphCleanupDelay : duration + readerMorphCleanupBuffer
-}
-
-function cssNumber(value: number, digits = 2) {
-  return Number.isFinite(value) ? value.toFixed(digits) : '0.00'
-}
-
-function cssPx(value: number) {
-  return `${cssNumber(value)}px`
-}
-
-function cssTranslate3d(x: number, y: number, z = 0) {
-  return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
-}
-
-function stretchTransformOrigin(stretch: number, anchor: 'left' | 'right' | null) {
-  if (stretch > 0 || anchor === 'left') {
-    return 'left center'
-  }
-  if (stretch < 0 || anchor === 'right') {
-    return 'right center'
-  }
-  return undefined
 }
 
 function updateStretchAnchor(
