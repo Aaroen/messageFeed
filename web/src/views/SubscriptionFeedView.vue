@@ -84,6 +84,7 @@ const pageSize = 10
 const cacheTTLMS = 60 * 1000
 const verticalLockRatio = 1.18
 const motionCleanupBuffer = 96
+const pullReleaseDelay = 120
 const pullSettleDuration = 1000
 let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
@@ -513,7 +514,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       statusMeta: pullStatusMeta.value,
     })
     pullRefresh.settleRefreshCompletion({
-      releaseDelayMS: 120,
+      releaseDelayMS: pullReleaseDelay,
       settleDelayMS: pullSettleDuration + motionCleanupBuffer,
       afterRelease: clearPullState,
     })
