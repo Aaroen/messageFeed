@@ -39,7 +39,7 @@ import { usePageContentMotion } from '@/composables/usePageContentMotion'
 import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useSourceContentMotion } from '@/composables/useSourceContentMotion'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
-import { useChromeLayerMotion } from '@/composables/useChromeLayerMotion'
+import { useAppChromeLayerState } from '@/composables/useAppChromeLayerState'
 import { useReaderSourceSurfaceMotion } from '@/composables/useReaderSourceSurfaceMotion'
 import { useReaderDetailSurfaceMotion } from '@/composables/useReaderDetailSurfaceMotion'
 import { useReaderDetailContentMotion } from '@/composables/useReaderDetailContentMotion'
@@ -299,9 +299,6 @@ const toggleTheme = themeState.toggle
 const refreshCompletion = useRefreshCompletionState()
 const refreshStartedWithChrome = refreshCompletion.startedWithChrome
 const feedRefreshSettling = refreshCompletion.settling
-const chromeLayerMotion = useChromeLayerMotion({
-  isSettling: () => feedChromeSettling.value || feedRefreshSettling.value,
-})
 const feedTopPull = useTopPullState()
 const feedTopPulling = feedTopPull.pulling
 const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
@@ -448,40 +445,50 @@ const pagePullStatus = usePagePullStatus({
 })
 const pagePullStatusText = pagePullStatus.text
 const pagePullStatusMeta = pagePullStatus.meta
-const pullStatusStyle = computed(() => chromeLayerMotion.refreshStatusStyle(feedPullActive.value, pullProgress.value))
-const pullIconStyle = computed(() =>
-  chromeLayerMotion.refreshIconStyle(feedInteraction.pullRefreshing, pullProgress.value),
-)
-const pagePullStatusStyle = computed(() => chromeLayerMotion.refreshStatusStyle(pagePullActive.value, pagePullProgress.value))
-const pagePullIconStyle = computed(() => chromeLayerMotion.refreshIconStyle(pagePullRefreshing.value, pagePullProgress.value))
-const feedTabsLayerStyle = computed(() =>
-  chromeLayerMotion.feedTabsStyle({
-    detailReaderOpen: detailReaderOpen.value,
-    returnProgress: feedHeaderReturnProgress.value,
-    readerBackDragging: readerBackDragging.value,
-    detailBlocksGestures: detailBlocksGestures(),
-    feedPullActive: feedPullActive.value,
-    headerProgress: feedHeaderProgress.value,
-  }),
-)
-const feedTabsTargetLayerStyle = computed(() =>
-  chromeLayerMotion.feedTabsTargetStyle({
-    visible: viewSwipeTargetVisible.value,
-    feedPullActive: feedPullActive.value,
-    headerProgress: feedHeaderProgress.value,
-    targetProgress: viewSwipeTargetProgress.value,
-  }),
-)
-const sourcePullStatusStyle = computed(() =>
-  chromeLayerMotion.refreshStatusStyle(sourcePullActive.value, sourcePullProgress.value),
-)
-const sourcePullIconStyle = computed(() =>
-  chromeLayerMotion.refreshIconStyle(feedInteraction.pullRefreshing, sourcePullProgress.value),
-)
 const feedTrackStyle = feedPagerTransition.trackStyle
 const viewSwipeTargetKey = feedPagerTransition.targetKey
 const viewSwipeTargetVisible = feedPagerTransition.targetVisible
 const viewSwipeTargetProgress = feedPagerTransition.targetProgress
+const appChromeLayerState = useAppChromeLayerState({
+  feedPullActive,
+  feedPullRefreshing: () => feedInteraction.pullRefreshing,
+  pullProgress,
+  pagePullActive,
+  pagePullRefreshing,
+  pagePullProgress,
+  detailReaderOpen,
+  feedHeaderReturnProgress,
+  readerBackDragging,
+  detailBlocksGestures,
+  feedHeaderProgress,
+  viewSwipeTargetVisible,
+  viewSwipeTargetProgress,
+  sourcePullActive,
+  sourcePullProgress,
+  topChromeProgress,
+  feedHeaderHeight,
+  feedChromeSettling,
+  feedRefreshSettling,
+  feedTopPulling,
+  feedCornerHidden,
+  detailHeaderVisible,
+  headerDetailLayoutActive,
+})
+const pullStatusStyle = appChromeLayerState.pullStatusStyle
+const pullIconStyle = appChromeLayerState.pullIconStyle
+const pagePullStatusStyle = appChromeLayerState.pagePullStatusStyle
+const pagePullIconStyle = appChromeLayerState.pagePullIconStyle
+const feedTabsLayerStyle = appChromeLayerState.feedTabsLayerStyle
+const feedTabsTargetLayerStyle = appChromeLayerState.feedTabsTargetLayerStyle
+const sourcePullStatusStyle = appChromeLayerState.sourcePullStatusStyle
+const sourcePullIconStyle = appChromeLayerState.sourcePullIconStyle
+const sourceHeaderStyle = appChromeLayerState.sourceHeaderStyle
+const detailHeaderLayerStyle = appChromeLayerState.detailHeaderLayerStyle
+const pageTitleLayerStyle = appChromeLayerState.pageTitleLayerStyle
+const sourceMainLayerStyle = appChromeLayerState.sourceMainLayerStyle
+const headerClass = appChromeLayerState.headerClass
+const headerStyle = appChromeLayerState.headerStyle
+const navOpenButtonStyle = appChromeLayerState.navOpenButtonStyle
 const mainClass = computed(() => ({
   'app-main--feed': isFeedRoute.value,
   'app-main--page': !isFeedRoute.value,
@@ -520,16 +527,6 @@ const sourceContentMotion = useSourceContentMotion({
 })
 const sourceContentStyle = sourceContentMotion.contentStyle
 const sourceReaderStyle = sourceSurfaceMotion.surfaceStyle
-const sourceHeaderStyle = computed(() =>
-  chromeLayerMotion.sourceHeaderStyle(
-    topChromeProgress.value,
-    feedHeaderHeight.value,
-    feedChromeSettling.value || readerBackDragging.value,
-  ),
-)
-const detailHeaderLayerStyle = computed(() => chromeLayerMotion.layerStyle(detailHeaderVisible.value, topChromeProgress.value))
-const pageTitleLayerStyle = computed(() => chromeLayerMotion.layerStyle(!pagePullActive.value, feedHeaderProgress.value))
-const sourceMainLayerStyle = computed(() => chromeLayerMotion.layerStyle(!sourcePullActive.value, topChromeProgress.value))
 const detailSurfaceMotion = useReaderDetailSurfaceMotion({
   stretch: detailReaderStretch,
   stretchAnchor: detailStretchAnchor,
@@ -633,15 +630,6 @@ const sourceTitleLayerStyle = sourceTitleMotion.titleLayerStyle
 const sourceTitleTextStyle = sourceTitleMotion.titleTextStyle
 const sourceTitleRevealStyle = sourceTitleMotion.revealStyle
 const mainStyle = appShellMotion.style
-const headerClass = computed(() => ({
-  'app-header--feed-inactive':
-    feedHeaderProgress.value <= 0.01 && !feedChromeSettling.value && !feedTopPulling.value,
-  'app-header--detail': headerDetailLayoutActive.value,
-}))
-const headerStyle = computed(() => chromeLayerMotion.headerStyle(feedHeaderProgress.value, feedHeaderHeight.value))
-const navOpenButtonStyle = computed(() =>
-  chromeLayerMotion.navOpenButtonStyle(feedHeaderProgress.value, feedHeaderHeight.value, !feedCornerHidden.value),
-)
 const readerDetailFrame = useReaderDetailFrame({
   item: detailItem,
   metricsInitialDelay: detailFrameMetricsInitialDelay,
