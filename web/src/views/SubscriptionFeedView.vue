@@ -602,7 +602,7 @@ function resetPullTracking() {
 
 function resetPullGesture(force = false) {
   resetPullTracking()
-  pullRefresh.setOffset(0)
+  pullRefresh.resetOffset()
   clearPullState(force)
   pullRefresh.resetGesture()
 }
@@ -675,7 +675,7 @@ function handleTouchEnd() {
   resetPullTracking()
 
   if (shouldRefresh) {
-    pullRefresh.setOffset(pullRefresh.threshold)
+    pullRefresh.commitRefreshOffset()
     emit('topPullEnd', true)
     void loadItems({ refresh: true })
     return

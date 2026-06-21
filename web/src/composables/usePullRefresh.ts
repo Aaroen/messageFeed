@@ -96,6 +96,14 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     offset.value = Math.max(0, nextOffset)
   }
 
+  function resetOffset() {
+    setOffset(0)
+  }
+
+  function commitRefreshOffset() {
+    setOffset(threshold)
+  }
+
   function setGestureOffset(nextOffset: number) {
     clearSettleTimer()
     settling.value = false
@@ -212,7 +220,8 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     beginGestureTracking,
     updateGestureDistance,
     resetGestureTracking,
-    setOffset,
+    resetOffset,
+    commitRefreshOffset,
     setGestureOffset,
     beginRefreshing,
     finishRefreshing,
