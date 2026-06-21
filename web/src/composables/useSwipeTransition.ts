@@ -44,6 +44,7 @@ export function useSwipeTransition<TSurface extends string = string>() {
     progress?: number
     isBlocked?: boolean
   }) {
+    clearTimer()
     from.value = payload.from
     to.value = payload.to ?? null
     direction.value = payload.direction
@@ -76,6 +77,7 @@ export function useSwipeTransition<TSurface extends string = string>() {
   }
 
   function settle(committed: boolean, payload: { progress?: number; isBlocked?: boolean } = {}) {
+    clearTimer()
     phase.value = committed ? 'committed' : 'canceled'
     progress.value = clampProgress(payload.progress ?? (committed ? 1 : 0))
     if (payload.isBlocked !== undefined) {
@@ -84,6 +86,7 @@ export function useSwipeTransition<TSurface extends string = string>() {
   }
 
   function reset() {
+    clearTimer()
     from.value = null
     to.value = null
     phase.value = 'idle'
@@ -96,11 +99,13 @@ export function useSwipeTransition<TSurface extends string = string>() {
     if (typeof window !== 'undefined') {
       window.clearTimeout(resetTimer)
     }
+    resetTimer = 0
   }
 
   function scheduleReset(delayMS: number) {
     clearTimer()
     resetTimer = window.setTimeout(() => {
+      resetTimer = 0
       reset()
     }, Math.max(0, delayMS))
   }
