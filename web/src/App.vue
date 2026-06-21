@@ -1964,30 +1964,6 @@ function canStartNavigationOpen(_clientX: number) {
   )
 }
 
-function activeFeedSurface(): SwipeSurface {
-  return activeFeedIndex.value === 0 ? 'feed:subscriptions' : 'feed:recommendations'
-}
-
-function feedSurfaceFromPath(path: string | null): SwipeSurface | null {
-  if (path === '/subscriptions') {
-    return 'feed:subscriptions'
-  }
-  if (path === '/recommendations') {
-    return 'feed:recommendations'
-  }
-  return null
-}
-
-function feedSurfaceFromSwipeOffset(offset: number): SwipeSurface | null {
-  if (offset < -viewDragThreshold && activeFeedIndex.value === 0) {
-    return 'feed:recommendations'
-  }
-  if (offset > viewDragThreshold && activeFeedIndex.value === 1) {
-    return 'feed:subscriptions'
-  }
-  return null
-}
-
 function readerSurfaceForTarget(target: ReaderBackSwipeTarget): SwipeSurface {
   if (target === 'source') {
     return 'reader:source'
@@ -2014,7 +1990,7 @@ function readerSwipeTargetSurface(
   if (target === 'page') {
     return 'feed:recommendations'
   }
-  return detailOpenedFromSourceReader.value ? 'reader:source' : activeFeedSurface()
+  return detailOpenedFromSourceReader.value ? 'reader:source' : feedPagerTransition.activeSurface.value
 }
 
 function scheduleSwipeTransitionReset(duration = 260) {
@@ -2023,19 +1999,20 @@ function scheduleSwipeTransitionReset(duration = 260) {
 
 function beginViewSwipeTransition(offset: number) {
   swipeTransition.begin({
-    from: activeFeedSurface(),
-    to: feedSurfaceFromSwipeOffset(offset),
+    from: feedPagerTransition.activeSurface.value,
+    to: feedPagerTransition.surfaceFromOffset(offset),
     direction: offset < 0 ? 'left' : 'right',
     progress: viewSwipeProgress.value,
   })
 }
 
 function syncViewSwipeTransition(offset: number) {
+  const targetSurface = feedPagerTransition.surfaceFromOffset(offset)
   swipeTransition.update({
-    to: feedSurfaceFromSwipeOffset(offset),
+    to: targetSurface,
     direction: offset < 0 ? 'left' : 'right',
     progress: viewSwipeProgress.value,
-    isBlocked: feedSurfaceFromSwipeOffset(offset) === null,
+    isBlocked: targetSurface === null,
   })
 }
 

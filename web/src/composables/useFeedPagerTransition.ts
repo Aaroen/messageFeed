@@ -1,5 +1,7 @@
 import { computed, ref } from 'vue'
 
+export type FeedSwipeSurface = 'feed:subscriptions' | 'feed:recommendations'
+
 type FeedPagerTransitionOptions = {
   getActiveKey: () => string | symbol | null | undefined
   getWindowWidth: () => number
@@ -28,6 +30,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   let startedWithHiddenChrome = false
 
   const activeIndex = computed(() => (options.getActiveKey() === 'recommendations' ? 1 : 0))
+  const activeSurface = computed<FeedSwipeSurface>(() =>
+    activeIndex.value === 0 ? 'feed:subscriptions' : 'feed:recommendations',
+  )
 
   const trackStyle = computed(() => ({
     transform: `translate3d(calc(${-activeIndex.value * 100}% + ${cssPx(dragOffset.value)}), 0, 0)`,
@@ -49,6 +54,16 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   const targetVisible = computed(() => options.isFeedRoute() && !options.isDetailReaderOpen() && Boolean(targetKey.value))
   const targetProgress = computed(() => (targetVisible.value ? clamp((swipeProgress.value - 0.26) / 0.48) : 0))
+
+  function surfaceFromOffset(offset: number): FeedSwipeSurface | null {
+    if (offset < -dragThreshold && activeIndex.value === 0) {
+      return 'feed:recommendations'
+    }
+    if (offset > dragThreshold && activeIndex.value === 1) {
+      return 'feed:subscriptions'
+    }
+    return null
+  }
 
   function setDragOffset(nextOffset: number) {
     dragOffset.value = Number.isFinite(nextOffset) ? nextOffset : 0
@@ -113,11 +128,13 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     dragOffset,
     settling,
     activeIndex,
+    activeSurface,
     trackStyle,
     swipeProgress,
     targetKey,
     targetVisible,
     targetProgress,
+    surfaceFromOffset,
     setDragOffset,
     setSettling,
     markStartedWithHiddenChrome,
