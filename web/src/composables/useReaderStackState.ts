@@ -1413,6 +1413,10 @@ export function useReaderStackState() {
     return readerBackSwipeMatches('detail') && Boolean(detailItem.value?.source_id) && !detailOpenedFromSourceReader.value
   }
 
+  function readerBackSwipeCanReturnSourceToDetail(deltaX: number) {
+    return readerBackSwipeMatches('source') && deltaX < 0 && sourceReaderCanReturnToDetail()
+  }
+
   function readerBackSwipeTransitionProgress(fallbackStretch = 0) {
     if (readerBackSwipeMatches('detail', 'source')) {
       return detailSourceExitProgress.value
@@ -1745,7 +1749,6 @@ export function useReaderStackState() {
     hasDetailParkedBehindSource,
     hasParkedDetailSourceState,
     sourceReaderShouldReturnToDetail,
-    sourceReaderCanReturnToDetail,
     sourceReaderCanRestoreReturnOnCancel,
     createReaderStackSessionSnapshot,
     applyReaderStackSessionSnapshot,
@@ -1799,6 +1802,7 @@ export function useReaderStackState() {
     readerBackSwipeReturningToFeed,
     readerBackSwipeRevealsSourceReader,
     readerBackSwipeCanOpenSourceFromDetail,
+    readerBackSwipeCanReturnSourceToDetail,
     readerBackSwipeTransitionProgress,
     readerBackSwipeVisualAction,
     readerBackSwipeShouldCommit,

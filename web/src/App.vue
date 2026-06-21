@@ -144,7 +144,6 @@ const {
   hasDetailParkedBehindSource,
   hasParkedDetailSourceState,
   sourceReaderShouldReturnToDetail,
-  sourceReaderCanReturnToDetail,
   sourceReaderCanRestoreReturnOnCancel,
   createReaderStackSessionSnapshot,
   applyReaderStackSessionSnapshot,
@@ -191,6 +190,7 @@ const {
   readerBackSwipeReturningToFeed,
   readerBackSwipeRevealsSourceReader,
   readerBackSwipeCanOpenSourceFromDetail,
+  readerBackSwipeCanReturnSourceToDetail,
   readerBackSwipeTransitionProgress,
   readerBackSwipeVisualAction,
   readerBackSwipeShouldCommit,
@@ -2108,7 +2108,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
 
   trackingBackSwipe = true
   beginReaderBackSwipeTrackingState()
-  if (readerBackSwipeMatches('source') && deltaX < 0 && sourceReaderCanReturnToDetail()) {
+  if (readerBackSwipeCanReturnSourceToDetail(deltaX)) {
     prepareSourceReaderReturnDrag()
     setReaderBackSwipeIntentState('back')
     showTopChromeForSourceReturn()
@@ -2151,7 +2151,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  if (readerBackSwipeMatches('source') && deltaX < 0 && sourceReaderCanReturnToDetail()) {
+  if (readerBackSwipeCanReturnSourceToDetail(deltaX)) {
     prepareSourceReaderReturnDrag()
     setReaderBackSwipeIntentState('back')
     showTopChromeForSourceReturn()
