@@ -65,6 +65,14 @@ export function useReaderSession<TSnapshot extends { savedAt?: number; routeFull
 ) {
   const restoring = ref(false)
   let saveTimer = 0
+  let sessionToken = 0
+
+  function clearSaveTimer() {
+    if (typeof window !== 'undefined' && saveTimer !== 0) {
+      window.clearTimeout(saveTimer)
+    }
+    saveTimer = 0
+  }
 
   function removeSavedSnapshot() {
     if (typeof window === 'undefined') {
@@ -112,8 +120,16 @@ export function useReaderSession<TSnapshot extends { savedAt?: number; routeFull
       return
     }
 
-    window.clearTimeout(saveTimer)
-    saveTimer = window.setTimeout(saveNow, options.saveDelayMS ?? 80)
+    sessionToken += 1
+    const token = sessionToken
+    clearSaveTimer()
+    saveTimer = window.setTimeout(() => {
+      saveTimer = 0
+      if (token !== sessionToken) {
+        return
+      }
+      saveNow()
+    }, options.saveDelayMS ?? 80)
   }
 
   async function restore() {
@@ -122,6 +138,9 @@ export function useReaderSession<TSnapshot extends { savedAt?: number; routeFull
       return
     }
 
+    sessionToken += 1
+    const token = sessionToken
+    clearSaveTimer()
     restoring.value = true
     try {
       const matchesCurrentRoute = snapshot.routeFullPath
@@ -136,6 +155,9 @@ export function useReaderSession<TSnapshot extends { savedAt?: number; routeFull
       await options.restoreSnapshot(snapshot)
     } finally {
       nextTick(() => {
+        if (token !== sessionToken) {
+          return
+        }
         restoring.value = false
         scheduleSave()
         options.afterRestore?.()
@@ -144,10 +166,9 @@ export function useReaderSession<TSnapshot extends { savedAt?: number; routeFull
   }
 
   function clearTimer() {
-    if (typeof window === 'undefined') {
-      return
-    }
-    window.clearTimeout(saveTimer)
+    sessionToken += 1
+    clearSaveTimer()
+    restoring.value = false
   }
 
   return {
