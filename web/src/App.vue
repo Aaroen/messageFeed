@@ -406,8 +406,6 @@ const pageTitle = appRouteState.pageTitle
 const isFeedRoute = appRouteState.isFeedRoute
 const cornerButtonLabel = appRouteState.cornerButtonLabel
 const pagePullState = useAppPagePullState({ pageTitle })
-const pagePullRefresh = pagePullState.pullRefresh
-const pageContentMotion = pagePullState.contentMotion
 const pagePullOffset = pagePullState.offset
 const pagePullSettling = pagePullState.settling
 const pagePullRefreshing = pagePullState.refreshing
@@ -767,7 +765,7 @@ const appTopChromeActions = useAppTopChromeActions({
   setChromeVisible: chromeState.setVisible,
   setChromeCollapsedHidden: chromeState.setCollapsedHidden,
   currentPageScrollTop: pageOutlet.currentScrollTop,
-  settlePagePullOffset: pagePullRefresh.settleOffset,
+  settlePagePullOffset: pagePullState.settleOffset,
 })
 const setTopChromeVisible = appTopChromeActions.setTopChromeVisible
 const collapseTopChrome = appTopChromeActions.collapseTopChrome
@@ -939,9 +937,9 @@ const readerBackSwipeResetAction = useReaderBackSwipeResetAction({
   readerBackDragging,
   stretchAnchorClearDuration: motionStretchAnchorClearDuration,
   resetReaderBackSwipeDragState,
-  resetPageSideMotion: pageContentMotion.resetSideMotion,
+  resetPageSideMotion: pagePullState.resetSideMotion,
   clearReaderStretchAnchorsIfIdle,
-  clearPageStretchAnchorIfIdle: pageContentMotion.clearStretchAnchorIfIdle,
+  clearPageStretchAnchorIfIdle: pagePullState.clearStretchAnchorIfIdle,
 })
 const resetBackSwipeOffset = readerBackSwipeResetAction.resetBackSwipeOffset
 
@@ -1040,8 +1038,8 @@ const readerBackSwipeDragHandlers = useReaderBackSwipeDragHandlers({
   refreshDetailFeedOriginRect,
   captureDetailSourceTransitionRects,
   showSourceReaderUnderDetail,
-  setPageSideStretch: pageContentMotion.setSideStretch,
-  setPageSideOffset: pageContentMotion.setSideOffset,
+  setPageSideStretch: pagePullState.setSideStretch,
+  setPageSideOffset: pagePullState.setSideOffset,
 })
 const beginDetailGestureCandidate = readerBackSwipeDragHandlers.beginDetailGestureCandidate
 const updateBackSwipe = readerBackSwipeDragHandlers.updateBackSwipe
@@ -1468,7 +1466,7 @@ useAppRouteSessionWatchers({
   resetGestureTracking,
   resetPageTopPullTracking,
   finishFeedTopPull: feedTopPull.finish,
-  resetPagePullMotion: pagePullRefresh.resetMotion,
+  resetPagePullMotion: pagePullState.resetMotion,
   resetFeedViewDragOffset: feedPagerTransition.resetDragOffset,
   setTopChromeVisible,
   currentFeedScrollTop: feedContent.currentScrollTop,
@@ -1516,7 +1514,7 @@ useAppLifecycle({
     () => refreshCompletion.clearTimer(),
     () => chromeState.clearTimer(),
     () => sourceContentMotion.clearTimer(),
-    () => pagePullRefresh.clearTimers(),
+    () => pagePullState.clearTimers(),
     () => clickSuppression.clearTimer(),
     clearSourceNoticeTimer,
     clearReaderStackTimers,

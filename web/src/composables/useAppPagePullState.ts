@@ -29,6 +29,13 @@ export function useAppPagePullState(options: AppPagePullStateOptions) {
     contentStyle: contentMotion.contentStyle,
     statusText: status.text,
     statusMeta: status.meta,
+    settleOffset: pullRefresh.settleOffset,
+    resetMotion: pullRefresh.resetMotion,
+    clearTimers: pullRefresh.clearTimers,
+    setSideOffset: contentMotion.setSideOffset,
+    setSideStretch: contentMotion.setSideStretch,
+    resetSideMotion: contentMotion.resetSideMotion,
+    clearStretchAnchorIfIdle: contentMotion.clearStretchAnchorIfIdle,
   }
 }
 
