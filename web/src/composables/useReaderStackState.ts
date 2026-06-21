@@ -1528,6 +1528,8 @@ export function useReaderStackState() {
     const keepDetailParkedBehindSource = hasParkedDetailSourceState()
     readerBackSwipeCandidateTracking.value = false
     readerBackSwipeGestureTracking.value = false
+    backSwipeTarget.value = null
+    backSwipeIntent.value = null
     detailReaderTouchOffset.value = 0
     detailBackExitProgress.value = 0
     detailSourceExitProgress.value = keepDetailParkedBehindSource ? 1 : 0
@@ -1564,6 +1566,7 @@ export function useReaderStackState() {
     readerBackSwipeCandidateTracking.value = true
     readerBackSwipeGestureTracking.value = false
     setReaderBackSwipeTargetState(target)
+    backSwipeIntent.value = null
   }
 
   function setReaderBackSwipeIntentState(intent: ReaderBackSwipeIntent) {
