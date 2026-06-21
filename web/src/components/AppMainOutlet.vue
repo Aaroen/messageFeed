@@ -17,6 +17,44 @@ type FeedTab = {
   path: string
 }
 
+type TopChromeOutletProps = {
+  phase?: ChromePhase
+  progress?: number
+  rootClass?: ClassValue
+  rootStyle?: StyleValue
+  feedHeaderActive?: boolean
+  detailReaderOpen?: boolean
+  detailHeaderVisible?: boolean
+  detailHeaderLayerStyle?: StyleValue
+  detailTitle?: string
+  detailHeaderTitleStyle?: StyleValue
+  detailHeaderPreviousTitle?: string
+  detailHeaderPreviousTextStyle?: StyleValue
+  detailHeaderCurrentTextStyle?: StyleValue
+  isFeedRoute?: boolean
+  feedTabs?: FeedTab[]
+  activeKey?: string | symbol | null
+  feedTabsLayerHidden?: boolean
+  feedTabsLayerStyle?: StyleValue
+  viewSwipeTargetVisible?: boolean
+  feedTabsTargetLayerStyle?: StyleValue
+  viewSwipeTargetKey?: string | null
+  feedPullActive?: boolean
+  feedPullRefreshing?: boolean
+  pullStatusStyle?: StyleValue
+  pullIconStyle?: StyleValue
+  pullStatusText?: string
+  pullStatusMeta?: string
+  pageTitle?: string
+  pagePullActive?: boolean
+  pageTitleLayerStyle?: StyleValue
+  pagePullStatusStyle?: StyleValue
+  pagePullRefreshing?: boolean
+  pagePullIconStyle?: StyleValue
+  pagePullStatusText?: string
+  pagePullStatusMeta?: string
+}
+
 withDefaults(
   defineProps<{
     mainClass?: ClassValue
@@ -25,41 +63,7 @@ withDefaults(
     swipeDirection?: string | null
     swipeProgress?: number
     swipeIsBlocked?: boolean
-    topChromePhase?: ChromePhase
-    feedHeaderProgress?: number
-    headerClass?: ClassValue
-    headerStyle?: StyleValue
-    feedHeaderActive?: boolean
-    detailReaderOpen?: boolean
-    detailHeaderVisible?: boolean
-    detailHeaderLayerStyle?: StyleValue
-    detailTitle?: string
-    detailHeaderTitleStyle?: StyleValue
-    detailHeaderPreviousTitle?: string
-    detailHeaderPreviousTextStyle?: StyleValue
-    detailHeaderCurrentTextStyle?: StyleValue
-    isFeedRoute?: boolean
-    feedTabs?: FeedTab[]
-    activeKey?: string | symbol | null
-    feedTabsLayerHidden?: boolean
-    feedTabsLayerStyle?: StyleValue
-    viewSwipeTargetVisible?: boolean
-    feedTabsTargetLayerStyle?: StyleValue
-    viewSwipeTargetKey?: string | null
-    feedPullActive?: boolean
-    feedPullRefreshing?: boolean
-    pullStatusStyle?: StyleValue
-    pullIconStyle?: StyleValue
-    pullStatusText?: string
-    pullStatusMeta?: string
-    pageTitle?: string
-    pagePullActive?: boolean
-    pageTitleLayerStyle?: StyleValue
-    pagePullStatusStyle?: StyleValue
-    pagePullRefreshing?: boolean
-    pagePullIconStyle?: StyleValue
-    pagePullStatusText?: string
-    pagePullStatusMeta?: string
+    topChrome?: TopChromeOutletProps
     sourceReaderOpen?: boolean
     viewSettling?: boolean
     feedTrackStyle?: StyleValue
@@ -80,41 +84,7 @@ withDefaults(
     swipeDirection: null,
     swipeProgress: 0,
     swipeIsBlocked: false,
-    topChromePhase: 'visible',
-    feedHeaderProgress: 1,
-    headerClass: '',
-    headerStyle: undefined,
-    feedHeaderActive: false,
-    detailReaderOpen: false,
-    detailHeaderVisible: false,
-    detailHeaderLayerStyle: undefined,
-    detailTitle: '',
-    detailHeaderTitleStyle: undefined,
-    detailHeaderPreviousTitle: '',
-    detailHeaderPreviousTextStyle: undefined,
-    detailHeaderCurrentTextStyle: undefined,
-    isFeedRoute: false,
-    feedTabs: () => [],
-    activeKey: null,
-    feedTabsLayerHidden: true,
-    feedTabsLayerStyle: undefined,
-    viewSwipeTargetVisible: false,
-    feedTabsTargetLayerStyle: undefined,
-    viewSwipeTargetKey: null,
-    feedPullActive: false,
-    feedPullRefreshing: false,
-    pullStatusStyle: undefined,
-    pullIconStyle: undefined,
-    pullStatusText: '',
-    pullStatusMeta: '',
-    pageTitle: '',
-    pagePullActive: false,
-    pageTitleLayerStyle: undefined,
-    pagePullStatusStyle: undefined,
-    pagePullRefreshing: false,
-    pagePullIconStyle: undefined,
-    pagePullStatusText: '',
-    pagePullStatusMeta: '',
+    topChrome: () => ({}),
     sourceReaderOpen: false,
     viewSettling: false,
     feedTrackStyle: undefined,
@@ -164,48 +134,14 @@ const emit = defineEmits<{
     :data-swipe-blocked="swipeIsBlocked ? 'true' : undefined"
   >
     <AppTopChromeOutlet
-      :phase="topChromePhase"
-      :progress="feedHeaderProgress"
-      :root-class="headerClass"
-      :root-style="headerStyle"
-      :feed-header-active="feedHeaderActive"
-      :detail-reader-open="detailReaderOpen"
-      :detail-header-visible="detailHeaderVisible"
-      :detail-header-layer-style="detailHeaderLayerStyle"
-      :detail-title="detailTitle"
-      :detail-header-title-style="detailHeaderTitleStyle"
-      :detail-header-previous-title="detailHeaderPreviousTitle"
-      :detail-header-previous-text-style="detailHeaderPreviousTextStyle"
-      :detail-header-current-text-style="detailHeaderCurrentTextStyle"
-      :is-feed-route="isFeedRoute"
-      :feed-tabs="feedTabs"
-      :active-key="activeKey"
-      :feed-tabs-layer-hidden="feedTabsLayerHidden"
-      :feed-tabs-layer-style="feedTabsLayerStyle"
-      :view-swipe-target-visible="viewSwipeTargetVisible"
-      :feed-tabs-target-layer-style="feedTabsTargetLayerStyle"
-      :view-swipe-target-key="viewSwipeTargetKey"
-      :feed-pull-active="feedPullActive"
-      :pull-status-style="pullStatusStyle"
-      :pull-refreshing="feedPullRefreshing"
-      :pull-icon-style="pullIconStyle"
-      :pull-status-text="pullStatusText"
-      :pull-status-meta="pullStatusMeta"
-      :page-title="pageTitle"
-      :page-pull-active="pagePullActive"
-      :page-title-layer-style="pageTitleLayerStyle"
-      :page-pull-status-style="pagePullStatusStyle"
-      :page-pull-refreshing="pagePullRefreshing"
-      :page-pull-icon-style="pagePullIconStyle"
-      :page-pull-status-text="pagePullStatusText"
-      :page-pull-status-meta="pagePullStatusMeta"
+      v-bind="topChrome"
       @navigate="(path) => emit('navigate', path)"
     />
 
     <AppFeedOutlet
-      v-if="isFeedRoute"
-      :active-key="activeKey"
-      :detail-reader-open="detailReaderOpen"
+      v-if="topChrome.isFeedRoute"
+      :active-key="topChrome.activeKey"
+      :detail-reader-open="topChrome.detailReaderOpen"
       :source-reader-open="sourceReaderOpen"
       :view-settling="viewSettling"
       :feed-track-style="feedTrackStyle"
