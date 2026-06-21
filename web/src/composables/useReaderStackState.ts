@@ -589,6 +589,40 @@ export function useReaderStackState() {
     }
   }
 
+  function durableParkedDetailSnapshot(snapshot: ParkedDetailSnapshot): ParkedDetailSnapshot {
+    return {
+      item: { ...snapshot.item },
+      sourceKind: snapshot.sourceKind,
+      originRect: null,
+      sourceItemTargetRect: null,
+      sourceNameOriginRect: null,
+      sourceNameTargetRect: null,
+      morphingItemHeight: null,
+      scrollTop: snapshot.scrollTop,
+    }
+  }
+
+  function durableParkedDetailSnapshotFromItem(
+    item: FeedItem | null,
+    sourceKind: FeedSourceKind,
+    scrollTop: number,
+  ) {
+    if (!item) {
+      return null
+    }
+
+    return durableParkedDetailSnapshot({
+      item,
+      sourceKind,
+      originRect: null,
+      sourceItemTargetRect: null,
+      sourceNameOriginRect: null,
+      sourceNameTargetRect: null,
+      morphingItemHeight: null,
+      scrollTop,
+    })
+  }
+
   function readerSourceFromDetailItem(item: FeedItem | null, kind: FeedSourceKind): ReaderSource | null {
     if (!item?.source_id) {
       return null
@@ -602,22 +636,36 @@ export function useReaderStackState() {
   }
 
   function createReaderStackSessionSnapshot(): ReaderStackSessionSnapshot {
+    const currentSourceBackDetail =
+      sourceReaderBackDetail.value ??
+      snapshotCurrentDetail() ??
+      durableParkedDetailSnapshotFromItem(detailItem.value, detailSourceKind.value, detailScrollTop.value)
+    const committedListReturn = Boolean(detailListReturnCommitted.value && currentSourceBackDetail)
+    const transientSourceReturn = !committedListReturn && sourceReaderReturnMode.value === 'detail'
+    const durableSourceReaderVisible = Boolean(
+      readerSource.value &&
+        (committedListReturn ||
+          (sourceReaderVisible.value && (!transientSourceReturn || detailOpenedFromSourceReader.value))),
+    )
+    const durableSourceBackDetail =
+      committedListReturn && currentSourceBackDetail
+        ? durableParkedDetailSnapshot(currentSourceBackDetail)
+        : null
+
     return {
       sourceReaderScrollTop: sourceReaderScrollTop.value,
       detailScrollTop: detailScrollTop.value,
       readerSource: readerSource.value ? { ...readerSource.value } : null,
-      sourceReaderVisible: sourceReaderVisible.value,
+      sourceReaderVisible: durableSourceReaderVisible,
       detailItem: detailItem.value ? { ...detailItem.value } : null,
       detailSourceKind: detailSourceKind.value,
       detailOpenedFromSourceReader: detailOpenedFromSourceReader.value,
-      detailListReturnCommitted: detailListReturnCommitted.value,
-      detailSourceExitProgress: detailSourceExitProgress.value,
-      sourceReaderReturnMode: sourceReaderReturnMode.value,
-      sourceReaderBackDetail: sourceReaderBackDetail.value
-        ? cloneParkedDetailSnapshot(sourceReaderBackDetail.value)
-        : null,
-      morphingItemHeight: morphingItemHeight.value,
-      parkedDetailStack: parkedDetailStack.value.map(cloneParkedDetailSnapshot),
+      detailListReturnCommitted: committedListReturn,
+      detailSourceExitProgress: committedListReturn ? 1 : 0,
+      sourceReaderReturnMode: committedListReturn ? 'detail' : null,
+      sourceReaderBackDetail: durableSourceBackDetail,
+      morphingItemHeight: null,
+      parkedDetailStack: parkedDetailStack.value.map(durableParkedDetailSnapshot),
     }
   }
 
@@ -631,39 +679,55 @@ export function useReaderStackState() {
     const restoredReaderSource =
       (snapshot.readerSource ? { ...snapshot.readerSource } : null) ??
       readerSourceFromDetailItem(restoredDetailItem, restoredDetailSourceKind)
+    const restoredSourceBackDetailSnapshot =
+      snapshot.sourceReaderBackDetail ??
+      durableParkedDetailSnapshotFromItem(
+        restoredDetailItem,
+        restoredDetailSourceKind,
+        snapshot.detailScrollTop || 0,
+      )
+    const restoredListReturnCommitted = Boolean(
+      restoredReaderSource && snapshot.detailListReturnCommitted && restoredSourceBackDetailSnapshot,
+    )
+    const restoredTransientSourceReturn =
+      !restoredListReturnCommitted && snapshot.sourceReaderReturnMode === 'detail'
+    const restoredSourceReaderVisible = Boolean(
+      restoredReaderSource &&
+        (restoredListReturnCommitted ||
+          (snapshot.sourceReaderVisible &&
+            (!restoredTransientSourceReturn || snapshot.detailOpenedFromSourceReader))),
+    )
+    const restoredSourceBackDetail =
+      restoredListReturnCommitted && restoredSourceBackDetailSnapshot
+        ? durableParkedDetailSnapshot(restoredSourceBackDetailSnapshot)
+        : null
 
     sourceReaderScrollTop.value = snapshot.sourceReaderScrollTop || 0
     options.onSourceScrollTop?.(sourceReaderScrollTop.value)
     detailScrollTop.value = snapshot.detailScrollTop || 0
     options.onDetailScrollTop?.(detailScrollTop.value)
     readerSource.value = restoredReaderSource
-    sourceReaderVisible.value = Boolean(
-      restoredReaderSource && (snapshot.sourceReaderVisible || snapshot.detailListReturnCommitted),
-    )
+    sourceReaderVisible.value = restoredSourceReaderVisible
     detailItem.value = restoredDetailItem
     detailSourceKind.value = restoredDetailSourceKind
     detailOpenedFromSourceReader.value = Boolean(snapshot.detailOpenedFromSourceReader)
     detailEntryProgress.value = 1
     detailEntrySettling.value = false
     detailBackExitProgress.value = 0
-    detailSourceExitProgress.value = snapshot.detailListReturnCommitted
-      ? 1
-      : clampProgress(snapshot.detailSourceExitProgress || 0)
-    sourceReaderReturnMode.value = snapshot.sourceReaderReturnMode === 'detail' ? 'detail' : null
-    sourceReaderBackDetail.value = snapshot.sourceReaderBackDetail
-      ? cloneParkedDetailSnapshot(snapshot.sourceReaderBackDetail)
-      : null
+    detailSourceExitProgress.value = restoredListReturnCommitted ? 1 : 0
+    sourceReaderReturnMode.value = restoredListReturnCommitted ? 'detail' : null
+    sourceReaderBackDetail.value = restoredSourceBackDetail
     detailReturningToFeed.value = false
-    detailListReturnCommitted.value = Boolean(snapshot.detailListReturnCommitted)
+    detailListReturnCommitted.value = restoredListReturnCommitted
     detailRestoringFromSourceReader.value = false
     detailError.value = ''
     detailLoading.value = false
     detailFrameContentHeight.value = 0
     morphingItemId.value = null
     morphingHeightLockItemId.value = null
-    morphingItemHeight.value = snapshot.morphingItemHeight ?? null
+    morphingItemHeight.value = null
     parkedDetailStack.value = Array.isArray(snapshot.parkedDetailStack)
-      ? snapshot.parkedDetailStack.map(cloneParkedDetailSnapshot)
+      ? snapshot.parkedDetailStack.map(durableParkedDetailSnapshot)
       : []
 
     if (readerSource.value) {
