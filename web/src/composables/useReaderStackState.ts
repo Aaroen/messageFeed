@@ -303,7 +303,6 @@ export function useReaderStackState() {
   const readerMotionSettling = ref(false)
 
   const readerSource = ref<ReaderSource | null>(null)
-  const sourceReaderRefreshNonce = ref(0)
   const sourceReaderVisible = ref(false)
   const detailItem = ref<FeedItem | null>(null)
   const detailLoading = ref(false)
@@ -842,7 +841,6 @@ export function useReaderStackState() {
 
     readerSource.value = source
     if (nextVisible) {
-      sourceReaderRefreshNonce.value += 1
       sourceReaderOffset.value = 0
       sourceReaderStretch.value = 0
       if (!detailReaderOpen.value) {
@@ -2119,7 +2117,6 @@ export function useReaderStackState() {
     sourceReaderReturnTargetPending,
     readerMotionSettling,
     readerSource,
-    sourceReaderRefreshNonce,
     sourceReaderVisible,
     detailItem,
     detailLoading,

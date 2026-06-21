@@ -6,7 +6,6 @@ import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 withDefaults(
   defineProps<{
     readerSource?: ReaderSource | null
-    refreshNonce?: number
     scrollTop?: number
     topChromeProgress?: number
     headerHeight?: number
@@ -18,7 +17,6 @@ withDefaults(
   }>(),
   {
     readerSource: null,
-    refreshNonce: 0,
     scrollTop: 0,
     topChromeProgress: 1,
     headerHeight: 86,
@@ -41,7 +39,6 @@ const emit = defineEmits<{
 <template>
   <SubscriptionFeedView
     v-if="readerSource"
-    :key="`${readerSource.kind}:${readerSource.id}:${refreshNonce}`"
     mode="source"
     :source-kind="readerSource.kind"
     :source-id="readerSource.id"

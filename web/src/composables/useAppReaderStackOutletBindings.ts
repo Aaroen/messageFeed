@@ -43,7 +43,6 @@ type AppReaderStackOutletBindingOptions = {
   sourceToggleLabel: ReadableRef<string>
   sourceToggleDisabled: ReadableRef<boolean>
   sourceContentStyle: ReadableRef<StyleValue>
-  sourceReaderRefreshNonce: ReadableRef<number>
   sourceReaderScrollTop: ReadableRef<number>
   feedHeaderHeight: ReadableRef<number>
   morphingItemId: ReadableRef<number | null>
@@ -126,7 +125,6 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       sourceToggleDisabled: options.sourceToggleDisabled.value,
       sourceContentStyle: options.sourceContentStyle.value,
       readerSource,
-      sourceRefreshNonce: options.sourceReaderRefreshNonce.value,
       sourceScrollTop: options.sourceReaderScrollTop.value,
       feedHeaderHeight: options.feedHeaderHeight.value,
       morphingItemId: options.morphingItemId.value,

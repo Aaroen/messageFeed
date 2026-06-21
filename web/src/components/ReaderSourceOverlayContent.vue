@@ -37,7 +37,6 @@ withDefaults(
     toggleDisabled?: boolean
     contentStyle?: StyleValue
     readerSource?: ReaderSource | null
-    refreshNonce?: number
     scrollTop?: number
     headerHeight?: number
     morphingItemId?: number | null
@@ -67,7 +66,6 @@ withDefaults(
     toggleDisabled: false,
     contentStyle: undefined,
     readerSource: null,
-    refreshNonce: 0,
     scrollTop: 0,
     headerHeight: 86,
     morphingItemId: null,
@@ -135,7 +133,6 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
   >
     <ReaderSourceFeed
       :reader-source="readerSource"
-      :refresh-nonce="refreshNonce"
       :scroll-top="scrollTop"
       :top-chrome-progress="topChromeProgress"
       :header-height="headerHeight"

@@ -48,7 +48,6 @@ const props = withDefaults(
     sourceToggleDisabled?: boolean
     sourceContentStyle?: StyleValue
     readerSource?: ReaderSource | null
-    sourceRefreshNonce?: number
     sourceScrollTop?: number
     feedHeaderHeight?: number
     morphingItemId?: number | null
@@ -114,7 +113,6 @@ const props = withDefaults(
     sourceToggleDisabled: false,
     sourceContentStyle: undefined,
     readerSource: null,
-    sourceRefreshNonce: 0,
     sourceScrollTop: 0,
     feedHeaderHeight: 86,
     morphingItemId: null,
