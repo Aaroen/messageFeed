@@ -122,6 +122,8 @@ const {
   detailReaderOpen,
   sourceReaderUnderDetail,
   sourceReaderRevealProgress,
+  detailParkedBehindSource,
+  detailChromeVisible,
   detailCommittedListReturn,
   hasDetailParkedBehindSource,
   hasParkedDetailSourceState,
@@ -370,17 +372,7 @@ const feedCornerHidden = computed(
     (detailChromeVisible.value && !detailHeaderVisible.value) ||
     (!detailChromeVisible.value && isFeedRoute.value && (feedPullActive.value || feedHeaderProgress.value <= 0.05)),
 )
-const detailChromeVisible = computed(
-  () =>
-    detailReaderOpen.value &&
-    !detailParkedBehindSource.value &&
-    (!detailReturningToFeed.value || readerBackDragging.value),
-)
 const detailHeaderVisible = computed(() => detailChromeVisible.value && topChromeProgress.value > 0.04)
-const detailParkedBehindSource = computed(
-  () =>
-    hasDetailParkedBehindSource() && !readerBackDragging.value,
-)
 const headerDetailLayoutActive = computed(
   () => detailChromeVisible.value || (detailReaderOpen.value && isFeedRoute.value && feedHeaderReturnProgress.value > 0.001),
 )
