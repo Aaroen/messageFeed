@@ -5,11 +5,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { getFeedItem } from '@/api/feed'
 import AppFeedHeaderContent from '@/components/AppFeedHeaderContent.vue'
+import AppFeedOutlet from '@/components/AppFeedOutlet.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
 import AppPageHeaderContent from '@/components/AppPageHeaderContent.vue'
 import AppPageOutlet from '@/components/AppPageOutlet.vue'
 import AppReaderStackContent from '@/components/AppReaderStackContent.vue'
-import FeedPager from '@/components/FeedPager.vue'
 import TopChrome from '@/components/TopChrome.vue'
 import { useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
@@ -1460,36 +1460,32 @@ useAppLifecycle({
         </div>
       </TopChrome>
 
-      <section
+      <AppFeedOutlet
         v-if="isFeedRoute"
-        :ref="setFeedContentElement"
-        class="app-content app-content--feed"
-        @scroll.passive="handleFeedContentScroll"
-        @pointerdown="handleFeedPointerDown"
-        @pointermove="handleFeedPointerMove"
-        @pointerup="handleFeedPointerUp"
-        @pointercancel="handleFeedPointerCancel"
-      >
-        <FeedPager
-          :active-key="route.name"
-          :detail-reader-open="detailReaderOpen"
-          :source-reader-open="sourceReaderOpen"
-          :view-settling="viewSettling"
-          :feed-track-style="feedTrackStyle"
-          :feed-scroll-top="feedScrollTop"
-          :top-chrome-progress="topChromeProgress"
-          :feed-header-height="feedHeaderHeight"
-          :freeze-body-during-top-refresh="freezeFeedBodyDuringTopRefresh"
-          :morphing-item-id="morphingItemId"
-          :morphing-height-lock-item-id="morphingHeightLockItemId"
-          :morphing-item-height="morphingItemHeight"
-          :feed-item-preview-progress="feedItemPreviewProgress"
-          @top-pull-start="handleFeedTopPullStart"
-          @top-pull-move="handleFeedTopPullMove"
-          @top-pull-end="handleFeedTopPullEnd"
-          @open-item="openItemReader"
-        />
-      </section>
+        :active-key="route.name"
+        :detail-reader-open="detailReaderOpen"
+        :source-reader-open="sourceReaderOpen"
+        :view-settling="viewSettling"
+        :feed-track-style="feedTrackStyle"
+        :feed-scroll-top="feedScrollTop"
+        :top-chrome-progress="topChromeProgress"
+        :feed-header-height="feedHeaderHeight"
+        :freeze-body-during-top-refresh="freezeFeedBodyDuringTopRefresh"
+        :morphing-item-id="morphingItemId"
+        :morphing-height-lock-item-id="morphingHeightLockItemId"
+        :morphing-item-height="morphingItemHeight"
+        :feed-item-preview-progress="feedItemPreviewProgress"
+        @content-ref="setFeedContentElement"
+        @content-scroll="handleFeedContentScroll"
+        @pointer-down="handleFeedPointerDown"
+        @pointer-move="handleFeedPointerMove"
+        @pointer-up="handleFeedPointerUp"
+        @pointer-cancel="handleFeedPointerCancel"
+        @top-pull-start="handleFeedTopPullStart"
+        @top-pull-move="handleFeedTopPullMove"
+        @top-pull-end="handleFeedTopPullEnd"
+        @open-item="openItemReader"
+      />
       <AppPageOutlet
         v-else
         :inner-style="pageContentInnerStyle"
