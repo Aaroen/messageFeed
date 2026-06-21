@@ -71,6 +71,7 @@ import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { usePagePullGestureHandlers } from '@/composables/usePagePullGestureHandlers'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useTopChromeScrollBehavior } from '@/composables/useTopChromeScrollBehavior'
+import { useFeedTopPullHandlers } from '@/composables/useFeedTopPullHandlers'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -309,7 +310,6 @@ const feedRefreshSettling = refreshCompletion.settling
 const feedTopPull = useTopPullState()
 const feedTopPulling = feedTopPull.pulling
 const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
-const feedTopPullStartProgress = feedTopPull.startProgress
 const pagePullRefresh = usePullRefresh({ threshold: 52 })
 const pagePullOffset = pagePullRefresh.offset
 const pagePullDistance = pagePullRefresh.distance
@@ -1925,60 +1925,26 @@ function currentContentScrollTop() {
   return pageOutlet.currentScrollTop()
 }
 
-function handleFeedTopPullStart(startedWithVisibleChrome = false) {
-  if (isFeedRoute.value && feedInteraction.pullRefreshing) {
-    return
-  }
-
-  feedTopPull.begin(startedWithVisibleChrome || feedTopChromeIsVisiblyOpen.value, topChromeProgress.value)
-  chromeState.beginRefreshing()
-}
-
-function handleFeedTopPullMove(distance: number) {
-  if (!feedTopPulling.value || (isFeedRoute.value && feedInteraction.pullRefreshing)) {
-    return
-  }
-
-  if (!feedTopPullStartedWithChrome.value && feedTopChromeIsVisiblyOpen.value) {
-    feedTopPull.markStartedWithChrome()
-  }
-
-  if (!feedTopPullStartedWithChrome.value && currentContentScrollTop() > 0) {
-    return
-  }
-
-  if (feedTopPullStartedWithChrome.value) {
-    chromeState.setRefreshingProgress(1, { contentCollapsed: false })
-    return
-  }
-
-  chromeState.setRefreshingProgress(clamp(feedTopPullStartProgress.value - distance / feedHeaderHeight.value))
-}
-
-function handleFeedTopPullEnd(shouldRefresh = false) {
-  if (!feedTopPulling.value) {
-    feedTopPull.resetStartedWithChrome()
-    return
-  }
-
-  const startedWithChrome = feedTopPullStartedWithChrome.value
-  feedTopPull.finish()
-
-  if (shouldRefresh) {
-    refreshCompletion.recordStartedWithChrome(startedWithChrome)
-    chromeState.commitRefreshing(startedWithChrome)
-    return
-  }
-
-  if (topChromeProgress.value <= 0.04) {
+const feedTopPullHandlers = useFeedTopPullHandlers({
+  isFeedRoute,
+  topPull: feedTopPull,
+  topChromeProgress,
+  feedTopChromeIsVisiblyOpen,
+  feedHeaderHeight,
+  feedPullRefreshing: () => feedInteraction.pullRefreshing,
+  currentContentScrollTop,
+  beginRefreshingChrome: chromeState.beginRefreshing,
+  setRefreshingProgress: chromeState.setRefreshingProgress,
+  commitRefreshingChrome: chromeState.commitRefreshing,
+  recordRefreshStartedWithChrome: refreshCompletion.recordStartedWithChrome,
+  collapseTopChrome: () => {
     chromeState.setCollapsedHidden({ settleDelayMS: motionDelay(topChromeSettleDuration) })
-    feedTopPull.resetStartedWithChrome()
-    return
-  }
-
-  setTopChromeVisible(true)
-  feedTopPull.resetStartedWithChrome()
-}
+  },
+  setTopChromeVisible,
+})
+const handleFeedTopPullStart = feedTopPullHandlers.handleFeedTopPullStart
+const handleFeedTopPullMove = feedTopPullHandlers.handleFeedTopPullMove
+const handleFeedTopPullEnd = feedTopPullHandlers.handleFeedTopPullEnd
 
 const topChromeScrollBehavior = useTopChromeScrollBehavior({
   topChromeProgress,
