@@ -234,7 +234,7 @@ async function refreshPage(options: PageRefreshOptions = {}) {
   }
 }
 
-async function fetchImportedSources(importedSources: Source[]): Promise<ImportFetchSummary> {
+async function fetchImportedSources(importedSources: Source[], token: number): Promise<ImportFetchSummary> {
   const activeSources = importedSources.filter((source) => source.status === 'active')
   const summary: ImportFetchSummary = {
     requestedCount: activeSources.length,
@@ -249,13 +249,19 @@ async function fetchImportedSources(importedSources: Source[]): Promise<ImportFe
   const workerCount = Math.min(importFetchConcurrency, activeSources.length)
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
-      while (cursor < activeSources.length) {
+      while (pageRequestIsCurrent(token) && cursor < activeSources.length) {
         const source = activeSources[cursor]
         cursor += 1
         try {
           await fetchSource(source.id)
+          if (!pageRequestIsCurrent(token)) {
+            return
+          }
           summary.successCount += 1
         } catch {
+          if (!pageRequestIsCurrent(token)) {
+            return
+          }
           summary.failureCount += 1
         }
       }
@@ -293,17 +299,41 @@ async function handleImportURLs() {
   if (!urls.length) {
     return
   }
+  const token = nextPageRequestToken()
   actionLoading.value = true
+  let importCompleted = false
   try {
     const result = await importURLSources(urls)
-    const fetchSummary = await fetchImportedSources(result.sources)
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
+    const fetchSummary = await fetchImportedSources(result.sources, token)
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
+    importCompleted = true
+    await Promise.all([
+      loadSources({ silent: true, notify: false, token }),
+      loadCatalog({ silent: true, notify: false, token }),
+    ])
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
     showNotice(importNoticeType(result, fetchSummary), importNoticeMessage('已导入', result, fetchSummary))
     urlInput.value = ''
-    await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
   } catch (err) {
-    showNotice('warning', `导入失败：${formatAPIError(err)}`)
+    if (pageRequestIsCurrent(token)) {
+      showNotice(
+        'warning',
+        importCompleted
+          ? `导入已完成，但订阅管理数据刷新失败。详细原因：${formatAPIError(err)}`
+          : `导入失败：${formatAPIError(err)}`,
+      )
+    }
   } finally {
-    actionLoading.value = false
+    if (pageRequestIsCurrent(token)) {
+      actionLoading.value = false
+    }
   }
 }
 
@@ -316,18 +346,42 @@ async function handleImportOPML(event: Event) {
   if (!file) {
     return
   }
+  const token = nextPageRequestToken()
   opmlFile.value = file
   actionLoading.value = true
+  let importCompleted = false
   try {
     const result = await importOPMLSource(file)
-    const fetchSummary = await fetchImportedSources(result.sources)
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
+    const fetchSummary = await fetchImportedSources(result.sources, token)
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
+    importCompleted = true
+    await Promise.all([
+      loadSources({ silent: true, notify: false, token }),
+      loadCatalog({ silent: true, notify: false, token }),
+    ])
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
     showNotice(importNoticeType(result, fetchSummary), importNoticeMessage('已从 OPML 导入', result, fetchSummary))
-    await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
   } catch (err) {
-    showNotice('warning', `导入失败：${formatAPIError(err)}`)
+    if (pageRequestIsCurrent(token)) {
+      showNotice(
+        'warning',
+        importCompleted
+          ? `导入已完成，但订阅管理数据刷新失败。详细原因：${formatAPIError(err)}`
+          : `导入失败：${formatAPIError(err)}`,
+      )
+    }
   } finally {
-    actionLoading.value = false
-    input.value = ''
+    if (pageRequestIsCurrent(token)) {
+      actionLoading.value = false
+      input.value = ''
+    }
   }
 }
 
@@ -354,7 +408,10 @@ function openCatalogSource(entry: SourceCatalogEntry) {
   })
 }
 
-async function fetchNow(source: Source): Promise<FetchNowResult> {
+async function fetchNow(source: Source, token: number): Promise<FetchNowResult> {
+  if (!pageRequestIsCurrent(token)) {
+    return { success: false, error: '页面状态已更新，本次抓取已取消' }
+  }
   showNotice('success', `抓取中：正在抓取 ${source.name} 的最新内容`, 0)
   try {
     await fetchSource(source.id)
@@ -368,41 +425,79 @@ async function toggleCatalogSource(entry: SourceCatalogEntry) {
   if (pageBusy.value) {
     return
   }
+  const token = nextPageRequestToken()
   actionLoading.value = true
+  let sourceStatusUpdated = false
   try {
     const existing = sourceForCatalog(entry)
     if (existing) {
       const nextStatus = existing.status === 'active' ? 'inactive' : 'active'
       const updated = await updateSourceStatus(existing.id, nextStatus)
+      if (!pageRequestIsCurrent(token)) {
+        return
+      }
+      sourceStatusUpdated = true
       let fetchResult: FetchNowResult = { success: true }
       if (updated.status === 'active') {
-        fetchResult = await fetchNow(updated)
+        fetchResult = await fetchNow(updated, token)
+        if (!pageRequestIsCurrent(token)) {
+          return
+        }
       }
-      if (updated.status === 'active' && !fetchResult.success) {
-        showNotice('warning', `${updated.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`)
-      } else {
-        showNotice('success', `${updated.name} 已${updated.status === 'active' ? '开启并抓取最新内容' : '关闭'}`)
+      const noticeType = updated.status === 'active' && !fetchResult.success ? 'warning' : 'success'
+      const noticeMessage =
+        updated.status === 'active' && !fetchResult.success
+          ? `${updated.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`
+          : `${updated.name} 已${updated.status === 'active' ? '开启并抓取最新内容' : '关闭'}`
+      await Promise.all([
+        loadSources({ silent: true, notify: false, token }),
+        loadCatalog({ silent: true, notify: false, token }),
+      ])
+      if (!pageRequestIsCurrent(token)) {
+        return
       }
-      await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
+      showNotice(noticeType, noticeMessage)
       return
     }
 
     const result = await importCatalogSources([entry.id])
+    if (!pageRequestIsCurrent(token)) {
+      return
+    }
     const imported = result.sources[0]
+    sourceStatusUpdated = Boolean(imported || result.success_count > 0)
     let fetchResult: FetchNowResult = { success: true }
     if (imported) {
-      fetchResult = await fetchNow(imported)
+      fetchResult = await fetchNow(imported, token)
+      if (!pageRequestIsCurrent(token)) {
+        return
+      }
     }
-    if (!fetchResult.success) {
-      showNotice('warning', `${entry.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`)
-    } else {
-      showNotice('success', `${entry.name} 已开启并抓取最新内容`)
+    const noticeType = !fetchResult.success ? 'warning' : 'success'
+    const noticeMessage = !fetchResult.success
+      ? `${entry.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`
+      : `${entry.name} 已开启并抓取最新内容`
+    await Promise.all([
+      loadSources({ silent: true, notify: false, token }),
+      loadCatalog({ silent: true, notify: false, token }),
+    ])
+    if (!pageRequestIsCurrent(token)) {
+      return
     }
-    await Promise.all([loadSources({ silent: true }), loadCatalog({ silent: true })])
+    showNotice(noticeType, noticeMessage)
   } catch (err) {
-    showNotice('warning', `操作失败：${entry.name} 状态未更新。详细原因：${formatAPIError(err)}`)
+    if (pageRequestIsCurrent(token)) {
+      showNotice(
+        'warning',
+        sourceStatusUpdated
+          ? `操作已完成，但订阅管理数据刷新失败。详细原因：${formatAPIError(err)}`
+          : `操作失败：${entry.name} 状态未更新。详细原因：${formatAPIError(err)}`,
+      )
+    }
   } finally {
-    actionLoading.value = false
+    if (pageRequestIsCurrent(token)) {
+      actionLoading.value = false
+    }
   }
 }
 
