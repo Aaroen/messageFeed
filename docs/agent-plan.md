@@ -21,6 +21,10 @@
 - `Hermes Agent`：吸收工具注册、审批机制、持久记忆、冻结记忆快照、上下文压缩和多通道消息网关设计。
 - `OpenClaw`：吸收 `transformContext`、`beforeToolCall`、`afterToolCall`、事件流、active memory、memory search、memory get、gateway 和插件式工具治理思想。
 - `ai_agent_scaffold_go`：吸收配置驱动装配、Runner、Registry、Armory 装配链和 HTTP 运行时接口思想，但本项目的能力注册应优先来自数据库和 service 层能力，而不是以 YAML 编排为主。
+- `Claude Code`：吸收核心工具常驻、延迟工具搜索、代理执行、工具 schema 校验、权限委托、记忆召回预算和不可信内容包装思想。
+- `OpenAI Codex`：吸收 `Session / Turn` 运行时、工具路由、可见工具与真实注册表分离、上下文窗口压缩、线程持久化和 `allow / prompt / forbidden` 执行策略思想。
+
+不建议直接 fork 或裁剪 `OpenAI Codex` 来实现本项目 Agent。Codex 的主要价值在于架构模式，而不是代码复用本身；其代码主要服务于代码执行型 CLI Agent，包含 TUI、终端执行、沙箱、apply_patch、多平台权限、代码 diff、云任务、插件和 MCP 等大量本项目当前不需要的能力。`messageFeed` 应采用“架构级借鉴，Go 后端内精简重写”的路线：保留 Go 技术栈、PostgreSQL 主存储和既有 service 边界，只实现信息聚合、订阅管理、推荐摘要、主动采集、通知和金融分析所需的轻量 Agent Runtime。
 
 本项目的架构取舍：
 
@@ -30,6 +34,8 @@
 4. 默认执行模式为 `plan_once`，复杂研究任务才进入有限步数的 `research_loop`。
 5. 用户画像是底层长期记忆，但原始阅读事件、执行审计、网页快照和 AI 源内容必须保留为独立事实与证据层。
 6. 上下文管理不追求把全部历史放入 prompt，而是通过活动上下文、压缩摘要、结构化记忆、检索回忆和原文归档组合实现长期连续性。
+7. 能力暴露采用“核心能力常驻 + 延迟能力检索 + 受控执行”的方式，避免所有能力 schema 长期占用模型上下文。
+8. 权限决策最终落到 `allow`、`prompt`、`forbidden`，风险等级只作为策略输入，不直接等同于执行结果。
 
 ## 3. 重组后阶段定义
 
@@ -371,17 +377,41 @@ agent_sessions
 - status
 - model
 - context_window
+- active_turn_id
 - started_at
 - ended_at
+
+agent_turns
+- id
+- session_id
+- trigger_type
+- status
+- input_summary
+- model
+- started_at
+- ended_at
+- error
 
 agent_transcript_entries
 - id
 - session_id
+- turn_id
 - role
 - entry_type
 - content
 - token_count
 - hidden_from_context
+- created_at
+
+agent_context_windows
+- id
+- session_id
+- window_number
+- model_context_window
+- tokens_before
+- tokens_after
+- compaction_reason
+- summary
 - created_at
 
 agent_context_segments
@@ -427,7 +457,8 @@ agent_memory_promotions
 回忆工具建议：
 
 - `archive.search`：按关键词、实体、时间、任务、plan、source、item 和 snapshot 搜索历史归档。
-- `archive.get`：按归档 ID 取回原文片段。
+- `archive.preview`：按归档 ID 返回短预览和证据元数据。
+- `archive.get`：按归档 ID 取回原文片段，必须受单轮 token 或字节预算约束。
 - `profile.explain`：解释某个兴趣标签或偏好的证据来源。
 - `ai_source.search`：搜索历史日报、周报、热点分析、金融分析和 Agent 报告。
 - `item.search`：搜索已入库条目。
@@ -439,6 +470,7 @@ agent_memory_promotions
 - 召回内容一律视为不可信上下文，不得覆盖系统规则、权限策略和能力边界。
 - 外部网页、工具结果、历史用户粘贴内容和 AI 生成内容不得作为系统指令执行。
 - 归档摘要不是原文替代品。高风险计划、金融分析、通知发送、订阅批量变更等操作必须能追溯原始证据。
+- 召回工具应区分 search、preview 和 full get。全文读取应记录召回原因、预算消耗和使用位置；高风险任务需要原文证据时，不得只依赖 preview 或摘要。
 
 推荐上下文组件：
 
@@ -462,15 +494,18 @@ Agent 执行流程：
 
 ```text
 用户自然语言或系统事件
+  -> AgentSessionManager 创建或恢复 session
+  -> AgentTurnRunner 创建 turn 并串行化同一 session 的 active turn
   -> AgentContextBuilder 组装记忆快照与活动上下文
   -> AgentInterpreter 解析意图
+  -> AgentCapabilitySearch 检索延迟能力（必要时）
   -> AgentPlanner 生成结构化计划
-  -> PolicyEngine 做风险与权限校验
-  -> 用户确认（必要时）
+  -> PolicyEngine 输出 allow / prompt / forbidden
+  -> 用户确认（prompt 时）
   -> AgentExecutor 调用已注册能力
   -> service 层执行实际变更
   -> 生成 AI 源条目或通知
-  -> 保存审计、指标和 trace
+  -> 保存 transcript、审计、指标和 trace
 ```
 
 核心模块：
@@ -480,6 +515,16 @@ AgentCapabilityRegistry
 - Register(capability)
 - List(userScope)
 - Match(intent)
+- Search(query, scope)
+```
+
+```text
+AgentSessionManager
+- CreateSession(user, scope) -> AgentSession
+- ResumeSession(session_id) -> AgentSession
+- StartTurn(session, input) -> AgentTurn
+- CompleteTurn(turn, result) -> error
+- CancelTurn(turn, reason) -> error
 ```
 
 ```text
@@ -518,6 +563,24 @@ AgentContextManager
 - Recall(query, scope) -> []RecallResult
 ```
 
+最小 Agent Runtime 建议在 Go 后端内实现：
+
+```text
+internal/agent
+├── SessionManager
+├── TurnRunner
+├── CapabilityRegistry
+├── CapabilitySearch
+├── Planner
+├── PolicyEngine
+├── Executor
+├── ContextManager
+├── MemoryProvider
+├── ArchiveStore
+├── RecallTool
+└── AuditLogger
+```
+
 能力注册项至少包含：
 
 ```text
@@ -526,11 +589,24 @@ agent_capabilities
 - target_type
 - allowed_actions
 - risk_level
+- decision_policy
 - confirmation_policy
 - rollback_supported
 - service_binding
+- exposure_mode
+- search_text
+- input_schema
+- output_schema
+- supports_parallel
+- requires_user_interaction
 - enabled
 ```
+
+能力暴露模式：
+
+- `core`：模型默认可见，适合少量高频、低风险、基础查询和计划类能力。
+- `deferred`：默认只进入搜索索引，模型需要先通过 `capability.search` 获取 schema 后才能执行。
+- `hidden`：不对模型直接暴露，只能由后端策略或已确认计划内部调用。
 
 风险分级建议：
 
@@ -539,28 +615,39 @@ agent_capabilities
 - `high`：批量停用来源、提高通知频率、修改通知接收目标、创建金融告警。
 - `critical`：永久删除、暴露敏感配置、绕过访问限制。默认禁止或必须二次确认。
 
+执行决策建议：
+
+- `allow`：低风险查询、摘要草稿、推荐候选生成、只读证据检索。
+- `prompt`：新增订阅、发送通知、创建规则、批量变更、读取完整历史归档。
+- `forbidden`：绕过访问限制、泄露密钥、未授权通知目标、默认永久删除和未注册能力执行。
+
 ## 6. 阶段五：Agent 基础设施与 AI 源
 
 目标是先建立可控执行底座，而不是直接堆叠具体智能功能。
 
 实施内容：
 
-1. 新增 Agent 核心领域对象：命令、意图、计划、步骤、执行结果、审计日志。
-2. 建立 `AgentCapabilityRegistry`，所有 Agent 可执行能力必须注册。
-3. 建立 `AgentTool` 抽象，每个工具只能调用既有 service。
-4. 建立计划生成、计划校验、影响评估、确认策略和执行器。
-5. 建立 `AgentContextManager`、`MemoryProvider`、`ContextBuilder` 和 `MemorySnapshot`。
-6. 建立上下文归档、语义分块、压缩摘要和按需回忆的基础数据模型。
-7. 为用户创建默认 AI 源 `messageFeed AI`。
-8. 将 Agent 生成的日报、报告、执行结果写入 AI 源。
-9. 在 Web 中展示 AI 源，与普通来源共用阅读状态、收藏、隐藏和详情页。
-10. 接入 observability，记录 request id、trace id、模型调用、执行步骤、上下文压缩、记忆召回和错误链。
+1. 新增 Agent 核心领域对象：session、turn、命令、意图、计划、步骤、执行结果、审计日志。
+2. 建立 `AgentSessionManager` 和 `AgentTurnRunner`，保证同一 session 内 active turn 串行执行，并支持取消、恢复和失败记录。
+3. 建立 `AgentCapabilityRegistry`，所有 Agent 可执行能力必须注册。
+4. 建立 `AgentTool` 抽象，每个工具只能调用既有 service。
+5. 建立能力暴露模式和 `capability.search`：少量核心能力常驻，其他能力延迟检索。
+6. 建立计划生成、计划校验、影响评估、确认策略和执行器。
+7. 建立 `allow`、`prompt`、`forbidden` 决策策略，风险等级只作为策略输入。
+8. 建立 `AgentContextManager`、`MemoryProvider`、`ContextBuilder` 和 `MemorySnapshot`。
+9. 建立上下文窗口、语义分块、归档摘要、search/preview/get 分级回忆和预算约束。
+10. 为用户创建默认 AI 源 `messageFeed AI`。
+11. 将 Agent 生成的日报、报告、执行结果写入 AI 源。
+12. 在 Web 中展示 AI 源，与普通来源共用阅读状态、收藏、隐藏和详情页。
+13. 接入 observability，记录 request id、trace id、模型调用、执行步骤、上下文压缩、记忆召回和错误链。
 
 阶段五验收标准：
 
 - 用户可以提交自然语言命令并得到结构化计划。
+- Agent 可以创建 session 和 turn，并限制同一 session 同时只有一个 active turn。
 - 低风险计划可以生成建议但不必立即执行。
 - 中高风险计划必须等待用户确认。
+- 能力可以按 `core`、`deferred`、`hidden` 暴露，延迟能力需要先检索再执行。
 - Agent 可以写入一条 `messageFeed AI` 源内容。
 - Agent 执行结果具备审计记录。
 - Agent 可以生成一次冻结的用户画像记忆快照。
@@ -741,7 +828,89 @@ Agent 任务页面：
 - 召回内容必须标注来源、时间和可信等级，且不得覆盖系统规则和权限策略。
 - 上下文压缩摘要必须保留原文归档引用，高风险操作不得只依赖摘要执行。
 
-## 12. 推荐落地顺序
+## 12. Agent 评估与测试体系
+
+Agent 不能只通过人工体验判断是否可用，应建立固定评测集、工具调用 trace、数据库状态断言、安全对抗样例和人工复核共同组成的 `Agent Eval Harness`。评估目标不是证明模型“看起来聪明”，而是证明系统能在订阅、推荐、摘要、主动采集、通知和金融分析边界内稳定、可解释、可回滚地完成任务。
+
+架构评估维度：
+
+1. 任务建模：用户请求是否能稳定落到 `Session / Turn / Intent / Plan / Step / Capability / Audit`。
+2. 能力治理：能力是否全部注册，是否区分 `core`、`deferred`、`hidden`，未注册能力是否默认不可执行。
+3. 权限决策：高风险操作是否稳定进入 `prompt`，禁止操作是否稳定进入 `forbidden`。
+4. 上下文与记忆：画像是否有证据链，归档摘要是否保留原文引用，召回内容是否标注来源、时间和可信等级。
+5. 失败恢复：工具失败、模型输出错误、用户取消、超时和重复提交后，session、turn、plan、step 和审计状态是否一致。
+
+业务评测集应覆盖：
+
+- 自然语言订阅管理：来源搜索、重复订阅避免、计划解释、确认策略。
+- 推荐与用户画像：偏好提取、负反馈生效、画像证据链、推荐理由。
+- AI 源生成：日报、周报、热点分析、来源健康报告和 Agent 操作报告。
+- 主动网络采集：网页变化监控、关键词研究、正文抽取、去重和来源可信度。
+- 通知与提醒：误报、漏报、冷却时间、通知目标权限和发送审计。
+- 金融分析：规则触发、数据源标注、风险提示和避免确定性投资建议。
+- 上下文与记忆：归档召回准确率、摘要漂移、长期任务连续性和证据覆盖率。
+- 安全对抗：prompt injection、敏感信息泄露、越权工具调用、未授权通知目标和默认永久删除。
+
+建议评测用例结构：
+
+```text
+agent_eval_cases
+- user_input
+- initial_user_profile
+- existing_sources
+- existing_items
+- available_capabilities
+- expected_intent
+- expected_plan
+- expected_policy_decision
+- expected_tool_calls
+- expected_state_change
+- expected_ai_item
+- forbidden_behaviors
+- scoring_rules
+```
+
+评测执行链路：
+
+```text
+EvalCase
+  -> 构造隔离数据库状态和能力清单
+  -> 运行 Agent turn
+  -> 捕获 transcript、plan、tool calls、state diff、AI item 和 audit logs
+  -> 自动规则评分
+  -> LLM-as-judge 或人工复核仅用于文本质量、事实一致性和解释质量
+  -> 生成 EvalRun 报告并参与回归门禁
+```
+
+核心指标：
+
+- 任务成功率。
+- 意图解析准确率。
+- 工具选择准确率。
+- 权限决策正确率。
+- 高风险操作确认率。
+- 越权操作拦截率。
+- 事实引用完整率。
+- 召回准确率。
+- 摘要事实一致性。
+- 用户画像证据覆盖率。
+- 通知误报率和漏报率。
+- 单任务成本和耗时。
+- 回归通过率。
+
+可参考的成熟工具与方法：
+
+- `OpenAI Evals`：结构化评测和自动评分。
+- `LangSmith`：Agent trace、工具调用、数据集和人工标注。
+- `Langfuse`：生产环境 LLM observability、成本、trace、评分和反馈。
+- `Braintrust`：模型、提示词和工具链版本的回归评测。
+- `Promptfoo`：轻量 prompt 与工具输出回归测试。
+- `RAGAS`、`DeepEval`：检索、召回、引用和事实一致性评估。
+- `AgentBench`、`ToolBench`、`API-Bank`、`tau-bench`、`GAIA`：参考多轮任务、工具调用和复杂信息搜索评测思路。
+
+本项目第一版不必引入完整外部评测平台，但应先沉淀可复用的 `agent_eval_cases`、`agent_eval_runs`、`agent_eval_results` 和命令行评测入口。后续再根据成本和团队习惯接入 Langfuse、LangSmith、Braintrust 或 Promptfoo。
+
+## 13. 推荐落地顺序
 
 在进入本计划前，仍应先完成以下基础事项：
 
@@ -764,7 +933,7 @@ Agent 任务页面：
 11. 金融监控和跨领域分析。
 12. 工程化增强、集成测试、E2E 测试和 Dashboard 迭代。
 
-## 13. 最小可验收闭环
+## 14. 最小可验收闭环
 
 最小 Agent 闭环建议定义为：
 

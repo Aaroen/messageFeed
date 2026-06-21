@@ -775,35 +775,49 @@ API 与安全约束：
 - [ ] 尚未建立 `messageFeed AI` 内部源和 AI 生成条目元数据。
 - [ ] 尚未将自然语言设置控制统一纳入 Agent 能力注册框架。
 - [ ] 尚未建立 Agent 上下文管理、冻结记忆快照、语义分块归档和按需回忆机制。
+- [ ] 尚未建立 Agent session/turn 运行时、延迟能力发现、上下文窗口记录和 `allow`、`prompt`、`forbidden` 执行决策。
+- [ ] 尚未建立 Agent 评测集、评测批次、评测结果、状态断言和安全对抗回归机制。
 
 实施步骤：
 
-1. 建立 `agent_commands`、`agent_capabilities`、`agent_plans`、`agent_plan_steps` 和 `agent_audit_logs`。
-2. 定义 `AgentCapabilityRegistry`、`AgentInterpreter`、`AgentPlanner`、`AgentExecutor` 和 `AgentAuditLogger`。
-3. 定义能力风险等级和确认策略：低风险可建议或自动执行，中高风险必须确认。
-4. 建立 `AgentContextManager`、`MemoryProvider`、`ContextBuilder` 和冻结 `MemorySnapshot`。
-5. 建立上下文压力评估、不可压缩保护区、语义分块、归档摘要和按需回忆基础能力。
-6. 创建每个用户默认的 `messageFeed AI` 内部源，来源类型为 `ai_agent`。
-7. 将 Agent 生成的日报、周报、热点分析、主动网络研究报告、金融分析和执行结果写入 AI 源。
-8. Web 支持展示 AI 源，与普通来源共用列表、详情、已读、收藏和隐藏能力。
-9. Agent 执行过程接入 request id、trace id、结构化日志、指标、上下文压缩、记忆召回和审计记录。
+1. 建立 `agent_commands`、`agent_sessions`、`agent_turns`、`agent_capabilities`、`agent_plans`、`agent_plan_steps` 和 `agent_audit_logs`。
+2. 定义 `AgentSessionManager` 和 `AgentTurnRunner`，保证同一 session 同时只有一个 active turn，并支持取消、失败记录和恢复入口。
+3. 定义 `AgentCapabilityRegistry`、`AgentCapabilitySearch`、`AgentInterpreter`、`AgentPlanner`、`AgentExecutor` 和 `AgentAuditLogger`。
+4. 定义能力风险等级、暴露模式和确认策略：`core` 能力默认可见，`deferred` 能力通过搜索按需暴露，`hidden` 能力只由后端策略调用。
+5. 定义 `PolicyEngine`，将计划决策为 `allow`、`prompt` 或 `forbidden`。
+6. 建立 `AgentContextManager`、`MemoryProvider`、`ContextBuilder` 和冻结 `MemorySnapshot`。
+7. 建立上下文窗口、上下文压力评估、不可压缩保护区、语义分块、归档摘要和 search/preview/get 分级回忆基础能力。
+8. 为全文召回建立单轮 token 或字节预算，并记录召回原因、使用位置和预算消耗。
+9. 创建每个用户默认的 `messageFeed AI` 内部源，来源类型为 `ai_agent`。
+10. 将 Agent 生成的日报、周报、热点分析、主动网络研究报告、金融分析和执行结果写入 AI 源。
+11. Web 支持展示 AI 源，与普通来源共用列表、详情、已读、收藏和隐藏能力。
+12. 建立 `agent_eval_cases`、`agent_eval_runs` 和 `agent_eval_results`，沉淀订阅管理、推荐画像、AI 源、主动采集、通知、金融分析、上下文记忆和安全对抗评测集。
+13. 建立评测执行入口，捕获 transcript、计划、工具调用、状态差异、AI 源输出、审计日志、模型版本、提示词版本、token、成本和耗时。
+14. Agent 执行过程接入 request id、trace id、结构化日志、指标、上下文压缩、记忆召回和审计记录。
 
 验收标准：
 
 - 用户可以提交自然语言命令并得到结构化 Agent 计划。
+- Agent 可以创建 session 和 turn，并限制同一 session 同时只有一个 active turn。
 - Agent 能力必须经过注册才能执行。
+- 延迟能力必须先通过能力检索发现，再进入执行计划。
 - 中高风险计划必须等待用户确认。
 - Agent 可以写入一条 `messageFeed AI` 源内容。
 - Agent 执行结果具备可查询审计记录。
 - Agent 可以生成一次冻结的用户画像记忆快照。
 - 当上下文达到压缩阈值时，可以按完整语义块归档历史并保留摘要索引。
 - Agent 可以通过回忆工具取回历史归档、AI 源报告或画像证据。
+- 全文召回必须具备预算约束和审计记录。
+- Agent 评测集至少覆盖 20 个固定用例，并能输出任务成功率、工具选择准确率、权限决策正确率、越权拦截率、事实引用完整率和召回准确率。
+- 安全对抗用例必须覆盖 prompt injection、敏感信息泄露、未授权通知目标、默认永久删除和绕过访问限制。
 - 模型不能直接访问数据库写接口。
 
 风险控制：
 
 - 模型只生成意图、计划、说明文本和工具参数摘要。
 - 实际执行必须由 `AgentExecutor` 调用既有 service 接口完成。
+- Agent 不 fork 或裁剪 `OpenAI Codex`、`Claude Code` 代码；只吸收其 session/turn、工具路由、上下文压缩、召回预算和权限决策模式，在 Go 后端内实现轻量运行时。
+- Agent 评测优先使用确定性规则和数据库状态断言；LLM-as-judge 或人工复核只能作为文本质量、事实一致性和解释质量的辅助评估。
 - 删除类自然语言默认解释为停用或归档；永久删除必须二次确认。
 - 密钥、token、Webhook URL 和数据库 DSN 不进入模型上下文。
 - 召回内容必须标注来源、时间和可信等级，且不得覆盖系统规则、权限策略和能力边界。
@@ -1001,12 +1015,13 @@ API 与安全约束：
 2. 补齐 `api/openapi.yaml`：覆盖创建、更新、抓取、导入、推荐和条目状态操作等已实现接口。
 3. 完成阶段三观测验收：通过 Compose 验证 `request_id`、`trace_id`、日志、指标和 trace 的查询链路。
 4. 推进阶段四验收缺口：持久化导入任务，补齐源健康检查、许可状态、语言/健康过滤和错误明细查询。
-5. 进入阶段五 Agent 基础设施：建立能力注册、结构化计划、风险校验、确认策略、执行器、审计日志、上下文管理和冻结记忆快照。
-6. 建立 Agent 上下文归档与回忆基础能力：补齐语义分块、压缩阈值、摘要索引、归档引用、回忆工具和记忆提升确认。
-7. 建立 `messageFeed AI` 内部源：将日报、周报、热点分析、主动网络研究报告、金融分析和 Agent 操作报告统一写入 AI 源。
-8. 推进阶段六主动采集：先实现静态网页抽取、网页变化监控和搜索结果抓取评估，再接入 AI 源报告。
-9. 推进阶段七推荐、摘要与通知：补齐阅读行为事件、用户画像、推荐原因、反馈闭环、摘要生成和企业微信或 `ntfy` 推送。
-10. 推进阶段八金融专项：按 `docs/financial-agent-plan.md` 完成关注标的、行情快照、确定性规则、AI 解读和通知闭环。
+5. 进入阶段五 Agent 基础设施：建立 session/turn、能力注册、结构化计划、风险校验、执行决策、确认策略、执行器、审计日志、上下文管理和冻结记忆快照。
+6. 建立 Agent 能力搜索、上下文归档与回忆基础能力：补齐延迟能力发现、语义分块、压缩阈值、上下文窗口、摘要索引、归档引用、分级回忆工具和记忆提升确认。
+7. 建立 Agent 评测基础设施：补齐评测用例、评测批次、评测结果、状态断言、安全对抗样例和回归报告。
+8. 建立 `messageFeed AI` 内部源：将日报、周报、热点分析、主动网络研究报告、金融分析和 Agent 操作报告统一写入 AI 源。
+9. 推进阶段六主动采集：先实现静态网页抽取、网页变化监控和搜索结果抓取评估，再接入 AI 源报告。
+10. 推进阶段七推荐、摘要与通知：补齐阅读行为事件、用户画像、推荐原因、反馈闭环、摘要生成和企业微信或 `ntfy` 推送。
+11. 推进阶段八金融专项：按 `docs/financial-agent-plan.md` 完成关注标的、行情快照、确定性规则、AI 解读和通知闭环。
 
 必须优先完成：
 
@@ -1018,7 +1033,9 @@ API 与安全约束：
 - Web 时间线模式。
 - 日志、错误追踪和链路观测系统。
 - Agent 基础设施与审计。
+- Agent session/turn 运行时、能力搜索和执行决策。
 - Agent 上下文管理、冻结记忆快照、语义归档和回忆工具。
+- Agent 评测集、状态断言、安全对抗回归和评测报告。
 - `messageFeed AI` 内部源。
 - 主动网络采集最小闭环。
 - 阅读行为事件与基础用户画像。
@@ -1045,11 +1062,14 @@ API 与安全约束：
 
 1. `references/miniflux_v2`、`references/gofeed`、`references/rsshub`：RSS 主链路。
 2. `references/rssnext_folo`：源目录、推荐源、订阅体验。
-3. `references/hermes_agent`、`references/openclaw`：微信通道与 Agent 消息网关。
-4. `references/gocron`、`references/river`、`references/asynq`：调度与异步任务。
-5. `references/openai_go`、`references/eino`、`references/eino_ext`：AI 调用和编排。
-6. `references/ntfy`、`references/gotify_server`：推送服务。
-7. QuantConnect LEAN、AkShare、Tushare、Yahoo Finance、Finnhub、Polygon、Alpha Vantage、TradingView Alert、Grafana Alerting：金融行情、告警和数据源设计参考。
+3. `references/openai_codex`：只阅读架构模式，重点关注 session/turn、工具路由、上下文压缩、thread store 和权限决策，不 fork 或迁移 Rust 代码。
+4. `references/claude_code`：只阅读工具治理和记忆召回设计，重点关注核心工具常驻、延迟工具搜索、代理执行、召回预算和不可信内容包装。
+5. `references/hermes_agent`、`references/openclaw`：微信通道与 Agent 消息网关。
+6. `references/gocron`、`references/river`、`references/asynq`：调度与异步任务。
+7. `references/openai_go`、`references/eino`、`references/eino_ext`：AI 调用和编排。
+8. `references/ntfy`、`references/gotify_server`：推送服务。
+9. QuantConnect LEAN、AkShare、Tushare、Yahoo Finance、Finnhub、Polygon、Alpha Vantage、TradingView Alert、Grafana Alerting：金融行情、告警和数据源设计参考。
+10. OpenAI Evals、LangSmith、Langfuse、Braintrust、Promptfoo、RAGAS、DeepEval、AgentBench、ToolBench、API-Bank、tau-bench、GAIA：Agent 评测、trace、回归和安全对抗设计参考。
 
 ## 7. 最小验收命令
 
