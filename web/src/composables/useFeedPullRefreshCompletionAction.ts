@@ -18,6 +18,7 @@ type FeedInteractionWriter = {
       lastUpdatedAt: string
     },
   ) => void
+  resetPullState: () => void
 }
 
 type PullRefreshCompletionController = {
@@ -71,16 +72,10 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
   }
 
   function clearPullState(force = false) {
-    setPullState(
-      {
-        offset: 0,
-        active: false,
-        refreshing: false,
-        statusText: '',
-        statusMeta: '',
-      },
-      force,
-    )
+    if (!canWritePullState(force)) {
+      return
+    }
+    options.feedInteraction.resetPullState()
   }
 
   function completeLoad(payload: { isRefresh: boolean; isBackgroundRefresh: boolean }) {
