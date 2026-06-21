@@ -8,6 +8,10 @@ export type ChromePhase =
   | 'refreshing'
   | 'gesture-returning'
 
+type SetChromeVisibleOptions = {
+  settleDelayMS?: number
+}
+
 function clampProgress(value: number) {
   if (!Number.isFinite(value)) {
     return 0
@@ -71,6 +75,36 @@ export function useChromeState() {
     }, Math.max(0, delayMS))
   }
 
+  function scheduleSettlingEndIfNeeded(delayMS?: number) {
+    if (typeof delayMS !== 'number') {
+      return
+    }
+    scheduleSettlingEnd(delayMS)
+  }
+
+  function setVisible(visible: boolean, options: SetChromeVisibleOptions = {}) {
+    const nextProgress = visible ? 1 : 0
+    if (progress.value === nextProgress) {
+      if (visible && contentCollapsed.value) {
+        setContentCollapsed(false)
+      }
+      if (!visible && contentCollapsed.value) {
+        setSettling(true, 'hiding')
+        scheduleSettlingEndIfNeeded(options.settleDelayMS)
+        return
+      }
+      setProgress(nextProgress, visible ? 'visible' : 'hidden')
+      return
+    }
+
+    setSettling(true, visible ? 'revealing' : 'hiding')
+    if (visible) {
+      setContentCollapsed(false)
+    }
+    setProgress(nextProgress, visible ? 'revealing' : 'hiding')
+    scheduleSettlingEndIfNeeded(options.settleDelayMS)
+  }
+
   return {
     progress,
     phase,
@@ -80,6 +114,7 @@ export function useChromeState() {
     setProgress,
     setContentCollapsed,
     setSettling,
+    setVisible,
     clearSettlingTimer,
     scheduleSettlingEnd,
   }

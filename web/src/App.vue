@@ -2717,26 +2717,7 @@ function handleReaderSettingsChanged(event: Event) {
 }
 
 function setTopChromeVisible(visible: boolean) {
-  const nextProgress = visible ? 1 : 0
-  if (topChromeProgress.value === nextProgress) {
-    if (visible && feedContentCollapsed.value) {
-      setChromeContentCollapsed(false)
-    }
-    if (!visible && feedContentCollapsed.value) {
-      setChromeSettling(true, 'hiding')
-      chromeState.scheduleSettlingEnd(motionDelay(topChromeSettleDuration))
-      return
-    }
-    setChromeProgress(nextProgress, visible ? 'visible' : 'hidden')
-    return
-  }
-
-  setChromeSettling(true, visible ? 'revealing' : 'hiding')
-  if (visible) {
-    setChromeContentCollapsed(false)
-  }
-  setChromeProgress(nextProgress, visible ? 'revealing' : 'hiding')
-  chromeState.scheduleSettlingEnd(motionDelay(topChromeSettleDuration))
+  chromeState.setVisible(visible, { settleDelayMS: motionDelay(topChromeSettleDuration) })
 }
 
 function currentContentScrollTop() {
