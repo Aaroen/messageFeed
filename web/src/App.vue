@@ -90,6 +90,7 @@ import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { useAppGestureStartGuards } from '@/composables/useAppGestureStartGuards'
 import { useAppVirtualBackActions } from '@/composables/useAppVirtualBackActions'
+import { useAppReaderSessionSnapshots } from '@/composables/useAppReaderSessionSnapshots'
 import { usePullActivityState } from '@/composables/usePullActivityState'
 import { useFeedChromeLayoutState } from '@/composables/useFeedChromeLayoutState'
 import { useFeedChromeVisibilityState } from '@/composables/useFeedChromeVisibilityState'
@@ -335,6 +336,35 @@ const pageSideStretch = pageContentMotion.sideStretch
 const pageContentInnerStyle = pageContentMotion.contentStyle
 const homeExitDoubleBackMs = 1600
 const homeBackGuard = useDoubleBackGuard(homeExitDoubleBackMs)
+const appReaderSessionSnapshots = useAppReaderSessionSnapshots({
+  feedScrollTop,
+  topChromeProgress,
+  feedContentCollapsed,
+  scrollRestoreRetryDelay: readerScrollRestoreRetryDelay,
+  scrollRestoreSettledDelay: readerScrollRestoreSettledDelay,
+  createReaderStackSessionSnapshot,
+  restoreFeedScrollTop: (scrollTop) => {
+    feedScroll.restore(scrollTop)
+  },
+  restoreChromeSnapshot: (snapshot) => {
+    chromeState.restoreSnapshot(snapshot)
+  },
+  applyReaderStackSessionSnapshot,
+  rememberSourceScrollTop,
+  rememberDetailScrollTop,
+  loadSourceReaderSubscription,
+  scrollFeedContentTo: (scrollTop) => {
+    feedContent.scrollTo(scrollTop)
+  },
+  scrollSourceReaderContentTo: scrollSourceReaderContentElementTo,
+  scrollDetailContentTo: scrollDetailContentElementTo,
+  syncDetailContainerMetrics: () => {
+    syncDetailContainerMetrics()
+  },
+  getRouteFullPath: () => route.fullPath,
+})
+const readerSessionSnapshot = appReaderSessionSnapshots.readerSessionSnapshot
+const applyReaderSessionSnapshot = appReaderSessionSnapshots.applyReaderSessionSnapshot
 const readerSession = useReaderSession<ReaderSessionSnapshot>({
   storageKey: 'messagefeed-reader-session-v1',
   maxAgeMS: 24 * 60 * 60 * 1000,
@@ -794,17 +824,6 @@ function settleReaderMotion(duration = motionNormalDuration, done?: () => void) 
   settleReaderMotionWithDelay(motionDelay(duration), done)
 }
 
-function readerSessionSnapshot(): ReaderSessionSnapshot {
-  return {
-    savedAt: Date.now(),
-    routeFullPath: route.fullPath,
-    feedScrollTop: feedScrollTop.value,
-    topChromeProgress: topChromeProgress.value,
-    feedContentCollapsed: feedContentCollapsed.value,
-    ...createReaderStackSessionSnapshot(),
-  }
-}
-
 function saveReaderSessionNow() {
   if (!routeRuntime.canSaveReaderSession(readerSession.restoring.value)) {
     return
@@ -817,38 +836,6 @@ function scheduleReaderSessionSave() {
     return
   }
   readerSession.scheduleSave()
-}
-
-function restoreSavedScrollPositions(snapshot: ReaderSessionSnapshot) {
-  const apply = () => {
-    feedContent.scrollTo(snapshot.feedScrollTop)
-    scrollSourceReaderContentElementTo(snapshot.sourceReaderScrollTop)
-    if (scrollDetailContentElementTo(snapshot.detailScrollTop)) {
-      syncDetailContainerMetrics()
-    }
-  }
-
-  nextTick(() => {
-    apply()
-    window.setTimeout(apply, readerScrollRestoreRetryDelay)
-    window.setTimeout(apply, readerScrollRestoreSettledDelay)
-  })
-}
-
-function applyReaderSessionSnapshot(snapshot: ReaderSessionSnapshot) {
-  feedScroll.restore(snapshot.feedScrollTop)
-  chromeState.restoreSnapshot({
-    progress: snapshot.topChromeProgress,
-    contentCollapsed: snapshot.feedContentCollapsed,
-  })
-  applyReaderStackSessionSnapshot(snapshot, {
-    onSourceScrollTop: rememberSourceScrollTop,
-    onDetailScrollTop: rememberDetailScrollTop,
-    onReaderSourceRestored: (source) => {
-      void loadSourceReaderSubscription(source)
-    },
-  })
-  restoreSavedScrollPositions(snapshot)
 }
 
 async function restoreReaderSession() {
