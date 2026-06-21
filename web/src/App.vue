@@ -40,6 +40,7 @@ import { usePageContentMotion } from '@/composables/usePageContentMotion'
 import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useSourceContentMotion } from '@/composables/useSourceContentMotion'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
+import { useChromeLayerMotion } from '@/composables/useChromeLayerMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -235,6 +236,9 @@ const darkTheme = ref(false)
 const refreshCompletion = useRefreshCompletionState()
 const refreshStartedWithChrome = refreshCompletion.startedWithChrome
 const feedRefreshSettling = refreshCompletion.settling
+const chromeLayerMotion = useChromeLayerMotion({
+  isSettling: () => feedChromeSettling.value || feedRefreshSettling.value,
+})
 const feedTopPulling = ref(false)
 const feedTopPullStartedWithChrome = ref(false)
 const pagePullRefresh = usePullRefresh({ threshold: 52 })
@@ -411,20 +415,20 @@ const pagePullStatusMeta = computed(() => {
   return pageTitle.value === '订阅管理' ? '下拉更新订阅管理' : `下拉更新${pageTitle.value}`
 })
 const pullStatusStyle = computed(() => ({
-  ...chromeLayerStyle(feedPullActive.value, pullProgress.value, { shift: -10, scaleStart: 0.96 }),
+  ...chromeLayerMotion.layerStyle(feedPullActive.value, pullProgress.value, { shift: -10, scaleStart: 0.96 }),
 }))
 const pullIconStyle = computed(() => ({
   transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(pullProgress.value * 300),
 }))
 const pagePullStatusStyle = computed(() => ({
-  ...chromeLayerStyle(pagePullActive.value, pagePullProgress.value, { shift: -10, scaleStart: 0.96 }),
+  ...chromeLayerMotion.layerStyle(pagePullActive.value, pagePullProgress.value, { shift: -10, scaleStart: 0.96 }),
 }))
 const pagePullIconStyle = computed(() => ({
   transform: pagePullRefreshing.value ? 'none' : cssRotate(pagePullProgress.value * 300),
 }))
 const feedTabsLayerStyle = computed(() => {
   if (detailReaderOpen.value) {
-    return chromeLayerStyle(feedHeaderReturnProgress.value > 0.001, feedHeaderReturnProgress.value, {
+    return chromeLayerMotion.layerStyle(feedHeaderReturnProgress.value > 0.001, feedHeaderReturnProgress.value, {
       shift: 7,
       scaleStart: 0.98,
       disableTransition: readerBackDragging.value,
@@ -432,10 +436,10 @@ const feedTabsLayerStyle = computed(() => {
     })
   }
 
-  return chromeLayerStyle(!feedPullActive.value, feedHeaderProgress.value)
+  return chromeLayerMotion.layerStyle(!feedPullActive.value, feedHeaderProgress.value)
 })
 const feedTabsTargetLayerStyle = computed(() =>
-  chromeLayerStyle(
+  chromeLayerMotion.layerStyle(
     viewSwipeTargetVisible.value && !feedPullActive.value,
     feedHeaderProgress.value * viewSwipeTargetProgress.value,
     {
@@ -446,7 +450,7 @@ const feedTabsTargetLayerStyle = computed(() =>
   ),
 )
 const sourcePullStatusStyle = computed(() => ({
-  ...chromeLayerStyle(sourcePullActive.value, sourcePullProgress.value, { shift: -10, scaleStart: 0.96 }),
+  ...chromeLayerMotion.layerStyle(sourcePullActive.value, sourcePullProgress.value, { shift: -10, scaleStart: 0.96 }),
 }))
 const sourcePullIconStyle = computed(() => ({
   transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(sourcePullProgress.value * 300),
@@ -512,9 +516,9 @@ const sourceHeaderStyle = computed(() => ({
       ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard)'
       : undefined,
 }))
-const detailHeaderLayerStyle = computed(() => chromeLayerStyle(detailHeaderVisible.value, topChromeProgress.value))
-const pageTitleLayerStyle = computed(() => chromeLayerStyle(!pagePullActive.value, feedHeaderProgress.value))
-const sourceMainLayerStyle = computed(() => chromeLayerStyle(!sourcePullActive.value, topChromeProgress.value))
+const detailHeaderLayerStyle = computed(() => chromeLayerMotion.layerStyle(detailHeaderVisible.value, topChromeProgress.value))
+const pageTitleLayerStyle = computed(() => chromeLayerMotion.layerStyle(!pagePullActive.value, feedHeaderProgress.value))
+const sourceMainLayerStyle = computed(() => chromeLayerMotion.layerStyle(!sourcePullActive.value, topChromeProgress.value))
 const detailReaderStyle = computed(() => ({
   transform: `translate3d(0, 0, 0) scaleX(${(1 + Math.abs(detailReaderStretch.value)).toFixed(4)})`,
   transition: readerBackDragging.value ? 'none' : undefined,
@@ -1242,36 +1246,6 @@ function clearStretchAnchors(delay = motionStretchAnchorClearDuration) {
 
 function cssRotate(degrees: number) {
   return `rotate(${cssNumber(degrees)}deg)`
-}
-
-function chromeLayerStyle(
-  visible: boolean,
-  progress: number,
-  options: {
-    shift?: number
-    scaleStart?: number
-    disableTransition?: boolean
-    pointerEnabled?: boolean
-  } = {},
-) {
-  const safeProgress = clamp(visible ? progress : 0)
-  const shift = options.shift ?? -8
-  const scaleStart = options.scaleStart ?? 0.96
-  const pointerEnabled = options.pointerEnabled ?? true
-  return {
-    opacity: safeProgress.toFixed(3),
-    pointerEvents: safeProgress > 0.86 && pointerEnabled ? ('auto' as const) : ('none' as const),
-    transform: `${cssTranslate3d(0, (1 - safeProgress) * shift)} scale(${(
-      scaleStart +
-      safeProgress * (1 - scaleStart)
-    ).toFixed(3)})`,
-    transition: options.disableTransition
-      ? 'none'
-      : feedChromeSettling.value || feedRefreshSettling.value
-        ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard), visibility var(--motion-chrome) var(--ease-standard)'
-        : undefined,
-    visibility: safeProgress > 0.01 ? ('visible' as const) : ('hidden' as const),
-  }
 }
 
 function escapeHTML(value: string) {
