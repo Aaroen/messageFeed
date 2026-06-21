@@ -990,11 +990,13 @@ export function useReaderStackState() {
     detailSourceExitProgress.value = 0
     detailReturningToFeed.value = false
     detailListReturnCommitted.value = false
+    detailRestoringFromSourceReader.value = false
     detailSourceItemTargetRect.value = openedFromSourceReader ? originRect : null
     detailSourceNameOriginRect.value = null
     detailSourceNameTargetRect.value = null
     detailTransitionRectsLocked.value = false
     detailFeedOriginLocked.value = false
+    sourceReturnTargetReady.value = false
     detailScrollTop.value = 0
     detailScrollHeight.value = 0
     detailScrollClientHeight.value = 0
