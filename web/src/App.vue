@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, watch, type ComponentPublicInstance } from 'vue'
-import { IconBook } from '@arco-design/web-vue/es/icon'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
@@ -66,6 +65,7 @@ import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
+import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { snapshotElementRect, snapshotRect } from '@/utils/domSnapshot'
 
 type SwipeSurface =
@@ -670,13 +670,7 @@ const detailPreviewSummary = readerDetailFrame.previewSummary
 const detailDisplayDate = readerDetailFrame.displayDate
 const detailSrcdoc = readerDetailFrame.srcdoc
 
-const managementItems = [
-  { key: 'sources', label: '订阅管理', path: '/sources', icon: IconBook },
-]
-const feedTabs = [
-  { key: 'subscriptions', label: '订阅', path: '/subscriptions' },
-  { key: 'recommendations', label: '推荐', path: '/recommendations' },
-]
+const { managementItems, feedTabs } = useAppNavigationConfig()
 const appNavigation = useAppNavigationActions({
   router,
   routeRuntime,
