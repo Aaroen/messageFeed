@@ -202,6 +202,8 @@ const {
   readerBackSwipeTransitionUpdatePayload,
   beginReaderBackSwipeDragState,
   detailBlocksGestures,
+  setSourceReaderContentElement: setSourceReaderContentElementState,
+  setDetailContentElement: setDetailContentElementState,
 } = useReaderStackState()
 const {
   sourceToggleLabel,
@@ -1098,7 +1100,7 @@ function snapshotElementRect(element: Element | null) {
 }
 
 function setSourceReaderContentElement(element: HTMLElement | null) {
-  sourceReaderContentRef.value = element
+  setSourceReaderContentElementState(element)
 }
 
 function setPageContentElement(element: HTMLElement | null) {
@@ -1215,7 +1217,7 @@ function detailFrameViewportOffset() {
 }
 
 function setDetailContentElement(element: HTMLElement | null) {
-  detailContentRef.value = element
+  setDetailContentElementState(element)
 }
 
 function setDetailInlineSourceElement(element: HTMLElement | null) {

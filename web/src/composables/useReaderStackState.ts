@@ -1975,6 +1975,14 @@ export function useReaderStackState() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
 
+  function setSourceReaderContentElement(element: HTMLElement | null) {
+    sourceReaderContentRef.value = element
+  }
+
+  function setDetailContentElement(element: HTMLElement | null) {
+    detailContentRef.value = element
+  }
+
   return {
     sourceReaderContentRef,
     detailContentRef,
@@ -2118,5 +2126,7 @@ export function useReaderStackState() {
     readerBackSwipeTransitionUpdatePayload,
     beginReaderBackSwipeDragState,
     detailBlocksGestures,
+    setSourceReaderContentElement,
+    setDetailContentElement,
   }
 }
