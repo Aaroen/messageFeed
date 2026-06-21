@@ -136,6 +136,7 @@ const {
   sourceNameMorphVisible,
   detailMorphSummaryVisible,
   detailMorphTextVisible,
+  detailHeaderTitleSwapping,
   detailParkedBehindSource,
   detailChromeVisible,
   detailCommittedListReturn,
@@ -677,9 +678,6 @@ const detailHeaderTitleStyle = computed(() => {
     transition: readerBackDragging.value ? 'none' : undefined,
   }
 })
-const detailHeaderTitleSwapping = computed(() =>
-  Boolean(detailHeaderPreviousTitle.value) && detailHeaderSwapProgress.value < 0.999,
-)
 const detailHeaderCurrentTextStyle = computed(() => {
   const progress = detailHeaderTitleSwapping.value ? detailHeaderSwapProgress.value : 1
   return {

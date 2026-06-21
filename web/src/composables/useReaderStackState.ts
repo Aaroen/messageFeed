@@ -361,6 +361,9 @@ export function useReaderStackState() {
       detailSourceExitProgress.value > 0.001
     )
   })
+  const detailHeaderTitleSwapping = computed(() =>
+    Boolean(detailHeaderPreviousTitle.value) && detailHeaderSwapProgress.value < 0.999,
+  )
 
   function detailCommittedListReturn() {
     return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
@@ -1511,6 +1514,7 @@ export function useReaderStackState() {
     sourceNameMorphVisible,
     detailMorphSummaryVisible,
     detailMorphTextVisible,
+    detailHeaderTitleSwapping,
     detailParkedBehindSource,
     detailChromeVisible,
     detailCommittedListReturn,
