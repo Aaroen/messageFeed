@@ -136,6 +136,8 @@ type ReaderBackSwipeCancelAction =
   | 'restore-parked-source'
   | 'reset'
 type ReaderBackSwipeCancelResult = {
+  progress: number
+  isBlocked: boolean
   action: ReaderBackSwipeCancelAction
 }
 type ReaderBackSwipeFinishResult = {
@@ -1714,8 +1716,10 @@ export function useReaderStackState() {
     return 'reset'
   }
 
-  function readerBackSwipeCancelResult(): ReaderBackSwipeCancelResult {
+  function readerBackSwipeCancelResult(fallbackStretch = 0): ReaderBackSwipeCancelResult {
     return {
+      progress: readerBackSwipeTransitionProgress(fallbackStretch),
+      isBlocked: readerBackSwipeIsBlocked(),
       action: readerBackSwipeCancelAction(),
     }
   }

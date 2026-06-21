@@ -2151,6 +2151,17 @@ function finishBackSwipe(deltaX: number, _deltaY: number) {
   applyReaderBackSwipeAction(result.action, readerBackSwipeActionHandlers())
 }
 
+function cancelBackSwipe() {
+  const result = readerBackSwipeCancelResult(pageSideStretch.value)
+
+  swipeTransition.settle(false, {
+    progress: result.progress,
+    isBlocked: result.isBlocked,
+  })
+  scheduleSwipeTransitionReset(360)
+  applyReaderBackSwipeAction(result.action, readerBackSwipeActionHandlers())
+}
+
 function finishViewSwipe(nextPath: string | null) {
   const committed = Boolean(nextPath)
   feedPagerTransition.setSettling(true)
@@ -2541,16 +2552,15 @@ function handleTouchCancel() {
   const hadNavigationGesture = trackingEdgeSwipe || trackingNavigationClose
   const hadViewGesture = trackingViewSwipe
   const hadBackGesture = readerBackSwipeTrackingActive.value
-  const canceledBackResult = readerBackSwipeCancelResult()
+  if (hadBackGesture) {
+    cancelBackSwipe()
+  }
   resetGestureTracking()
   if (hadNavigationGesture && navigationVisible.value && !navigationOpen.value) {
     settleNavigation(false)
   }
   if (hadViewGesture) {
     finishViewSwipe(null)
-  }
-  if (hadBackGesture) {
-    applyReaderBackSwipeAction(canceledBackResult.action, readerBackSwipeActionHandlers())
   }
   activeFeedPointerId = null
 }
@@ -2687,9 +2697,7 @@ function handleMessage(event: MessageEvent) {
 
   if (payload.phase === 'cancel') {
     if (readerBackSwipeTrackingActive.value) {
-      const canceledBackResult = readerBackSwipeCancelResult()
-      resetGestureTracking()
-      applyReaderBackSwipeAction(canceledBackResult.action, readerBackSwipeActionHandlers())
+      cancelBackSwipe()
     }
     resetGestureTracking()
   }
