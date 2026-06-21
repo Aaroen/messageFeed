@@ -50,10 +50,14 @@ export function useAppReaderMorphVisibilityState(
   const sourceTitleRevealMounted = computed(
     () => Boolean(options.readerSource.value) && options.sourceTitleRevealVisible.value,
   )
+  const sourceNameMorphText = computed(() => {
+    const itemSourceName = options.detailItem.value?.source_name?.trim()
+    const readerSourceName = options.readerSource.value?.name.trim()
+    return itemSourceName || readerSourceName || '未知来源'
+  })
   const sourceNameMorphMounted = computed(
     () => Boolean(options.detailItem.value) && options.sourceNameMorphVisible.value,
   )
-  const sourceNameMorphText = computed(() => options.detailItem.value?.source_name || '未知来源')
 
   return {
     sourceTitleRevealMounted,
