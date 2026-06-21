@@ -67,14 +67,14 @@ export function useChromeState() {
     }
   }
 
-  function clearSettlingTimer() {
+  function clearTimer() {
     if (typeof window !== 'undefined') {
       window.clearTimeout(settlingTimer)
     }
   }
 
   function scheduleSettlingEnd(delayMS: number) {
-    clearSettlingTimer()
+    clearTimer()
     settlingTimer = window.setTimeout(() => {
       setSettling(false)
     }, Math.max(0, delayMS))
@@ -116,7 +116,7 @@ export function useChromeState() {
   }
 
   function setStableVisible() {
-    clearSettlingTimer()
+    clearTimer()
     progress.value = 1
     phase.value = 'visible'
     contentCollapsed.value = false
@@ -124,7 +124,7 @@ export function useChromeState() {
   }
 
   function beginRefreshing() {
-    clearSettlingTimer()
+    clearTimer()
     settling.value = false
     phase.value = 'refreshing'
   }
@@ -160,6 +160,6 @@ export function useChromeState() {
     setRefreshingProgress,
     commitRefreshing,
     restoreSnapshot,
-    clearSettlingTimer,
+    clearTimer,
   }
 }

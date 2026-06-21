@@ -2828,7 +2828,7 @@ onUnmounted(() => {
   swipeTransition.clearResetTimer()
   navigationDrawer.clearTimer()
   refreshCompletion.clearTimer()
-  chromeState.clearSettlingTimer()
+  chromeState.clearTimer()
   sourceContentMotion.clearTimer()
   pagePullRefresh.clearTimers()
   clickSuppression.clearTimer()
