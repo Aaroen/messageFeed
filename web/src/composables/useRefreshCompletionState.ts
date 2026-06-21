@@ -6,12 +6,14 @@ export function useRefreshCompletionState() {
   const startedWithChrome = ref(false)
   const settling = ref(false)
   let settleTimer = 0
+  let settleTimerToken = 0
 
   function clearTimer() {
     if (typeof window !== 'undefined' && settleTimer !== 0) {
       window.clearTimeout(settleTimer)
     }
     settleTimer = 0
+    settleTimerToken += 1
   }
 
   function recordStartedWithChrome(startedWithVisibleChrome: boolean) {
@@ -35,8 +37,13 @@ export function useRefreshCompletionState() {
     wasActive.value = false
     wasSource.value = false
     clearTimer()
+    const token = settleTimerToken + 1
+    settleTimerToken = token
     settling.value = true
     settleTimer = window.setTimeout(() => {
+      if (token !== settleTimerToken) {
+        return
+      }
       settleTimer = 0
       settling.value = false
     }, Math.max(0, delayMS))
