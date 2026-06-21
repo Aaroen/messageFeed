@@ -51,10 +51,6 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     dragging.value = true
   }
 
-  function stopDragging() {
-    dragging.value = false
-  }
-
   function beginGestureCandidate(startX: number, startY: number) {
     gestureStartX.value = Number.isFinite(startX) ? startX : 0
     gestureStartY.value = Number.isFinite(startY) ? startY : 0
@@ -88,7 +84,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     gestureDistance.value = 0
     gestureCandidate.value = false
     gestureTracking.value = false
-    stopDragging()
+    dragging.value = false
     setDistance(nextDistance)
   }
 
@@ -124,6 +120,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   }
 
   function finishRefreshing() {
+    dragging.value = false
     refreshing.value = false
     setDistance(0)
   }
@@ -163,6 +160,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
 
   function settleRefreshCompletion(options: PullRefreshSettleCompletionOptions) {
     clearSettleTimer()
+    dragging.value = false
     settling.value = true
     releaseTimer = window.setTimeout(() => {
       setOffset(0)
@@ -214,7 +212,6 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     active,
     rubberBandDistance,
     begin,
-    stopDragging,
     beginGestureCandidate,
     gestureDelta,
     beginGestureTracking,

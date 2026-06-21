@@ -493,7 +493,6 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
   } finally {
     loading.value = false
     loadingMore.value = false
-    pullRefresh.stopDragging()
     scheduleLoadMoreObserver()
 
     if (!isRefresh) {
