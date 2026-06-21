@@ -2430,7 +2430,7 @@ function handleFeedPointerDown(event: PointerEvent) {
   trackingEdgeSwipe = false
   trackingNavigationClose = false
   activeFeedPointerId = event.pointerId
-  feedPagerTransition.setSettling(false)
+  feedPagerTransition.beginDragCandidate()
 }
 
 function handleFeedPointerMove(event: PointerEvent) {
@@ -2469,7 +2469,7 @@ function handleFeedPointerMove(event: PointerEvent) {
   }
 
   if (feedPagerTransition.isBlockedDragDirection(deltaX)) {
-    feedPagerTransition.setDragOffset(0)
+    feedPagerTransition.resetDragOffset()
     return
   }
 
@@ -2967,7 +2967,7 @@ watch(
     pagePullRefresh.setOffset(0)
     pagePullRefresh.setDistance(0)
     pagePullRefresh.setSettling(false)
-    feedPagerTransition.setDragOffset(0)
+    feedPagerTransition.resetDragOffset()
     if (isFeedRoute.value) {
       setTopChromeVisible(true)
       nextTick(() => {
