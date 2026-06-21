@@ -103,6 +103,7 @@ import { useAppWindowEventListeners } from '@/composables/useAppWindowEventListe
 import { useReaderSettingsSync } from '@/composables/useReaderSettingsSync'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
 import { useAppLifecycle } from '@/composables/useAppLifecycle'
+import { useAppShellEventActions } from '@/composables/useAppShellEventActions'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -768,13 +769,16 @@ const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
 const appInteractionTargetGuards = useAppInteractionTargetGuards()
 const isPageTopPullControlTarget = appInteractionTargetGuards.isPageTopPullControlTarget
 
-function handleClickCapture(event: MouseEvent) {
-  clickSuppression.consume(event)
-}
-
-function suppressFollowingClick() {
-  clickSuppression.suppressNext()
-}
+const appShellEventActions = useAppShellEventActions({
+  consumeClick: (event) => clickSuppression.consume(event),
+  suppressNextClick: () => clickSuppression.suppressNext(),
+  closeNavigation,
+  syncViewportSize: () => viewportSize.sync(),
+})
+const handleClickCapture = appShellEventActions.handleClickCapture
+const suppressFollowingClick = appShellEventActions.suppressFollowingClick
+const handleKeydown = appShellEventActions.handleKeydown
+const handleResize = appShellEventActions.handleResize
 
 function scheduleReaderURLAndHistorySync(forcePush = false) {
   readerRouteSync.scheduleSync(forcePush)
@@ -1161,16 +1165,6 @@ const handleFeedPointerUp = feedPointerSwipeHandlers.handleFeedPointerUp
 const handleFeedPointerCancel = feedPointerSwipeHandlers.handleFeedPointerCancel
 
 const handleTouchCancel = appTouchGestureHandlers.handleTouchCancel
-
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') {
-    closeNavigation()
-  }
-}
-
-function handleResize() {
-  viewportSize.sync()
-}
 
 const readerDetailProgressHandlers = useReaderDetailProgressHandlers({
   detailContentRef,
