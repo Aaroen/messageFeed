@@ -62,6 +62,7 @@ import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { useGestureDirection } from '@/composables/useGestureDirection'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
+import { useReaderLayoutState } from '@/composables/useReaderLayoutState'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
@@ -503,9 +504,18 @@ const mainClass = computed(() => ({
   'app-main--detail-reader': detailReaderOpen.value && !detailReturningToFeed.value,
   'app-main--detail-chrome': detailChromeVisible.value,
 }))
-const sourceHeaderSpace = computed(() =>
-  feedContentCollapsed.value && topChromeProgress.value <= 0.01 ? 0 : feedHeaderHeight.value,
-)
+const readerLayoutState = useReaderLayoutState({
+  windowWidth,
+  windowHeight,
+  feedHeaderHeight,
+  topChromeProgress,
+  feedContentCollapsed,
+})
+const sourceHeaderSpace = readerLayoutState.sourceHeaderSpace
+const detailSourceFallbackTargetRect = readerLayoutState.detailSourceFallbackTargetRect
+const detailSurfaceMargin = readerLayoutState.detailSurfaceMargin
+const detailExpandedTop = readerLayoutState.detailExpandedTop
+const detailFrameMinHeight = readerLayoutState.detailFrameMinHeight
 const sourceSurfaceMotion = useReaderSourceSurfaceMotion({
   feedHeaderHeight,
   headerSpace: sourceHeaderSpace,
@@ -537,23 +547,6 @@ const detailSurfaceMotion = useReaderDetailSurfaceMotion({
   committedListReturn: detailCommittedListReturn,
 })
 const detailReaderStyle = detailSurfaceMotion.readerStyle
-const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
-  const side = windowWidth.value <= 720 ? 24 : 46
-  const top = feedHeaderHeight.value + 24
-  return {
-    left: side,
-    top,
-    width: Math.max(1, windowWidth.value - side * 2),
-    height: 146,
-  }
-})
-const detailSurfaceMargin = computed(() => (windowWidth.value <= 720 ? 10 : 14))
-const detailExpandedTop = computed(() =>
-  (feedHeaderHeight.value + detailSurfaceMargin.value) * topChromeProgress.value,
-)
-const detailFrameMinHeight = computed(() =>
-  Math.max(300, windowHeight.value - detailExpandedTop.value - detailSurfaceMargin.value - 96),
-)
 const detailContentMotion = useReaderDetailContentMotion({
   surfaceProgress: detailSurfaceProgress,
   sourceExitProgress: detailSourceExitProgress,
