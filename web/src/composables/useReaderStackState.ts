@@ -176,6 +176,11 @@ type ApplyReaderBackSwipeIntentStateOptions = {
   afterDetailBackPrepare?: (state: ReaderBackSwipeIntentSideEffectState) => void
   afterDetailSourceIntent?: () => void
 }
+type ApplyReaderBackSwipeVisualActionOptions = {
+  resetPageStretch?: () => void
+  resetPageOffset?: () => void
+  applyPageStretch?: (stretch: number) => void
+}
 type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
 type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
@@ -1758,6 +1763,26 @@ export function useReaderStackState() {
     updateStretchAnchor(detailStretchAnchor, state.stretch)
   }
 
+  function applyReaderBackSwipeVisualActionState(
+    offset: number,
+    stretch: number,
+    width: number,
+    options: ApplyReaderBackSwipeVisualActionOptions = {},
+  ) {
+    const action = readerBackSwipeVisualAction(offset, stretch, width)
+    resetReaderBackSwipeStretchState()
+    options.resetPageStretch?.()
+
+    if (action.type === 'reader') {
+      applyReaderBackSwipeVisualState(action.state)
+    } else if (action.type === 'page') {
+      options.resetPageOffset?.()
+      options.applyPageStretch?.(action.stretch)
+    }
+
+    return action
+  }
+
   function detailBlocksGestures() {
     return detailReaderOpen.value && !detailCommittedListReturn()
   }
@@ -1898,15 +1923,13 @@ export function useReaderStackState() {
     setReaderBackSwipeTargetState,
     applyReaderBackSwipeIntentState,
     readerBackSwipeTransitionProgress,
-    readerBackSwipeVisualAction,
+    applyReaderBackSwipeVisualActionState,
     readerBackSwipeShouldCommit,
     readerBackSwipeIsBlocked,
     readerBackSwipeFinishAction,
     readerBackSwipeCancelAction,
     readerBackSwipeTransitionSurfaces,
     beginReaderBackSwipeDragState,
-    resetReaderBackSwipeStretchState,
-    applyReaderBackSwipeVisualState,
     detailBlocksGestures,
   }
 }

@@ -186,15 +186,13 @@ const {
   setReaderBackSwipeTargetState,
   applyReaderBackSwipeIntentState,
   readerBackSwipeTransitionProgress,
-  readerBackSwipeVisualAction,
+  applyReaderBackSwipeVisualActionState,
   readerBackSwipeShouldCommit,
   readerBackSwipeIsBlocked,
   readerBackSwipeFinishAction,
   readerBackSwipeCancelAction,
   readerBackSwipeTransitionSurfaces,
   beginReaderBackSwipeDragState,
-  resetReaderBackSwipeStretchState,
-  applyReaderBackSwipeVisualState,
   detailBlocksGestures,
 } = useReaderStackState()
 const {
@@ -2155,17 +2153,17 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   applyReaderBackSwipeIntentAction(deltaX, { resetSourceExit: true, prepareBlocked: true })
   const offset = backSwipeVisualOffset(deltaX)
   const stretch = blockedSwipeStretch(deltaX, currentX)
-  const visualAction = readerBackSwipeVisualAction(offset, stretch, windowWidth.value)
-
-  resetReaderBackSwipeStretchState()
-  pageContentMotion.setSideStretch(0)
-
-  if (visualAction.type === 'reader') {
-    applyReaderBackSwipeVisualState(visualAction.state)
-  } else if (visualAction.type === 'page') {
-    pageContentMotion.setSideOffset(0)
-    pageContentMotion.setSideStretch(visualAction.stretch)
-  }
+  applyReaderBackSwipeVisualActionState(offset, stretch, windowWidth.value, {
+    resetPageStretch: () => {
+      pageContentMotion.setSideStretch(0)
+    },
+    resetPageOffset: () => {
+      pageContentMotion.setSideOffset(0)
+    },
+    applyPageStretch: (nextStretch: number) => {
+      pageContentMotion.setSideStretch(nextStretch)
+    },
+  })
 
   syncBackSwipeTransition(deltaX)
   return true
