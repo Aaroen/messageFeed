@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -103,6 +102,7 @@ import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions
 import { useAppWindowEventListeners } from '@/composables/useAppWindowEventListeners'
 import { useReaderSettingsSync } from '@/composables/useReaderSettingsSync'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
+import { useAppLifecycle } from '@/composables/useAppLifecycle'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1358,32 +1358,31 @@ useFeedRefreshCompletionWatcher({
   collapseTopChrome,
 })
 
-onMounted(() => {
-  loadReaderSettings()
-  themeState.load()
-  virtualBackGuard.installRouterGuard()
-  void router.isReady().then(() => restoreReaderSession()).finally(() => {
-    routeRuntime.markReaderSessionReady()
-    scheduleReaderURLAndHistorySync()
-  })
-  installWindowEventListeners()
-})
-
-onUnmounted(() => {
-  saveReaderSessionNow()
-  virtualBackGuard.uninstallRouterGuard()
-  uninstallWindowEventListeners()
-  feedPagerTransition.clearTimers()
-  swipeTransition.clearTimer()
-  navigationDrawer.clearTimer()
-  refreshCompletion.clearTimer()
-  chromeState.clearTimer()
-  sourceContentMotion.clearTimer()
-  pagePullRefresh.clearTimers()
-  clickSuppression.clearTimer()
-  clearSourceNoticeTimer()
-  clearReaderStackTimers()
-  readerSession.clearTimer()
+useAppLifecycle({
+  loadReaderSettings,
+  loadTheme: () => themeState.load(),
+  installVirtualBackGuard: () => virtualBackGuard.installRouterGuard(),
+  uninstallVirtualBackGuard: () => virtualBackGuard.uninstallRouterGuard(),
+  waitForRouterReady: () => router.isReady(),
+  restoreReaderSession,
+  markReaderSessionReady: () => routeRuntime.markReaderSessionReady(),
+  scheduleReaderURLAndHistorySync,
+  installWindowEventListeners,
+  uninstallWindowEventListeners,
+  saveReaderSessionNow,
+  clearRuntimeTimers: [
+    () => feedPagerTransition.clearTimers(),
+    () => swipeTransition.clearTimer(),
+    () => navigationDrawer.clearTimer(),
+    () => refreshCompletion.clearTimer(),
+    () => chromeState.clearTimer(),
+    () => sourceContentMotion.clearTimer(),
+    () => pagePullRefresh.clearTimers(),
+    () => clickSuppression.clearTimer(),
+    clearSourceNoticeTimer,
+    clearReaderStackTimers,
+    () => readerSession.clearTimer(),
+  ],
 })
 </script>
 
