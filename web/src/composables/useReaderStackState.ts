@@ -121,6 +121,7 @@ type ReaderBackSwipeIntentState =
 
 export type ReaderBackSwipeTarget = 'detail' | 'source' | 'page' | null
 export type ReaderBackSwipeIntent = 'back' | 'source' | 'blocked' | null
+type ReaderBackSwipeSurface = 'reader:detail' | 'reader:source' | 'page:management'
 type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
 type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
@@ -1395,6 +1396,35 @@ export function useReaderStackState() {
     return clampProgress(Math.abs(detailReaderStretch.value || sourceReaderStretch.value || fallbackStretch) / 0.07)
   }
 
+  function readerBackSwipeTransitionSurfaces<TSurface extends string>(surfaces: {
+    activeFeedSurface: TSurface
+    pageReturnSurface: TSurface
+  }) {
+    const target = backSwipeTarget.value
+    const intent = backSwipeIntent.value
+    const from: ReaderBackSwipeSurface =
+      target === 'source' ? 'reader:source' : target === 'page' ? 'page:management' : 'reader:detail'
+    let to: ReaderBackSwipeSurface | TSurface | null = null
+
+    if (intent !== 'blocked' && target) {
+      if (intent === 'source') {
+        to = 'reader:source'
+      } else if (target === 'source') {
+        to = 'reader:detail'
+      } else if (target === 'page') {
+        to = surfaces.pageReturnSurface
+      } else {
+        to = detailOpenedFromSourceReader.value ? 'reader:source' : surfaces.activeFeedSurface
+      }
+    }
+
+    return {
+      from,
+      to,
+      isBlocked: intent === 'blocked',
+    }
+  }
+
   function beginReaderBackSwipeTrackingState() {
     detailEntrySettling.value = false
     sourceReturnTargetReady.value = false
@@ -1614,6 +1644,7 @@ export function useReaderStackState() {
     getReaderBackSwipeState,
     readerBackSwipeMatches,
     readerBackSwipeTransitionProgress,
+    readerBackSwipeTransitionSurfaces,
     beginReaderBackSwipeTrackingState,
     prepareReaderBackSwipeIntentState,
     startReaderBackSwipeDragState,

@@ -26,11 +26,7 @@ import {
   type RectSnapshot,
   useReaderSession,
 } from '@/composables/useReaderSession'
-import {
-  type ReaderBackSwipeIntent,
-  type ReaderBackSwipeTarget,
-  useReaderStackState,
-} from '@/composables/useReaderStackState'
+import { useReaderStackState } from '@/composables/useReaderStackState'
 import {
   browserRouteFullPath,
   readerRouteMatchesCurrent,
@@ -194,6 +190,7 @@ const {
   getReaderBackSwipeState,
   readerBackSwipeMatches,
   readerBackSwipeTransitionProgress,
+  readerBackSwipeTransitionSurfaces,
   beginReaderBackSwipeTrackingState,
   prepareReaderBackSwipeIntentState,
   startReaderBackSwipeDragState,
@@ -1964,35 +1961,6 @@ function canStartNavigationOpen(_clientX: number) {
   )
 }
 
-function readerSurfaceForTarget(target: ReaderBackSwipeTarget): SwipeSurface {
-  if (target === 'source') {
-    return 'reader:source'
-  }
-  if (target === 'page') {
-    return 'page:management'
-  }
-  return 'reader:detail'
-}
-
-function readerSwipeTargetSurface(
-  target: ReaderBackSwipeTarget,
-  intent: ReaderBackSwipeIntent,
-): SwipeSurface | null {
-  if (intent === 'blocked' || !target) {
-    return null
-  }
-  if (intent === 'source') {
-    return 'reader:source'
-  }
-  if (target === 'source') {
-    return 'reader:detail'
-  }
-  if (target === 'page') {
-    return 'feed:recommendations'
-  }
-  return detailOpenedFromSourceReader.value ? 'reader:source' : feedPagerTransition.activeSurface.value
-}
-
 function scheduleSwipeTransitionReset(duration = 260) {
   swipeTransition.scheduleReset(motionDelay(duration))
 }
@@ -2017,22 +1985,28 @@ function syncViewSwipeTransition(offset: number) {
 }
 
 function beginBackSwipeTransition(deltaX: number) {
-  const { target, intent } = getReaderBackSwipeState()
+  const surfaces = readerBackSwipeTransitionSurfaces({
+    activeFeedSurface: feedPagerTransition.activeSurface.value,
+    pageReturnSurface: 'feed:recommendations',
+  })
   swipeTransition.begin({
-    from: readerSurfaceForTarget(target),
-    to: readerSwipeTargetSurface(target, intent),
+    from: surfaces.from,
+    to: surfaces.to,
     direction: deltaX < 0 ? 'left' : 'right',
-    isBlocked: intent === 'blocked',
+    isBlocked: surfaces.isBlocked,
   })
 }
 
 function syncBackSwipeTransition(deltaX: number) {
-  const { target, intent } = getReaderBackSwipeState()
+  const surfaces = readerBackSwipeTransitionSurfaces({
+    activeFeedSurface: feedPagerTransition.activeSurface.value,
+    pageReturnSurface: 'feed:recommendations',
+  })
   swipeTransition.update({
-    to: readerSwipeTargetSurface(target, intent),
+    to: surfaces.to,
     direction: deltaX < 0 ? 'left' : 'right',
     progress: readerBackSwipeTransitionProgress(pageSideStretch.value),
-    isBlocked: intent === 'blocked',
+    isBlocked: surfaces.isBlocked,
   })
 }
 
