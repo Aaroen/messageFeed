@@ -279,6 +279,8 @@ export function useReaderStackState() {
   let morphingHeightUnlockTimer = 0
   let hiddenSourceCleanupTimer = 0
   let detailEntryTimer = 0
+  let detailEntryFrame = 0
+  let detailEntrySecondFrame = 0
   const detailHeaderTitleSwap = useDetailHeaderTitleSwap()
 
   const sourceReaderContentRef = ref<HTMLElement | null>(null)
@@ -798,12 +800,16 @@ export function useReaderStackState() {
   }
 
   function clearHiddenSourceCleanupTimer() {
-    window.clearTimeout(hiddenSourceCleanupTimer)
+    if (typeof window !== 'undefined' && hiddenSourceCleanupTimer !== 0) {
+      window.clearTimeout(hiddenSourceCleanupTimer)
+    }
+    hiddenSourceCleanupTimer = 0
   }
 
   function scheduleHiddenSourceReaderCleanupWithDelay(delay = hiddenSourceCleanupDelay) {
     clearHiddenSourceCleanupTimer()
     hiddenSourceCleanupTimer = window.setTimeout(() => {
+      hiddenSourceCleanupTimer = 0
       clearHiddenSourceReader()
     }, delay)
   }
@@ -937,27 +943,67 @@ export function useReaderStackState() {
   }
 
   function clearDetailEntryTimer() {
-    window.clearTimeout(detailEntryTimer)
+    if (typeof window !== 'undefined' && detailEntryTimer !== 0) {
+      window.clearTimeout(detailEntryTimer)
+    }
+    detailEntryTimer = 0
+  }
+
+  function clearDetailEntryFrames() {
+    if (typeof window !== 'undefined' && detailEntryFrame !== 0) {
+      window.cancelAnimationFrame(detailEntryFrame)
+    }
+    if (typeof window !== 'undefined' && detailEntrySecondFrame !== 0) {
+      window.cancelAnimationFrame(detailEntrySecondFrame)
+    }
+    detailEntryFrame = 0
+    detailEntrySecondFrame = 0
+  }
+
+  function clearDetailEntryAsync() {
+    clearDetailEntryTimer()
+    clearDetailEntryFrames()
   }
 
   function setDetailEntryTimer(handler: () => void, delay?: number) {
-    detailEntryTimer = window.setTimeout(handler, delay)
+    clearDetailEntryTimer()
+    detailEntryTimer = window.setTimeout(() => {
+      detailEntryTimer = 0
+      handler()
+    }, delay)
+  }
+
+  function scheduleDetailEntryFrame(handler: () => void) {
+    clearDetailEntryFrames()
+    detailEntryFrame = window.requestAnimationFrame(() => {
+      detailEntryFrame = 0
+      handler()
+    })
+  }
+
+  function scheduleDetailEntryDoubleFrame(handler: () => void) {
+    clearDetailEntryFrames()
+    detailEntryFrame = window.requestAnimationFrame(() => {
+      detailEntryFrame = 0
+      detailEntrySecondFrame = window.requestAnimationFrame(() => {
+        detailEntrySecondFrame = 0
+        handler()
+      })
+    })
   }
 
   function startDetailEntryWithDelay(originRect: RectSnapshot | null, delay: number) {
-    clearDetailEntryTimer()
+    clearDetailEntryAsync()
     const result = beginDetailEntryState(originRect)
     if (!result.shouldAnimate) {
       return
     }
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        commitDetailEntryState()
-        setDetailEntryTimer(() => {
-          finishDetailEntryState()
-        }, delay)
-      })
+    scheduleDetailEntryDoubleFrame(() => {
+      commitDetailEntryState()
+      setDetailEntryTimer(() => {
+        finishDetailEntryState()
+      }, delay)
     })
   }
 
@@ -1076,13 +1122,17 @@ export function useReaderStackState() {
   }
 
   function clearMorphingHeightUnlockTimer() {
-    window.clearTimeout(morphingHeightUnlockTimer)
+    if (typeof window !== 'undefined' && morphingHeightUnlockTimer !== 0) {
+      window.clearTimeout(morphingHeightUnlockTimer)
+    }
+    morphingHeightUnlockTimer = 0
   }
 
   function restoreMorphingItemContentWithDelay(unlockDelay = morphingItemContentUnlockDelay) {
     beginRestoreMorphingItemContentState()
     clearMorphingHeightUnlockTimer()
     morphingHeightUnlockTimer = window.setTimeout(() => {
+      morphingHeightUnlockTimer = 0
       finishRestoreMorphingItemContentState()
     }, unlockDelay)
   }
@@ -1101,13 +1151,17 @@ export function useReaderStackState() {
   }
 
   function clearReaderMotionTimer() {
-    window.clearTimeout(readerMotionTimer)
+    if (typeof window !== 'undefined' && readerMotionTimer !== 0) {
+      window.clearTimeout(readerMotionTimer)
+    }
+    readerMotionTimer = 0
   }
 
   function settleReaderMotionWithDelay(delay = readerMotionSettleDelay, done?: () => void) {
     beginReaderMotionSettlingState()
     clearReaderMotionTimer()
     readerMotionTimer = window.setTimeout(() => {
+      readerMotionTimer = 0
       finishReaderMotionSettlingState()
       done?.()
     }, delay)
@@ -1115,7 +1169,7 @@ export function useReaderStackState() {
 
   function clearReaderStackTimers() {
     clearReaderMotionTimer()
-    clearDetailEntryTimer()
+    clearDetailEntryAsync()
     clearDetailHeaderSwapTimer()
     clearMorphingHeightUnlockTimer()
     clearHiddenSourceCleanupTimer()
@@ -1166,6 +1220,7 @@ export function useReaderStackState() {
     detailProgressDragging.value = false
     detailReaderTouchOffset.value = 0
     detailReaderStretch.value = 0
+    clearDetailEntryAsync()
     resetDetailTransition()
 
     if (sourceReaderVisible.value && previousSourceReturnMode === 'detail') {
@@ -1219,7 +1274,7 @@ export function useReaderStackState() {
   ) {
     const result = beginCollapseItemReaderState()
     options.afterBegin?.(result)
-    clearDetailEntryTimer()
+    clearDetailEntryAsync()
     setDetailEntryTimer(() => {
       options.afterFinish?.(result)
     }, delay)
@@ -1250,7 +1305,7 @@ export function useReaderStackState() {
 
   function restoreItemReaderExpansionWithDelay(delay: number) {
     const result = beginRestoreItemReaderExpansionState()
-    clearDetailEntryTimer()
+    clearDetailEntryAsync()
     setDetailEntryTimer(() => {
       finishRestoreItemReaderExpansionState(result.shouldHideSourceAfterRestore)
     }, delay)
@@ -1276,7 +1331,7 @@ export function useReaderStackState() {
 
   function restoreDetailFromSourceSwipeWithDelay(delay: number) {
     beginRestoreDetailFromSourceSwipeState()
-    clearDetailEntryTimer()
+    clearDetailEntryAsync()
     setDetailEntryTimer(() => {
       finishRestoreDetailFromSourceSwipeState()
     }, delay)
@@ -1322,11 +1377,9 @@ export function useReaderStackState() {
   ) {
     beginCompleteDetailToSourceReaderState()
     options.afterBegin?.()
-    clearDetailEntryTimer()
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        commitCompleteDetailToSourceReaderState()
-      })
+    clearDetailEntryAsync()
+    scheduleDetailEntryDoubleFrame(() => {
+      commitCompleteDetailToSourceReaderState()
     })
     setDetailEntryTimer(() => {
       finishCompleteDetailToSourceReaderState()
@@ -1365,8 +1418,8 @@ export function useReaderStackState() {
       return false
     }
 
-    clearDetailEntryTimer()
-    requestAnimationFrame(() => {
+    clearDetailEntryAsync()
+    scheduleDetailEntryFrame(() => {
       commitRestoreParkedSourceReaderState()
     })
     setDetailEntryTimer(() => {
@@ -1418,14 +1471,14 @@ export function useReaderStackState() {
     delay: number,
     options: RestoreDetailFromParkedSourceTransitionOptions = {},
   ) {
-    clearDetailEntryTimer()
+    clearDetailEntryAsync()
     options.beforeBegin?.()
     if (!beginRestoreDetailFromParkedSourceState()) {
       return false
     }
     options.afterBegin?.()
 
-    requestAnimationFrame(() => {
+    scheduleDetailEntryFrame(() => {
       commitRestoreDetailFromParkedSourceState()
     })
 
