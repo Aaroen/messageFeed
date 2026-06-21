@@ -421,18 +421,12 @@ const pagePullStatusMeta = computed(() => {
   }
   return pageTitle.value === '订阅管理' ? '下拉更新订阅管理' : `下拉更新${pageTitle.value}`
 })
-const pullStatusStyle = computed(() => ({
-  ...chromeLayerMotion.layerStyle(feedPullActive.value, pullProgress.value, { shift: -10, scaleStart: 0.96 }),
-}))
-const pullIconStyle = computed(() => ({
-  transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(pullProgress.value * 300),
-}))
-const pagePullStatusStyle = computed(() => ({
-  ...chromeLayerMotion.layerStyle(pagePullActive.value, pagePullProgress.value, { shift: -10, scaleStart: 0.96 }),
-}))
-const pagePullIconStyle = computed(() => ({
-  transform: pagePullRefreshing.value ? 'none' : cssRotate(pagePullProgress.value * 300),
-}))
+const pullStatusStyle = computed(() => chromeLayerMotion.refreshStatusStyle(feedPullActive.value, pullProgress.value))
+const pullIconStyle = computed(() =>
+  chromeLayerMotion.refreshIconStyle(feedInteraction.pullRefreshing, pullProgress.value),
+)
+const pagePullStatusStyle = computed(() => chromeLayerMotion.refreshStatusStyle(pagePullActive.value, pagePullProgress.value))
+const pagePullIconStyle = computed(() => chromeLayerMotion.refreshIconStyle(pagePullRefreshing.value, pagePullProgress.value))
 const feedTabsLayerStyle = computed(() => {
   if (detailReaderOpen.value) {
     return chromeLayerMotion.layerStyle(feedHeaderReturnProgress.value > 0.001, feedHeaderReturnProgress.value, {
@@ -456,12 +450,12 @@ const feedTabsTargetLayerStyle = computed(() =>
     },
   ),
 )
-const sourcePullStatusStyle = computed(() => ({
-  ...chromeLayerMotion.layerStyle(sourcePullActive.value, sourcePullProgress.value, { shift: -10, scaleStart: 0.96 }),
-}))
-const sourcePullIconStyle = computed(() => ({
-  transform: feedInteraction.pullRefreshing ? 'none' : cssRotate(sourcePullProgress.value * 300),
-}))
+const sourcePullStatusStyle = computed(() =>
+  chromeLayerMotion.refreshStatusStyle(sourcePullActive.value, sourcePullProgress.value),
+)
+const sourcePullIconStyle = computed(() =>
+  chromeLayerMotion.refreshIconStyle(feedInteraction.pullRefreshing, sourcePullProgress.value),
+)
 const feedTrackStyle = feedPagerTransition.trackStyle
 const viewSwipeTargetKey = feedPagerTransition.targetKey
 const viewSwipeTargetVisible = feedPagerTransition.targetVisible
@@ -1054,10 +1048,6 @@ function clearStretchAnchors(delay = motionStretchAnchorClearDuration) {
     }
     pageContentMotion.clearStretchAnchorIfIdle(readerBackDragging.value)
   }, delay)
-}
-
-function cssRotate(degrees: number) {
-  return `rotate(${cssNumber(degrees)}deg)`
 }
 
 function escapeHTML(value: string) {

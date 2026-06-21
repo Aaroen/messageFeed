@@ -28,6 +28,10 @@ function cssTranslate3d(x: number, y: number, z = 0) {
   return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
 }
 
+function cssRotate(degrees: number) {
+  return `rotate(${cssNumber(degrees)}deg)`
+}
+
 function finiteNumber(value: number) {
   return Number.isFinite(value) ? value : 0
 }
@@ -51,6 +55,16 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
       transition: settling
         ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard)'
         : undefined,
+    }
+  }
+
+  function refreshStatusStyle(visible: boolean, progress: number) {
+    return layerStyle(visible, progress, { shift: -10, scaleStart: 0.96 })
+  }
+
+  function refreshIconStyle(refreshing: boolean, progress: number) {
+    return {
+      transform: refreshing ? 'none' : cssRotate(progress * 300),
     }
   }
 
@@ -100,6 +114,8 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
     headerStyle,
     sourceHeaderStyle,
     navOpenButtonStyle,
+    refreshStatusStyle,
+    refreshIconStyle,
     layerStyle,
   }
 }
