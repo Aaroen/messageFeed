@@ -276,6 +276,7 @@ const chromeLayerMotion = useChromeLayerMotion({
 const feedTopPull = useTopPullState()
 const feedTopPulling = feedTopPull.pulling
 const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
+const feedTopPullStartProgress = feedTopPull.startProgress
 const pagePullRefresh = usePullRefresh({ threshold: 52 })
 const pageRefreshThreshold = pagePullRefresh.threshold
 const pagePullOffset = pagePullRefresh.offset
@@ -926,7 +927,6 @@ let navigationDragStarted = false
 let removeSystemBackGuard: (() => void) | null = null
 let lastHomeBackAttemptAt = 0
 let lastScrollY = typeof window === 'undefined' ? 0 : window.scrollY
-let topPullStartProgress = 1
 
 function resetGestureTracking() {
   trackingEdgeSwipeCandidate = false
@@ -2332,9 +2332,8 @@ function handleFeedTopPullStart(startedWithVisibleChrome = false) {
     return
   }
 
-  feedTopPull.begin(startedWithVisibleChrome || feedTopChromeIsVisiblyOpen.value)
+  feedTopPull.begin(startedWithVisibleChrome || feedTopChromeIsVisiblyOpen.value, topChromeProgress.value)
   chromeState.beginRefreshing()
-  topPullStartProgress = topChromeProgress.value
 }
 
 function handleFeedTopPullMove(distance: number) {
@@ -2355,7 +2354,7 @@ function handleFeedTopPullMove(distance: number) {
     return
   }
 
-  chromeState.setRefreshingProgress(clamp(topPullStartProgress - distance / feedHeaderHeight.value))
+  chromeState.setRefreshingProgress(clamp(feedTopPullStartProgress.value - distance / feedHeaderHeight.value))
 }
 
 function handleFeedTopPullEnd(shouldRefresh = false) {
