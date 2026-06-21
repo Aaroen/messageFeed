@@ -16,6 +16,7 @@ import {
   type Source,
   type SourceCatalogEntry,
 } from '@/api/feed'
+import { useMotionTimings } from '@/composables/useMotionTimings'
 
 const sources = ref<Source[]>([])
 const catalog = ref<SourceCatalogEntry[]>([])
@@ -26,6 +27,7 @@ const loading = ref(false)
 const catalogLoading = ref(false)
 const actionLoading = ref(false)
 const notice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
+const motionTimings = useMotionTimings()
 let noticeTimer = 0
 const importFetchConcurrency = 3
 
@@ -60,7 +62,7 @@ function showNotice(type: 'success' | 'warning', message: string, durationMS?: n
   window.clearTimeout(noticeTimer)
   const show = () => {
     notice.value = { type, message: normalized }
-    const duration = durationMS ?? (type === 'success' ? 1000 : 3000)
+    const duration = durationMS ?? motionTimings.noticeDuration(type)
     if (duration > 0) {
       noticeTimer = window.setTimeout(() => {
         notice.value = null

@@ -10,6 +10,7 @@ import {
   type Source,
   type SourceCatalogEntry,
 } from '@/api/feed'
+import { useMotionTimings } from '@/composables/useMotionTimings'
 import type { ReaderSource } from '@/composables/useReaderSession'
 
 type SourceNotice = {
@@ -39,6 +40,7 @@ type ReaderSourceSubscriptionOptions = {
 }
 
 export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
+  const motionTimings = useMotionTimings()
   let sourceNoticeTimer = 0
   const sourceToggleLabel = computed(() => {
     if (options.sourceSubscriptionLoading.value) {
@@ -65,7 +67,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     }
     options.setSourceNotice({ type, message: normalized })
     clearNoticeTimer()
-    const duration = durationMS ?? (type === 'success' ? 1000 : 3000)
+    const duration = durationMS ?? motionTimings.noticeDuration(type)
     if (duration > 0 && typeof window !== 'undefined') {
       sourceNoticeTimer = window.setTimeout(() => {
         options.setSourceNotice(null)

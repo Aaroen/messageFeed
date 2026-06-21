@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { formatAPIError } from '@/api/client'
 import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
+import { useMotionTimings } from '@/composables/useMotionTimings'
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
@@ -53,6 +54,7 @@ const emit = defineEmits<{
 
 const feedInteraction = useFeedInteractionStore()
 const feedListCache = useFeedListCacheStore()
+const motionTimings = useMotionTimings()
 const items = ref<FeedItem[]>([])
 const loading = ref(false)
 const loadingMore = ref(false)
@@ -83,9 +85,10 @@ const trackingPull = pullRefresh.gestureTracking
 const pageSize = 10
 const cacheTTLMS = 60 * 1000
 const verticalLockRatio = 1.18
-const motionCleanupBuffer = 96
-const pullReleaseDelay = 120
-const pullSettleDuration = 1000
+const motionCleanupBuffer = motionTimings.motionCleanupBuffer
+const pullReleaseDelay = motionTimings.topRefreshReleaseDelay
+const pullSettleDuration = motionTimings.topRefreshSettleDuration
+const noticeRevealDelay = motionTimings.noticeRevealDelay
 let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
 let feedNoticeTimer = 0
@@ -359,7 +362,7 @@ function showFeedNotice(type: FeedNotice['type'], message: string, delayMS = 0) 
     feedNotice.value = { type, message: normalized }
     feedNoticeTimer = window.setTimeout(() => {
       feedNotice.value = null
-    }, type === 'success' ? 1000 : 3000)
+    }, motionTimings.noticeDuration(type))
   }
   if (delayMS > 0) {
     feedNoticeTimer = window.setTimeout(show, delayMS)
@@ -474,11 +477,11 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     writeItemsToCache()
     if (!isBackgroundRefresh && refreshNotice) {
-      showFeedNotice(refreshNotice.type, refreshNotice.message, 180)
+      showFeedNotice(refreshNotice.type, refreshNotice.message, noticeRevealDelay)
     } else if (!isBackgroundRefresh && autoFetchNotice && autoFetchNotice.type === 'warning') {
       showFeedNotice(autoFetchNotice.type, autoFetchNotice.message)
     } else if (!isBackgroundRefresh && isRefresh) {
-      showFeedNotice('success', refreshSuccessMessage(), 180)
+      showFeedNotice('success', refreshSuccessMessage(), noticeRevealDelay)
     }
   } catch (err) {
     const message = formatAPIError(err)
@@ -486,7 +489,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       if (isBackgroundRefresh) {
         error.value = `刷新失败：${message}`
       } else {
-        showFeedNotice('warning', `刷新失败：${message}`, 180)
+        showFeedNotice('warning', `刷新失败：${message}`, noticeRevealDelay)
       }
     } else {
       error.value = `加载失败：${message}`
