@@ -70,6 +70,7 @@ import { useAppGesturePolicy } from '@/composables/useAppGesturePolicy'
 import { useAppSwipeNavigationState } from '@/composables/useAppSwipeNavigationState'
 import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
 import { useAppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
+import { useAppReaderDetailHeaderState } from '@/composables/useAppReaderDetailHeaderState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -693,6 +694,17 @@ const readerMorphVisibilityState = useAppReaderMorphVisibilityState({
   detailMorphSummaryVisible,
   detailPreviewSummary,
 })
+const readerDetailHeaderState = useAppReaderDetailHeaderState({
+  chromeVisible: detailChromeVisible,
+  readerOpen: detailReaderOpen,
+  visible: detailHeaderVisible,
+  layerStyle: detailHeaderLayerStyle,
+  item: detailItem,
+  titleStyle: detailHeaderTitleStyle,
+  previousTitle: detailHeaderPreviousTitle,
+  previousTextStyle: detailHeaderPreviousTextStyle,
+  currentTextStyle: detailHeaderCurrentTextStyle,
+})
 
 const { resetGestureTracking } = useAppGestureResetAction({
   resetNavigationGesture: navigationGesture.reset,
@@ -1300,15 +1312,7 @@ const mainOutletBindings = useAppMainOutletBindings({
   headerClass,
   headerStyle,
   isFeedRoute,
-  detailChromeVisible,
-  detailReaderOpen,
-  detailHeaderVisible,
-  detailHeaderLayerStyle,
-  detailTitle: () => detailItem.value?.title || '',
-  detailHeaderTitleStyle,
-  detailHeaderPreviousTitle,
-  detailHeaderPreviousTextStyle,
-  detailHeaderCurrentTextStyle,
+  readerDetailHeader: readerDetailHeaderState,
   feedTabs,
   activeKey: () => route.name,
   feedTabsLayerHidden,

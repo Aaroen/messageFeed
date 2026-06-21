@@ -2,6 +2,7 @@ import { computed } from 'vue'
 import type { StyleValue } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
+import type { AppReaderDetailHeaderState } from '@/composables/useAppReaderDetailHeaderState'
 import type { PageViewExpose } from '@/composables/usePageOutletState'
 import type { ChromePhase } from '@/composables/useChromeState'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
@@ -30,15 +31,7 @@ type AppMainOutletBindingOptions = {
   headerClass: ReadableRef<ClassValue>
   headerStyle: ReadableRef<StyleValue>
   isFeedRoute: ReadableRef<boolean>
-  detailChromeVisible: ReadableRef<boolean>
-  detailReaderOpen: ReadableRef<boolean>
-  detailHeaderVisible: ReadableRef<boolean>
-  detailHeaderLayerStyle: ReadableRef<StyleValue>
-  detailTitle: () => string
-  detailHeaderTitleStyle: ReadableRef<StyleValue>
-  detailHeaderPreviousTitle: ReadableRef<string>
-  detailHeaderPreviousTextStyle: ReadableRef<StyleValue>
-  detailHeaderCurrentTextStyle: ReadableRef<StyleValue>
+  readerDetailHeader: AppReaderDetailHeaderState
   feedTabs: FeedTab[]
   activeKey: () => string | symbol | null | undefined
   feedTabsLayerHidden: ReadableRef<boolean>
@@ -94,61 +87,65 @@ type AppMainOutletBindingOptions = {
 }
 
 export function useAppMainOutletBindings(options: AppMainOutletBindingOptions) {
-  const props = computed(() => ({
-    mainClass: options.mainClass.value,
-    mainStyle: options.mainStyle.value,
-    swipePhase: options.swipePhase.value,
-    swipeDirection: options.swipeDirection.value,
-    swipeProgress: options.swipeProgress.value,
-    swipeIsBlocked: options.swipeIsBlocked.value,
-    topChromePhase: options.topChromePhase.value,
-    feedHeaderProgress: options.feedHeaderProgress.value,
-    headerClass: options.headerClass.value,
-    headerStyle: options.headerStyle.value,
-    feedHeaderActive: options.isFeedRoute.value || options.detailChromeVisible.value,
-    detailReaderOpen: options.detailReaderOpen.value,
-    detailHeaderVisible: options.detailHeaderVisible.value,
-    detailHeaderLayerStyle: options.detailHeaderLayerStyle.value,
-    detailTitle: options.detailTitle(),
-    detailHeaderTitleStyle: options.detailHeaderTitleStyle.value,
-    detailHeaderPreviousTitle: options.detailHeaderPreviousTitle.value,
-    detailHeaderPreviousTextStyle: options.detailHeaderPreviousTextStyle.value,
-    detailHeaderCurrentTextStyle: options.detailHeaderCurrentTextStyle.value,
-    isFeedRoute: options.isFeedRoute.value,
-    feedTabs: options.feedTabs,
-    activeKey: options.activeKey() ?? null,
-    feedTabsLayerHidden: options.feedTabsLayerHidden.value,
-    feedTabsLayerStyle: options.feedTabsLayerStyle.value,
-    viewSwipeTargetVisible: options.viewSwipeTargetVisible.value,
-    feedTabsTargetLayerStyle: options.feedTabsTargetLayerStyle.value,
-    viewSwipeTargetKey: options.viewSwipeTargetKey.value,
-    feedPullActive: options.feedPullActive.value,
-    feedPullRefreshing: options.feedPullRefreshing(),
-    pullStatusStyle: options.pullStatusStyle.value,
-    pullIconStyle: options.pullIconStyle.value,
-    pullStatusText: options.pullStatusText.value,
-    pullStatusMeta: options.pullStatusMeta.value,
-    pageTitle: options.pageTitle.value,
-    pagePullActive: options.pagePullActive.value,
-    pageTitleLayerStyle: options.pageTitleLayerStyle.value,
-    pagePullStatusStyle: options.pagePullStatusStyle.value,
-    pagePullRefreshing: options.pagePullRefreshing.value,
-    pagePullIconStyle: options.pagePullIconStyle.value,
-    pagePullStatusText: options.pagePullStatusText.value,
-    pagePullStatusMeta: options.pagePullStatusMeta.value,
-    sourceReaderOpen: options.sourceReaderOpen.value,
-    viewSettling: options.viewSettling.value,
-    feedTrackStyle: options.feedTrackStyle.value,
-    feedScrollTop: options.feedScrollTop.value,
-    topChromeProgress: options.topChromeProgress.value,
-    feedHeaderHeight: options.feedHeaderHeight.value,
-    freezeBodyDuringTopRefresh: options.freezeFeedBodyDuringTopRefresh.value,
-    morphingItemId: options.morphingItemId.value,
-    morphingHeightLockItemId: options.morphingHeightLockItemId.value,
-    morphingItemHeight: options.morphingItemHeight.value,
-    feedItemPreviewProgress: options.feedItemPreviewProgress.value,
-    pageContentInnerStyle: options.pageContentInnerStyle.value,
-  }))
+  const props = computed(() => {
+    const readerDetailHeader = options.readerDetailHeader
+
+    return {
+      mainClass: options.mainClass.value,
+      mainStyle: options.mainStyle.value,
+      swipePhase: options.swipePhase.value,
+      swipeDirection: options.swipeDirection.value,
+      swipeProgress: options.swipeProgress.value,
+      swipeIsBlocked: options.swipeIsBlocked.value,
+      topChromePhase: options.topChromePhase.value,
+      feedHeaderProgress: options.feedHeaderProgress.value,
+      headerClass: options.headerClass.value,
+      headerStyle: options.headerStyle.value,
+      feedHeaderActive: options.isFeedRoute.value || readerDetailHeader.chromeVisible.value,
+      detailReaderOpen: readerDetailHeader.readerOpen.value,
+      detailHeaderVisible: readerDetailHeader.visible.value,
+      detailHeaderLayerStyle: readerDetailHeader.layerStyle.value,
+      detailTitle: readerDetailHeader.title.value,
+      detailHeaderTitleStyle: readerDetailHeader.titleStyle.value,
+      detailHeaderPreviousTitle: readerDetailHeader.previousTitle.value,
+      detailHeaderPreviousTextStyle: readerDetailHeader.previousTextStyle.value,
+      detailHeaderCurrentTextStyle: readerDetailHeader.currentTextStyle.value,
+      isFeedRoute: options.isFeedRoute.value,
+      feedTabs: options.feedTabs,
+      activeKey: options.activeKey() ?? null,
+      feedTabsLayerHidden: options.feedTabsLayerHidden.value,
+      feedTabsLayerStyle: options.feedTabsLayerStyle.value,
+      viewSwipeTargetVisible: options.viewSwipeTargetVisible.value,
+      feedTabsTargetLayerStyle: options.feedTabsTargetLayerStyle.value,
+      viewSwipeTargetKey: options.viewSwipeTargetKey.value,
+      feedPullActive: options.feedPullActive.value,
+      feedPullRefreshing: options.feedPullRefreshing(),
+      pullStatusStyle: options.pullStatusStyle.value,
+      pullIconStyle: options.pullIconStyle.value,
+      pullStatusText: options.pullStatusText.value,
+      pullStatusMeta: options.pullStatusMeta.value,
+      pageTitle: options.pageTitle.value,
+      pagePullActive: options.pagePullActive.value,
+      pageTitleLayerStyle: options.pageTitleLayerStyle.value,
+      pagePullStatusStyle: options.pagePullStatusStyle.value,
+      pagePullRefreshing: options.pagePullRefreshing.value,
+      pagePullIconStyle: options.pagePullIconStyle.value,
+      pagePullStatusText: options.pagePullStatusText.value,
+      pagePullStatusMeta: options.pagePullStatusMeta.value,
+      sourceReaderOpen: options.sourceReaderOpen.value,
+      viewSettling: options.viewSettling.value,
+      feedTrackStyle: options.feedTrackStyle.value,
+      feedScrollTop: options.feedScrollTop.value,
+      topChromeProgress: options.topChromeProgress.value,
+      feedHeaderHeight: options.feedHeaderHeight.value,
+      freezeBodyDuringTopRefresh: options.freezeFeedBodyDuringTopRefresh.value,
+      morphingItemId: options.morphingItemId.value,
+      morphingHeightLockItemId: options.morphingHeightLockItemId.value,
+      morphingItemHeight: options.morphingItemHeight.value,
+      feedItemPreviewProgress: options.feedItemPreviewProgress.value,
+      pageContentInnerStyle: options.pageContentInnerStyle.value,
+    }
+  })
 
   const listeners = {
     navigate: options.navigateTo,
