@@ -41,6 +41,7 @@ import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useSourceContentMotion } from '@/composables/useSourceContentMotion'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
 import { useChromeLayerMotion } from '@/composables/useChromeLayerMotion'
+import { useReaderSourceSurfaceMotion } from '@/composables/useReaderSourceSurfaceMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -476,6 +477,19 @@ const mainClass = computed(() => ({
 const sourceHeaderSpace = computed(() =>
   feedContentCollapsed.value && topChromeProgress.value <= 0.01 ? 0 : feedHeaderHeight.value,
 )
+const sourceSurfaceMotion = useReaderSourceSurfaceMotion({
+  feedHeaderHeight,
+  headerSpace: sourceHeaderSpace,
+  darkTheme,
+  visible: sourceReaderVisible,
+  underDetail: sourceReaderUnderDetail,
+  revealProgress: sourceReaderRevealProgress,
+  offset: sourceReaderOffset,
+  stretch: sourceReaderStretch,
+  stretchAnchor: sourceStretchAnchor,
+  dragging: readerBackDragging,
+  blocksGestures: detailBlocksGestures,
+})
 const sourceContentMotion = useSourceContentMotion({
   headerSpace: sourceHeaderSpace,
   headerHeight: feedHeaderHeight,
@@ -483,30 +497,7 @@ const sourceContentMotion = useSourceContentMotion({
   resolveDelay: motionDelay,
 })
 const sourceContentStyle = sourceContentMotion.contentStyle
-const sourceReaderStyle = computed(() => {
-  const underlayBaseOpacity = darkTheme.value ? 0.74 : 0.54
-  const overlayBaseOpacity = darkTheme.value ? 0.48 : 0.34
-  const sourceStretch = sourceReaderStretch.value
-  return {
-    '--feed-header-height': `${feedHeaderHeight.value}px`,
-    '--source-header-space': cssPx(sourceHeaderSpace.value),
-    zIndex: sourceReaderUnderDetail.value ? 96 : sourceReaderVisible.value ? 110 : 90,
-    opacity: !sourceReaderVisible.value
-      ? '0'
-      : sourceReaderUnderDetail.value
-        ? (overlayBaseOpacity + sourceReaderRevealProgress.value * (1 - overlayBaseOpacity)).toFixed(3)
-        : '1',
-    pointerEvents:
-      !sourceReaderVisible.value || detailBlocksGestures() ? ('none' as const) : ('auto' as const),
-    '--source-underlay-blur': `${((1 - sourceReaderRevealProgress.value) * (darkTheme.value ? 5 : 8)).toFixed(2)}px`,
-    '--source-underlay-opacity': (underlayBaseOpacity + sourceReaderRevealProgress.value * (1 - underlayBaseOpacity)).toFixed(3),
-    transform: `${cssTranslate3d(sourceReaderOffset.value, 0)} scaleX(${(1 + Math.abs(sourceStretch)).toFixed(4)})`,
-    transformOrigin: stretchTransformOrigin(sourceStretch, sourceStretchAnchor.value),
-    transition: readerBackDragging.value
-      ? 'none'
-      : 'opacity var(--motion-normal) var(--ease-standard), transform var(--motion-normal) var(--ease-standard)',
-  }
-})
+const sourceReaderStyle = sourceSurfaceMotion.surfaceStyle
 const sourceHeaderStyle = computed(() => ({
   opacity: topChromeProgress.value.toFixed(3),
   pointerEvents: topChromeProgress.value > 0.86 ? ('auto' as const) : ('none' as const),
