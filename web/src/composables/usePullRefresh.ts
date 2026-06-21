@@ -134,21 +134,28 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     setDistance(threshold)
   }
 
-  function finishRefreshing() {
+  function finishRefreshingState() {
     dragging.value = false
     refreshing.value = false
     setDistance(0)
   }
 
+  function finishRefreshing() {
+    clearTimers()
+    finishRefreshingState()
+  }
+
   function resetMotion() {
+    clearTimers()
     setOffset(0)
     setDistance(0)
     settling.value = false
   }
 
   function finishBackgroundRefresh() {
+    clearTimers()
     setOffset(0)
-    finishRefreshing()
+    finishRefreshingState()
     resetGesture()
     settling.value = false
   }
@@ -162,6 +169,8 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
       window.clearTimeout(settleTimer)
       window.clearTimeout(releaseTimer)
     }
+    settleTimer = 0
+    releaseTimer = 0
   }
 
   function settleOffset(delayMS: number) {
@@ -169,6 +178,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     settling.value = true
     offset.value = 0
     settleTimer = window.setTimeout(() => {
+      settleTimer = 0
       settling.value = false
     }, Math.max(0, delayMS))
   }
@@ -178,11 +188,13 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
     dragging.value = false
     settling.value = true
     releaseTimer = window.setTimeout(() => {
+      releaseTimer = 0
       setOffset(0)
-      finishRefreshing()
+      finishRefreshingState()
       resetGesture()
       options.afterRelease?.()
       settleTimer = window.setTimeout(() => {
+        settleTimer = 0
         settling.value = false
         options.afterSettled?.()
       }, Math.max(0, options.settleDelayMS ?? completionSettleDelayMS))
@@ -190,6 +202,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   }
 
   function reset() {
+    clearTimers()
     offset.value = 0
     distance.value = 0
     dragging.value = false
