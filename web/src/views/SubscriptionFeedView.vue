@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { formatAPIError } from '@/api/client'
 import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
+import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRefreshCompletionAction'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
@@ -85,9 +86,8 @@ const trackingPull = pullRefresh.gestureTracking
 const pageSize = 10
 const cacheTTLMS = 60 * 1000
 const verticalLockRatio = 1.18
-const motionCleanupBuffer = motionTimings.motionCleanupBuffer
 const pullReleaseDelay = motionTimings.topRefreshReleaseDelay
-const pullSettleDuration = motionTimings.topRefreshSettleDuration
+const pullSettleDelay = motionTimings.topRefreshSettleDuration + motionTimings.motionCleanupBuffer
 const noticeRevealDelay = motionTimings.noticeRevealDelay
 let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
@@ -164,45 +164,26 @@ const feedBodyStyle = computed(() => ({
 }))
 const safeMorphingPreviewProgress = computed(() => Math.min(Math.max(props.morphingPreviewProgress, 0), 1))
 
-function canWritePullState(force = false) {
-  if (!usesGlobalPullState.value) {
-    return false
-  }
-  return props.active || force || feedInteraction.pullViewKey === viewKey.value
-}
-
-function setPullState(
-  payload: {
-    offset: number
-    active: boolean
-    refreshing: boolean
-    statusText: string
-    statusMeta: string
-  },
-  force = false,
-) {
-  if (!canWritePullState(force)) {
-    return
-  }
-  feedInteraction.setPullState({
-    ...payload,
-    viewKey: viewKey.value,
-    lastUpdatedAt: lastUpdatedAt.value,
-  })
-}
-
-function clearPullState(force = false) {
-  setPullState(
-    {
-      offset: 0,
-      active: false,
-      refreshing: false,
-      statusText: '',
-      statusMeta: '',
-    },
-    force,
-  )
-}
+const feedPullRefreshCompletion = useFeedPullRefreshCompletionAction({
+  usesGlobalPullState,
+  active: computed(() => props.active),
+  viewKey,
+  lastUpdatedAt,
+  pullOffset,
+  pullActive,
+  pullSettling,
+  refreshing,
+  pullStartedWithVisibleChrome,
+  trackingPull,
+  pullStatusText,
+  pullStatusMeta,
+  isSourceMode,
+  releaseDelayMS: pullReleaseDelay,
+  settleDelayMS: pullSettleDelay,
+  feedInteraction,
+  pullRefresh,
+})
+const clearPullState = feedPullRefreshCompletion.clearPullState
 
 function formatDate(value?: string) {
   if (!value) {
@@ -499,28 +480,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     loadingMore.value = false
     scheduleLoadMoreObserver()
 
-    if (!isRefresh) {
-      pullRefresh.finishRefreshing()
-      return
-    }
-
-    if (isBackgroundRefresh) {
-      pullRefresh.finishBackgroundRefresh()
-      return
-    }
-
-    setPullState({
-      offset: pullOffset.value,
-      active: true,
-      refreshing: true,
-      statusText: isSourceMode.value ? '抓取中' : '正在刷新',
-      statusMeta: pullStatusMeta.value,
-    })
-    pullRefresh.settleRefreshCompletion({
-      releaseDelayMS: pullReleaseDelay,
-      settleDelayMS: pullSettleDuration + motionCleanupBuffer,
-      afterRelease: clearPullState,
-    })
+    feedPullRefreshCompletion.completeLoad({ isRefresh, isBackgroundRefresh })
   }
 }
 
@@ -753,25 +713,7 @@ watch(
 watch(
   [pullOffset, refreshing, lastUpdatedAt, () => props.active],
   () => {
-    if (!usesGlobalPullState.value || !props.active || pullSettling.value) {
-      return
-    }
-
-    if (!pullActive.value && !refreshing.value) {
-      if (pullStartedWithVisibleChrome.value && trackingPull.value) {
-        return
-      }
-      clearPullState()
-      return
-    }
-    pullRefresh.clearTimers()
-    setPullState({
-      offset: pullOffset.value,
-      active: pullActive.value,
-      refreshing: refreshing.value,
-      statusText: pullStatusText.value,
-      statusMeta: pullStatusMeta.value,
-    })
+    feedPullRefreshCompletion.syncPullState()
   },
   { immediate: true },
 )
