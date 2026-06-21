@@ -78,6 +78,7 @@ import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeContro
 import { useReaderBackSwipeTransitionController } from '@/composables/useReaderBackSwipeTransitionController'
 import { useFeedPointerSwipeHandlers } from '@/composables/useFeedPointerSwipeHandlers'
 import { useNavigationPointerHandlers } from '@/composables/useNavigationPointerHandlers'
+import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHandlers'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1420,115 +1421,46 @@ const cancelBackSwipe = readerBackSwipeCompletion.cancelBackSwipe
 const finishViewSwipe = feedViewSwipeController.finishViewSwipe
 const showTopChromeForViewSwipe = feedViewSwipeController.showTopChromeForViewSwipe
 
-function handleTouchStart(event: TouchEvent) {
-  if (event.touches.length !== 1) {
-    return
-  }
-
-  finishCommittedListReturnForGesture()
-
-  const touch = event.touches[0]
-  gestureOrigin.begin(touch.clientX, touch.clientY, navigationProgress.value)
-
-  if (navigationVisible.value) {
-    navigationGesture.setCandidates({ closeSwipe: navigationOpen.value })
-    feedPagerTransition.resetViewSwipeTracking()
-    resetReaderBackSwipeCandidateState()
-    return
-  }
-
-  if (detailBlocksGestures()) {
-    beginDetailGestureCandidate(touch.clientX, touch.clientY)
-    return
-  }
-  if (sourceReaderOpen.value) {
-    beginReaderBackSwipeCandidateState('source')
-    return
-  }
-  if (!isFeedRoute.value && !navigationVisible.value) {
-    beginReaderBackSwipeCandidateState('page')
-  }
-
-  navigationGesture.setCandidates({
-    edgeSwipe: canStartNavigationOpen(gestureOrigin.originX()),
-    closeSwipe: navigationOpen.value,
-  })
-  if (canStartViewSwipe(gestureOrigin.originX())) {
-    feedPagerTransition.beginViewSwipeCandidate()
-  } else {
-    feedPagerTransition.resetViewSwipeTracking()
-  }
-}
-
-function handleTouchMove(event: TouchEvent) {
-  if (
-    !navigationGesture.hasCandidate() &&
-    !viewSwipeCandidateActive.value &&
-    !readerBackSwipeCandidateActive.value &&
-    !navigationGesture.hasActiveSwipe() &&
-    !viewSwipeActive.value &&
-    !readerBackSwipeTrackingActive.value
-  ) {
-    return
-  }
-
-  const touch = event.touches[0]
-  const { deltaX, deltaY } = gestureOrigin.delta(touch.clientX, touch.clientY)
-  const horizontal = isHorizontalSwipe(deltaX, deltaY)
-  const viewHorizontal = isViewHorizontalSwipe(deltaX, deltaY)
-
-  if (readerBackSwipeCandidateActive.value || readerBackSwipeTrackingActive.value) {
-    const handledBackSwipe = updateBackSwipe(deltaX, deltaY, false, touch.clientX)
-    if (!handledBackSwipe) {
-      return
-    }
-    event.preventDefault()
-    return
-  }
-
-  if (navigationGesture.edgeSwipeCandidate() && deltaX > 8 && isNavigationDrag(deltaX, deltaY)) {
-    navigationGesture.beginEdgeSwipe()
-    feedPagerTransition.cancelViewSwipeCandidate()
-    navigationDrawer.beginDrag()
-  }
-
-  if (navigationGesture.closeSwipeCandidate() && deltaX < -8 && isNavigationDrag(deltaX, deltaY)) {
-    navigationGesture.beginCloseSwipe()
-    feedPagerTransition.cancelViewSwipeCandidate()
-    navigationDrawer.beginDrag()
-  }
-
-  if (navigationGesture.hasActiveSwipe() || viewSwipeActive.value) {
-    event.preventDefault()
-  }
-
-  if (navigationGesture.edgeSwipe()) {
-    navigationDrawer.updateOpeningDrag(deltaX)
-    return
-  }
-
-  if (navigationGesture.closeSwipe()) {
-    navigationDrawer.updateClosingDrag(gestureOrigin.navigationProgress(), deltaX)
-    return
-  }
-
-  if (viewSwipeCandidateActive.value && viewHorizontal) {
-    const dragStart = feedPagerTransition.tryBeginDrag(deltaX)
-    if (dragStart.started) {
-      navigationGesture.cancelCandidates()
-      showTopChromeForViewSwipe()
-      beginViewSwipeTransition(deltaX)
-    } else {
-      return
-    }
-  }
-
-  if (viewSwipeActive.value) {
-    feedPagerTransition.updateDragDelta(deltaX)
-    syncViewSwipeTransition(viewDragOffset.value)
-    return
-  }
-}
+const appTouchGestureHandlers = useAppTouchGestureHandlers({
+  navigationVisible,
+  navigationOpen,
+  navigationProgress,
+  sourceReaderOpen,
+  isFeedRoute,
+  viewSwipeCandidateActive,
+  viewSwipeActive,
+  viewDragOffset,
+  readerBackSwipeCandidateActive,
+  readerBackSwipeTrackingActive,
+  navigationOpenDistance,
+  viewSwitchDistance,
+  gestureOrigin,
+  navigationGesture,
+  navigationDrawer,
+  feedPagerTransition,
+  finishCommittedListReturnForGesture,
+  resetGestureTracking,
+  detailBlocksGestures,
+  beginDetailGestureCandidate,
+  beginReaderBackSwipeCandidateState,
+  resetReaderBackSwipeCandidateState,
+  updateBackSwipe,
+  finishBackSwipe,
+  cancelBackSwipe,
+  canStartNavigationOpen,
+  canStartViewSwipe,
+  isHorizontalSwipe,
+  isViewHorizontalSwipe,
+  isNavigationDrag,
+  settleNavigation,
+  showTopChromeForViewSwipe,
+  beginViewSwipeTransition,
+  syncViewSwipeTransition,
+  suppressFollowingClick,
+  finishViewSwipe,
+})
+const handleTouchStart = appTouchGestureHandlers.handleTouchStart
+const handleTouchMove = appTouchGestureHandlers.handleTouchMove
 
 const navigationPointerHandlers = useNavigationPointerHandlers({
   navigationOpen,
@@ -1552,52 +1484,7 @@ const handleWindowPointerMove = navigationPointerHandlers.handleWindowPointerMov
 const handleWindowPointerUp = navigationPointerHandlers.handleWindowPointerUp
 const handleWindowPointerCancel = navigationPointerHandlers.handleWindowPointerCancel
 
-function handleTouchEnd(event: TouchEvent) {
-  if (
-    !navigationGesture.hasCandidate() &&
-    !viewSwipeCandidateActive.value &&
-    !readerBackSwipeCandidateActive.value &&
-    !navigationGesture.hasActiveSwipe() &&
-    !viewSwipeActive.value &&
-    !readerBackSwipeTrackingActive.value
-  ) {
-    return
-  }
-
-  const touch = event.changedTouches[0]
-  const { deltaX, deltaY } = gestureOrigin.delta(touch.clientX, touch.clientY)
-  const horizontal = isHorizontalSwipe(deltaX, deltaY)
-
-  if (readerBackSwipeTrackingActive.value) {
-    finishBackSwipe(deltaX, deltaY)
-    resetGestureTracking()
-    return
-  }
-
-  if (!navigationGesture.hasActiveSwipe() && !viewSwipeActive.value) {
-    resetGestureTracking()
-    return
-  }
-
-  if (navigationGesture.edgeSwipe()) {
-    if (navigationGesture.dragStarted()) {
-      settleNavigation(horizontal && (deltaX >= navigationOpenDistance || navigationProgress.value >= 0.42))
-    }
-  }
-
-  if (navigationGesture.closeSwipe()) {
-    if (navigationGesture.dragStarted()) {
-      settleNavigation(!(horizontal && (deltaX <= -navigationOpenDistance || navigationProgress.value <= 0.58)))
-    }
-  }
-
-  if (viewSwipeActive.value) {
-    suppressFollowingClick()
-    finishViewSwipe(feedPagerTransition.resolveDragCommitPath(deltaX, horizontal, viewSwitchDistance))
-  }
-
-  resetGestureTracking()
-}
+const handleTouchEnd = appTouchGestureHandlers.handleTouchEnd
 
 const feedPointerSwipeHandlers = useFeedPointerSwipeHandlers({
   isFeedRoute,
@@ -1624,22 +1511,7 @@ const handleFeedPointerMove = feedPointerSwipeHandlers.handleFeedPointerMove
 const handleFeedPointerUp = feedPointerSwipeHandlers.handleFeedPointerUp
 const handleFeedPointerCancel = feedPointerSwipeHandlers.handleFeedPointerCancel
 
-function handleTouchCancel() {
-  const hadNavigationGesture = navigationGesture.hasActiveSwipe()
-  const hadViewGesture = viewSwipeActive.value
-  const hadBackGesture = readerBackSwipeTrackingActive.value
-  if (hadBackGesture) {
-    cancelBackSwipe()
-  }
-  resetGestureTracking()
-  if (hadNavigationGesture && navigationVisible.value && !navigationOpen.value) {
-    settleNavigation(false)
-  }
-  if (hadViewGesture) {
-    finishViewSwipe(null)
-  }
-  feedPagerTransition.endPointerTracking()
-}
+const handleTouchCancel = appTouchGestureHandlers.handleTouchCancel
 
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
