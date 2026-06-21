@@ -147,6 +147,22 @@ type ReaderBackSwipeVisualAction =
   | {
       type: 'none'
     }
+type ReaderBackSwipeIntentAction =
+  | {
+      type: 'source-return'
+    }
+  | {
+      type: 'right-swipe'
+      intent: 'back' | 'blocked'
+      returningToFeed: boolean
+      revealSourceReader: boolean
+    }
+  | {
+      type: 'detail-source'
+    }
+  | {
+      type: 'blocked'
+    }
 type ActiveReaderBackSwipeTarget = Exclude<ReaderBackSwipeTarget, null>
 type ActiveReaderBackSwipeIntent = Exclude<ReaderBackSwipeIntent, null>
 
@@ -1417,6 +1433,24 @@ export function useReaderStackState() {
     return readerBackSwipeMatches('source') && deltaX < 0 && sourceReaderCanReturnToDetail()
   }
 
+  function readerBackSwipeIntentAction(deltaX: number): ReaderBackSwipeIntentAction {
+    if (readerBackSwipeCanReturnSourceToDetail(deltaX)) {
+      return { type: 'source-return' }
+    }
+    if (deltaX > 0) {
+      return {
+        type: 'right-swipe',
+        intent: readerBackSwipeCanCommitRight.value ? 'back' : 'blocked',
+        returningToFeed: readerBackSwipeReturningToFeed(),
+        revealSourceReader: readerBackSwipeRevealsSourceReader(),
+      }
+    }
+    if (readerBackSwipeCanOpenSourceFromDetail()) {
+      return { type: 'detail-source' }
+    }
+    return { type: 'blocked' }
+  }
+
   function readerBackSwipeTransitionProgress(fallbackStretch = 0) {
     if (readerBackSwipeMatches('detail', 'source')) {
       return detailSourceExitProgress.value
@@ -1677,7 +1711,6 @@ export function useReaderStackState() {
     readerBackDragging,
     sourceReaderBlockedBackSwipeActive,
     sourceReaderReturnTargetPending,
-    readerBackSwipeCanCommitRight,
     readerMotionSettling,
     readerSource,
     sourceReaderRefreshNonce,
@@ -1798,11 +1831,7 @@ export function useReaderStackState() {
     resetReaderBackSwipeTargetState,
     setReaderBackSwipeTargetState,
     setReaderBackSwipeIntentState,
-    readerBackSwipeMatches,
-    readerBackSwipeReturningToFeed,
-    readerBackSwipeRevealsSourceReader,
-    readerBackSwipeCanOpenSourceFromDetail,
-    readerBackSwipeCanReturnSourceToDetail,
+    readerBackSwipeIntentAction,
     readerBackSwipeTransitionProgress,
     readerBackSwipeVisualAction,
     readerBackSwipeShouldCommit,

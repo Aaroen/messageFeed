@@ -72,7 +72,6 @@ const {
   readerBackDragging,
   sourceReaderBlockedBackSwipeActive,
   sourceReaderReturnTargetPending,
-  readerBackSwipeCanCommitRight,
   readerMotionSettling,
   readerSource,
   sourceReaderRefreshNonce,
@@ -186,11 +185,7 @@ const {
   resetReaderBackSwipeTargetState,
   setReaderBackSwipeTargetState,
   setReaderBackSwipeIntentState,
-  readerBackSwipeMatches,
-  readerBackSwipeReturningToFeed,
-  readerBackSwipeRevealsSourceReader,
-  readerBackSwipeCanOpenSourceFromDetail,
-  readerBackSwipeCanReturnSourceToDetail,
+  readerBackSwipeIntentAction,
   readerBackSwipeTransitionProgress,
   readerBackSwipeVisualAction,
   readerBackSwipeShouldCommit,
@@ -2100,6 +2095,48 @@ function isDetailFrameHorizontalSwipe(deltaX: number, deltaY: number) {
   return Math.abs(deltaX) > 3 && Math.abs(deltaX) > Math.abs(deltaY) * 0.52
 }
 
+function applyReaderBackSwipeIntentAction(
+  deltaX: number,
+  options: { resetSourceExit?: boolean; prepareBlocked?: boolean } = {},
+) {
+  const action = readerBackSwipeIntentAction(deltaX)
+  if (action.type === 'source-return') {
+    prepareSourceReaderReturnDrag()
+    setReaderBackSwipeIntentState('back')
+    showTopChromeForSourceReturn()
+    prepareReaderBackSwipeIntentState({ intent: 'source-return' })
+    return
+  }
+
+  if (action.type === 'right-swipe') {
+    setReaderBackSwipeIntentState(action.intent)
+    if (action.returningToFeed) {
+      refreshDetailFeedOriginRect(true)
+    }
+    prepareReaderBackSwipeIntentState({
+      intent: 'detail-back',
+      returningToFeed: action.returningToFeed,
+      revealSourceReader: action.revealSourceReader,
+      ...(options.resetSourceExit ? { resetSourceExit: true } : {}),
+    })
+    if (action.revealSourceReader) {
+      captureDetailSourceTransitionRects(12, { lock: true })
+    }
+    return
+  }
+
+  if (action.type === 'detail-source') {
+    setReaderBackSwipeIntentState('source')
+    showSourceReaderUnderDetail()
+    return
+  }
+
+  setReaderBackSwipeIntentState('blocked')
+  if (options.prepareBlocked) {
+    prepareReaderBackSwipeIntentState({ intent: 'blocked', clearReturningToFeed: true })
+  }
+}
+
 function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame = false) {
   const horizontal = fromDetailFrame ? isDetailFrameHorizontalSwipe(deltaX, deltaY) : isBackHorizontalSwipe(deltaX, deltaY)
   if (!trackingBackSwipeCandidate || !horizontal) {
@@ -2108,32 +2145,7 @@ function beginBackSwipeIfAllowed(deltaX: number, deltaY: number, fromDetailFrame
 
   trackingBackSwipe = true
   beginReaderBackSwipeTrackingState()
-  if (readerBackSwipeCanReturnSourceToDetail(deltaX)) {
-    prepareSourceReaderReturnDrag()
-    setReaderBackSwipeIntentState('back')
-    showTopChromeForSourceReturn()
-    prepareReaderBackSwipeIntentState({ intent: 'source-return' })
-  } else if (deltaX > 0) {
-    setReaderBackSwipeIntentState(readerBackSwipeCanCommitRight.value ? 'back' : 'blocked')
-    const returningToFeed = readerBackSwipeReturningToFeed()
-    if (returningToFeed) {
-      refreshDetailFeedOriginRect(true)
-    }
-    const revealSourceReader = readerBackSwipeRevealsSourceReader()
-    prepareReaderBackSwipeIntentState({
-      intent: 'detail-back',
-      returningToFeed,
-      revealSourceReader,
-    })
-    if (revealSourceReader) {
-      captureDetailSourceTransitionRects(12, { lock: true })
-    }
-  } else if (readerBackSwipeCanOpenSourceFromDetail()) {
-    setReaderBackSwipeIntentState('source')
-    showSourceReaderUnderDetail()
-  } else {
-    setReaderBackSwipeIntentState('blocked')
-  }
+  applyReaderBackSwipeIntentAction(deltaX)
   startReaderBackSwipeDragState()
   beginBackSwipeTransition(deltaX)
   trackingBackSwipeCandidate = false
@@ -2151,34 +2163,7 @@ function updateBackSwipe(deltaX: number, deltaY: number, fromDetailFrame = false
   }
 
   suppressFollowingClick()
-  if (readerBackSwipeCanReturnSourceToDetail(deltaX)) {
-    prepareSourceReaderReturnDrag()
-    setReaderBackSwipeIntentState('back')
-    showTopChromeForSourceReturn()
-    prepareReaderBackSwipeIntentState({ intent: 'source-return' })
-  } else if (deltaX > 0) {
-    setReaderBackSwipeIntentState(readerBackSwipeCanCommitRight.value ? 'back' : 'blocked')
-    const returningToFeed = readerBackSwipeReturningToFeed()
-    if (returningToFeed) {
-      refreshDetailFeedOriginRect(true)
-    }
-    const revealSourceReader = readerBackSwipeRevealsSourceReader()
-    prepareReaderBackSwipeIntentState({
-      intent: 'detail-back',
-      returningToFeed,
-      revealSourceReader,
-      resetSourceExit: true,
-    })
-    if (revealSourceReader) {
-      captureDetailSourceTransitionRects(12, { lock: true })
-    }
-  } else if (readerBackSwipeCanOpenSourceFromDetail()) {
-    setReaderBackSwipeIntentState('source')
-    showSourceReaderUnderDetail()
-  } else {
-    setReaderBackSwipeIntentState('blocked')
-    prepareReaderBackSwipeIntentState({ intent: 'blocked', clearReturningToFeed: true })
-  }
+  applyReaderBackSwipeIntentAction(deltaX, { resetSourceExit: true, prepareBlocked: true })
   const offset = backSwipeVisualOffset(deltaX)
   const stretch = blockedSwipeStretch(deltaX, currentX)
   const visualAction = readerBackSwipeVisualAction(offset, stretch, windowWidth.value)
