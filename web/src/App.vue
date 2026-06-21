@@ -139,6 +139,8 @@ const {
   detailHeaderTitleSwapping,
   detailSourceListTitleProgress,
   detailHeaderFeedTitleProgress,
+  sourceNameMorphLabelOpacity,
+  sourceNameMorphLabelBlur,
   detailParkedBehindSource,
   detailChromeVisible,
   detailCommittedListReturn,
@@ -698,23 +700,17 @@ const detailHeaderPreviousTextStyle = computed(() => {
   }
 })
 const detailInlineSourceStyle = computed(() => {
-  const progress = sourceNameMorphProgress.value
-  const opacity = sourceNameMorphActive.value ? clamp((0.2 - progress) / 0.2) : 1 - progress
-  const blur = sourceNameMorphActive.value ? clamp(progress / 0.2) * 2.2 : progress * 1.8
   return {
-    opacity: opacity.toFixed(3),
-    filter: `blur(${blur.toFixed(2)}px)`,
+    opacity: sourceNameMorphLabelOpacity.value.toFixed(3),
+    filter: `blur(${sourceNameMorphLabelBlur.value.toFixed(2)}px)`,
     transform: 'translate3d(0, 0, 0)',
     transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) ease, filter var(--motion-short) ease',
   }
 })
 const detailMorphSourceLabelStyle = computed(() => {
-  const progress = sourceNameMorphProgress.value
-  const opacity = sourceNameMorphActive.value ? clamp((0.2 - progress) / 0.2) : 1 - progress
-  const blur = sourceNameMorphActive.value ? clamp(progress / 0.2) * 2.2 : progress * 1.8
   return {
-    opacity: opacity.toFixed(3),
-    filter: `blur(${blur.toFixed(2)}px)`,
+    opacity: sourceNameMorphLabelOpacity.value.toFixed(3),
+    filter: `blur(${sourceNameMorphLabelBlur.value.toFixed(2)}px)`,
     transition: readerBackDragging.value ? 'none' : 'opacity var(--motion-short) ease, filter var(--motion-short) ease',
   }
 })

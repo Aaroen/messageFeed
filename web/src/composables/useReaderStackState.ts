@@ -372,6 +372,14 @@ export function useReaderStackState() {
   const detailHeaderFeedTitleProgress = computed(() =>
     clampProgress((detailSurfaceProgress.value - 0.58) / 0.22),
   )
+  const sourceNameMorphLabelOpacity = computed(() => {
+    const progress = sourceNameMorphProgress.value
+    return sourceNameMorphActive.value ? clampProgress((0.2 - progress) / 0.2) : 1 - progress
+  })
+  const sourceNameMorphLabelBlur = computed(() => {
+    const progress = sourceNameMorphProgress.value
+    return sourceNameMorphActive.value ? clampProgress(progress / 0.2) * 2.2 : progress * 1.8
+  })
 
   function detailCommittedListReturn() {
     return detailReaderOpen.value && detailListReturnCommitted.value && !readerBackDragging.value
@@ -1525,6 +1533,8 @@ export function useReaderStackState() {
     detailHeaderTitleSwapping,
     detailSourceListTitleProgress,
     detailHeaderFeedTitleProgress,
+    sourceNameMorphLabelOpacity,
+    sourceNameMorphLabelBlur,
     detailParkedBehindSource,
     detailChromeVisible,
     detailCommittedListReturn,
