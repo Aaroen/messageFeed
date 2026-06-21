@@ -13,8 +13,10 @@ type ReaderBackSwipeResetActionOptions = {
 
 export function useReaderBackSwipeResetAction(options: ReaderBackSwipeResetActionOptions) {
   let stretchAnchorTimer = 0
+  let stretchAnchorTimerToken = 0
 
   function clearStretchAnchorTimer() {
+    stretchAnchorTimerToken += 1
     if (typeof window !== 'undefined' && stretchAnchorTimer !== 0) {
       window.clearTimeout(stretchAnchorTimer)
     }
@@ -23,7 +25,11 @@ export function useReaderBackSwipeResetAction(options: ReaderBackSwipeResetActio
 
   function clearStretchAnchors(delay = options.stretchAnchorClearDuration) {
     clearStretchAnchorTimer()
+    const token = stretchAnchorTimerToken
     stretchAnchorTimer = window.setTimeout(() => {
+      if (token !== stretchAnchorTimerToken) {
+        return
+      }
       stretchAnchorTimer = 0
       options.clearReaderStretchAnchorsIfIdle()
       options.clearPageStretchAnchorIfIdle(options.readerBackDragging.value)
