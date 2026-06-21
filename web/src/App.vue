@@ -74,6 +74,7 @@ import { useTopChromeScrollBehavior } from '@/composables/useTopChromeScrollBeha
 import { useFeedTopPullHandlers } from '@/composables/useFeedTopPullHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 import { usePagePullRefreshAction } from '@/composables/usePagePullRefreshAction'
+import { useFeedViewSwipeController } from '@/composables/useFeedViewSwipeController'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1232,17 +1233,28 @@ function canStartNavigationOpen(_clientX: number) {
   )
 }
 
-function scheduleSwipeTransitionReset(duration = motionNormalDuration) {
-  swipeTransition.scheduleReset(motionDelay(duration))
-}
-
-function beginViewSwipeTransition(offset: number) {
-  swipeTransition.begin(feedPagerTransition.swipeTransitionBeginPayload(offset))
-}
-
-function syncViewSwipeTransition(offset: number) {
-  swipeTransition.update(feedPagerTransition.swipeTransitionUpdatePayload(offset))
-}
+const feedViewSwipeController = useFeedViewSwipeController({
+  topChromeProgress,
+  feedContentCollapsed,
+  viewSwipeChromeRevealDelay,
+  motionNormalDuration,
+  resolveDelay: motionDelay,
+  beginSwipeTransition: swipeTransition.begin,
+  updateSwipeTransition: swipeTransition.update,
+  settleSwipeTransition: swipeTransition.settle,
+  scheduleSwipeReset: swipeTransition.scheduleReset,
+  swipeTransitionBeginPayload: feedPagerTransition.swipeTransitionBeginPayload,
+  swipeTransitionUpdatePayload: feedPagerTransition.swipeTransitionUpdatePayload,
+  finishSwipeResult: feedPagerTransition.finishSwipeResult,
+  settleFinishedSwipe: feedPagerTransition.settleFinishedSwipe,
+  scheduleDelayedCommit: feedPagerTransition.scheduleDelayedCommit,
+  markStartedWithHiddenChrome: feedPagerTransition.markStartedWithHiddenChrome,
+  setTopChromeVisible,
+  pushRoute,
+})
+const scheduleSwipeTransitionReset = feedViewSwipeController.scheduleSwipeTransitionReset
+const beginViewSwipeTransition = feedViewSwipeController.beginViewSwipeTransition
+const syncViewSwipeTransition = feedViewSwipeController.syncViewSwipeTransition
 
 function beginBackSwipeTransition(deltaX: number) {
   const payload = readerBackSwipeTransitionBeginPayload(deltaX, {
@@ -1406,34 +1418,8 @@ const readerBackSwipeCompletion = useReaderBackSwipeCompletion({
 const finishBackSwipe = readerBackSwipeCompletion.finishBackSwipe
 const cancelBackSwipe = readerBackSwipeCompletion.cancelBackSwipe
 
-function finishViewSwipe(nextPath: string | null) {
-  const result = feedPagerTransition.finishSwipeResult(nextPath)
-  swipeTransition.settle(result.committed, result.settlePayload)
-  if (result.shouldRevealChromeFirst) {
-    setTopChromeVisible(true)
-    feedPagerTransition.scheduleDelayedCommit(viewSwipeChromeRevealDelay, () => {
-      if (nextPath) {
-        void pushRoute(nextPath)
-      }
-      feedPagerTransition.settleFinishedSwipe(motionDelay(motionNormalDuration))
-    })
-    scheduleSwipeTransitionReset(viewSwipeChromeRevealDelay + motionNormalDuration)
-    return
-  }
-  if (nextPath) {
-    void pushRoute(nextPath)
-  }
-  feedPagerTransition.settleFinishedSwipe(motionDelay(motionNormalDuration))
-  scheduleSwipeTransitionReset(motionNormalDuration)
-}
-
-function showTopChromeForViewSwipe() {
-  const shouldRevealChrome = topChromeProgress.value < 0.99 || feedContentCollapsed.value
-  if (shouldRevealChrome) {
-    feedPagerTransition.markStartedWithHiddenChrome()
-    setTopChromeVisible(true)
-  }
-}
+const finishViewSwipe = feedViewSwipeController.finishViewSwipe
+const showTopChromeForViewSwipe = feedViewSwipeController.showTopChromeForViewSwipe
 
 function handleTouchStart(event: TouchEvent) {
   if (event.touches.length !== 1) {

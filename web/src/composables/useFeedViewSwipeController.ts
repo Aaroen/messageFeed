@@ -1,0 +1,104 @@
+import type { SwipeDirection } from '@/composables/useSwipeTransition'
+
+type ReadableRef<T> = {
+  readonly value: T
+}
+
+type SwipeTransitionPayload<TSurface extends string> = {
+  to?: TSurface | null
+  direction?: SwipeDirection
+  progress?: number
+  isBlocked?: boolean
+}
+
+type SwipeTransitionBeginPayload<TSurface extends string> = SwipeTransitionPayload<TSurface> & {
+  from: TSurface | null
+  direction: SwipeDirection
+}
+
+type FeedViewSwipeFinishResult = {
+  committed: boolean
+  settlePayload: {
+    progress: number
+    isBlocked: boolean
+  }
+  shouldRevealChromeFirst: boolean
+}
+
+type FeedViewSwipeControllerOptions<TSurface extends string> = {
+  topChromeProgress: ReadableRef<number>
+  feedContentCollapsed: ReadableRef<boolean>
+  viewSwipeChromeRevealDelay: number
+  motionNormalDuration: number
+  resolveDelay: (duration: number) => number
+  beginSwipeTransition: (payload: SwipeTransitionBeginPayload<TSurface>) => void
+  updateSwipeTransition: (payload: SwipeTransitionPayload<TSurface>) => void
+  settleSwipeTransition: (
+    committed: boolean,
+    payload: { progress?: number; isBlocked?: boolean },
+  ) => void
+  scheduleSwipeReset: (delayMS: number) => void
+  swipeTransitionBeginPayload: (offset: number) => SwipeTransitionBeginPayload<TSurface>
+  swipeTransitionUpdatePayload: (offset: number) => SwipeTransitionPayload<TSurface>
+  finishSwipeResult: (nextPath: string | null) => FeedViewSwipeFinishResult
+  settleFinishedSwipe: (delayMS: number) => void
+  scheduleDelayedCommit: (delayMS: number, commit: () => void) => void
+  markStartedWithHiddenChrome: () => void
+  setTopChromeVisible: (visible: boolean) => void
+  pushRoute: (path: string) => Promise<unknown> | void
+}
+
+export function useFeedViewSwipeController<TSurface extends string>(
+  options: FeedViewSwipeControllerOptions<TSurface>,
+) {
+  function scheduleSwipeTransitionReset(duration = options.motionNormalDuration) {
+    options.scheduleSwipeReset(options.resolveDelay(duration))
+  }
+
+  function beginViewSwipeTransition(offset: number) {
+    options.beginSwipeTransition(options.swipeTransitionBeginPayload(offset))
+  }
+
+  function syncViewSwipeTransition(offset: number) {
+    options.updateSwipeTransition(options.swipeTransitionUpdatePayload(offset))
+  }
+
+  function finishViewSwipe(nextPath: string | null) {
+    const result = options.finishSwipeResult(nextPath)
+    options.settleSwipeTransition(result.committed, result.settlePayload)
+
+    if (result.shouldRevealChromeFirst) {
+      options.setTopChromeVisible(true)
+      options.scheduleDelayedCommit(options.viewSwipeChromeRevealDelay, () => {
+        if (nextPath) {
+          void options.pushRoute(nextPath)
+        }
+        options.settleFinishedSwipe(options.resolveDelay(options.motionNormalDuration))
+      })
+      scheduleSwipeTransitionReset(options.viewSwipeChromeRevealDelay + options.motionNormalDuration)
+      return
+    }
+
+    if (nextPath) {
+      void options.pushRoute(nextPath)
+    }
+    options.settleFinishedSwipe(options.resolveDelay(options.motionNormalDuration))
+    scheduleSwipeTransitionReset(options.motionNormalDuration)
+  }
+
+  function showTopChromeForViewSwipe() {
+    const shouldRevealChrome = options.topChromeProgress.value < 0.99 || options.feedContentCollapsed.value
+    if (shouldRevealChrome) {
+      options.markStartedWithHiddenChrome()
+      options.setTopChromeVisible(true)
+    }
+  }
+
+  return {
+    scheduleSwipeTransitionReset,
+    beginViewSwipeTransition,
+    syncViewSwipeTransition,
+    finishViewSwipe,
+    showTopChromeForViewSwipe,
+  }
+}
