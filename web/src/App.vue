@@ -2445,10 +2445,7 @@ function handleTouchMove(event: TouchEvent) {
   }
 
   if (trackingViewSwipeCandidate && viewHorizontal) {
-    if (
-      (activeFeedIndex.value === 0 && deltaX < -viewDragThreshold) ||
-      (activeFeedIndex.value === 1 && deltaX > viewDragThreshold)
-    ) {
+    if (feedPagerTransition.canStartDrag(deltaX)) {
       trackingViewSwipe = true
       trackingViewSwipeCandidate = false
       trackingEdgeSwipeCandidate = false
@@ -2598,13 +2595,7 @@ function handleTouchEnd(event: TouchEvent) {
 
   if (trackingViewSwipe) {
     suppressFollowingClick()
-    if (activeFeedIndex.value === 0 && horizontal && deltaX <= -viewSwitchDistance) {
-      finishViewSwipe('/recommendations')
-    } else if (activeFeedIndex.value === 1 && horizontal && deltaX >= viewSwitchDistance) {
-      finishViewSwipe('/subscriptions')
-    } else {
-      finishViewSwipe(null)
-    }
+    finishViewSwipe(feedPagerTransition.commitPath(deltaX, horizontal, viewSwitchDistance))
   }
 
   resetGestureTracking()
@@ -2645,16 +2636,13 @@ function handleFeedPointerMove(event: PointerEvent) {
       return
     }
 
-    if ((activeFeedIndex.value === 0 && deltaX > 0) || (activeFeedIndex.value === 1 && deltaX < 0)) {
+    if (feedPagerTransition.isBlockedDragDirection(deltaX)) {
       activeFeedPointerId = null
       trackingViewSwipeCandidate = false
       return
     }
 
-    if (
-      (activeFeedIndex.value === 0 && deltaX < -viewDragThreshold) ||
-      (activeFeedIndex.value === 1 && deltaX > viewDragThreshold)
-    ) {
+    if (feedPagerTransition.canStartDrag(deltaX)) {
       trackingViewSwipe = true
       suppressFollowingClick()
       trackingViewSwipeCandidate = false
@@ -2670,7 +2658,7 @@ function handleFeedPointerMove(event: PointerEvent) {
     return
   }
 
-  if ((activeFeedIndex.value === 0 && deltaX > 0) || (activeFeedIndex.value === 1 && deltaX < 0)) {
+  if (feedPagerTransition.isBlockedDragDirection(deltaX)) {
     feedPagerTransition.setDragOffset(0)
     return
   }
@@ -2688,12 +2676,10 @@ function handleFeedPointerUp(event: PointerEvent) {
   const deltaY = event.clientY - touchStartY
   const horizontal = isViewHorizontalSwipe(deltaX, deltaY)
 
-  if (trackingViewSwipe && activeFeedIndex.value === 0 && horizontal && deltaX <= -viewSwitchDistance) {
+  const nextPath = trackingViewSwipe ? feedPagerTransition.commitPath(deltaX, horizontal, viewSwitchDistance) : null
+  if (nextPath) {
     suppressFollowingClick()
-    finishViewSwipe('/recommendations')
-  } else if (trackingViewSwipe && activeFeedIndex.value === 1 && horizontal && deltaX >= viewSwitchDistance) {
-    suppressFollowingClick()
-    finishViewSwipe('/subscriptions')
+    finishViewSwipe(nextPath)
   } else {
     finishViewSwipe(null)
   }

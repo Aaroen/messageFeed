@@ -65,6 +65,24 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     return null
   }
 
+  function isBlockedDragDirection(deltaX: number) {
+    return (activeIndex.value === 0 && deltaX > 0) || (activeIndex.value === 1 && deltaX < 0)
+  }
+
+  function canStartDrag(deltaX: number) {
+    return surfaceFromOffset(deltaX) !== null
+  }
+
+  function commitPath(deltaX: number, horizontal: boolean, switchDistance: number) {
+    if (activeIndex.value === 0 && horizontal && deltaX <= -switchDistance) {
+      return '/recommendations'
+    }
+    if (activeIndex.value === 1 && horizontal && deltaX >= switchDistance) {
+      return '/subscriptions'
+    }
+    return null
+  }
+
   function setDragOffset(nextOffset: number) {
     dragOffset.value = Number.isFinite(nextOffset) ? nextOffset : 0
   }
@@ -135,6 +153,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     targetVisible,
     targetProgress,
     surfaceFromOffset,
+    isBlockedDragDirection,
+    canStartDrag,
+    commitPath,
     setDragOffset,
     setSettling,
     markStartedWithHiddenChrome,
