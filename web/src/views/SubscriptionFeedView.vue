@@ -91,6 +91,7 @@ const verticalLockRatio = 1.18
 const noticeRevealDelay = motionTimings.noticeRevealDelay
 let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
+let loadMoreSyncToken = 0
 let feedNoticeTimer = 0
 let loadRequestToken = 0
 let disposed = false
@@ -570,6 +571,7 @@ function stopLoadMoreObserver() {
 function clearLoadMoreSyncTimer() {
   window.clearTimeout(loadMoreSyncTimer)
   loadMoreSyncTimer = 0
+  loadMoreSyncToken += 1
 }
 
 function maybeLoadMoreFromTrigger() {
@@ -591,6 +593,10 @@ function maybeLoadMoreFromTrigger() {
 }
 
 function syncLoadMoreObserver() {
+  if (disposed) {
+    return
+  }
+
   stopLoadMoreObserver()
   if (!canLoadMore.value || typeof IntersectionObserver === 'undefined') {
     return
@@ -603,7 +609,7 @@ function syncLoadMoreObserver() {
 
   loadMoreObserver = new IntersectionObserver(
     (entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
+      if (!disposed && canLoadMore.value && entries.some((entry) => entry.isIntersecting)) {
         void loadItems({ append: true })
       }
     },
@@ -618,9 +624,19 @@ function syncLoadMoreObserver() {
 
 function scheduleLoadMoreObserver() {
   clearLoadMoreSyncTimer()
+  const syncToken = loadMoreSyncToken + 1
+  loadMoreSyncToken = syncToken
   loadMoreSyncTimer = window.setTimeout(() => {
     loadMoreSyncTimer = 0
-    void nextTick(syncLoadMoreObserver)
+    if (disposed || syncToken !== loadMoreSyncToken) {
+      return
+    }
+    void nextTick(() => {
+      if (disposed || syncToken !== loadMoreSyncToken) {
+        return
+      }
+      syncLoadMoreObserver()
+    })
   }, 0)
 }
 
