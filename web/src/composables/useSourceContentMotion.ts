@@ -19,6 +19,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   const settleOffset = ref(0)
   const settling = ref(false)
   let settleTimer = 0
+  let settleFrame = 0
 
   const contentStyle = computed(() => ({
     paddingTop: cssPx(options.headerSpace.value + 14),
@@ -37,10 +38,13 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   function clearTimer() {
     if (typeof window !== 'undefined') {
       window.clearTimeout(settleTimer)
+      window.cancelAnimationFrame(settleFrame)
     }
+    settleFrame = 0
   }
 
   function reset() {
+    clearTimer()
     settleOffset.value = 0
     settling.value = false
   }
@@ -54,8 +58,13 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
     clearTimer()
     settling.value = false
     settleOffset.value = options.headerHeight.value
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
+    settleFrame = window.requestAnimationFrame(() => {
+      settleFrame = window.requestAnimationFrame(() => {
+        settleFrame = 0
+        if (!options.isVisible()) {
+          reset()
+          return
+        }
         settling.value = true
         settleOffset.value = 0
       })
