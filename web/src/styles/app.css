@@ -156,11 +156,11 @@ a:active,
   color: var(--mf-text);
   cursor: pointer;
   transition:
-    transform var(--motion-fast) ease,
-    opacity var(--motion-fast) ease,
-    visibility var(--motion-fast) ease,
-    border-color var(--motion-fast) ease,
-    background var(--motion-fast) ease;
+    transform var(--motion-fast) var(--ease-standard),
+    opacity var(--motion-fast) var(--ease-standard),
+    visibility var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
 }
 
 .nav-open-button {
@@ -353,8 +353,8 @@ body[arco-theme='dark'] .nav-panel-glow {
   cursor: pointer;
   text-align: left;
   transition:
-    background var(--motion-fast) ease,
-    transform var(--motion-fast) ease;
+    background var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .brand-home-button:hover {
@@ -421,10 +421,10 @@ body[arco-theme='dark'] .theme-icon-button {
   font-weight: 600;
   text-align: left;
   transition:
-    background var(--motion-fast) ease,
-    border-color var(--motion-fast) ease,
-    color var(--motion-fast) ease,
-    transform var(--motion-fast) ease;
+    background var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .nav-item svg {
@@ -469,10 +469,10 @@ body[arco-theme='dark'] .nav-item--active {
   color: var(--mf-text);
   cursor: pointer;
   transition:
-    background var(--motion-fast) ease,
-    border-color var(--motion-fast) ease,
-    color var(--motion-fast) ease,
-    transform var(--motion-fast) ease;
+    background var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .nav-panel-actions {
@@ -534,7 +534,7 @@ body[arco-theme='dark'] .settings-icon-button--active {
     min-height var(--motion-short) var(--ease-standard),
     padding var(--motion-short) var(--ease-standard),
     transform var(--motion-short) var(--ease-standard),
-    opacity var(--motion-fast) ease;
+    opacity var(--motion-fast) var(--ease-standard);
 }
 
 .app-main--feed .app-header,
@@ -603,7 +603,7 @@ body[arco-theme='dark'] .settings-icon-button--active {
   opacity: 1;
   transform: translate3d(0, 0, 0);
   transition:
-    opacity var(--motion-brief) ease,
+    opacity var(--motion-brief) var(--ease-standard),
     transform var(--motion-quick) var(--ease-standard);
   will-change: opacity, transform;
 }
@@ -736,7 +736,7 @@ body[arco-theme='dark'] .feed-refresh-header__icon {
 .feed-status-swap-enter-active,
 .feed-status-swap-leave-active {
   transition:
-    opacity var(--motion-quick) ease,
+    opacity var(--motion-quick) var(--ease-standard),
     transform var(--motion-short) var(--ease-standard);
 }
 
@@ -785,7 +785,7 @@ body[arco-theme='dark'] .app-header {
   box-shadow: 0 12px 32px rgba(31, 45, 61, 0.1);
   backdrop-filter: blur(18px) saturate(1.16);
   transition:
-    opacity var(--motion-quick) ease,
+    opacity var(--motion-quick) var(--ease-standard),
     transform var(--motion-short) var(--ease-standard);
 }
 
@@ -805,9 +805,9 @@ body[arco-theme='dark'] .app-header {
   cursor: pointer;
   font-weight: 700;
   transition:
-    background var(--motion-fast) ease,
-    color var(--motion-fast) ease,
-    transform var(--motion-fast) ease;
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .feed-tab:hover {
@@ -878,7 +878,7 @@ body[arco-theme='dark'] .feed-tab--active {
 .app-main--chrome-settling .app-header {
   transition:
     transform var(--motion-chrome) var(--ease-emphasized),
-    opacity var(--motion-chrome) ease;
+    opacity var(--motion-chrome) var(--ease-standard);
 }
 
 .feed-stage {
@@ -969,10 +969,10 @@ body[arco-theme='dark'] .app-main--refreshing .app-header {
   font-weight: 650;
   text-decoration: none;
   transition:
-    transform var(--motion-fast) ease,
-    border-color var(--motion-fast) ease,
-    background var(--motion-fast) ease,
-    color var(--motion-fast) ease;
+    transform var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
 }
 
 .feed-refresh-button:hover,
@@ -1379,14 +1379,14 @@ body[arco-theme='dark'] .reader-transition-surface {
     transform var(--motion-reader) var(--ease-standard),
     height var(--motion-reader) var(--ease-standard),
     width var(--motion-reader) var(--ease-standard),
-    opacity var(--motion-normal) ease,
+    opacity var(--motion-normal) var(--ease-standard),
     border-radius var(--motion-reader) var(--ease-standard);
 }
 
 .reader-transition-surface--chrome-settling {
   transition:
     transform var(--motion-chrome) var(--ease-emphasized),
-    opacity var(--motion-normal) ease;
+    opacity var(--motion-normal) var(--ease-standard);
 }
 
 .reader-overlay__header {
@@ -1487,7 +1487,7 @@ body[arco-theme='dark'] .reader-back-button {
   opacity: 1;
   transform: translate3d(0, 0, 0);
   transition:
-    opacity var(--motion-fast) ease,
+    opacity var(--motion-fast) var(--ease-standard),
     transform var(--motion-short) var(--ease-standard);
 }
 
@@ -1518,7 +1518,7 @@ body[arco-theme='dark'] .reader-back-button {
   overflow-y: auto;
   padding: 14px 24px 18px;
   transition:
-    opacity var(--motion-short) ease,
+    opacity var(--motion-short) var(--ease-standard),
     transform var(--motion-normal) var(--ease-standard);
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
@@ -1708,7 +1708,7 @@ body[arco-theme='dark'] .reader-back-button {
   transition:
     top var(--motion-chrome) var(--ease-emphasized),
     bottom var(--motion-chrome) var(--ease-emphasized),
-    opacity var(--motion-quick) ease;
+    opacity var(--motion-quick) var(--ease-standard);
   user-select: none;
 }
 
@@ -1833,8 +1833,8 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   border-radius: 999px;
   background: rgba(117, 132, 153, 0.22);
   transition:
-    background var(--motion-fast) ease,
-    border-color var(--motion-fast) ease;
+    background var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
 }
 
 .settings-switch span::after {
@@ -2015,9 +2015,9 @@ body[arco-theme='dark'] .sources-toast--warning {
 .source-row--clickable {
   cursor: pointer;
   transition:
-    transform var(--motion-fast) ease,
-    border-color var(--motion-fast) ease,
-    background var(--motion-fast) ease;
+    transform var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
 }
 
 .source-row--clickable:hover {
