@@ -43,9 +43,13 @@ type AppRouteSessionWatchersOptions = {
 }
 
 export function useAppRouteSessionWatchers(options: AppRouteSessionWatchersOptions) {
+  let routeChangeToken = 0
+
   watch(
     () => options.route.name,
     () => {
+      routeChangeToken += 1
+      const token = routeChangeToken
       options.resetGestureTracking()
       options.resetPageTopPullTracking()
       options.finishFeedTopPull()
@@ -54,6 +58,9 @@ export function useAppRouteSessionWatchers(options: AppRouteSessionWatchersOptio
       if (options.isFeedRoute.value) {
         options.setTopChromeVisible(true)
         nextTick(() => {
+          if (token !== routeChangeToken || !options.isFeedRoute.value) {
+            return
+          }
           const current = options.currentFeedScrollTop()
           options.updateFeedScrollTop(current)
           options.rememberFeedScrollTop(current)
@@ -61,6 +68,9 @@ export function useAppRouteSessionWatchers(options: AppRouteSessionWatchersOptio
       } else {
         options.setTopChromeVisible(true)
         nextTick(() => {
+          if (token !== routeChangeToken || options.isFeedRoute.value) {
+            return
+          }
           options.rememberPageScrollTop(options.currentPageScrollTop())
         })
       }
