@@ -1,4 +1,4 @@
-import { computed, type Ref } from 'vue'
+import { computed } from 'vue'
 
 import { formatAPIError } from '@/api/client'
 import {
@@ -22,11 +22,15 @@ type FetchNowResult = {
   error?: string
 }
 
+type ReadableRef<T> = {
+  readonly value: T
+}
+
 type ReaderSourceSubscriptionOptions = {
-  sourceCatalogEntry: Ref<SourceCatalogEntry | null>
-  sourceSubscription: Ref<Source | null>
-  sourceSubscriptionLoading: Ref<boolean>
-  sourceNotice: Ref<SourceNotice | null>
+  sourceCatalogEntry: ReadableRef<SourceCatalogEntry | null>
+  sourceSubscription: ReadableRef<Source | null>
+  sourceSubscriptionLoading: ReadableRef<boolean>
+  sourceNotice: ReadableRef<SourceNotice | null>
   getReaderSource: () => ReaderSource | null
   setSourceCatalogEntry: (entry: SourceCatalogEntry | null) => void
   setSourceSubscription: (source: Source | null) => void
