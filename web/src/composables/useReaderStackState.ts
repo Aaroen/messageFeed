@@ -2011,6 +2011,15 @@ export function useReaderStackState() {
     sourceTimelinePreloadEnabled.value = enabled
   }
 
+  function clearReaderStretchAnchorsIfIdle() {
+    if (!readerBackDragging.value && detailReaderStretch.value === 0) {
+      detailStretchAnchor.value = null
+    }
+    if (!readerBackDragging.value && sourceReaderStretch.value === 0) {
+      sourceStretchAnchor.value = null
+    }
+  }
+
   return {
     sourceReaderContentRef,
     detailContentRef,
@@ -2161,5 +2170,6 @@ export function useReaderStackState() {
     scrollSourceReaderContentTo,
     scrollDetailContentTo,
     setSourceTimelinePreloadEnabledState,
+    clearReaderStretchAnchorsIfIdle,
   }
 }

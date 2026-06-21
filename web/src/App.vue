@@ -209,6 +209,7 @@ const {
   scrollSourceReaderContentTo: scrollSourceReaderContentElementTo,
   scrollDetailContentTo: scrollDetailContentElementTo,
   setSourceTimelinePreloadEnabledState,
+  clearReaderStretchAnchorsIfIdle,
 } = useReaderStackState()
 const {
   sourceToggleLabel,
@@ -1000,25 +1001,9 @@ function motionDelay(duration = readerMorphDuration) {
   return duration === readerMorphDuration ? readerMorphCleanupDelay : duration + readerMorphCleanupBuffer
 }
 
-function updateStretchAnchor(
-  anchorRef: typeof detailStretchAnchor,
-  stretch: number,
-) {
-  if (stretch > 0) {
-    anchorRef.value = 'left'
-  } else if (stretch < 0) {
-    anchorRef.value = 'right'
-  }
-}
-
 function clearStretchAnchors(delay = motionStretchAnchorClearDuration) {
   window.setTimeout(() => {
-    if (!readerBackDragging.value && detailReaderStretch.value === 0) {
-      detailStretchAnchor.value = null
-    }
-    if (!readerBackDragging.value && sourceReaderStretch.value === 0) {
-      sourceStretchAnchor.value = null
-    }
+    clearReaderStretchAnchorsIfIdle()
     pageContentMotion.clearStretchAnchorIfIdle(readerBackDragging.value)
   }, delay)
 }
