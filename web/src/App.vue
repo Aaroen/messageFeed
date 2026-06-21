@@ -12,7 +12,6 @@ import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscr
 import { useReaderBackSwipeCompletion } from '@/composables/useReaderBackSwipeCompletion'
 import { useReaderBackSwipeDragHandlers } from '@/composables/useReaderBackSwipeDragHandlers'
 import { useReaderBackSwipeResetAction } from '@/composables/useReaderBackSwipeResetAction'
-import { usePullRefresh } from '@/composables/usePullRefresh'
 import {
   type FeedSourceKind,
   type ReaderSessionSnapshot,
@@ -29,7 +28,6 @@ import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
 import { useSwipeTransition } from '@/composables/useSwipeTransition'
 import { useVirtualBackGuard } from '@/composables/useVirtualBackGuard'
 import { useFeedPagerTransition } from '@/composables/useFeedPagerTransition'
-import { usePageContentMotion } from '@/composables/usePageContentMotion'
 import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useSourceContentMotion } from '@/composables/useSourceContentMotion'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
@@ -60,7 +58,6 @@ import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
 import { useReaderLayoutState } from '@/composables/useReaderLayoutState'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppMainClassState } from '@/composables/useAppMainClassState'
-import { usePagePullStatus } from '@/composables/usePagePullStatus'
 import { usePagePullGestureHandlers } from '@/composables/usePagePullGestureHandlers'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useTopChromeScrollBehavior } from '@/composables/useTopChromeScrollBehavior'
@@ -104,6 +101,7 @@ import { useAppReaderScrollMemoryActions } from '@/composables/useAppReaderScrol
 import { useAppReaderRouteSyncAction } from '@/composables/useAppReaderRouteSyncAction'
 import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStackOutletBindings'
 import { useAppMainOutletBindings } from '@/composables/useAppMainOutletBindings'
+import { useAppPagePullState } from '@/composables/useAppPagePullState'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -342,14 +340,6 @@ const feedRefreshSettling = refreshCompletion.settling
 const feedTopPull = useTopPullState()
 const feedTopPulling = feedTopPull.pulling
 const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
-const pagePullRefresh = usePullRefresh({ threshold: 52 })
-const pagePullOffset = pagePullRefresh.offset
-const pagePullDistance = pagePullRefresh.distance
-const pagePullSettling = pagePullRefresh.settling
-const pagePullRefreshing = pagePullRefresh.refreshing
-const pageContentMotion = usePageContentMotion({ pullOffset: pagePullOffset })
-const pageSideStretch = pageContentMotion.sideStretch
-const pageContentInnerStyle = pageContentMotion.contentStyle
 const homeBackGuard = useDoubleBackGuard(motionTimings.homeExitDoubleBackTimeout)
 const appReaderRouteSyncAction = useAppReaderRouteSyncAction()
 const scheduleReaderURLAndHistorySync = appReaderRouteSyncAction.scheduleReaderURLAndHistorySync
@@ -416,6 +406,17 @@ const selectedKeys = appRouteState.selectedKeys
 const pageTitle = appRouteState.pageTitle
 const isFeedRoute = appRouteState.isFeedRoute
 const cornerButtonLabel = appRouteState.cornerButtonLabel
+const pagePullState = useAppPagePullState({ pageTitle })
+const pagePullRefresh = pagePullState.pullRefresh
+const pageContentMotion = pagePullState.contentMotion
+const pagePullOffset = pagePullState.offset
+const pagePullSettling = pagePullState.settling
+const pagePullRefreshing = pagePullState.refreshing
+const pagePullProgress = pagePullState.progress
+const pageSideStretch = pagePullState.sideStretch
+const pageContentInnerStyle = pagePullState.contentStyle
+const pagePullStatusText = pagePullState.statusText
+const pagePullStatusMeta = pagePullState.statusMeta
 const appVirtualBackActions = useAppVirtualBackActions({
   navigationVisible,
   sourceReaderOpen,
@@ -497,7 +498,6 @@ const pagePullActive = pullActivity.pageActive
 const sourcePullActive = pullActivity.sourceActive
 const feedOrSourcePullActive = pullActivity.feedOrSourceActive
 const pullProgress = pullActivity.feedProgress
-const pagePullProgress = pagePullRefresh.distanceProgress
 const sourcePullProgress = pullActivity.sourceProgress
 const feedChromeLayout = useFeedChromeLayoutState({
   windowWidth,
@@ -538,13 +538,6 @@ const feedCornerHidden = feedChromeVisibility.feedCornerHidden
 const detailHeaderVisible = feedChromeVisibility.detailHeaderVisible
 const headerDetailLayoutActive = feedChromeVisibility.headerDetailLayoutActive
 const { statusText: pullStatusText, statusMeta: pullStatusMeta } = storeToRefs(feedInteraction)
-const pagePullStatus = usePagePullStatus({
-  refreshing: pagePullRefreshing,
-  progress: pagePullProgress,
-  pageTitle,
-})
-const pagePullStatusText = pagePullStatus.text
-const pagePullStatusMeta = pagePullStatus.meta
 const feedTrackStyle = feedPagerTransition.trackStyle
 const viewSwipeTargetKey = feedPagerTransition.targetKey
 const viewSwipeTargetVisible = feedPagerTransition.targetVisible
