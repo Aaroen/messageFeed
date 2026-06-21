@@ -277,6 +277,11 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     delayedCommitTimer = window.setTimeout(commit, Math.max(0, delay))
   }
 
+  function clearTimers() {
+    clearSettlingTimer()
+    clearDelayedCommitTimer()
+  }
+
   function setDragDelta(deltaX: number) {
     if (activeIndex.value === 0) {
       setDragOffset(Math.min(0, Math.max(deltaX, -options.getWindowWidth())))
@@ -300,8 +305,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function reset() {
-    clearSettlingTimer()
-    clearDelayedCommitTimer()
+    clearTimers()
     clearStartedWithHiddenChrome()
     clearPointerTracking()
     resetViewSwipeTracking()
@@ -343,10 +347,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     markStartedWithHiddenChrome,
     clearStartedWithHiddenChrome,
     consumeStartedWithHiddenChrome,
-    clearSettlingTimer,
-    clearDelayedCommitTimer,
-    scheduleSettlingEnd,
     scheduleDelayedCommit,
+    clearTimers,
     updateDragDelta,
     reset,
   }
