@@ -2472,7 +2472,7 @@ function handleFeedTopPullEnd(shouldRefresh = false) {
   feedTopPulling.value = false
 
   if (shouldRefresh) {
-    refreshStartedWithChrome.value = startedWithChrome
+    refreshCompletion.recordStartedWithChrome(startedWithChrome)
     chromeState.commitRefreshing(startedWithChrome)
     return
   }

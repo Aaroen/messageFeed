@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { readonly, ref } from 'vue'
 
 export function useRefreshCompletionState() {
   const wasActive = ref(false)
@@ -13,12 +13,14 @@ export function useRefreshCompletionState() {
     }
   }
 
+  function recordStartedWithChrome(startedWithVisibleChrome: boolean) {
+    startedWithChrome.value = startedWithVisibleChrome
+  }
+
   function begin(payload: { viewKey: string; startedWithVisibleChrome: boolean }) {
     wasActive.value = true
     wasSource.value = payload.viewKey.startsWith('source:')
-    if (payload.startedWithVisibleChrome) {
-      startedWithChrome.value = true
-    }
+    recordStartedWithChrome(payload.startedWithVisibleChrome)
   }
 
   function finish(delayMS: number) {
@@ -43,10 +45,11 @@ export function useRefreshCompletionState() {
   }
 
   return {
-    wasActive,
-    wasSource,
-    startedWithChrome,
-    settling,
+    wasActive: readonly(wasActive),
+    wasSource: readonly(wasSource),
+    startedWithChrome: readonly(startedWithChrome),
+    settling: readonly(settling),
+    recordStartedWithChrome,
     begin,
     finish,
     resetInactive,
