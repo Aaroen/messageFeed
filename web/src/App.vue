@@ -81,6 +81,7 @@ import { useNavigationPointerHandlers } from '@/composables/useNavigationPointer
 import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHandlers'
 import { useReaderDetailProgressHandlers } from '@/composables/useReaderDetailProgressHandlers'
 import { useReaderDetailMessageHandler } from '@/composables/useReaderDetailMessageHandler'
+import { useReaderSourceOpenAction } from '@/composables/useReaderSourceOpenAction'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1025,40 +1026,17 @@ function finishCommittedListReturnForGesture() {
   closeItemReader()
 }
 
-function openSourceReader(source: ReaderSource, options: { visible?: boolean } = {}) {
-  clearHiddenSourceCleanupTimer()
-  const nextVisible = options.visible ?? true
-  if (nextVisible) {
-    setTopChromeVisible(true)
-  }
-
-  const result = openSourceReaderState(source, { visible: nextVisible })
-  if (!result.sourceChanged) {
-    if (result.captureTransition) {
-      captureDetailSourceTransitionRects(12, { lock: true })
-    }
-    if (result.loadSubscription) {
-      void loadSourceReaderSubscription(source)
-    }
-    return
-  }
-
-  resetSourceSubscriptionState()
-  if (result.resetScroll) {
-    rememberSourceScrollTop(0)
-  }
-  nextTick(() => {
-    if (result.resetScroll) {
-      scrollSourceReaderContentElementTo(0)
-    }
-    if (result.captureTransition) {
-      captureDetailSourceTransitionRects(12, { lock: true })
-    }
-  })
-  if (result.loadSubscription) {
-    void loadSourceReaderSubscription(source)
-  }
-}
+const readerSourceOpenAction = useReaderSourceOpenAction({
+  openSourceReaderState,
+  clearHiddenSourceCleanupTimer,
+  setTopChromeVisible,
+  captureDetailSourceTransitionRects,
+  loadSourceReaderSubscription,
+  resetSourceSubscriptionState,
+  rememberSourceScrollTop,
+  scrollSourceReaderContentElementTo,
+})
+const openSourceReader = readerSourceOpenAction.openSourceReader
 
 async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
   const openedFromSourceReader =
