@@ -46,6 +46,7 @@ import { useReaderDetailSurfaceMotion } from '@/composables/useReaderDetailSurfa
 import { useReaderDetailContentMotion } from '@/composables/useReaderDetailContentMotion'
 import { useReaderDetailProgressMotion } from '@/composables/useReaderDetailProgressMotion'
 import { useReaderDetailTextMotion } from '@/composables/useReaderDetailTextMotion'
+import { useReaderSourceTitleMotion } from '@/composables/useReaderSourceTitleMotion'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -567,6 +568,18 @@ const detailTextMotion = useReaderDetailTextMotion({
   readerBackDragging,
   committedListReturn: detailCommittedListReturn,
 })
+const sourceTitleMotion = useReaderSourceTitleMotion({
+  revealReady: sourceTitleRevealReady,
+  pullActive: sourcePullActive,
+  titleProgress: sourceTitleProgress,
+  revealProgress: sourceTitleRevealProgress,
+  nameOriginRect: detailSourceNameOriginRect,
+  nameTargetRect: detailSourceNameTargetRect,
+  nameMorphProgress: sourceNameMorphProgress,
+  windowWidth,
+  headerHeight: feedHeaderHeight,
+  readerBackDragging,
+})
 const detailTransitionSurfaceStyle = computed(() => {
   const origin = detailOriginRect.value
   const sourceExiting =
@@ -636,78 +649,11 @@ const detailHeaderCurrentTextStyle = detailTextMotion.headerCurrentTextStyle
 const detailHeaderPreviousTextStyle = detailTextMotion.headerPreviousTextStyle
 const detailInlineSourceStyle = detailTextMotion.inlineSourceStyle
 const detailMorphSourceLabelStyle = detailTextMotion.morphSourceLabelStyle
-const sourceTitleRevealVisible = computed(
-  () => sourceTitleRevealReady.value && !sourcePullActive.value,
-)
-const sourceNameMorphStyle = computed(() => {
-  const origin = detailSourceNameOriginRect.value
-  const target = detailSourceNameTargetRect.value
-  const progress = sourceNameMorphProgress.value
-  if (!origin || !target) {
-    return {
-      opacity: '0',
-      filter: 'blur(0)',
-      transform: 'translate3d(0, 0, 0)',
-    }
-  }
-
-  const left = origin.left + (target.left - origin.left) * progress
-  const top = origin.top + (target.top - origin.top) * progress
-  const width = Math.max(origin.width, target.width, origin.width + (target.width - origin.width) * progress) + 18
-  const size = 13 + (12 - 13) * progress
-  const fadeOut = clamp((progress - 0.62) / 0.28)
-  const opacity = clamp(1 - fadeOut)
-  const blur = Math.sin(progress * Math.PI) * 1.6 + fadeOut * 2.2
-
-  return {
-    left: cssPx(left),
-    top: cssPx(top),
-    width: cssPx(width),
-    opacity: opacity.toFixed(3),
-    fontSize: `${size.toFixed(2)}px`,
-    filter: `blur(${blur.toFixed(2)}px)`,
-    transform: 'translate3d(0, 0, 0)',
-    transition: readerBackDragging.value
-      ? 'none'
-      : 'left var(--motion-reader) var(--ease-standard), top var(--motion-reader) var(--ease-standard), width var(--motion-reader) var(--ease-standard), font-size var(--motion-reader) var(--ease-standard), opacity var(--motion-quick) var(--ease-standard), filter var(--motion-quick) var(--ease-standard)',
-  }
-})
-const sourceTitleLayerStyle = computed(() => {
-  const revealProgress = sourceTitleRevealVisible.value ? sourceTitleRevealProgress.value : 0
-  const opacity = sourceTitleRevealVisible.value ? sourceTitleProgress.value * (1 - revealProgress) : 1
-
-  return {
-    opacity: opacity.toFixed(3),
-    transform: 'translate3d(0, 0, 0)',
-    filter: `blur(${(revealProgress * 2).toFixed(2)}px)`,
-    transition: readerBackDragging.value
-      ? 'none'
-      : 'opacity var(--motion-short) var(--ease-standard), filter var(--motion-short) var(--ease-standard), transform var(--motion-short) var(--ease-standard)',
-  }
-})
-const sourceTitleTextStyle = computed(() => ({
-  display: 'inline-block',
-}))
-const sourceTitleRevealStyle = computed(() => {
-  const progress = sourceTitleRevealProgress.value
-  const left = windowWidth.value <= 720 ? 72 : 80
-  const right = windowWidth.value <= 720 ? 104 : 120
-  const top = (feedHeaderHeight.value - 44) / 2
-  return {
-    top: cssPx(top),
-    left: cssPx(left),
-    width: `calc(100vw - ${left + right}px)`,
-    opacity: progress.toFixed(3),
-    transform: `${cssTranslate3d(0, (1 - progress) * 12)} scale(${(
-      0.965 +
-      progress * 0.035
-    ).toFixed(3)})`,
-    filter: `blur(${((1 - progress) * 2.4).toFixed(2)}px)`,
-    transition: readerBackDragging.value
-      ? 'none'
-      : 'opacity var(--motion-slow) var(--ease-standard), transform var(--motion-slow) var(--ease-emphasized), filter var(--motion-slow) var(--ease-standard)',
-  }
-})
+const sourceTitleRevealVisible = sourceTitleMotion.revealVisible
+const sourceNameMorphStyle = sourceTitleMotion.nameMorphStyle
+const sourceTitleLayerStyle = sourceTitleMotion.titleLayerStyle
+const sourceTitleTextStyle = sourceTitleMotion.titleTextStyle
+const sourceTitleRevealStyle = sourceTitleMotion.revealStyle
 const mainStyle = computed(() => {
   const baseStyle = {
     '--feed-header-height': `${feedHeaderHeight.value}px`,
