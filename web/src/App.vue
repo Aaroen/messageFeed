@@ -79,6 +79,7 @@ import { useReaderBackSwipeTransitionController } from '@/composables/useReaderB
 import { useFeedPointerSwipeHandlers } from '@/composables/useFeedPointerSwipeHandlers'
 import { useNavigationPointerHandlers } from '@/composables/useNavigationPointerHandlers'
 import { useAppTouchGestureHandlers } from '@/composables/useAppTouchGestureHandlers'
+import { useReaderDetailProgressHandlers } from '@/composables/useReaderDetailProgressHandlers'
 import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
 import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
 import { usePullActivityState } from '@/composables/usePullActivityState'
@@ -1523,53 +1524,22 @@ function handleResize() {
   viewportSize.sync()
 }
 
-function syncDetailContainerMetrics() {
-  const container = detailContentRef.value
-  if (!container) {
-    return
-  }
-
-  updateDetailScrollMetricsState(container.scrollTop, container.scrollHeight, container.clientHeight)
-}
-
-function scrollDetailContentTo(top: number) {
-  const container = detailContentRef.value
-  if (!container) {
-    return
-  }
-
-  container.scrollTop = Math.max(0, top)
-  syncDetailContainerMetrics()
-}
-
-function handleDetailProgressChange(progress: number) {
-  if (detailScrollMax.value <= 0) {
-    return
-  }
-
-  const nextScrollTop = detailScrollMax.value * clamp(progress)
-  updateDetailScrollTopState(nextScrollTop)
-  rememberDetailScrollTop(nextScrollTop)
-  scrollDetailContentTo(nextScrollTop)
-}
-
-function handleDetailProgressDragStart() {
-  suppressFollowingClick()
-  setDetailProgressDraggingState(true)
-}
-
-function handleDetailProgressDragEnd() {
-  setDetailProgressDraggingState(false)
-}
-
-function handleDetailFrameLoad() {
-  requestAnimationFrame(() => {
-    syncDetailContainerMetrics()
-    if (detailScrollTop.value > 0) {
-      scrollDetailContentElementTo(detailScrollTop.value)
-    }
-  })
-}
+const readerDetailProgressHandlers = useReaderDetailProgressHandlers({
+  detailContentRef,
+  detailScrollMax,
+  detailScrollTop,
+  updateDetailScrollMetrics: updateDetailScrollMetricsState,
+  updateDetailScrollTop: updateDetailScrollTopState,
+  rememberDetailScrollTop,
+  scrollDetailContentElementTo,
+  suppressFollowingClick,
+  setDetailProgressDragging: setDetailProgressDraggingState,
+})
+const syncDetailContainerMetrics = readerDetailProgressHandlers.syncDetailContainerMetrics
+const handleDetailProgressChange = readerDetailProgressHandlers.handleDetailProgressChange
+const handleDetailProgressDragStart = readerDetailProgressHandlers.handleDetailProgressDragStart
+const handleDetailProgressDragEnd = readerDetailProgressHandlers.handleDetailProgressDragEnd
+const handleDetailFrameLoad = readerDetailProgressHandlers.handleDetailFrameLoad
 
 function handleMessage(event: MessageEvent) {
   if (detailCommittedListReturn()) {
