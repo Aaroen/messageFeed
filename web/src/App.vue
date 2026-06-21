@@ -6,7 +6,7 @@ import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { getFeedItem } from '@/api/feed'
 import AppMainOutlet from '@/components/AppMainOutlet.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
-import AppReaderStackContent from '@/components/AppReaderStackContent.vue'
+import AppReaderStackOutlet from '@/components/AppReaderStackOutlet.vue'
 import { useChromeState } from '@/composables/useChromeState'
 import { useReaderSourceSubscription } from '@/composables/useReaderSourceSubscription'
 import { useReaderBackSwipeCompletion } from '@/composables/useReaderBackSwipeCompletion'
@@ -1474,7 +1474,7 @@ useAppLifecycle({
       @open-source="openSourceReader"
     />
 
-    <AppReaderStackContent
+    <AppReaderStackOutlet
       :source-mounted="sourceReaderMounted && Boolean(readerSource)"
       :source-under-detail="sourceReaderUnderDetail"
       :source-style="sourceReaderStyle"
