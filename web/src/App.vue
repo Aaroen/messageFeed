@@ -31,17 +31,14 @@ import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useAppNavigationRuntime } from '@/composables/useAppNavigationRuntime'
-import { useAppReaderSessionSnapshots } from '@/composables/useAppReaderSessionSnapshots'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
-import { useAppReaderSessionPersistence } from '@/composables/useAppReaderSessionPersistence'
 import { useAppFeedChromeState } from '@/composables/useAppFeedChromeState'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
 import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
 import { useAppShellRuntime } from '@/composables/useAppShellRuntime'
 import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
-import { useAppReaderScrollMemoryActions } from '@/composables/useAppReaderScrollMemoryActions'
-import { useAppReaderRouteSyncAction } from '@/composables/useAppReaderRouteSyncAction'
+import { useAppReaderSessionRuntime } from '@/composables/useAppReaderSessionRuntime'
 import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStackOutletBindings'
 import { useAppMainOutletBindings } from '@/composables/useAppMainOutletBindings'
 import { useAppPagePullState } from '@/composables/useAppPagePullState'
@@ -53,7 +50,6 @@ import { useAppReaderCloseInteractions } from '@/composables/useAppReaderCloseIn
 import { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
 import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitionRects'
 import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
-import { useAppReaderSession } from '@/composables/useAppReaderSession'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 import { useAppFeedChromeInteractions } from '@/composables/useAppFeedChromeInteractions'
 import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
@@ -285,16 +281,17 @@ const feedTopPull = useTopPullState()
 const feedTopPulling = feedTopPull.pulling
 const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
 const homeBackGuard = useDoubleBackGuard(motionTimings.homeExitDoubleBackTimeout)
-const appReaderRouteSyncAction = useAppReaderRouteSyncAction()
-const scheduleReaderURLAndHistorySync = appReaderRouteSyncAction.scheduleReaderURLAndHistorySync
-const appReaderScrollMemoryActions = useAppReaderScrollMemoryActions({
-  rememberScrollTop: (surface, scrollTop) => {
-    scrollHistory.set(surface, scrollTop)
-  },
-})
-const rememberSourceScrollTop = appReaderScrollMemoryActions.rememberSourceScrollTop
-const rememberDetailScrollTop = appReaderScrollMemoryActions.rememberDetailScrollTop
-const appReaderSessionSnapshots = useAppReaderSessionSnapshots({
+const {
+  bindReaderRouteSync,
+  scheduleReaderURLAndHistorySync,
+  rememberSourceScrollTop,
+  rememberDetailScrollTop,
+  clearReaderSessionScrollRestoreTimers,
+  readerSession,
+  saveReaderSessionNow,
+  scheduleReaderSessionSave,
+  restoreReaderSession,
+} = useAppReaderSessionRuntime({
   feedScrollTop,
   topChromeProgress,
   feedContentCollapsed,
@@ -308,8 +305,6 @@ const appReaderSessionSnapshots = useAppReaderSessionSnapshots({
     chromeState.restoreSnapshot(snapshot)
   },
   applyReaderStackSessionSnapshot,
-  rememberSourceScrollTop,
-  rememberDetailScrollTop,
   loadSourceReaderSubscription,
   scrollFeedContentTo: (scrollTop) => {
     feedContent.scrollTo(scrollTop)
@@ -320,26 +315,11 @@ const appReaderSessionSnapshots = useAppReaderSessionSnapshots({
     syncDetailContainerMetrics()
   },
   getRouteFullPath: () => route.fullPath,
-})
-const readerSessionSnapshot = appReaderSessionSnapshots.readerSessionSnapshot
-const applyReaderSessionSnapshot = appReaderSessionSnapshots.applyReaderSessionSnapshot
-const clearReaderSessionScrollRestoreTimers = appReaderSessionSnapshots.clearScrollRestoreTimers
-const readerSession = useAppReaderSession({
-  createSnapshot: readerSessionSnapshot,
-  getCurrentRouteFullPath: () => route.fullPath,
-  restoreSnapshot: applyReaderSessionSnapshot,
-  afterRestore: scheduleReaderURLAndHistorySync,
-})
-const appReaderSessionPersistence = useAppReaderSessionPersistence({
-  restoring: readerSession.restoring,
+  rememberScrollTop: (surface, scrollTop) => {
+    scrollHistory.set(surface, scrollTop)
+  },
   canSaveReaderSession: routeRuntime.canSaveReaderSession,
-  saveNow: readerSession.saveNow,
-  scheduleSave: readerSession.scheduleSave,
-  restore: readerSession.restore,
 })
-const saveReaderSessionNow = appReaderSessionPersistence.saveReaderSessionNow
-const scheduleReaderSessionSave = appReaderSessionPersistence.scheduleReaderSessionSave
-const restoreReaderSession = appReaderSessionPersistence.restoreReaderSession
 
 const appRouteState = useAppRouteState(route)
 const selectedKeys = appRouteState.selectedKeys
@@ -387,7 +367,7 @@ const virtualBackGuard = useAppVirtualBackGuard({
   },
 })
 const readerRouteSync = useAppReaderRouteSyncBinding({
-  bindReaderRouteSync: appReaderRouteSyncAction.bindReaderRouteSync,
+  bindReaderRouteSync,
   route,
   router,
   canSync: () => routeRuntime.canSyncReaderRoute(readerSession.restoring.value),
