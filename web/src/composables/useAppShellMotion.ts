@@ -30,7 +30,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
     const underlayBlur = detailUnderlayActive ? options.detailSurfaceProgress.value * 7 : 0
     const underlayOpacity = detailUnderlayActive ? 1 - options.detailSurfaceProgress.value * 0.08 : 1
     const feedContentSpace = options.feedContentSpace.value
-    const feedContentSettling =
+    const contentShiftSettling =
       (options.feedRefreshSettling.value || options.feedChromeSettling.value) &&
       !options.feedTopPulling.value &&
       !options.readerBackDragging.value
@@ -42,13 +42,12 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
       pageContentSpace: feedContentSpace,
       feedContentShift: feedContentSpace - options.feedHeaderHeight.value,
       pageContentShift: feedContentSpace - options.feedHeaderHeight.value,
-      feedContentShiftTransition: feedContentSettling
+      feedContentShiftTransition: contentShiftSettling
         ? 'transform var(--motion-chrome) var(--ease-emphasized)'
         : 'none',
-      pageContentShiftTransition:
-        options.feedChromeSettling.value && !options.feedTopPulling.value && !options.readerBackDragging.value
-          ? 'transform var(--motion-chrome) var(--ease-emphasized)'
-          : 'none',
+      pageContentShiftTransition: contentShiftSettling
+        ? 'transform var(--motion-chrome) var(--ease-emphasized)'
+        : 'none',
       underlayBlur,
       underlayOpacity,
       transition: underlayTransition,
