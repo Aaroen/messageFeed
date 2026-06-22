@@ -52,7 +52,7 @@ type FetchNowResult = {
 }
 
 const emit = defineEmits<{
-  openSource: [source: { id: number; name: string; kind: 'subscriptions' | 'recommendations' }]
+  'open-source': [source: { id: number; name: string; kind: 'subscriptions' | 'recommendations' }]
 }>()
 
 const sourceByNormalizedURL = computed(() => {
@@ -431,7 +431,7 @@ function catalogToggleLabel(entry: SourceCatalogEntry) {
 function openCatalogSource(entry: SourceCatalogEntry) {
   const source = sourceForCatalog(entry)
   const subscribed = catalogStatus(entry) === 'active' && Boolean(source || entry.source_id)
-  emit('openSource', {
+  emit('open-source', {
     id: subscribed ? source?.id ?? entry.source_id ?? entry.id : entry.id,
     name: source?.name ?? entry.name,
     kind: subscribed ? 'subscriptions' : 'recommendations',

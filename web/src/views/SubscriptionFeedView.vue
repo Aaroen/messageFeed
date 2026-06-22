@@ -48,10 +48,10 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  topPullStart: [startedWithVisibleChrome: boolean]
-  topPullMove: [distance: number]
-  topPullEnd: [shouldRefresh: boolean]
-  openItem: [item: FeedItem, sourceKind: SourceKind, originRect?: DOMRect]
+  'top-pull-start': [startedWithVisibleChrome: boolean]
+  'top-pull-move': [distance: number]
+  'top-pull-end': [shouldRefresh: boolean]
+  'open-item': [item: FeedItem, sourceKind: SourceKind, originRect?: DOMRect]
 }>()
 
 const feedInteraction = useFeedInteractionStore()
@@ -719,7 +719,7 @@ function scheduleLoadMoreObserver() {
 function openItem(item: FeedItem, event: MouseEvent) {
   const target = event.currentTarget
   const originRect = target instanceof HTMLElement ? target.closest('.feed-item')?.getBoundingClientRect() : undefined
-  emit('openItem', item, effectiveSourceKind.value, originRect)
+  emit('open-item', item, effectiveSourceKind.value, originRect)
 }
 
 function isInteractiveTarget(target: EventTarget | null) {
@@ -772,7 +772,7 @@ function handleTouchStart(event: TouchEvent) {
   touchStartChromeDistance = props.headerHeight * props.topChromeProgress
   pullRefresh.begin(props.freezeBodyDuringTopRefresh || props.topChromeProgress > 0.04)
   pullRefresh.beginGestureCandidate(touch.clientX, touch.clientY)
-  emit('topPullStart', pullStartedWithVisibleChrome.value)
+  emit('top-pull-start', pullStartedWithVisibleChrome.value)
 }
 
 function handleTouchMove(event: TouchEvent) {
@@ -801,7 +801,7 @@ function handleTouchMove(event: TouchEvent) {
 
   if (trackingPull.value) {
     event.preventDefault()
-    emit('topPullMove', Math.max(0, deltaY))
+    emit('top-pull-move', Math.max(0, deltaY))
     const refreshDistance = Math.max(0, deltaY - touchStartChromeDistance)
     if (refreshDistance <= 0) {
       pullRefresh.setGestureOffset(0)
@@ -815,7 +815,7 @@ function handleTouchMove(event: TouchEvent) {
 function handleTouchEnd() {
   if (!trackingPull.value) {
     resetPullGesture()
-    emit('topPullEnd', false)
+    emit('top-pull-end', false)
     return
   }
 
@@ -824,18 +824,18 @@ function handleTouchEnd() {
 
   if (shouldRefresh) {
     pullRefresh.commitRefreshOffset()
-    emit('topPullEnd', true)
+    emit('top-pull-end', true)
     void loadItems({ refresh: true })
     return
   }
 
   resetPullGesture()
-  emit('topPullEnd', false)
+  emit('top-pull-end', false)
 }
 
 function handleTouchCancel() {
   resetPullGesture()
-  emit('topPullEnd', false)
+  emit('top-pull-end', false)
 }
 
 onMounted(() => {
