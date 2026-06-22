@@ -34,6 +34,7 @@ export function useMotionTimings() {
   const readerMorphCleanupBuffer = motionCleanupBuffer
   const readerMorphCleanupDelay = readerMorphDuration + readerMorphCleanupBuffer
   const readerRectRetryDelay = 64
+  const readerSessionSaveDelay = 80
 
   function delay(duration = readerMorphDuration) {
     return duration === readerMorphDuration ? readerMorphCleanupDelay : duration + readerMorphCleanupBuffer
@@ -78,6 +79,7 @@ export function useMotionTimings() {
     readerScrollRestoreSettledDelay,
     readerMorphDuration,
     readerRectRetryDelay,
+    readerSessionSaveDelay,
     noticeDuration,
     delay,
   }

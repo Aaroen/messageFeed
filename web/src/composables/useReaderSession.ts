@@ -52,7 +52,7 @@ export type ReaderSessionSnapshot = {
 type ReaderSessionOptions<TSnapshot extends { savedAt?: number; routeFullPath?: string }> = {
   storageKey: string
   maxAgeMS: number
-  saveDelayMS?: number
+  saveDelayMS: number
   createSnapshot: () => TSnapshot
   getCurrentRouteFullPath: () => string
   matchesCurrentRoute?: (snapshotRouteFullPath: string) => boolean
@@ -129,7 +129,7 @@ export function useReaderSession<TSnapshot extends { savedAt?: number; routeFull
         return
       }
       saveNow()
-    }, options.saveDelayMS ?? 80)
+    }, options.saveDelayMS)
   }
 
   async function restore() {
