@@ -905,6 +905,7 @@ export function useReaderStackState() {
     const sameSource = readerSource.value?.id === source.id && readerSource.value.kind === source.kind
 
     if (sameSource) {
+      const resolvedVisible = nextVisible || sourceReaderVisible.value
       if (nextVisible) {
         sourceReaderOffset.value = 0
         sourceReaderStretch.value = 0
@@ -913,13 +914,13 @@ export function useReaderStackState() {
           sourceReaderBackDetail.value = null
         }
       }
-      sourceReaderVisible.value = nextVisible
+      sourceReaderVisible.value = resolvedVisible
       return {
-        nextVisible,
+        nextVisible: resolvedVisible,
         sourceChanged: false,
         resetScroll: false,
         captureTransition: nextVisible && detailReaderOpen.value,
-        loadSubscription: nextVisible,
+        loadSubscription: true,
       }
     }
 
