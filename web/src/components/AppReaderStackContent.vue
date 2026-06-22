@@ -16,6 +16,7 @@ type SourceNotice = {
 withDefaults(
   defineProps<{
     sourceMounted?: boolean
+    sourceInteractive?: boolean
     sourceUnderDetail?: boolean
     sourceStyle?: StyleValue
     sourceTitleRevealMounted?: boolean
@@ -81,6 +82,7 @@ withDefaults(
   }>(),
   {
     sourceMounted: false,
+    sourceInteractive: false,
     sourceUnderDetail: false,
     sourceStyle: undefined,
     sourceTitleRevealMounted: false,
@@ -169,6 +171,7 @@ const emit = defineEmits<{
 <template>
   <ReaderStack
     :source-mounted="sourceMounted"
+    :source-interactive="sourceInteractive"
     :source-under-detail="sourceUnderDetail"
     :source-style="sourceStyle"
     :source-title-reveal-mounted="sourceTitleRevealMounted"

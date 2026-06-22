@@ -14,6 +14,7 @@ type SourceNotice = {
 const props = withDefaults(
   defineProps<{
     sourceMounted?: boolean
+    sourceInteractive?: boolean
     sourceUnderDetail?: boolean
     sourceStyle?: StyleValue
     sourceTitleRevealMounted?: boolean
@@ -79,6 +80,7 @@ const props = withDefaults(
   }>(),
   {
     sourceMounted: false,
+    sourceInteractive: false,
     sourceUnderDetail: false,
     sourceStyle: undefined,
     sourceTitleRevealMounted: false,

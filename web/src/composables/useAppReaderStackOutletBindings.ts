@@ -90,6 +90,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
 
     return {
       sourceMounted: options.sourceReaderMounted.value && Boolean(readerSource),
+      sourceInteractive: options.sourceReaderVisible.value && !options.sourceReaderUnderDetail.value,
       sourceUnderDetail: options.sourceReaderUnderDetail.value,
       sourceStyle: options.sourceReaderStyle.value,
       sourceTitleRevealMounted: readerMorph.sourceTitleRevealMounted.value,

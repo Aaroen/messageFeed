@@ -4,6 +4,7 @@ import type { StyleValue } from 'vue'
 withDefaults(
   defineProps<{
     sourceMounted?: boolean
+    sourceInteractive?: boolean
     sourceUnderDetail?: boolean
     sourceStyle?: StyleValue
     sourceTitleRevealMounted?: boolean
@@ -19,6 +20,7 @@ withDefaults(
   }>(),
   {
     sourceMounted: false,
+    sourceInteractive: false,
     sourceUnderDetail: false,
     sourceStyle: undefined,
     sourceTitleRevealMounted: false,
@@ -41,6 +43,8 @@ withDefaults(
     class="reader-overlay reader-overlay--source"
     :class="{ 'reader-overlay--under-detail': sourceUnderDetail }"
     :style="sourceStyle"
+    :aria-hidden="!sourceInteractive"
+    :inert="!sourceInteractive"
   >
     <slot name="source" />
   </section>
