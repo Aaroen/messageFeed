@@ -41,12 +41,12 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
   const collapsedLayoutProgress = computed(() =>
     chromePhaseConsumesCollapsedLayout(options.topChromePhase.value) ? topChromeProgress.value : 0,
   )
+  const feedAtVisibleTop = computed(() => options.feedScrollTop.value <= contentTopOffset.value)
   const visibleChromeNeedsTopClearance = computed(() => {
-    const feedAtVisibleTop = options.feedScrollTop.value <= contentTopOffset.value
     if (
       !options.isFeedRoute.value ||
       options.detailReaderOpen.value ||
-      (options.viewSwipeActive.value && !feedAtVisibleTop) ||
+      (options.viewSwipeActive.value && !feedAtVisibleTop.value) ||
       options.feedTopPulling.value ||
       options.feedPullActive.value ||
       !options.feedContentCollapsed.value
@@ -54,7 +54,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       return false
     }
 
-    if (!feedAtVisibleTop || topChromeProgress.value <= 0.04) {
+    if (!feedAtVisibleTop.value || topChromeProgress.value <= 0.04) {
       return false
     }
 
@@ -82,9 +82,16 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       : 0
     const visibleTopSpace =
       headerHeight.value + feedTopInset + visibleContentTopOffset.value - contentTopOffset.value
+    const visibleHeaderAtFeedTop =
+      options.isFeedRoute.value &&
+      !options.detailReaderOpen.value &&
+      feedAtVisibleTop.value &&
+      topChromeProgress.value > 0.04
+    const preserveVisibleTopSpace = (space: number) =>
+      visibleHeaderAtFeedTop ? Math.max(space, visibleTopSpace) : space
 
     if (options.feedTopPullStartedWithChrome.value || options.refreshStartedWithChrome.value) {
-      return headerHeight.value
+      return preserveVisibleTopSpace(headerHeight.value)
     }
 
     if (!options.feedTopPulling.value && !options.feedPullActive.value && feedLayoutChromeVisible) {
@@ -92,7 +99,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     }
 
     if (options.feedTopPulling.value || options.feedPullActive.value) {
-      return options.feedContentCollapsed.value ? pullRestoreSpace : headerHeight.value
+      return options.feedContentCollapsed.value ? pullRestoreSpace : preserveVisibleTopSpace(headerHeight.value)
     }
 
     if (options.feedContentCollapsed.value) {
