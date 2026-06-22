@@ -582,8 +582,6 @@ body[arco-theme='dark'] .settings-icon-button--active {
   display: flex;
   align-items: center;
   min-width: 0;
-  opacity: 1;
-  transform: translate3d(0, 0, 0);
   will-change: opacity, transform;
 }
 
@@ -1328,8 +1326,6 @@ body[arco-theme='dark'] .reader-back-button {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  opacity: 1;
-  transform: translate3d(0, 0, 0);
 }
 
 .reader-source-refresh-layer {
