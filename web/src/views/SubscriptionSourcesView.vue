@@ -19,6 +19,7 @@ import {
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import type { PageRefreshOptions } from '@/composables/usePageOutletState'
 import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
+import { useFeedListCacheStore } from '@/stores/feedListCache'
 
 const sourcesPageRef = ref<HTMLElement | null>(null)
 const sources = ref<Source[]>([])
@@ -33,6 +34,7 @@ const pageRefreshing = ref(false)
 const notice = ref<{ type: 'running' | 'success' | 'warning'; message: string } | null>(null)
 const motionTimings = useMotionTimings()
 const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef })
+const feedListCache = useFeedListCacheStore()
 let noticeTimer = 0
 let noticeTimerToken = 0
 let pageRequestToken = 0
@@ -157,6 +159,15 @@ function formatFetchErrors(errors: Array<{ source_name?: string; message: string
   return `${details.join('；')}${overflow}`
 }
 
+function invalidateSubscriptionFeedCaches(sourceIDs: number[] = []) {
+  feedListCache.invalidate('subscriptions:subscriptions:0')
+  for (const sourceID of sourceIDs) {
+    if (sourceID > 0) {
+      feedListCache.invalidate(`source:subscriptions:${sourceID}`)
+    }
+  }
+}
+
 async function loadSources(options: { silent?: boolean; notify?: boolean; token?: number } = {}) {
   if (!options.silent) {
     loading.value = true
@@ -236,6 +247,7 @@ async function refreshPage(options: PageRefreshOptions = {}) {
     if (!pageRequestIsCurrent(token)) {
       return
     }
+    invalidateSubscriptionFeedCaches(fetchResult.sources.map((source) => source.id))
     await loadSources({ silent: true, notify: false, token })
     if (!pageRequestIsCurrent(token)) {
       return
@@ -358,6 +370,7 @@ async function handleImportURLs() {
     if (!pageRequestIsCurrent(token)) {
       return
     }
+    invalidateSubscriptionFeedCaches(result.sources.map((source) => source.id))
     importCompleted = true
     await Promise.all([
       loadSources({ silent: true, notify: false, token }),
@@ -406,6 +419,7 @@ async function handleImportOPML(event: Event) {
     if (!pageRequestIsCurrent(token)) {
       return
     }
+    invalidateSubscriptionFeedCaches(result.sources.map((source) => source.id))
     importCompleted = true
     await Promise.all([
       loadSources({ silent: true, notify: false, token }),
@@ -504,6 +518,7 @@ async function toggleCatalogSource(entry: SourceCatalogEntry) {
           return
         }
       }
+      invalidateSubscriptionFeedCaches([updated.id])
       const noticeType = updated.status === 'active' && !fetchResult.success ? 'warning' : 'success'
       const noticeMessage =
         updated.status === 'active' && !fetchResult.success
@@ -533,6 +548,7 @@ async function toggleCatalogSource(entry: SourceCatalogEntry) {
         return
       }
     }
+    invalidateSubscriptionFeedCaches(imported ? [imported.id] : [])
     const noticeType = !fetchResult.success ? 'warning' : 'success'
     const noticeMessage = !fetchResult.success
       ? `${entry.name} 已开启，但抓取失败。详细原因：${fetchResult.error || '服务未返回具体错误原因'}`

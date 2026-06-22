@@ -101,6 +101,7 @@ let disposed = false
 let loadMoreObserver: IntersectionObserver | null = null
 
 const viewKey = computed(() => `${props.mode}:${props.sourceKind}:${props.sourceId}`)
+const cacheRevision = computed(() => feedListCache.revisions[viewKey.value] ?? 0)
 const hasItems = computed(() => items.value.length > 0)
 const canLoadMore = computed(
   () =>
@@ -941,6 +942,20 @@ watch(
     if (props.active) {
       loadInitialItems()
     }
+  },
+)
+
+watch(
+  cacheRevision,
+  () => {
+    if (!props.active || loading.value || refreshing.value || loadingMore.value || backgroundRefreshing.value) {
+      return
+    }
+    if (!hasItems.value) {
+      void loadItems({ refresh: isSourceMode.value })
+      return
+    }
+    void loadItems({ refresh: true, background: true })
   },
 )
 

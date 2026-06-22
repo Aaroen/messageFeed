@@ -38,6 +38,7 @@ type ReaderSourceSubscriptionOptions = {
   setSourceSubscriptionLoading: (loading: boolean) => void
   setSourceNotice: (notice: SourceNotice | null) => void
   canShowNotice?: () => boolean
+  onSubscriptionContentChanged?: (sourceID: number) => void
 }
 
 export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
@@ -191,6 +192,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
             return
           }
         }
+        options.onSubscriptionContentChanged?.(updated.id)
         if (updated.status === 'active' && !fetchResult.success) {
           showSourceNotice(
             'warning',
@@ -221,6 +223,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
         if (!sourceRequestIsCurrent(token, readerSource)) {
           return
         }
+        options.onSubscriptionContentChanged?.(imported.id)
       }
       if (!fetchResult.success) {
         showSourceNotice(

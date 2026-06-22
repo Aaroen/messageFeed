@@ -25,6 +25,7 @@ function cloneEntry(entry: FeedListCacheEntry): FeedListCacheEntry {
 export const useFeedListCacheStore = defineStore('feedListCache', {
   state: () => ({
     entries: {} as Record<string, FeedListCacheEntry>,
+    revisions: {} as Record<string, number>,
   }),
   actions: {
     get(key: string) {
@@ -36,6 +37,10 @@ export const useFeedListCacheStore = defineStore('feedListCache', {
     },
     remove(key: string) {
       delete this.entries[key]
+    },
+    invalidate(key: string) {
+      delete this.entries[key]
+      this.revisions[key] = (this.revisions[key] ?? 0) + 1
     },
   },
 })
