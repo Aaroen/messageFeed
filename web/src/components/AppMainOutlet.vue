@@ -40,7 +40,7 @@ type TopChromeFeedProps = {
   feedTabsTargetLayerStyle?: StyleValue
   viewSwipeTargetKey?: string | null
   feedPullActive?: boolean
-  feedPullRefreshing?: boolean
+  pullRefreshing?: boolean
   pullStatusStyle?: StyleValue
   pullIconStyle?: StyleValue
   pullStatusText?: string
