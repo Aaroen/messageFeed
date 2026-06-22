@@ -41,7 +41,7 @@ function progressFromPointer(clientY: number) {
   if (!Number.isFinite(nextProgress)) {
     return null
   }
-  return Math.min(Math.max(nextProgress, 0), 1)
+  return clampProgress(nextProgress)
 }
 
 function updateProgress(clientY: number) {

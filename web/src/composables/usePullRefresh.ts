@@ -1,5 +1,6 @@
 import { computed, readonly, ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 
 export type PullRefreshOptions = {
@@ -40,16 +41,21 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   let releaseTimer = 0
   let timerToken = 0
 
-  const progress = computed(() => Math.min(offset.value / threshold, 1))
-  const distanceProgress = computed(() => Math.min(distance.value / threshold, 1))
+  const progress = computed(() => clampProgress(offset.value / threshold))
+  const distanceProgress = computed(() => clampProgress(distance.value / threshold))
   const active = computed(() => offset.value > 0 || refreshing.value)
 
+  function nonNegativeDistance(value: number) {
+    return Number.isFinite(value) ? Math.max(0, value) : 0
+  }
+
   function rubberBandDistance(distance: number, hasItems: boolean) {
-    const limit = hasItems ? maxOffset : emptyMaxOffset
-    if (distance <= threshold) {
-      return Math.max(0, distance)
+    const safeDistance = nonNegativeDistance(distance)
+    const limit = Math.max(threshold, nonNegativeDistance(hasItems ? maxOffset : emptyMaxOffset))
+    if (safeDistance <= threshold) {
+      return safeDistance
     }
-    return Math.min(threshold + (distance - threshold) * 0.18, limit)
+    return Math.min(threshold + (safeDistance - threshold) * 0.18, limit)
   }
 
   function begin(startedWithChrome: boolean) {
@@ -103,7 +109,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   }
 
   function setOffset(nextOffset: number) {
-    offset.value = Math.max(0, nextOffset)
+    offset.value = nonNegativeDistance(nextOffset)
   }
 
   function resetOffset() {
@@ -127,7 +133,7 @@ export function usePullRefresh(options: PullRefreshOptions = {}) {
   }
 
   function setDistance(nextDistance: number) {
-    distance.value = Math.max(0, nextDistance)
+    distance.value = nonNegativeDistance(nextDistance)
   }
 
   function beginRefreshing() {

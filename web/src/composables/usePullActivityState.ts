@@ -1,5 +1,7 @@
 import { computed } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type ReadableRef<T> = {
   readonly value: T
 }
@@ -16,7 +18,7 @@ type PullActivityStateOptions = {
 }
 
 function pullProgressFromOffset(offset: number) {
-  return Math.min(offset / 76, 1)
+  return clampProgress(offset / 76)
 }
 
 export function usePullActivityState(options: PullActivityStateOptions) {

@@ -1,7 +1,9 @@
 import { readonly, ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 function normalizeProgress(value: number | null | undefined) {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.min(Math.max(value, 0), 1) : 1
+  return typeof value === 'number' && Number.isFinite(value) ? clampProgress(value) : 1
 }
 
 export function useTopPullState() {
