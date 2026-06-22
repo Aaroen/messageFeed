@@ -13,6 +13,8 @@ export function useAppReaderStackRuntime() {
     setSourceSubscription: readerStackState.setSourceSubscriptionState,
     setSourceSubscriptionLoading: readerStackState.setSourceSubscriptionLoadingState,
     setSourceNotice: readerStackState.setSourceNoticeState,
+    canShowNotice: () =>
+      readerStackState.sourceReaderVisible.value && !readerStackState.sourceReaderUnderDetail.value,
   })
 
   return {

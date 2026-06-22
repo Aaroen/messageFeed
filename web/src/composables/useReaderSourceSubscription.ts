@@ -37,6 +37,7 @@ type ReaderSourceSubscriptionOptions = {
   setSourceSubscription: (source: Source | null) => void
   setSourceSubscriptionLoading: (loading: boolean) => void
   setSourceNotice: (notice: SourceNotice | null) => void
+  canShowNotice?: () => boolean
 }
 
 export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
@@ -81,7 +82,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
 
   function showSourceNotice(type: SourceNotice['type'], message: string, durationMS?: number) {
     const normalized = message.trim()
-    if (!normalized) {
+    if (!normalized || options.canShowNotice?.() === false) {
       clearNoticeTimer()
       options.setSourceNotice(null)
       return
