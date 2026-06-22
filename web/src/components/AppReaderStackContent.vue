@@ -35,6 +35,7 @@ withDefaults(
     topChromeProgress?: number
     topChromeContentCollapsed?: boolean
     sourceHeaderStyle?: StyleValue
+    sourceChromeInteractive?: boolean
     sourceName?: string
     sourceTitleTextStyle?: StyleValue
     sourceTitleLayerStyle?: StyleValue
@@ -103,6 +104,7 @@ withDefaults(
     topChromeProgress: 1,
     topChromeContentCollapsed: false,
     sourceHeaderStyle: undefined,
+    sourceChromeInteractive: true,
     sourceName: '',
     sourceTitleTextStyle: undefined,
     sourceTitleLayerStyle: undefined,
@@ -197,6 +199,7 @@ const emit = defineEmits<{
         :top-chrome-progress="topChromeProgress"
         :top-chrome-content-collapsed="topChromeContentCollapsed"
         :source-header-style="sourceHeaderStyle"
+        :source-chrome-interactive="sourceChromeInteractive"
         :source-name="sourceName"
         :source-meta="sourceMeta"
         :source-title-text-style="sourceTitleTextStyle"

@@ -23,6 +23,7 @@ withDefaults(
     topChromeProgress?: number
     topChromeContentCollapsed?: boolean
     headerStyle?: StyleValue
+    chromeInteractive?: boolean
     sourceName?: string
     sourceMeta?: string
     titleTextStyle?: StyleValue
@@ -53,6 +54,7 @@ withDefaults(
     topChromeProgress: 1,
     topChromeContentCollapsed: false,
     headerStyle: undefined,
+    chromeInteractive: true,
     sourceName: '',
     sourceMeta: '',
     titleTextStyle: undefined,
@@ -107,7 +109,14 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
     :progress="topChromeProgress"
     :root-style="headerStyle"
   >
-    <button class="reader-back-button" type="button" aria-label="打开导航" @click="emit('open-navigation')">
+    <button
+      class="reader-back-button"
+      type="button"
+      aria-label="打开导航"
+      :aria-hidden="chromeInteractive ? undefined : 'true'"
+      :tabindex="chromeInteractive ? undefined : -1"
+      @click="emit('open-navigation')"
+    >
       <IconMenuUnfold />
     </button>
     <ReaderSourceChromeContent
@@ -116,7 +125,7 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
       :title-text-style="titleTextStyle"
       :title-layer-style="titleLayerStyle"
       :main-layer-style="mainLayerStyle"
-      :main-hidden="pullActive"
+      :main-hidden="!chromeInteractive || pullActive"
       :toggle-active="toggleActive"
       :toggle-label="toggleLabel"
       :toggle-disabled="toggleDisabled"
@@ -124,7 +133,7 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
     />
     <RefreshStatusLayer
       root-class="reader-source-refresh-layer"
-      :hidden="!pullActive"
+      :hidden="!chromeInteractive || !pullActive"
       :root-style="pullStatusStyle"
       :refreshing="pullRefreshing"
       :icon-style="pullIconStyle"

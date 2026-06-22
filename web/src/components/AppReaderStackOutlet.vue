@@ -33,6 +33,7 @@ const props = withDefaults(
     topChromeProgress?: number
     topChromeContentCollapsed?: boolean
     sourceHeaderStyle?: StyleValue
+    sourceChromeInteractive?: boolean
     sourceName?: string
     sourceTitleTextStyle?: StyleValue
     sourceTitleLayerStyle?: StyleValue
@@ -101,6 +102,7 @@ const props = withDefaults(
     topChromeProgress: 1,
     topChromeContentCollapsed: false,
     sourceHeaderStyle: undefined,
+    sourceChromeInteractive: true,
     sourceName: '',
     sourceTitleTextStyle: undefined,
     sourceTitleLayerStyle: undefined,

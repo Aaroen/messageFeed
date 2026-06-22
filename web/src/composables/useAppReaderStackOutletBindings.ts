@@ -77,6 +77,8 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
     const readerMorph = options.readerMorph
     const readerMotion = options.readerMotion
     const sourceInteractive = options.sourceReaderVisible.value && !options.sourceReaderUnderDetail.value
+    const sourceHeaderStyle = options.sourceHeaderStyle.value as Record<string, unknown> | undefined
+    const sourceChromeInteractive = sourceHeaderStyle?.pointerEvents === 'auto'
 
     return {
       sourceMounted: options.sourceReaderMounted.value && Boolean(readerSource),
@@ -99,6 +101,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       topChromeProgress: options.topChromeProgress.value,
       topChromeContentCollapsed: options.feedContentCollapsed.value,
       sourceHeaderStyle: options.sourceHeaderStyle.value,
+      sourceChromeInteractive,
       sourceName,
       sourceTitleTextStyle: readerMotion.sourceTitleTextStyle.value,
       sourceTitleLayerStyle: readerMotion.sourceTitleLayerStyle.value,

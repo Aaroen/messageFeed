@@ -35,6 +35,10 @@ function chromePhaseNeedsVisibleTopClearance(phase: ChromePhase) {
   return phase === 'visible' || phase === 'revealing' || phase === 'gesture-returning'
 }
 
+function chromeNeedsVisibleTopClearance(phase: ChromePhase, progress: number) {
+  return chromePhaseNeedsVisibleTopClearance(phase) || (!chromePhaseConsumesCollapsedLayout(phase) && progress > 0.86)
+}
+
 export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) {
   const headerHeight = computed(() => feedHeaderHeightForWidth(options.windowWidth.value))
   const contentTopOffset = computed(() => feedContentTopOffset(headerHeight.value))
@@ -45,10 +49,11 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     chromePhaseConsumesCollapsedLayout(options.topChromePhase.value) ? topChromeProgress.value : 0,
   )
   const visibleChromeNeedsTopClearance = computed(() => {
+    const feedAtVisibleTop = options.feedScrollTop.value <= contentTopOffset.value
     if (
       !options.isFeedRoute.value ||
       options.detailReaderOpen.value ||
-      options.viewSwipeActive.value ||
+      (options.viewSwipeActive.value && !feedAtVisibleTop) ||
       options.feedTopPulling.value ||
       options.feedPullActive.value ||
       !options.feedContentCollapsed.value
@@ -56,11 +61,11 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       return false
     }
 
-    if (options.feedScrollTop.value > contentTopOffset.value || topChromeProgress.value <= 0.04) {
+    if (!feedAtVisibleTop || topChromeProgress.value <= 0.04) {
       return false
     }
 
-    return chromePhaseNeedsVisibleTopClearance(options.topChromePhase.value)
+    return chromeNeedsVisibleTopClearance(options.topChromePhase.value, topChromeProgress.value)
   })
   const headerProgress = computed(() => {
     if (!options.isFeedRoute.value) {
