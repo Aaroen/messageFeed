@@ -53,6 +53,7 @@ export function useAppPagePullInteractions(options: AppPagePullInteractionsOptio
 
   return {
     refreshCurrentPageFromPull: refreshAction.refreshCurrentPageFromPull,
+    invalidateRefreshCompletion: refreshAction.invalidateRefreshCompletion,
     resetPageTopPullTracking: gestureHandlers.resetPageTopPullTracking,
     handlePageTouchStart: gestureHandlers.handlePageTouchStart,
     handlePageTouchMove: gestureHandlers.handlePageTouchMove,

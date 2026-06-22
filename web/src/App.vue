@@ -1309,6 +1309,7 @@ const pagePullInteractions = useAppPagePullInteractions({
   collapseTopChrome,
 })
 const resetPageTopPullTracking = pagePullInteractions.resetPageTopPullTracking
+const invalidatePagePullRefreshCompletion = pagePullInteractions.invalidateRefreshCompletion
 const handlePageTouchStart = pagePullInteractions.handlePageTouchStart
 const handlePageTouchMove = pagePullInteractions.handlePageTouchMove
 const handlePageTouchEnd = pagePullInteractions.handlePageTouchEnd
@@ -1427,7 +1428,10 @@ useAppRouteSessionWatchers({
   resetBackSwipeOffset,
   resetPageTopPullTracking,
   finishFeedTopPull: feedTopPull.finish,
-  resetPagePullMotion: pagePullState.reset,
+  resetPagePullMotion: () => {
+    invalidatePagePullRefreshCompletion()
+    pagePullState.reset()
+  },
   resetFeedViewDragOffset: appSwipeNavigationState.resetFeedViewDragOffset,
   setTopChromeVisible,
   currentFeedScrollTop: feedContent.currentScrollTop,
@@ -1478,6 +1482,7 @@ useAppLifecycle({
     () => readerRouteSync.clearTimer(),
     () => readerMotionState.clearSourceContentTimer(),
     clearDetailSourceTransitionRectCapture,
+    () => invalidatePagePullRefreshCompletion(),
     () => pagePullState.clearTimers(),
     () => clickSuppression.clearTimer(),
     clearSourceSubscriptionRuntime,

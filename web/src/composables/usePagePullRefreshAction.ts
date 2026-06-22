@@ -21,12 +21,28 @@ type PagePullRefreshActionOptions = {
 }
 
 export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) {
+  let refreshRunToken = 0
+
+  function nextRefreshRunToken() {
+    refreshRunToken += 1
+    return refreshRunToken
+  }
+
+  function invalidateRefreshCompletion() {
+    refreshRunToken += 1
+  }
+
+  function refreshRunIsCurrent(token: number) {
+    return token === refreshRunToken
+  }
+
   async function refreshCurrentPageFromPull() {
     const refreshPage = options.currentRefreshPage()
     if (!refreshPage || options.refreshing.value) {
       return
     }
 
+    const token = nextRefreshRunToken()
     const afterSettledCallbacks: Array<() => void> = []
     options.beginRefreshing()
     try {
@@ -38,6 +54,9 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
         },
       })
     } finally {
+      if (!refreshRunIsCurrent(token)) {
+        return
+      }
       options.settleRefreshCompletion({
         afterRelease: options.collapseTopChrome,
         afterSettled: () => {
@@ -51,5 +70,6 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
 
   return {
     refreshCurrentPageFromPull,
+    invalidateRefreshCompletion,
   }
 }
