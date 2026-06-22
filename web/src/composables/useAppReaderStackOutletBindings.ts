@@ -3,6 +3,7 @@ import type { StyleValue } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
 import type { AppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
+import type { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
 import type { ChromePhase } from '@/composables/useChromeState'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
 
@@ -15,24 +16,22 @@ type SourceNotice = {
   message: string
 }
 
+type AppReaderMotionState = ReturnType<typeof useAppReaderMotionState>
+
 type AppReaderStackOutletBindingOptions = {
   sourceReaderMounted: ReadableRef<boolean>
   sourceReaderUnderDetail: ReadableRef<boolean>
-  sourceReaderStyle: ReadableRef<StyleValue>
+  readerMotion: AppReaderMotionState
   readerSource: ReadableRef<ReaderSource | null>
   sourceToggleActive: ReadableRef<boolean>
   detailItem: ReadableRef<FeedItem | null>
   readerMorph: AppReaderMorphVisibilityState
   detailReaderOpen: ReadableRef<boolean>
   detailParkedBehindSource: ReadableRef<boolean>
-  detailReaderStyle: ReadableRef<StyleValue>
-  detailBackdropStyle: ReadableRef<StyleValue>
   sourceNotice: ReadableRef<SourceNotice | null>
   topChromePhase: ReadableRef<ChromePhase>
   topChromeProgress: ReadableRef<number>
   sourceHeaderStyle: ReadableRef<StyleValue>
-  sourceTitleTextStyle: ReadableRef<StyleValue>
-  sourceTitleLayerStyle: ReadableRef<StyleValue>
   sourceMainLayerStyle: ReadableRef<StyleValue>
   sourcePullStatusStyle: ReadableRef<StyleValue>
   sourcePullIconStyle: ReadableRef<StyleValue>
@@ -42,7 +41,6 @@ type AppReaderStackOutletBindingOptions = {
   pullStatusMeta: ReadableRef<string>
   sourceToggleLabel: ReadableRef<string>
   sourceToggleDisabled: ReadableRef<boolean>
-  sourceContentStyle: ReadableRef<StyleValue>
   sourceReaderScrollTop: ReadableRef<number>
   feedHeaderHeight: ReadableRef<number>
   morphingItemId: ReadableRef<number | null>
@@ -50,20 +48,10 @@ type AppReaderStackOutletBindingOptions = {
   morphingItemHeight: ReadableRef<number | null>
   feedItemPreviewProgress: ReadableRef<number>
   sourceReaderVisible: ReadableRef<boolean>
-  detailTransitionSurfaceStyle: ReadableRef<StyleValue>
-  detailContentStyle: ReadableRef<StyleValue>
-  detailInlineMetaStyle: ReadableRef<StyleValue>
-  detailFrameStyle: ReadableRef<StyleValue>
-  detailActionsStyle: ReadableRef<StyleValue>
   detailLoading: ReadableRef<boolean>
   detailError: ReadableRef<string>
-  detailSrcdoc: ReadableRef<string>
-  detailInlineSourceStyle: ReadableRef<StyleValue>
   detailProgressVisible: ReadableRef<boolean>
   detailReadingProgress: ReadableRef<number>
-  detailProgressStyle: ReadableRef<StyleValue>
-  detailProgressFillStyle: ReadableRef<StyleValue>
-  detailProgressThumbStyle: ReadableRef<StyleValue>
   setSourceReaderContentElement: (element: HTMLElement | null) => void
   handleSourceReaderScroll: (event: Event) => void
   openNavigation: () => void
@@ -88,13 +76,14 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
     const detailItem = options.detailItem.value
     const sourceName = readerSource?.name || ''
     const readerMorph = options.readerMorph
+    const readerMotion = options.readerMotion
     const sourceInteractive = options.sourceReaderVisible.value && !options.sourceReaderUnderDetail.value
 
     return {
       sourceMounted: options.sourceReaderMounted.value && Boolean(readerSource),
       sourceInteractive,
       sourceUnderDetail: options.sourceReaderUnderDetail.value,
-      sourceStyle: options.sourceReaderStyle.value,
+      sourceStyle: readerMotion.sourceReaderStyle.value,
       sourceTitleRevealMounted: readerMorph.sourceTitleRevealMounted.value,
       sourceTitleRevealStyle: readerMorph.sourceTitleRevealStyle.value,
       sourceTitle: readerMorph.sourceTitle.value,
@@ -104,15 +93,15 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       sourceNameMorphText: readerMorph.sourceNameMorphText.value,
       detailOpen: options.detailReaderOpen.value,
       detailInteractive: options.detailReaderOpen.value && !options.detailParkedBehindSource.value,
-      detailStyle: options.detailReaderStyle.value,
-      detailBackdropStyle: options.detailBackdropStyle.value,
+      detailStyle: readerMotion.detailReaderStyle.value,
+      detailBackdropStyle: readerMotion.detailBackdropStyle.value,
       sourceNotice: sourceInteractive ? options.sourceNotice.value : null,
       topChromePhase: options.topChromePhase.value,
       topChromeProgress: options.topChromeProgress.value,
       sourceHeaderStyle: options.sourceHeaderStyle.value,
       sourceName,
-      sourceTitleTextStyle: options.sourceTitleTextStyle.value,
-      sourceTitleLayerStyle: options.sourceTitleLayerStyle.value,
+      sourceTitleTextStyle: readerMotion.sourceTitleTextStyle.value,
+      sourceTitleLayerStyle: readerMotion.sourceTitleLayerStyle.value,
       sourceMainLayerStyle: options.sourceMainLayerStyle.value,
       sourcePullStatusStyle: options.sourcePullStatusStyle.value,
       sourcePullIconStyle: options.sourcePullIconStyle.value,
@@ -123,7 +112,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       sourceToggleActive: options.sourceToggleActive.value,
       sourceToggleLabel: options.sourceToggleLabel.value,
       sourceToggleDisabled: options.sourceToggleDisabled.value,
-      sourceContentStyle: options.sourceContentStyle.value,
+      sourceContentStyle: readerMotion.sourceContentStyle.value,
       readerSource,
       sourceScrollTop: options.sourceReaderScrollTop.value,
       feedHeaderHeight: options.feedHeaderHeight.value,
@@ -132,7 +121,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       morphingItemHeight: options.morphingItemHeight.value,
       feedItemPreviewProgress: options.feedItemPreviewProgress.value,
       sourceBackgroundRefresh: !sourceInteractive,
-      detailTransitionStyle: options.detailTransitionSurfaceStyle.value,
+      detailTransitionStyle: readerMotion.detailTransitionSurfaceStyle.value,
       detailItem,
       detailMorphVisible: readerMorph.detailMorphVisible.value,
       detailMorphTextStyle: readerMorph.detailMorphTextStyle.value,
@@ -143,19 +132,19 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       detailDisplayDate: readerMorph.detailDisplayDate.value,
       detailMorphSummaryVisible: readerMorph.detailMorphSummaryVisible.value,
       detailPreviewSummary: readerMorph.detailPreviewSummary.value,
-      detailContentStyle: options.detailContentStyle.value,
-      detailInlineMetaStyle: options.detailInlineMetaStyle.value,
-      detailFrameStyle: options.detailFrameStyle.value,
-      detailActionsStyle: options.detailActionsStyle.value,
+      detailContentStyle: readerMotion.detailContentStyle.value,
+      detailInlineMetaStyle: readerMotion.detailInlineMetaStyle.value,
+      detailFrameStyle: readerMotion.detailFrameStyle.value,
+      detailActionsStyle: readerMotion.detailActionsStyle.value,
       detailLoading: options.detailLoading.value,
       detailError: options.detailError.value,
-      detailSrcdoc: options.detailSrcdoc.value,
-      detailInlineSourceStyle: options.detailInlineSourceStyle.value,
+      detailSrcdoc: readerMotion.detailSrcdoc.value,
+      detailInlineSourceStyle: readerMotion.detailInlineSourceStyle.value,
       detailProgressVisible: options.detailProgressVisible.value,
       detailReadingProgress: options.detailReadingProgress.value,
-      detailProgressStyle: options.detailProgressStyle.value,
-      detailProgressFillStyle: options.detailProgressFillStyle.value,
-      detailProgressThumbStyle: options.detailProgressThumbStyle.value,
+      detailProgressStyle: readerMotion.detailProgressStyle.value,
+      detailProgressFillStyle: readerMotion.detailProgressFillStyle.value,
+      detailProgressThumbStyle: readerMotion.detailProgressThumbStyle.value,
     }
   })
 

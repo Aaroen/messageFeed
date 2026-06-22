@@ -634,18 +634,6 @@ const readerMotionState = useAppReaderMotionState({
     metricsSettledDelay: detailFrameMetricsSettledDelay,
   },
 })
-const sourceContentStyle = readerMotionState.sourceContentStyle
-const sourceReaderStyle = readerMotionState.sourceReaderStyle
-const detailReaderStyle = readerMotionState.detailReaderStyle
-const detailBackdropStyle = readerMotionState.detailBackdropStyle
-const detailTransitionSurfaceStyle = readerMotionState.detailTransitionSurfaceStyle
-const detailContentStyle = readerMotionState.detailContentStyle
-const detailInlineMetaStyle = readerMotionState.detailInlineMetaStyle
-const detailFrameStyle = readerMotionState.detailFrameStyle
-const detailActionsStyle = readerMotionState.detailActionsStyle
-const detailProgressStyle = readerMotionState.detailProgressStyle
-const detailProgressFillStyle = readerMotionState.detailProgressFillStyle
-const detailProgressThumbStyle = readerMotionState.detailProgressThumbStyle
 const detailMorphTextStyle = readerMotionState.detailMorphTextStyle
 const detailMorphMetaStyle = readerMotionState.detailMorphMetaStyle
 const detailMorphTitleStyle = readerMotionState.detailMorphTitleStyle
@@ -653,17 +641,13 @@ const detailMorphSummaryStyle = readerMotionState.detailMorphSummaryStyle
 const detailHeaderTitleStyle = readerMotionState.detailHeaderTitleStyle
 const detailHeaderCurrentTextStyle = readerMotionState.detailHeaderCurrentTextStyle
 const detailHeaderPreviousTextStyle = readerMotionState.detailHeaderPreviousTextStyle
-const detailInlineSourceStyle = readerMotionState.detailInlineSourceStyle
 const detailMorphSourceLabelStyle = readerMotionState.detailMorphSourceLabelStyle
 const sourceTitleRevealVisible = readerMotionState.sourceTitleRevealVisible
 const sourceNameMorphStyle = readerMotionState.sourceNameMorphStyle
-const sourceTitleLayerStyle = readerMotionState.sourceTitleLayerStyle
-const sourceTitleTextStyle = readerMotionState.sourceTitleTextStyle
 const sourceTitleRevealStyle = readerMotionState.sourceTitleRevealStyle
 const detailPreviewSummary = readerMotionState.detailPreviewSummary
 const detailDisplayDate = readerMotionState.detailDisplayDate
 const detailFrameId = readerMotionState.detailFrameId
-const detailSrcdoc = readerMotionState.detailSrcdoc
 const readerMorphVisibilityState = useAppReaderMorphVisibilityState({
   readerSource,
   sourceToggleActive,
@@ -1223,21 +1207,17 @@ const handleDetailContentScroll = appScrollHandlers.handleDetailContentScroll
 const readerStackOutletBindings = useAppReaderStackOutletBindings({
   sourceReaderMounted,
   sourceReaderUnderDetail,
-  sourceReaderStyle,
+  readerMotion: readerMotionState,
   readerSource,
   sourceToggleActive,
   detailItem,
   readerMorph: readerMorphVisibilityState,
   detailReaderOpen,
   detailParkedBehindSource,
-  detailReaderStyle,
-  detailBackdropStyle,
   sourceNotice,
   topChromePhase,
   topChromeProgress,
   sourceHeaderStyle,
-  sourceTitleTextStyle,
-  sourceTitleLayerStyle,
   sourceMainLayerStyle,
   sourcePullStatusStyle,
   sourcePullIconStyle,
@@ -1247,7 +1227,6 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   pullStatusMeta,
   sourceToggleLabel,
   sourceToggleDisabled,
-  sourceContentStyle,
   sourceReaderScrollTop,
   feedHeaderHeight,
   morphingItemId,
@@ -1255,20 +1234,10 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   morphingItemHeight,
   feedItemPreviewProgress,
   sourceReaderVisible,
-  detailTransitionSurfaceStyle,
-  detailContentStyle,
-  detailInlineMetaStyle,
-  detailFrameStyle,
-  detailActionsStyle,
   detailLoading,
   detailError,
-  detailSrcdoc,
-  detailInlineSourceStyle,
   detailProgressVisible,
   detailReadingProgress,
-  detailProgressStyle,
-  detailProgressFillStyle,
-  detailProgressThumbStyle,
   setSourceReaderContentElement,
   handleSourceReaderScroll,
   openNavigation,
