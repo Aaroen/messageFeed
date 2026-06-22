@@ -14,6 +14,7 @@ type AppTopChromeActionsOptions = {
     options?: { settleDelayMS?: number; preserveContentCollapsed?: boolean },
   ) => void
   setChromeCollapsedHidden: (options?: { settleDelayMS?: number }) => void
+  setChromeOverlayProgress: (progress: number) => void
   currentPageScrollTop: () => number
   settlePagePullOffset: (delayMS: number) => void
 }
@@ -36,6 +37,10 @@ export function useAppTopChromeActions(options: AppTopChromeActionsOptions) {
       settleDelayMS: topChromeSettleDelay(),
       preserveContentCollapsed: true,
     })
+  }
+
+  function setTopChromeOverlayProgress(progress: number) {
+    options.setChromeOverlayProgress(progress)
   }
 
   function collapseTopChrome() {
@@ -61,6 +66,7 @@ export function useAppTopChromeActions(options: AppTopChromeActionsOptions) {
   return {
     setTopChromeVisible,
     showTopChromeOverlay,
+    setTopChromeOverlayProgress,
     collapseTopChrome,
     currentContentScrollTop,
     settlePagePullOffset,

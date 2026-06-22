@@ -765,11 +765,13 @@ const appTopChromeActions = useAppTopChromeActions({
   resolveDelay: motionDelay,
   setChromeVisible: chromeState.setVisible,
   setChromeCollapsedHidden: chromeState.setCollapsedHidden,
+  setChromeOverlayProgress: chromeState.setOverlayProgress,
   currentPageScrollTop: pageOutlet.currentScrollTop,
   settlePagePullOffset: pagePullState.settleOffset,
 })
 const setTopChromeVisible = appTopChromeActions.setTopChromeVisible
 const showTopChromeOverlay = appTopChromeActions.showTopChromeOverlay
+const setTopChromeOverlayProgress = appTopChromeActions.setTopChromeOverlayProgress
 const collapseTopChrome = appTopChromeActions.collapseTopChrome
 const currentContentScrollTop = appTopChromeActions.currentContentScrollTop
 const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
@@ -1226,6 +1228,7 @@ const feedChromeInteractions = useAppFeedChromeInteractions({
     isFeedRoute,
     setTopChromeVisible,
     showTopChromeOverlay,
+    setTopChromeOverlayProgress,
   },
 })
 const handleFeedTopPullStart = feedChromeInteractions.handleFeedTopPullStart

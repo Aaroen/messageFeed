@@ -134,6 +134,13 @@ export function useChromeState() {
     setVisible(false, options)
   }
 
+  function setOverlayProgress(nextProgress: number) {
+    clearTimer()
+    settling.value = false
+    setContentCollapsed(true)
+    setProgress(nextProgress)
+  }
+
   function setStableVisible() {
     clearTimer()
     progress.value = 1
@@ -186,6 +193,7 @@ export function useChromeState() {
     settling: readonly(settling),
     setVisible,
     setCollapsedHidden,
+    setOverlayProgress,
     setStableVisible,
     beginGestureReturn,
     beginRefreshing,
