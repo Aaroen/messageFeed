@@ -28,6 +28,7 @@ type AppRouteSessionWatchersOptions = {
   sourceReaderScrollTop: ReadableRef<number>
   detailScrollTop: ReadableRef<number>
   resetGestureTracking: () => void
+  resetBackSwipeOffset: () => void
   resetPageTopPullTracking: () => void
   finishFeedTopPull: () => void
   resetPagePullMotion: () => void
@@ -51,6 +52,7 @@ export function useAppRouteSessionWatchers(options: AppRouteSessionWatchersOptio
       routeChangeToken += 1
       const token = routeChangeToken
       options.resetGestureTracking()
+      options.resetBackSwipeOffset()
       options.resetPageTopPullTracking()
       options.finishFeedTopPull()
       options.resetPagePullMotion()

@@ -1424,6 +1424,7 @@ useAppRouteSessionWatchers({
   sourceReaderScrollTop,
   detailScrollTop,
   resetGestureTracking,
+  resetBackSwipeOffset,
   resetPageTopPullTracking,
   finishFeedTopPull: feedTopPull.finish,
   resetPagePullMotion: pagePullState.resetMotion,
