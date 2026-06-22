@@ -36,7 +36,6 @@ import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTa
 import { useAppShellRuntime } from '@/composables/useAppShellRuntime'
 import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
 import { useAppReaderSessionRuntime } from '@/composables/useAppReaderSessionRuntime'
-import { useAppPagePullInteractions } from '@/composables/useAppPagePullInteractions'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 import { useAppSwipeGestureRuntime } from '@/composables/useAppSwipeGestureRuntime'
 import { useReaderRouteQueryRestore } from '@/composables/useReaderRouteQueryRestore'
@@ -266,6 +265,7 @@ const {
   canSaveReaderSession: routeRuntime.canSaveReaderSession,
 })
 
+const routePageRuntime = useAppRoutePageRuntime(route)
 const {
   selectedKeys,
   pageTitle,
@@ -278,7 +278,7 @@ const {
   pageContentInnerStyle,
   pagePullStatusText,
   pagePullStatusMeta,
-} = useAppRoutePageRuntime(route)
+} = routePageRuntime
 const feedRefreshCompletionRuntime = useAppFeedRefreshCompletionRuntime({
   isFeedRoute,
   detailReaderOpen,
@@ -1052,9 +1052,7 @@ const handleReaderSettingsChanged = readerStackOutletRuntime.handleReaderSetting
 const readerStackOutletProps = readerStackOutletRuntime.props
 const readerStackOutletListeners = readerStackOutletRuntime.listeners
 
-const pagePullInteractions = useAppPagePullInteractions({
-  pagePull: pagePullState,
-  isFeedRoute,
+const pagePullInteractions = routePageRuntime.installPagePullInteractions({
   topRefreshNoticeDelay,
   currentRefreshPage: pageOutlet.currentRefreshPage,
   clearCurrentPageNotice: pageOutlet.clearCurrentNotice,
