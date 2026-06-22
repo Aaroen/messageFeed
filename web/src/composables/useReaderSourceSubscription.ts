@@ -12,6 +12,7 @@ import {
 } from '@/api/feed'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import type { ReaderSource } from '@/composables/useReaderSession'
+import { useTimedNotice } from '@/composables/useTimedNotice'
 
 type SourceNotice = {
   type: 'running' | 'success' | 'warning'
@@ -43,8 +44,11 @@ type ReaderSourceSubscriptionOptions = {
 
 export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
   const motionTimings = useMotionTimings()
-  let sourceNoticeTimer = 0
-  let sourceNoticeTimerToken = 0
+  const sourceNoticeRuntime = useTimedNotice<SourceNotice['type']>({
+    duration: motionTimings.noticeDuration,
+    canShow: () => options.canShowNotice?.() !== false,
+    setNotice: options.setSourceNotice,
+  })
   let sourceRequestToken = 0
   const sourceToggleLabel = computed(() => {
     if (options.sourceSubscriptionLoading.value) {
@@ -54,14 +58,6 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
   })
   const sourceToggleActive = computed(() => options.sourceSubscription.value?.status === 'active')
   const sourceToggleDisabled = computed(() => options.sourceSubscriptionLoading.value)
-
-  function clearNoticeTimer() {
-    sourceNoticeTimerToken += 1
-    if (typeof window !== 'undefined' && sourceNoticeTimer !== 0) {
-      window.clearTimeout(sourceNoticeTimer)
-    }
-    sourceNoticeTimer = 0
-  }
 
   function nextSourceRequestToken() {
     sourceRequestToken += 1
@@ -82,39 +78,20 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
   }
 
   function showSourceNotice(type: SourceNotice['type'], message: string, durationMS?: number) {
-    const normalized = message.trim()
-    if (!normalized || options.canShowNotice?.() === false) {
-      clearNoticeTimer()
-      options.setSourceNotice(null)
-      return
-    }
-    clearNoticeTimer()
-    const token = sourceNoticeTimerToken
-    options.setSourceNotice({ type, message: normalized })
-    const duration = durationMS ?? motionTimings.noticeDuration(type)
-    if (duration > 0 && typeof window !== 'undefined') {
-      sourceNoticeTimer = window.setTimeout(() => {
-        if (token !== sourceNoticeTimerToken) {
-          return
-        }
-        sourceNoticeTimer = 0
-        options.setSourceNotice(null)
-      }, duration)
-    }
+    sourceNoticeRuntime.show(type, message, durationMS)
   }
 
   function resetSourceSubscriptionState() {
     invalidateSourceRequests()
-    clearNoticeTimer()
+    sourceNoticeRuntime.clear()
     options.setSourceCatalogEntry(null)
     options.setSourceSubscription(null)
     options.setSourceSubscriptionLoading(false)
-    options.setSourceNotice(null)
   }
 
   function clearSourceSubscriptionRuntime() {
     invalidateSourceRequests()
-    clearNoticeTimer()
+    sourceNoticeRuntime.dispose()
   }
 
   async function fetchNow(source: Source, token: number, readerSource: ReaderSource): Promise<FetchNowResult> {
@@ -251,7 +228,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     sourceToggleLabel,
     sourceToggleActive,
     sourceToggleDisabled,
-    clearNoticeTimer,
+    clearNoticeTimer: sourceNoticeRuntime.clearTimer,
     clearSourceSubscriptionRuntime,
     showSourceNotice,
     resetSourceSubscriptionState,

@@ -19,6 +19,7 @@ import {
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import type { PageRefreshOptions } from '@/composables/usePageOutletState'
 import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
+import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedListCacheStore } from '@/stores/feedListCache'
 
 const sourcesPageRef = ref<HTMLElement | null>(null)
@@ -31,12 +32,15 @@ const loading = ref(false)
 const catalogLoading = ref(false)
 const actionLoading = ref(false)
 const pageRefreshing = ref(false)
-const notice = ref<{ type: 'running' | 'success' | 'warning'; message: string } | null>(null)
 const motionTimings = useMotionTimings()
+const noticeRuntime = useTimedNotice<'running' | 'success' | 'warning'>({
+  duration: motionTimings.noticeDuration,
+})
+const notice = noticeRuntime.notice
+const showNotice = noticeRuntime.show
+const clearNotice = noticeRuntime.clear
 const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef })
 const feedListCache = useFeedListCacheStore()
-let noticeTimer = 0
-let noticeTimerToken = 0
 let pageRequestToken = 0
 let pageRefreshingToken = 0
 let disposed = false
@@ -66,17 +70,6 @@ const sourceByNormalizedURL = computed(() => {
   return sourceMap
 })
 
-function clearNoticeTimer() {
-  noticeTimerToken += 1
-  window.clearTimeout(noticeTimer)
-  noticeTimer = 0
-}
-
-function clearNotice() {
-  clearNoticeTimer()
-  notice.value = null
-}
-
 function nextPageRequestToken() {
   pageRequestToken += 1
   return pageRequestToken
@@ -101,46 +94,6 @@ function finishPageRefresh(token: number) {
   }
   pageRefreshingToken = 0
   pageRefreshing.value = false
-}
-
-function showNotice(type: 'running' | 'success' | 'warning', message: string, durationMS?: number, delayMS = 0) {
-  if (disposed) {
-    return
-  }
-  const normalized = message.trim()
-  if (!normalized) {
-    clearNotice()
-    return
-  }
-  clearNoticeTimer()
-  const token = noticeTimerToken
-  const show = () => {
-    if (disposed || token !== noticeTimerToken) {
-      return
-    }
-    notice.value = { type, message: normalized }
-    const duration = durationMS ?? motionTimings.noticeDuration(type)
-    if (duration > 0) {
-      noticeTimer = window.setTimeout(() => {
-        if (token !== noticeTimerToken) {
-          return
-        }
-        noticeTimer = 0
-        notice.value = null
-      }, duration)
-    }
-  }
-  if (delayMS > 0) {
-    noticeTimer = window.setTimeout(() => {
-      if (token !== noticeTimerToken) {
-        return
-      }
-      noticeTimer = 0
-      show()
-    }, delayMS)
-    return
-  }
-  show()
 }
 
 function formatFetchErrors(errors: Array<{ source_name?: string; message: string }> = []) {
@@ -589,7 +542,7 @@ onUnmounted(() => {
   disposed = true
   invalidatePageRequests()
   finishPageRefresh(pageRefreshingToken)
-  clearNoticeTimer()
+  noticeRuntime.dispose()
   refreshLayoutFreeze.release()
 })
 

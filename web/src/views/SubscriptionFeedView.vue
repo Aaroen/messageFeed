@@ -7,12 +7,14 @@ import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRef
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
+import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
 
 type FeedMode = 'subscriptions' | 'recommendations' | 'source'
 type SourceKind = 'subscriptions' | 'recommendations'
-type FeedNotice = { type: 'success' | 'warning'; message: string }
+type FeedNoticeType = 'success' | 'warning'
+type FeedNotice = { type: FeedNoticeType; message: string }
 
 const props = withDefaults(
   defineProps<{
@@ -63,7 +65,6 @@ const items = ref<FeedItem[]>([])
 const loading = ref(false)
 const loadingMore = ref(false)
 const error = ref('')
-const feedNotice = ref<FeedNotice | null>(null)
 const backgroundRefreshing = ref(false)
 const lastUpdatedAt = ref('')
 const totalCount = ref(0)
@@ -92,11 +93,14 @@ const pageSize = 10
 const cacheTTLMS = 60 * 1000
 const verticalLockRatio = 1.18
 const noticeRevealDelay = motionTimings.noticeRevealDelay
+const feedNoticeRuntime = useTimedNotice<FeedNoticeType>({
+  duration: motionTimings.noticeDuration,
+  canShow: () => !props.backgroundRefresh,
+})
+const feedNotice = feedNoticeRuntime.notice
 let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
 let loadMoreSyncToken = 0
-let feedNoticeTimer = 0
-let feedNoticeTimerToken = 0
 let loadRequestToken = 0
 let backgroundRefreshRequestToken = 0
 let topPullStartedNotified = false
@@ -411,58 +415,12 @@ function feedItemPreviewStyle(item: FeedItem) {
   }
 }
 
-function clearFeedNoticeTimer() {
-  feedNoticeTimerToken += 1
-  window.clearTimeout(feedNoticeTimer)
-  feedNoticeTimer = 0
-}
-
 function clearFeedNotice() {
-  clearFeedNoticeTimer()
-  feedNotice.value = null
-}
-
-function canShowFeedNotice() {
-  return !props.backgroundRefresh
+  feedNoticeRuntime.clear()
 }
 
 function showFeedNotice(type: FeedNotice['type'], message: string, delayMS = 0) {
-  if (!canShowFeedNotice()) {
-    clearFeedNotice()
-    return
-  }
-
-  const normalized = message.trim()
-  if (!normalized) {
-    clearFeedNotice()
-    return
-  }
-  clearFeedNoticeTimer()
-  const token = feedNoticeTimerToken
-  const show = () => {
-    if (token !== feedNoticeTimerToken || !canShowFeedNotice()) {
-      return
-    }
-    feedNotice.value = { type, message: normalized }
-    feedNoticeTimer = window.setTimeout(() => {
-      if (token !== feedNoticeTimerToken) {
-        return
-      }
-      feedNoticeTimer = 0
-      feedNotice.value = null
-    }, motionTimings.noticeDuration(type))
-  }
-  if (delayMS > 0) {
-    feedNoticeTimer = window.setTimeout(() => {
-      if (token !== feedNoticeTimerToken) {
-        return
-      }
-      feedNoticeTimer = 0
-      show()
-    }, delayMS)
-    return
-  }
-  show()
+  feedNoticeRuntime.show(type, message, undefined, delayMS)
 }
 
 function formatFetchErrors(errors: Array<{ source_name?: string; message: string }> = []) {
@@ -919,7 +877,7 @@ onUnmounted(() => {
   pullRefresh.clearTimers()
   refreshLayoutFreeze.release()
   clearLoadMoreSyncTimer()
-  clearFeedNoticeTimer()
+  feedNoticeRuntime.dispose()
   stopLoadMoreObserver()
   window.removeEventListener('focus', refreshStaleCacheInBackground)
   document.removeEventListener('visibilitychange', handleVisibilityRefresh)
