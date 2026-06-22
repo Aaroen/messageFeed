@@ -97,6 +97,9 @@ export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandle
     const currentX = Number(payload.x ?? Number(payload.startX ?? 0) + deltaX) + frameOffset.left
 
     if (payload.phase === 'start') {
+      if (options.readerBackSwipeTrackingActive.value) {
+        options.cancelBackSwipe()
+      }
       options.beginDetailGestureCandidate(startX, startY)
       return
     }
