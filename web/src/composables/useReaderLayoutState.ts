@@ -2,6 +2,7 @@ import { computed } from 'vue'
 
 import {
   chromePhaseConsumesCollapsedLayout,
+  chromeNeedsVisibleTopClearance,
   clampProgress,
   sourceContentTopOffset,
   topScrollInset,
@@ -30,8 +31,23 @@ export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
   )
   const sourceTopOffset = sourceContentTopOffset()
   const sourceTopInset = computed(() => topScrollInset(options.sourceReaderScrollTop.value, sourceTopOffset))
+  const visibleChromeNeedsSourceTopClearance = computed(() => {
+    if (!options.feedContentCollapsed.value) {
+      return false
+    }
+
+    if (options.sourceReaderScrollTop.value > sourceTopOffset || topChromeProgress.value <= 0.04) {
+      return false
+    }
+
+    return chromeNeedsVisibleTopClearance(options.topChromePhase.value, topChromeProgress.value)
+  })
   const sourceHeaderSpace = computed(() => {
     if (!options.feedContentCollapsed.value) {
+      return options.feedHeaderHeight.value + sourceTopInset.value
+    }
+
+    if (visibleChromeNeedsSourceTopClearance.value) {
       return options.feedHeaderHeight.value + sourceTopInset.value
     }
 

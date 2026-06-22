@@ -2,6 +2,7 @@ import { computed } from 'vue'
 
 import {
   chromePhaseConsumesCollapsedLayout,
+  chromeNeedsVisibleTopClearance,
   clampProgress,
   feedContentTopOffset,
   feedHeaderHeightForWidth,
@@ -29,14 +30,6 @@ type FeedChromeLayoutStateOptions = {
   feedTopPulling: ReadableRef<boolean>
   feedContentCollapsed: ReadableRef<boolean>
   detailFeedHeaderReturnProgress: ReadableRef<number>
-}
-
-function chromePhaseNeedsVisibleTopClearance(phase: ChromePhase) {
-  return phase === 'visible' || phase === 'revealing' || phase === 'gesture-returning'
-}
-
-function chromeNeedsVisibleTopClearance(phase: ChromePhase, progress: number) {
-  return chromePhaseNeedsVisibleTopClearance(phase) || (!chromePhaseConsumesCollapsedLayout(phase) && progress > 0.86)
 }
 
 export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) {

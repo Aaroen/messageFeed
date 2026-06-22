@@ -21,6 +21,14 @@ export function chromePhaseConsumesCollapsedLayout(phase: string) {
   return phase === 'hiding' || phase === 'refreshing'
 }
 
+export function chromePhaseNeedsVisibleTopClearance(phase: string) {
+  return phase === 'visible' || phase === 'revealing' || phase === 'gesture-returning'
+}
+
+export function chromeNeedsVisibleTopClearance(phase: string, progress: number) {
+  return chromePhaseNeedsVisibleTopClearance(phase) || (!chromePhaseConsumesCollapsedLayout(phase) && progress > 0.86)
+}
+
 export function sourceContentTopOffset() {
   return 14
 }
