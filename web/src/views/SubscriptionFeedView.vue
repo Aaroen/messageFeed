@@ -610,9 +610,11 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     }
 
     items.value = isAppend ? mergeItems(items.value, nextItems) : sortItemsDescending(nextItems)
-    totalCount.value = nextTotal
     nextOffset.value = requestOffset + nextItems.length
-    reachedEnd.value = nextItems.length < pageSize || nextOffset.value >= nextTotal
+    totalCount.value = Math.max(nextTotal, nextOffset.value)
+    reachedEnd.value =
+      nextItems.length < pageSize ||
+      (effectiveSourceKind.value !== 'recommendations' && nextOffset.value >= totalCount.value)
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     writeItemsToCache(requestViewKey)
     if (!isBackgroundRefresh && refreshNotice) {
