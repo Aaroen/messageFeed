@@ -16,7 +16,6 @@ type ManagementItem = {
 withDefaults(
   defineProps<{
     navigationVisible?: boolean
-    feedCornerHidden?: boolean
     detailChromeVisible?: boolean
     navOpenButtonStyle?: StyleValue
     cornerButtonLabel?: string
@@ -29,7 +28,6 @@ withDefaults(
   }>(),
   {
     navigationVisible: false,
-    feedCornerHidden: false,
     detailChromeVisible: false,
     navOpenButtonStyle: undefined,
     cornerButtonLabel: '打开导航',

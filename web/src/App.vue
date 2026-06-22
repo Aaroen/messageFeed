@@ -1493,7 +1493,6 @@ useAppLifecycle({
   <div class="app-shell" @click.capture="handleClickCapture">
     <AppNavigationLayer
       :navigation-visible="navigationVisible"
-      :feed-corner-hidden="feedCornerHidden"
       :detail-chrome-visible="detailChromeVisible"
       :nav-open-button-style="navOpenButtonStyle"
       :corner-button-label="cornerButtonLabel"
