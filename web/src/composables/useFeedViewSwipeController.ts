@@ -22,14 +22,12 @@ type FeedViewSwipeFinishResult = {
     progress: number
     isBlocked: boolean
   }
-  shouldRevealChromeFirst: boolean
   startedWithHiddenChrome: boolean
 }
 
 type FeedViewSwipeControllerOptions<TSurface extends string> = {
   topChromeProgress: ReadableRef<number>
   feedContentCollapsed: ReadableRef<boolean>
-  viewSwipeChromeRevealDelay: number
   motionNormalDuration: number
   resolveDelay: (duration: number) => number
   beginSwipeTransition: (payload: SwipeTransitionBeginPayload<TSurface>) => void
@@ -43,7 +41,6 @@ type FeedViewSwipeControllerOptions<TSurface extends string> = {
   swipeTransitionUpdatePayload: (offset: number) => SwipeTransitionPayload<TSurface>
   finishSwipeResult: (nextPath: string | null) => FeedViewSwipeFinishResult
   settleFinishedSwipe: (delayMS: number) => void
-  scheduleDelayedCommit: (delayMS: number, commit: () => void) => void
   markStartedWithHiddenChrome: () => void
   beginTopChromeGestureReturn: (options: {
     settleDelayMS: number
@@ -72,18 +69,6 @@ export function useFeedViewSwipeController<TSurface extends string>(
   function finishViewSwipe(nextPath: string | null) {
     const result = options.finishSwipeResult(nextPath)
     options.settleSwipeTransition(result.committed, result.settlePayload)
-
-    if (result.shouldRevealChromeFirst) {
-      options.setTopChromeVisible(true)
-      options.scheduleDelayedCommit(options.viewSwipeChromeRevealDelay, () => {
-        if (nextPath) {
-          void options.pushRoute(nextPath)
-        }
-        options.settleFinishedSwipe(options.resolveDelay(options.motionNormalDuration))
-      })
-      scheduleSwipeTransitionReset(options.viewSwipeChromeRevealDelay + options.motionNormalDuration)
-      return
-    }
 
     if (result.startedWithHiddenChrome) {
       options.setTopChromeVisible(true)

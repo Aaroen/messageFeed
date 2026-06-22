@@ -99,7 +99,10 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
       })
     }
 
-    return layerStyle(!payload.feedPullActive, payload.headerProgress)
+    return layerStyle(!payload.feedPullActive, payload.headerProgress, {
+      shift: 0,
+      scaleStart: 1,
+    })
   }
 
   function feedTabsTargetStyle(payload: {
@@ -112,8 +115,8 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
       payload.visible && !payload.feedPullActive,
       payload.headerProgress * payload.targetProgress,
       {
-        shift: 6,
-        scaleStart: 0.985,
+        shift: 0,
+        scaleStart: 1,
         pointerEnabled: false,
       },
     )

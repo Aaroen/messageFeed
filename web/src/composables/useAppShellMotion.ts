@@ -2,12 +2,7 @@ import { computed, type Ref } from 'vue'
 
 type AppShellMotionOptions = {
   feedHeaderHeight: Ref<number>
-  feedContentSpace: Ref<number>
   detailSurfaceProgress: Ref<number>
-  freezeFeedBodyDuringTopRefresh: Ref<boolean>
-  feedRefreshSettling: Ref<boolean>
-  feedChromeSettling: Ref<boolean>
-  readerBackDragging: Ref<boolean>
   detailReaderOpen: Ref<boolean>
   detailReturningToFeed: Ref<boolean>
 }
@@ -25,40 +20,22 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
     const detailUnderlayActive = options.detailReaderOpen.value && !options.detailReturningToFeed.value
     const underlayBlur = detailUnderlayActive ? options.detailSurfaceProgress.value * 7 : 0
     const underlayOpacity = detailUnderlayActive ? 1 - options.detailSurfaceProgress.value * 0.08 : 1
-    const feedContentSpace = options.freezeFeedBodyDuringTopRefresh.value
-      ? options.feedHeaderHeight.value
-      : options.feedContentSpace.value
-    const feedContentSettling =
-      !options.freezeFeedBodyDuringTopRefresh.value &&
-      (options.feedRefreshSettling.value || options.feedChromeSettling.value) &&
-      !options.readerBackDragging.value
-    const pageContentSettling = options.feedChromeSettling.value && !options.readerBackDragging.value
+    const contentSpace = options.feedHeaderHeight.value
     const underlayTransition =
       'opacity var(--motion-fast) var(--ease-linear), filter var(--motion-fast) var(--ease-linear)'
 
     return {
-      feedContentSpace,
-      pageContentSpace: options.feedContentSpace.value,
+      feedContentSpace: contentSpace,
+      pageContentSpace: contentSpace,
       underlayBlur,
       underlayOpacity,
-      feedTransition: [
-        feedContentSettling
-          ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
-          : 'padding-top 0ms var(--ease-standard)',
-        underlayTransition,
-      ].join(', '),
-      pageTransition: [
-        pageContentSettling
-          ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
-          : 'padding-top 0ms var(--ease-standard)',
-        underlayTransition,
-      ].join(', '),
+      transition: underlayTransition,
     }
   })
 
   const style = computed(() => ({
     '--feed-header-height': `${options.feedHeaderHeight.value}px`,
-    '--feed-header-space': cssPx(options.feedContentSpace.value),
+    '--feed-header-space': cssPx(options.feedHeaderHeight.value),
   }))
 
   const feedContentStyle = computed(() => {
@@ -67,7 +44,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
       paddingTop: `calc(${cssPx(state.feedContentSpace)} + var(--app-content-top-offset, 10px))`,
       opacity: state.underlayOpacity.toFixed(3),
       filter: `blur(${state.underlayBlur.toFixed(2)}px)`,
-      transition: state.feedTransition,
+      transition: state.transition,
     }
   })
 
@@ -77,7 +54,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
       paddingTop: `calc(${cssPx(state.pageContentSpace)} + var(--app-content-top-offset, 10px))`,
       opacity: state.underlayOpacity.toFixed(3),
       filter: `blur(${state.underlayBlur.toFixed(2)}px)`,
-      transition: state.pageTransition,
+      transition: state.transition,
     }
   })
 

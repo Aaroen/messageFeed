@@ -16,7 +16,6 @@ type FeedPagerSwipeFinishResult = {
     progress: number
     isBlocked: boolean
   }
-  shouldRevealChromeFirst: boolean
   startedWithHiddenChrome: boolean
 }
 
@@ -154,7 +153,6 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
         progress: committed ? 1 : 0,
         isBlocked: false,
       },
-      shouldRevealChromeFirst: committed && swipeStartedWithHiddenChrome,
       startedWithHiddenChrome: swipeStartedWithHiddenChrome,
     }
   }

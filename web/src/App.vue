@@ -263,7 +263,6 @@ const topChromeSettleDuration = motionTimings.topChromeSettleDuration
 const navigationDrawerSettleDuration = motionTimings.navigationDrawerSettleDuration
 const sourceReaderCloseCleanupDelay = motionTimings.sourceReaderCloseCleanupDelay
 const topRefreshNoticeDelay = motionTimings.topRefreshNoticeDelay
-const viewSwipeChromeRevealDelay = motionTimings.viewSwipeChromeRevealDelay
 const detailFrameMetricsInitialDelay = motionTimings.detailFrameMetricsInitialDelay
 const detailFrameMetricsSettledDelay = motionTimings.detailFrameMetricsSettledDelay
 const readerScrollRestoreRetryDelay = motionTimings.readerScrollRestoreRetryDelay
@@ -476,9 +475,6 @@ const feedChromeState = useAppFeedChromeState({
   },
   shellMotion: {
     detailSurfaceProgress,
-    feedRefreshSettling,
-    feedChromeSettling,
-    readerBackDragging,
     detailReaderOpen,
     detailReturningToFeed,
   },
@@ -975,7 +971,6 @@ const completeDetailToSourceReader = readerCloseInteractions.completeDetailToSou
 const feedViewSwipeInteractions = useAppFeedViewSwipeInteractions({
   topChromeProgress,
   feedContentCollapsed,
-  viewSwipeChromeRevealDelay,
   motionNormalDuration,
   resolveDelay: motionDelay,
   beginSwipeTransition,
@@ -986,7 +981,6 @@ const feedViewSwipeInteractions = useAppFeedViewSwipeInteractions({
   swipeTransitionUpdatePayload: feedPagerTransition.swipeTransitionUpdatePayload,
   finishSwipeResult: feedPagerTransition.finishSwipeResult,
   settleFinishedSwipe: feedPagerTransition.settleFinishedSwipe,
-  scheduleDelayedCommit: feedPagerTransition.scheduleDelayedCommit,
   markStartedWithHiddenChrome: feedPagerTransition.markStartedWithHiddenChrome,
   beginTopChromeGestureReturn: chromeState.beginGestureReturn,
   setTopChromeVisible,
