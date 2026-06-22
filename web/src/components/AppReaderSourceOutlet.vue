@@ -7,7 +7,7 @@ import type { ChromePhase } from '@/composables/useChromeState'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
 
 type SourceNotice = {
-  type: 'success' | 'warning'
+  type: 'running' | 'success' | 'warning'
   message: string
 }
 

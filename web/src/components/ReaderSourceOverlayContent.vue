@@ -12,7 +12,7 @@ import ReaderSourceNotice from '@/components/ReaderSourceNotice.vue'
 import TopChrome from '@/components/TopChrome.vue'
 
 type SourceNotice = {
-  type: 'success' | 'warning'
+  type: 'running' | 'success' | 'warning'
   message: string
 }
 

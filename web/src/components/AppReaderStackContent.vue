@@ -9,7 +9,7 @@ import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSessio
 import ReaderStack from '@/components/ReaderStack.vue'
 
 type SourceNotice = {
-  type: 'success' | 'warning'
+  type: 'running' | 'success' | 'warning'
   message: string
 }
 

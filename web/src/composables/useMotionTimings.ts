@@ -1,4 +1,4 @@
-type NoticeType = 'success' | 'warning'
+type NoticeType = 'running' | 'success' | 'warning'
 
 export function useMotionTimings() {
   const quickDuration = 180
@@ -38,6 +38,9 @@ export function useMotionTimings() {
   }
 
   function noticeDuration(type: NoticeType) {
+    if (type === 'running') {
+      return 0
+    }
     return type === 'success' ? noticeSuccessDuration : noticeFailureDuration
   }
 

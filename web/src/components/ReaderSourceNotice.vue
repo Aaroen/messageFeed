@@ -1,6 +1,6 @@
 <script setup lang="ts">
 type SourceNotice = {
-  type: 'success' | 'warning'
+  type: 'running' | 'success' | 'warning'
   message: string
 }
 

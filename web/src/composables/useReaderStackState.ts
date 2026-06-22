@@ -342,7 +342,7 @@ export function useReaderStackState() {
   const sourceCatalogEntry = ref<SourceCatalogEntry | null>(null)
   const sourceSubscription = ref<Source | null>(null)
   const sourceSubscriptionLoading = ref(false)
-  const sourceNotice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
+  const sourceNotice = ref<{ type: 'running' | 'success' | 'warning'; message: string } | null>(null)
   const sourceTimelinePreloadEnabled = ref(false)
   const detailTransitionRectsLocked = ref(false)
   const detailFeedOriginLocked = ref(false)
@@ -2201,7 +2201,7 @@ export function useReaderStackState() {
     sourceSubscriptionLoading.value = loading
   }
 
-  function setSourceNoticeState(notice: { type: 'success' | 'warning'; message: string } | null) {
+  function setSourceNoticeState(notice: { type: 'running' | 'success' | 'warning'; message: string } | null) {
     sourceNotice.value = notice
   }
 

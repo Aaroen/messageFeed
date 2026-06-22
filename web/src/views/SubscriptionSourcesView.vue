@@ -30,7 +30,7 @@ const loading = ref(false)
 const catalogLoading = ref(false)
 const actionLoading = ref(false)
 const pageRefreshing = ref(false)
-const notice = ref<{ type: 'success' | 'warning'; message: string } | null>(null)
+const notice = ref<{ type: 'running' | 'success' | 'warning'; message: string } | null>(null)
 const motionTimings = useMotionTimings()
 const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef })
 let noticeTimer = 0
@@ -100,7 +100,7 @@ function finishPageRefresh(token: number) {
   pageRefreshing.value = false
 }
 
-function showNotice(type: 'success' | 'warning', message: string, durationMS?: number, delayMS = 0) {
+function showNotice(type: 'running' | 'success' | 'warning', message: string, durationMS?: number, delayMS = 0) {
   if (disposed) {
     return
   }
@@ -214,7 +214,10 @@ async function refreshPage(options: PageRefreshOptions = {}) {
   const query = catalogQuery.value.trim()
   try {
     if (!options.suppressStartNotice) {
-      showNotice('success', query ? `抓取中：正在更新“${query}”的推荐源搜索结果` : '抓取中：正在更新订阅管理数据', 0)
+      showNotice(
+        'running',
+        query ? `抓取中：正在更新“${query}”的推荐源搜索结果` : '抓取中：正在更新订阅管理数据',
+      )
     }
     await Promise.all([
       loadSources({ silent: true, notify: false, token }),
@@ -439,7 +442,7 @@ async function fetchNow(source: Source, token: number): Promise<FetchNowResult> 
   if (!pageRequestIsCurrent(token)) {
     return { success: false, error: '页面状态已更新，本次抓取已取消' }
   }
-  showNotice('success', `抓取中：正在抓取 ${source.name} 的最新内容`, 0)
+  showNotice('running', `抓取中：正在抓取 ${source.name} 的最新内容`)
   try {
     await fetchSource(source.id)
     return { success: true }

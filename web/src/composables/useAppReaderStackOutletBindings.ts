@@ -11,7 +11,7 @@ type ReadableRef<T> = {
 }
 
 type SourceNotice = {
-  type: 'success' | 'warning'
+  type: 'running' | 'success' | 'warning'
   message: string
 }
 

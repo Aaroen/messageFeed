@@ -1705,6 +1705,11 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   color: var(--mf-primary-strong);
 }
 
+.sources-toast--running {
+  border-color: rgba(14, 116, 144, 0.24);
+  color: var(--mf-aqua);
+}
+
 .sources-toast--warning {
   border-color: rgba(220, 38, 38, 0.22);
   color: #b91c1c;

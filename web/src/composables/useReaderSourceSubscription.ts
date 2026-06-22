@@ -14,7 +14,7 @@ import { useMotionTimings } from '@/composables/useMotionTimings'
 import type { ReaderSource } from '@/composables/useReaderSession'
 
 type SourceNotice = {
-  type: 'success' | 'warning'
+  type: 'running' | 'success' | 'warning'
   message: string
 }
 
@@ -117,7 +117,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
 
   async function fetchNow(source: Source, token: number, readerSource: ReaderSource): Promise<FetchNowResult> {
     if (sourceRequestIsCurrent(token, readerSource)) {
-      showSourceNotice('success', `抓取中：正在抓取 ${source.name} 的最新内容`, 0)
+      showSourceNotice('running', `抓取中：正在抓取 ${source.name} 的最新内容`)
     }
     try {
       await fetchSource(source.id)
