@@ -93,7 +93,7 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
 
     if (!options.pullRefresh.gestureTracking.value) {
       if (options.shouldCancelTopPull(deltaX, deltaY)) {
-        resetPageTopPullTracking()
+        cancelPageTopPullGesture()
         return
       }
 
