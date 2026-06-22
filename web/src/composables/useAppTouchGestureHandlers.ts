@@ -268,8 +268,8 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
       options.cancelBackSwipe()
     }
     options.resetGestureTracking()
-    if (hadNavigationGesture && options.navigationVisible.value && !options.navigationOpen.value) {
-      options.settleNavigation(false)
+    if (hadNavigationGesture && options.navigationVisible.value) {
+      options.settleNavigation(options.navigationProgress.value >= 0.42)
     }
     if (hadViewGesture) {
       options.finishViewSwipe(null)
