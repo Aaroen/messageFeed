@@ -56,7 +56,7 @@ export function useAppReaderMotionState(options: AppReaderMotionStateOptions) {
     sourceReaderStyle: sourceSurfaceMotion.surfaceStyle,
     sourceContentStyle: sourceContentMotion.contentStyle,
     settleSourceContentAfterRefresh: sourceContentMotion.settleAfterRefresh,
-    clearSourceContentTimer: sourceContentMotion.clearTimer,
+    resetSourceContentMotion: sourceContentMotion.reset,
     detailReaderStyle: detailSurfaceMotion.readerStyle,
     detailBackdropStyle: detailSurfaceMotion.backdropStyle,
     detailContentStyle: detailContentMotion.contentStyle,

@@ -1184,7 +1184,7 @@ const runtimeCleanup = useAppRuntimeCleanup({
     clearTimer: readerRouteSync.clearTimer,
   },
   readerMotion: {
-    clearSourceContentTimer: readerMotionState.clearSourceContentTimer,
+    resetSourceContentMotion: readerMotionState.resetSourceContentMotion,
   },
   detailSourceTransition: {
     clearRectCapture: clearDetailSourceTransitionRectCapture,

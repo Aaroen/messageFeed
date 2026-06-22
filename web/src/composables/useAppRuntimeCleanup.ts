@@ -21,7 +21,7 @@ type AppRuntimeCleanupOptions = {
     clearTimer: RuntimeCleaner
   }
   readerMotion: {
-    clearSourceContentTimer: RuntimeCleaner
+    resetSourceContentMotion: RuntimeCleaner
   }
   detailSourceTransition: {
     clearRectCapture: RuntimeCleaner
@@ -60,7 +60,7 @@ export function useAppRuntimeCleanup(options: AppRuntimeCleanupOptions) {
     () => options.chrome.clearTimer(),
     () => options.route.clearTimer(),
     () => options.readerRouteSync.clearTimer(),
-    () => options.readerMotion.clearSourceContentTimer(),
+    () => options.readerMotion.resetSourceContentMotion(),
     () => options.detailSourceTransition.clearRectCapture(),
     () => options.pagePull.invalidateRefreshCompletion(),
     () => options.pagePull.clearTimers(),
