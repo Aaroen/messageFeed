@@ -571,7 +571,7 @@ const readerMotionState = useAppReaderMotionState({
     underDetail: sourceReaderUnderDetail,
     revealProgress: sourceReaderRevealProgress,
     chromeSettling: computed(() => feedChromeSettling.value && !readerBackDragging.value),
-    isVisible: () => sourceReaderVisible.value,
+    isVisible: () => sourceReaderVisible.value && !sourceReaderUnderDetail.value,
     resolveDelay: motionDelay,
   },
   detailSurface: {
