@@ -31,6 +31,7 @@ type AppRouteSessionWatchersOptions = {
   resetBackSwipeOffset: () => void
   resetPageTopPullTracking: () => void
   finishFeedTopPull: () => void
+  resetRefreshCompletion: () => void
   resetPagePullMotion: () => void
   resetFeedViewDragOffset: () => void
   setTopChromeVisible: (visible: boolean) => void
@@ -55,6 +56,7 @@ export function useAppRouteSessionWatchers(options: AppRouteSessionWatchersOptio
       options.resetBackSwipeOffset()
       options.resetPageTopPullTracking()
       options.finishFeedTopPull()
+      options.resetRefreshCompletion()
       options.resetPagePullMotion()
       options.resetFeedViewDragOffset()
       if (options.isFeedRoute.value) {

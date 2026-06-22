@@ -55,6 +55,14 @@ export function useRefreshCompletionState() {
     wasSource.value = false
   }
 
+  function reset() {
+    clearTimer()
+    wasActive.value = false
+    wasSource.value = false
+    startedWithChrome.value = false
+    settling.value = false
+  }
+
   return {
     wasActive: readonly(wasActive),
     wasSource: readonly(wasSource),
@@ -64,6 +72,7 @@ export function useRefreshCompletionState() {
     begin,
     finish,
     resetInactive,
+    reset,
     clearTimer,
   }
 }

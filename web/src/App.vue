@@ -1428,6 +1428,7 @@ useAppRouteSessionWatchers({
   resetBackSwipeOffset,
   resetPageTopPullTracking,
   finishFeedTopPull: feedTopPull.finish,
+  resetRefreshCompletion: refreshCompletion.reset,
   resetPagePullMotion: () => {
     invalidatePagePullRefreshCompletion()
     pagePullState.reset()
@@ -1476,7 +1477,7 @@ useAppLifecycle({
     () => appSwipeNavigationState.clearFeedPagerTimers(),
     () => clearSwipeTransitionTimer(),
     () => navigationDrawer.clearTimer(),
-    () => refreshCompletion.clearTimer(),
+    () => refreshCompletion.reset(),
     () => chromeState.clearTimer(),
     () => routeRuntime.clearTimer(),
     () => readerRouteSync.clearTimer(),
