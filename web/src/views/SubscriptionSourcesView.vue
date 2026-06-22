@@ -19,6 +19,7 @@ import {
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import type { PageRefreshOptions } from '@/composables/usePageOutletState'
 import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
+import { useRequestToken } from '@/composables/useRequestToken'
 import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedListCacheStore } from '@/stores/feedListCache'
 import { formatSourceFetchErrors, subscriptionManagementFetchNotice } from '@/utils/sourceFetchMessages'
@@ -42,9 +43,9 @@ const showNotice = noticeRuntime.show
 const clearNotice = noticeRuntime.clear
 const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef })
 const feedListCache = useFeedListCacheStore()
-let pageRequestToken = 0
 let pageRefreshingToken = 0
 let disposed = false
+const pageRequestToken = useRequestToken({ isActive: () => !disposed })
 const importFetchConcurrency = 3
 const pageBusy = computed(() => loading.value || catalogLoading.value || actionLoading.value || pageRefreshing.value)
 
@@ -72,16 +73,15 @@ const sourceByNormalizedURL = computed(() => {
 })
 
 function nextPageRequestToken() {
-  pageRequestToken += 1
-  return pageRequestToken
+  return pageRequestToken.next()
 }
 
 function invalidatePageRequests() {
-  pageRequestToken += 1
+  pageRequestToken.invalidate()
 }
 
 function pageRequestIsCurrent(token?: number) {
-  return !disposed && (token === undefined || token === pageRequestToken)
+  return pageRequestToken.isCurrent(token)
 }
 
 function beginPageRefresh(token: number) {

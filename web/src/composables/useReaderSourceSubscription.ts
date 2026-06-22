@@ -12,6 +12,7 @@ import {
 } from '@/api/feed'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import type { ReaderSource } from '@/composables/useReaderSession'
+import { useRequestToken } from '@/composables/useRequestToken'
 import { useTimedNotice } from '@/composables/useTimedNotice'
 
 type SourceNotice = {
@@ -49,7 +50,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     canShow: () => options.canShowNotice?.() !== false,
     setNotice: options.setSourceNotice,
   })
-  let sourceRequestToken = 0
+  const sourceRequestToken = useRequestToken()
   const sourceToggleLabel = computed(() => {
     if (options.sourceSubscriptionLoading.value) {
       return '处理中'
@@ -60,12 +61,11 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
   const sourceToggleDisabled = computed(() => options.sourceSubscriptionLoading.value)
 
   function nextSourceRequestToken() {
-    sourceRequestToken += 1
-    return sourceRequestToken
+    return sourceRequestToken.next()
   }
 
   function invalidateSourceRequests() {
-    sourceRequestToken += 1
+    sourceRequestToken.invalidate()
   }
 
   function readerSourceMatches(source: ReaderSource | null) {
@@ -74,7 +74,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
   }
 
   function sourceRequestIsCurrent(token: number, source: ReaderSource | null) {
-    return token === sourceRequestToken && readerSourceMatches(source)
+    return sourceRequestToken.isCurrent(token) && readerSourceMatches(source)
   }
 
   function showSourceNotice(type: SourceNotice['type'], message: string, durationMS?: number) {

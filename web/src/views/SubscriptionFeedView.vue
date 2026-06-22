@@ -7,6 +7,7 @@ import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRef
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
+import { useRequestToken } from '@/composables/useRequestToken'
 import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
@@ -102,8 +103,8 @@ const feedNotice = feedNoticeRuntime.notice
 let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
 let loadMoreSyncToken = 0
-let loadRequestToken = 0
-let backgroundRefreshRequestToken = 0
+const loadRequestToken = useRequestToken({ isActive: () => !disposed })
+const backgroundRefreshRequestToken = useRequestToken()
 let topPullStartedNotified = false
 let disposed = false
 let loadMoreObserver: IntersectionObserver | null = null
@@ -332,17 +333,16 @@ function loadInitialItems() {
 }
 
 function nextLoadRequestToken() {
-  loadRequestToken += 1
-  return loadRequestToken
+  return loadRequestToken.next()
 }
 
 function invalidateLoadRequests() {
-  loadRequestToken += 1
+  loadRequestToken.invalidate()
   clearBackgroundRefresh()
 }
 
 function loadRequestIsCurrent(token: number, requestViewKey: string) {
-  return !disposed && token === loadRequestToken && requestViewKey === viewKey.value
+  return loadRequestToken.isCurrent(token) && requestViewKey === viewKey.value
 }
 
 function refreshStaleCacheInBackground() {
@@ -357,15 +357,15 @@ function refreshStaleCacheInBackground() {
 }
 
 function beginBackgroundRefresh(token: number) {
-  backgroundRefreshRequestToken = token
+  backgroundRefreshRequestToken.set(token)
   backgroundRefreshing.value = true
 }
 
 function clearBackgroundRefresh(token?: number) {
-  if (token !== undefined && backgroundRefreshRequestToken !== token) {
+  if (!backgroundRefreshRequestToken.isCurrent(token)) {
     return
   }
-  backgroundRefreshRequestToken = 0
+  backgroundRefreshRequestToken.set(0)
   backgroundRefreshing.value = false
 }
 
