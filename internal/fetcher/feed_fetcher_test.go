@@ -5,9 +5,12 @@ import (
 	"messagefeed/internal/domain"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/mmcdole/gofeed"
 )
 
 func TestFetchParsesRSSItems(t *testing.T) {
@@ -90,5 +93,46 @@ func TestTruncatePreservesUTF8(t *testing.T) {
 	}
 	if len(got) > 40 {
 		t.Fatalf("truncate length = %d, want <= 40", len(got))
+	}
+}
+
+func TestFeedItemToDomainRemovesInvalidUTF8(t *testing.T) {
+	baseURL, err := url.Parse("https://example.com/feed.xml")
+	if err != nil {
+		t.Fatalf("parse base url: %v", err)
+	}
+	invalidSuffix := string([]byte{0xe6, 0xb5})
+	item, ok := feedItemToDomain(3, baseURL, &gofeed.Item{
+		GUID:    "guid" + invalidSuffix,
+		Link:    "/posts/item" + invalidSuffix,
+		Title:   "Title" + invalidSuffix,
+		Content: "Body " + invalidSuffix + " text",
+		Author:  &gofeed.Person{Name: "Author" + invalidSuffix},
+	}, time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	if !ok {
+		t.Fatal("feedItemToDomain returned ok=false")
+	}
+
+	values := map[string]string{
+		"title":           item.Title,
+		"url":             item.URL,
+		"normalized_url":  item.NormalizedURL,
+		"raw_guid":        item.RawGUID,
+		"content_snippet": item.ContentSnippet,
+		"author":          item.Author,
+	}
+	for name, value := range values {
+		if !utf8.ValidString(value) {
+			t.Fatalf("%s contains invalid UTF-8: %q", name, value)
+		}
+	}
+	if item.Title != "Title" {
+		t.Fatalf("Title = %q, want Title", item.Title)
+	}
+	if item.RawGUID != "guid" {
+		t.Fatalf("RawGUID = %q, want guid", item.RawGUID)
+	}
+	if item.NormalizedURL != "https://example.com/posts/item" {
+		t.Fatalf("NormalizedURL = %q", item.NormalizedURL)
 	}
 }

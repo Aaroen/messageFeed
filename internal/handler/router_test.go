@@ -279,6 +279,37 @@ func TestSourceRoutes(t *testing.T) {
 	if fetchResponse.Data.ItemCount != 1 {
 		t.Fatalf("fetch item count = %d, want 1", fetchResponse.Data.ItemCount)
 	}
+
+	fetchActiveHTTPReq := httptest.NewRequest(http.MethodPost, "/api/v1/source-fetches", nil)
+	fetchActiveRecorder := httptest.NewRecorder()
+	router.ServeHTTP(fetchActiveRecorder, fetchActiveHTTPReq)
+
+	if fetchActiveRecorder.Code != http.StatusOK {
+		t.Fatalf("fetch active status code = %d, want %d", fetchActiveRecorder.Code, http.StatusOK)
+	}
+
+	var fetchActiveResponse struct {
+		Code int                  `json:"code"`
+		Data fetchSourcesResponse `json:"data"`
+	}
+	if err := json.NewDecoder(fetchActiveRecorder.Body).Decode(&fetchActiveResponse); err != nil {
+		t.Fatalf("decode fetch active response: %v", err)
+	}
+	if fetchActiveResponse.Data.RequestedCount != 1 {
+		t.Fatalf("fetch active requested count = %d, want 1", fetchActiveResponse.Data.RequestedCount)
+	}
+	if fetchActiveResponse.Data.SuccessCount != 1 {
+		t.Fatalf("fetch active success count = %d, want 1", fetchActiveResponse.Data.SuccessCount)
+	}
+	if fetchActiveResponse.Data.FailureCount != 0 {
+		t.Fatalf("fetch active failure count = %d, want 0", fetchActiveResponse.Data.FailureCount)
+	}
+	if got, want := len(fetchActiveResponse.Data.Sources), 1; got != want {
+		t.Fatalf("fetch active sources length = %d, want %d", got, want)
+	}
+	if fetchActiveResponse.Data.Sources[0].ID != 2 {
+		t.Fatalf("fetch active source id = %d, want 2", fetchActiveResponse.Data.Sources[0].ID)
+	}
 }
 
 func TestItemRoutesRequireConfiguredService(t *testing.T) {

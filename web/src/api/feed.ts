@@ -1,7 +1,10 @@
-import { apiClient } from '@/api/client'
+import { AxiosError } from 'axios'
+
+import { apiClient, formatAPIError } from '@/api/client'
 
 const sourceFetchTimeoutMS = 25000
 const activeSourcesFetchTimeoutMS = 60000
+const activeSourcesFetchConcurrency = 4
 
 interface APIEnvelope<T> {
   data: T
@@ -105,17 +108,80 @@ export async function updateSourceStatus(id: number, status: Source['status']) {
 }
 
 export async function fetchSource(id: number) {
-  const response = await apiClient.post<APIEnvelope<{ source: Source }>>(`/api/v1/sources/${id}/fetch`, undefined, {
-    timeout: sourceFetchTimeoutMS,
-  })
-  return response.data.data
+  try {
+    const response = await apiClient.post<APIEnvelope<{ source: Source }>>(`/api/v1/sources/${id}/fetch`, undefined, {
+      timeout: sourceFetchTimeoutMS,
+    })
+    return response.data.data
+  } catch (err) {
+    throw new Error(await fetchSourceFailureMessage(id, err))
+  }
 }
 
 export async function fetchActiveSources() {
-  const response = await apiClient.post<APIEnvelope<FetchSourcesResult>>('/api/v1/source-fetches', undefined, {
-    timeout: activeSourcesFetchTimeoutMS,
-  })
-  return response.data.data
+  try {
+    const response = await apiClient.post<APIEnvelope<FetchSourcesResult>>('/api/v1/source-fetches', undefined, {
+      timeout: activeSourcesFetchTimeoutMS,
+    })
+    return response.data.data
+  } catch (err) {
+    if (err instanceof AxiosError && err.response?.status === 404) {
+      return fetchActiveSourcesWithSingleSourceFallback()
+    }
+    throw err
+  }
+}
+
+async function fetchActiveSourcesWithSingleSourceFallback(): Promise<FetchSourcesResult> {
+  const activeSources = (await listSources()).filter((source) => source.status === 'active')
+  const result: FetchSourcesResult = {
+    requested_count: activeSources.length,
+    success_count: 0,
+    failure_count: 0,
+    sources: [],
+    errors: [],
+  }
+  let cursor = 0
+  const workerCount = Math.min(activeSourcesFetchConcurrency, activeSources.length)
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (cursor < activeSources.length) {
+        const source = activeSources[cursor]
+        cursor += 1
+        try {
+          const fetchResult = await fetchSource(source.id)
+          result.success_count += 1
+          result.sources.push(fetchResult.source)
+        } catch (err) {
+          result.failure_count += 1
+          result.errors.push({
+            source_id: source.id,
+            source_name: source.name,
+            message: formatAPIError(err),
+          })
+        }
+      }
+    }),
+  )
+  return result
+}
+
+async function fetchSourceFailureMessage(id: number, cause: unknown) {
+  const apiMessage = formatAPIError(cause)
+  try {
+    const sources = await listSources()
+    const source = sources.find((item) => item.id === id)
+    const fetchError = source?.last_fetch_error?.trim()
+    if (!fetchError) {
+      return apiMessage
+    }
+    if (!apiMessage || apiMessage === fetchError) {
+      return fetchError
+    }
+    return `${fetchError} (${apiMessage})`
+  } catch {
+    return apiMessage
+  }
 }
 
 export async function listSourceCatalog(params: { category?: string; q?: string; limit?: number; offset?: number } = {}) {

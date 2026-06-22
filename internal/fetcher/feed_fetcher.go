@@ -183,8 +183,8 @@ func feedItemToDomain(sourceID int64, baseURL *url.URL, feedItem *gofeed.Item, f
 		return domain.Item{}, false
 	}
 
-	rawGUID := strings.TrimSpace(feedItem.GUID)
-	rawLink := strings.TrimSpace(feedItem.Link)
+	rawGUID := validUTF8TrimSpace(feedItem.GUID)
+	rawLink := validUTF8TrimSpace(feedItem.Link)
 	if rawLink == "" && looksLikeAbsoluteURL(rawGUID) {
 		rawLink = rawGUID
 	}
@@ -194,14 +194,14 @@ func feedItemToDomain(sourceID int64, baseURL *url.URL, feedItem *gofeed.Item, f
 		return domain.Item{}, false
 	}
 
-	title := strings.TrimSpace(feedItem.Title)
+	title := validUTF8TrimSpace(feedItem.Title)
 	if title == "" {
 		title = normalizedURL
 	}
 
-	content := strings.TrimSpace(feedItem.Content)
+	content := validUTF8TrimSpace(feedItem.Content)
 	if content == "" {
-		content = strings.TrimSpace(feedItem.Description)
+		content = validUTF8TrimSpace(feedItem.Description)
 	}
 	contentSnippet := truncate(normalizeWhitespace(content), 2000)
 
@@ -229,11 +229,12 @@ func feedItemToDomain(sourceID int64, baseURL *url.URL, feedItem *gofeed.Item, f
 }
 
 func resolveAndNormalizeURL(baseURL *url.URL, rawLink string) (itemURL string, normalizedURL string, ok bool) {
-	if strings.TrimSpace(rawLink) == "" {
+	trimmedLink := validUTF8TrimSpace(rawLink)
+	if trimmedLink == "" {
 		return "", "", false
 	}
 
-	parsed, err := url.Parse(strings.TrimSpace(rawLink))
+	parsed, err := url.Parse(trimmedLink)
 	if err != nil {
 		return "", "", false
 	}
@@ -259,7 +260,7 @@ func resolveAndNormalizeURL(baseURL *url.URL, rawLink string) (itemURL string, n
 }
 
 func looksLikeAbsoluteURL(value string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(value))
+	parsed, err := url.Parse(validUTF8TrimSpace(value))
 	return err == nil && parsed.IsAbs() && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
@@ -267,10 +268,10 @@ func authorName(item *gofeed.Item) string {
 	if item.Author == nil {
 		return ""
 	}
-	if name := strings.TrimSpace(item.Author.Name); name != "" {
+	if name := validUTF8TrimSpace(item.Author.Name); name != "" {
 		return name
 	}
-	return strings.TrimSpace(item.Author.Email)
+	return validUTF8TrimSpace(item.Author.Email)
 }
 
 func contentHash(parts ...string) string {
@@ -284,6 +285,10 @@ func contentHash(parts ...string) string {
 
 func normalizeWhitespace(value string) string {
 	return strings.Join(strings.Fields(strings.ToValidUTF8(value, "")), " ")
+}
+
+func validUTF8TrimSpace(value string) string {
+	return strings.TrimSpace(strings.ToValidUTF8(value, ""))
 }
 
 func truncate(value string, maxLength int) string {
