@@ -21,6 +21,7 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
       current <= 1 &&
       options.topChromeProgress.value < 0.99 &&
       !options.feedPullActive.value &&
+      !options.sourcePullActive.value &&
       !options.feedTopPulling.value
     ) {
       options.setTopChromeVisible(true)
