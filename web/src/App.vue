@@ -506,7 +506,6 @@ const sourcePullProgress = feedChromeState.sourcePullProgress
 const feedHeaderHeight = feedChromeState.feedHeaderHeight
 const feedHeaderProgress = feedChromeState.feedHeaderProgress
 const freezeFeedBodyDuringTopRefresh = feedChromeState.freezeFeedBodyDuringTopRefresh
-const feedTopChromeIsVisiblyOpen = feedChromeState.feedTopChromeIsVisiblyOpen
 const feedHeaderReturnProgress = feedChromeState.feedHeaderReturnProgress
 const mainStyle = feedChromeState.mainStyle
 const feedContentStyle = feedChromeState.feedContentStyle
@@ -1203,7 +1202,7 @@ const feedChromeInteractions = useAppFeedChromeInteractions({
     isFeedRoute,
     topPull: feedTopPull,
     topChromeProgress,
-    feedTopChromeIsVisiblyOpen,
+    feedContentCollapsed,
     feedHeaderHeight,
     feedPullRefreshing: () => feedInteraction.pullRefreshing,
     currentContentScrollTop,
@@ -1381,6 +1380,7 @@ const mainOutletBindings = useAppMainOutletBindings({
   feedTrackStyle,
   feedScrollTop,
   topChromeProgress,
+  feedContentCollapsed,
   feedHeaderHeight,
   freezeFeedBodyDuringTopRefresh,
   morphingItemId,

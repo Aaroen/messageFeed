@@ -378,7 +378,9 @@ export function useReaderStackState() {
   const detailReadingProgress = computed(() =>
     detailScrollMax.value > 0 ? clampProgress(detailScrollTop.value / detailScrollMax.value) : 0,
   )
-  const detailParkedBehindSource = computed(() => hasDetailParkedBehindSource() && !readerBackDragging.value)
+  const detailParkedBehindSource = computed(
+    () => hasDetailParkedBehindSource() && (!readerBackDragging.value || sourceReaderBlockedBackSwipeActive.value),
+  )
   const detailChromeVisible = computed(
     () =>
       detailReaderOpen.value &&
@@ -457,7 +459,7 @@ export function useReaderStackState() {
   )
   const detailMorphSummaryVisible = computed(() => detailSurfaceProgress.value < 0.54)
   const detailMorphTextVisible = computed(() => {
-    if (!detailItem.value || detailCommittedListReturn()) {
+    if (!detailItem.value || detailCommittedListReturn() || sourceReaderBlockedBackSwipeActive.value) {
       return false
     }
 

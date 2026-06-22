@@ -14,6 +14,7 @@ withDefaults(
     feedTrackStyle?: StyleValue
     feedScrollTop?: number
     topChromeProgress?: number
+    topChromeContentCollapsed?: boolean
     feedHeaderHeight?: number
     freezeBodyDuringTopRefresh?: boolean
     morphingItemId?: number | null
@@ -29,6 +30,7 @@ withDefaults(
     feedTrackStyle: undefined,
     feedScrollTop: 0,
     topChromeProgress: 1,
+    topChromeContentCollapsed: false,
     feedHeaderHeight: 86,
     freezeBodyDuringTopRefresh: false,
     morphingItemId: null,
@@ -74,6 +76,7 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
       :feed-track-style="feedTrackStyle"
       :feed-scroll-top="feedScrollTop"
       :top-chrome-progress="topChromeProgress"
+      :top-chrome-content-collapsed="topChromeContentCollapsed"
       :feed-header-height="feedHeaderHeight"
       :freeze-body-during-top-refresh="freezeBodyDuringTopRefresh"
       :morphing-item-id="morphingItemId"

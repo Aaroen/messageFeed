@@ -56,7 +56,7 @@ export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsO
     const stableProgress = progress >= 0.5 ? 1 : 0
     return {
       progress: stableProgress,
-      contentCollapsed: stableProgress <= 0.01,
+      contentCollapsed: stableProgress <= 0.01 || snapshot.contentCollapsed,
     }
   }
 

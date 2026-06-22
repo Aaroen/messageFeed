@@ -22,6 +22,7 @@ const props = withDefaults(
     active?: boolean
     scrollTop?: number
     topChromeProgress?: number
+    topChromeContentCollapsed?: boolean
     headerHeight?: number
     freezeBodyDuringTopRefresh?: boolean
     morphingItemId?: number | null
@@ -37,6 +38,7 @@ const props = withDefaults(
     active: true,
     scrollTop: 0,
     topChromeProgress: 1,
+    topChromeContentCollapsed: false,
     headerHeight: 86,
     freezeBodyDuringTopRefresh: false,
     morphingItemId: null,
@@ -814,9 +816,11 @@ function handleTouchStart(event: TouchEvent) {
   }
 
   const touch = event.touches[0]
+  const startedWithLayoutChrome =
+    props.freezeBodyDuringTopRefresh || (!props.topChromeContentCollapsed && props.topChromeProgress > 0.04)
   topPullStartedNotified = false
-  touchStartChromeDistance = props.headerHeight * props.topChromeProgress
-  pullRefresh.begin(props.freezeBodyDuringTopRefresh || props.topChromeProgress > 0.04)
+  touchStartChromeDistance = startedWithLayoutChrome ? props.headerHeight * props.topChromeProgress : 0
+  pullRefresh.begin(startedWithLayoutChrome)
   pullRefresh.beginGestureCandidate(touch.clientX, touch.clientY)
 }
 

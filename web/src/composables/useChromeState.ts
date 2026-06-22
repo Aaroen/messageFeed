@@ -176,9 +176,7 @@ export function useChromeState() {
     settling.value = false
     const restoredProgress = clampProgress(typeof snapshot.progress === 'number' ? snapshot.progress : 1)
     setProgress(restoredProgress)
-    setContentCollapsed(
-      restoredProgress <= 0.01 ? true : Boolean(snapshot.contentCollapsed && restoredProgress < 0.99),
-    )
+    setContentCollapsed(restoredProgress <= 0.01 || Boolean(snapshot.contentCollapsed))
   }
 
   return {

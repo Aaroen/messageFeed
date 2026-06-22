@@ -26,6 +26,7 @@ type AppMainOutletBindingOptions = {
   feedTrackStyle: ReadableRef<StyleValue>
   feedScrollTop: ReadableRef<number>
   topChromeProgress: ReadableRef<number>
+  feedContentCollapsed: ReadableRef<boolean>
   feedHeaderHeight: ReadableRef<number>
   freezeFeedBodyDuringTopRefresh: ReadableRef<boolean>
   morphingItemId: ReadableRef<number | null>
@@ -111,6 +112,7 @@ export function useAppMainOutletBindings(options: AppMainOutletBindingOptions) {
       feedTrackStyle: options.feedTrackStyle.value,
       feedScrollTop: options.feedScrollTop.value,
       topChromeProgress: options.topChromeProgress.value,
+      topChromeContentCollapsed: options.feedContentCollapsed.value,
       feedHeaderHeight: options.feedHeaderHeight.value,
       freezeBodyDuringTopRefresh: options.freezeFeedBodyDuringTopRefresh.value,
       morphingItemId: options.morphingItemId.value,

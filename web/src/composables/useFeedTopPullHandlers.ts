@@ -16,7 +16,7 @@ type FeedTopPullHandlersOptions = {
   isFeedRoute: ReadableRef<boolean>
   topPull: TopPullController
   topChromeProgress: ReadableRef<number>
-  feedTopChromeIsVisiblyOpen: ReadableRef<boolean>
+  feedContentCollapsed: ReadableRef<boolean>
   feedHeaderHeight: ReadableRef<number>
   feedPullRefreshing: () => boolean
   currentContentScrollTop: () => number
@@ -38,10 +38,9 @@ export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
       return
     }
 
-    options.topPull.begin(
-      startedWithVisibleChrome || options.feedTopChromeIsVisiblyOpen.value,
-      options.topChromeProgress.value,
-    )
+    const chromeConsumesContentSpace = !options.feedContentCollapsed.value
+    const startedWithLayoutChrome = startedWithVisibleChrome || chromeConsumesContentSpace
+    options.topPull.begin(startedWithLayoutChrome, startedWithLayoutChrome ? options.topChromeProgress.value : 0)
     options.beginRefreshingChrome()
   }
 
@@ -50,7 +49,7 @@ export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
       return
     }
 
-    if (!options.topPull.startedWithChrome.value && options.feedTopChromeIsVisiblyOpen.value) {
+    if (!options.topPull.startedWithChrome.value && !options.feedContentCollapsed.value) {
       options.topPull.markStartedWithChrome()
     }
 
@@ -83,7 +82,7 @@ export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
       return
     }
 
-    if (options.topChromeProgress.value <= 0.04) {
+    if (!startedWithChrome || options.topChromeProgress.value <= 0.04) {
       options.collapseTopChrome()
       options.topPull.resetStartedWithChrome()
       return
