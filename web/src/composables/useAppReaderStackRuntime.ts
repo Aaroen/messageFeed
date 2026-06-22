@@ -43,3 +43,5 @@ export function useAppReaderStackRuntime() {
     ...sourceSubscriptionControls,
   }
 }
+
+export type AppReaderStackRuntime = ReturnType<typeof useAppReaderStackRuntime>

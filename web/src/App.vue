@@ -46,7 +46,6 @@ import { useAppReaderBackSwipeInteractions } from '@/composables/useAppReaderBac
 import { useAppReaderSourceCloseInteractions } from '@/composables/useAppReaderSourceCloseInteractions'
 import { useAppReaderOpenInteractions } from '@/composables/useAppReaderOpenInteractions'
 import { useAppReaderCloseInteractions } from '@/composables/useAppReaderCloseInteractions'
-import { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
 import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitionRects'
 import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
@@ -57,8 +56,7 @@ import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwi
 import { useAppSwipeGestureRuntime } from '@/composables/useAppSwipeGestureRuntime'
 import { useReaderRouteQueryRestore } from '@/composables/useReaderRouteQueryRestore'
 import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
-import { useAppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
-import { useAppReaderDetailHeaderState } from '@/composables/useAppReaderDetailHeaderState'
+import { useAppReaderPresentationRuntime } from '@/composables/useAppReaderPresentationRuntime'
 import { useAppTopChromeOutletState } from '@/composables/useAppTopChromeOutletState'
 import { useAppVirtualBackGuard } from '@/composables/useAppVirtualBackGuard'
 
@@ -78,55 +76,32 @@ const scrollHistory = useScrollHistory()
 const gestureOrigin = useGestureOriginState()
 const navigationGesture = useNavigationGestureState()
 const routeRuntime = useRouteRuntimeState()
+const readerStackRuntime = useAppReaderStackRuntime()
 const {
   sourceReaderContentRef,
   detailContentRef,
   detailFrameRef,
   detailInlineSourceRef,
   sourceReaderScrollTop,
-  detailReaderTouchOffset,
-  detailReaderStretch,
-  sourceReaderOffset,
-  sourceReaderStretch,
-  detailStretchAnchor,
-  sourceStretchAnchor,
   readerBackDragging,
-  sourceReaderBlockedBackSwipeActive,
-  sourceReaderReturnTargetPending,
   readerSource,
   sourceReaderVisible,
   detailItem,
   detailLoading,
   detailError,
   detailSourceKind,
-  detailOriginRect,
-  detailSourceItemTargetRect,
-  detailSourceNameOriginRect,
-  detailSourceNameTargetRect,
   morphingItemId,
   morphingHeightLockItemId,
   morphingItemHeight,
   detailOpenedFromSourceReader,
-  detailEntryProgress,
-  detailEntrySettling,
   detailHeaderPreviousTitle,
-  detailHeaderSwapProgress,
-  detailBackExitProgress,
   detailSourceExitProgress,
   detailReturningToFeed,
   detailListReturnCommitted,
-  detailRestoringFromSourceReader,
   sourceReaderReturnMode,
   detailScrollTop,
-  detailScrollHeight,
-  detailScrollClientHeight,
-  detailFrameContentHeight,
-  detailProgressDragging,
   parkedDetailStackDepth,
   sourceReaderBackDetailItemId,
-  sourceCatalogEntry,
-  sourceSubscription,
-  sourceSubscriptionLoading,
   sourceNotice,
   sourceTimelinePreloadEnabled,
   detailTransitionRectsLocked,
@@ -135,26 +110,11 @@ const {
   sourceReaderOpen,
   detailReaderOpen,
   sourceReaderUnderDetail,
-  sourceReaderRevealProgress,
-  sourceNameMorphProgress,
   detailSurfaceProgress,
   detailScrollMax,
   detailReadingProgress,
   detailProgressVisible,
   feedItemPreviewProgress,
-  sourceNameTransitionActive,
-  sourceTitleProgress,
-  sourceTitleRevealProgress,
-  sourceTitleRevealReady,
-  sourceNameMorphActive,
-  sourceNameMorphVisible,
-  detailMorphSummaryVisible,
-  detailMorphTextVisible,
-  detailHeaderTitleSwapping,
-  detailSourceListTitleProgress,
-  detailHeaderFeedTitleProgress,
-  sourceNameMorphLabelOpacity,
-  sourceNameMorphLabelBlur,
   detailFeedHeaderReturnProgress,
   detailParkedBehindSource,
   detailChromeVisible,
@@ -229,7 +189,7 @@ const {
   resetSourceSubscriptionState,
   loadSourceReaderSubscription,
   toggleSourceReaderSubscription,
-} = useAppReaderStackRuntime()
+} = readerStackRuntime
 const feedScroll = useFeedScrollState()
 const feedScrollTop = feedScroll.scrollTop
 const chromeState = useChromeState()
@@ -535,124 +495,36 @@ const headerClass = chromeVisualState.headerClass
 const headerStyle = chromeVisualState.headerStyle
 const navOpenButtonStyle = chromeVisualState.navOpenButtonStyle
 const mainClass = chromeVisualState.mainClass
-const readerMotionState = useAppReaderMotionState({
-  layout: {
+const readerPresentationRuntime = useAppReaderPresentationRuntime({
+  readerStack: readerStackRuntime,
+  viewport: {
     windowWidth,
     windowHeight,
+  },
+  chrome: {
     feedHeaderHeight,
     topChromeProgress,
     feedContentCollapsed,
+    feedChromeSettling,
+    detailHeaderVisible,
+    detailHeaderLayerStyle,
   },
-  sourceSurface: {
-    feedHeaderHeight,
+  theme: {
     darkTheme,
-    visible: sourceReaderVisible,
-    underDetail: sourceReaderUnderDetail,
-    revealProgress: sourceReaderRevealProgress,
-    offset: sourceReaderOffset,
-    stretch: sourceReaderStretch,
-    stretchAnchor: sourceStretchAnchor,
-    dragging: readerBackDragging,
-    blocksGestures: detailBlocksGestures,
   },
-  sourceContent: {
-    headerHeight: feedHeaderHeight,
-    darkTheme,
-    underDetail: sourceReaderUnderDetail,
-    revealProgress: sourceReaderRevealProgress,
-    chromeSettling: computed(() => feedChromeSettling.value && !readerBackDragging.value),
-    isVisible: () => sourceReaderVisible.value && !sourceReaderUnderDetail.value,
+  source: {
+    foregroundPullActive: foregroundSourcePullActive,
+  },
+  timings: {
     resolveDelay: motionDelay,
-  },
-  detailSurface: {
-    stretch: detailReaderStretch,
-    stretchAnchor: detailStretchAnchor,
-    dragging: readerBackDragging,
-    blockedBackSwipeActive: sourceReaderBlockedBackSwipeActive,
-    returningToFeed: detailReturningToFeed,
-    surfaceProgress: detailSurfaceProgress,
-    committedListReturn: detailCommittedListReturn,
-  },
-  detailContent: {
-    surfaceProgress: detailSurfaceProgress,
-    sourceExitProgress: detailSourceExitProgress,
-    frameContentHeight: detailFrameContentHeight,
-    dragging: readerBackDragging,
-    committedListReturn: detailCommittedListReturn,
-  },
-  detailProgress: {
-    visible: detailProgressVisible,
-    dragging: detailProgressDragging,
-    readerBackDragging,
-    readingProgress: detailReadingProgress,
-  },
-  detailText: {
-    surfaceProgress: detailSurfaceProgress,
-    sourceListTitleProgress: detailSourceListTitleProgress,
-    headerFeedTitleProgress: detailHeaderFeedTitleProgress,
-    feedHeaderReturnProgress,
-    headerTitleSwapping: detailHeaderTitleSwapping,
-    headerSwapProgress: detailHeaderSwapProgress,
-    sourceLabelOpacity: sourceNameMorphLabelOpacity,
-    sourceLabelBlur: sourceNameMorphLabelBlur,
-    readerBackDragging,
-    committedListReturn: detailCommittedListReturn,
-  },
-  sourceTitle: {
-    revealReady: sourceTitleRevealReady,
-    pullActive: foregroundSourcePullActive,
-    titleProgress: sourceTitleProgress,
-    revealProgress: sourceTitleRevealProgress,
-    nameOriginRect: detailSourceNameOriginRect,
-    nameTargetRect: detailSourceNameTargetRect,
-    nameMorphProgress: sourceNameMorphProgress,
-    windowWidth,
-    headerHeight: feedHeaderHeight,
-    readerBackDragging,
-  },
-  detailTransition: {
-    originRect: detailOriginRect,
-    sourceItemTargetRect: detailSourceItemTargetRect,
-    restoringFromSourceReader: detailRestoringFromSourceReader,
-    sourceExitProgress: detailSourceExitProgress,
-    backExitProgress: detailBackExitProgress,
-    surfaceProgress: detailSurfaceProgress,
-    windowWidth,
-    windowHeight,
-    darkTheme,
-    readerBackDragging,
-    sourceReturnTargetPending: sourceReaderReturnTargetPending,
-    blockedBackSwipeActive: sourceReaderBlockedBackSwipeActive,
-    returningToFeed: detailReturningToFeed,
-    entrySettling: detailEntrySettling,
-    chromeSettling: feedChromeSettling,
-    committedListReturn: detailCommittedListReturn,
-  },
-  detailFrame: {
-    item: detailItem,
-    metricsInitialDelay: detailFrameMetricsInitialDelay,
-    metricsSettledDelay: detailFrameMetricsSettledDelay,
+    detailFrameMetricsInitialDelay,
+    detailFrameMetricsSettledDelay,
   },
 })
+const readerMotionState = readerPresentationRuntime.readerMotion
 const detailFrameId = readerMotionState.detailFrameId
-const readerMorphVisibilityState = useAppReaderMorphVisibilityState({
-  readerSource,
-  sourceToggleActive,
-  readerMotion: readerMotionState,
-  detailItem,
-  sourceNameMorphVisible,
-  detailMorphTextVisible,
-  detailMorphSummaryVisible,
-})
-const readerDetailHeaderState = useAppReaderDetailHeaderState({
-  chromeVisible: detailChromeVisible,
-  readerOpen: detailReaderOpen,
-  visible: detailHeaderVisible,
-  layerStyle: detailHeaderLayerStyle,
-  item: detailItem,
-  readerMotion: readerMotionState,
-  previousTitle: detailHeaderPreviousTitle,
-})
+const readerMorphVisibilityState = readerPresentationRuntime.readerMorph
+const readerDetailHeaderState = readerPresentationRuntime.readerDetailHeader
 
 const {
   managementItems,
