@@ -15,6 +15,9 @@ withDefaults(
     detailMorphSummaryVisible?: boolean
     detailPreviewSummary?: string
     detailContentStyle?: StyleValue
+    detailInlineMetaStyle?: StyleValue
+    detailFrameStyle?: StyleValue
+    detailActionsStyle?: StyleValue
     detailLoading?: boolean
     detailError?: string
     detailSrcdoc?: string
@@ -35,6 +38,9 @@ withDefaults(
     detailMorphSummaryVisible: false,
     detailPreviewSummary: '',
     detailContentStyle: undefined,
+    detailInlineMetaStyle: undefined,
+    detailFrameStyle: undefined,
+    detailActionsStyle: undefined,
     detailLoading: false,
     detailError: '',
     detailSrcdoc: '',
@@ -70,6 +76,9 @@ const emit = defineEmits<{
     :morph-summary-visible="detailMorphSummaryVisible"
     :preview-summary="detailPreviewSummary"
     :content-style="detailContentStyle"
+    :inline-meta-style="detailInlineMetaStyle"
+    :frame-style="detailFrameStyle"
+    :actions-style="detailActionsStyle"
     :loading="detailLoading"
     :error="detailError"
     :srcdoc="detailSrcdoc"

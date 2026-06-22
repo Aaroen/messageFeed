@@ -1488,8 +1488,6 @@ body[arco-theme='dark'] .reader-back-button {
   color: var(--mf-text-muted);
   font-size: 13px;
   line-height: 1.35;
-  opacity: var(--detail-inline-meta-opacity, 1);
-  transition: opacity var(--motion-fast) var(--ease-linear);
 }
 
 .reader-detail__inline-source {
@@ -1541,9 +1539,7 @@ body[arco-theme='dark'] .reader-back-button {
   min-height: var(--detail-frame-min-height, 62vh);
   border: 0;
   background: transparent;
-  opacity: var(--detail-body-opacity, 1);
   pointer-events: none;
-  transition: opacity var(--motion-fast) var(--ease-linear);
 }
 
 .reader-detail-progress {
@@ -1601,8 +1597,6 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
 .reader-detail__actions {
   display: flex;
   justify-content: flex-end;
-  opacity: var(--detail-body-opacity, 1);
-  transition: opacity var(--motion-fast) var(--ease-linear);
 }
 
 .reader-detail__actions a {

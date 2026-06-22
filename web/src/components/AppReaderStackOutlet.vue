@@ -62,6 +62,9 @@ const props = withDefaults(
     detailMorphSummaryVisible?: boolean
     detailPreviewSummary?: string
     detailContentStyle?: StyleValue
+    detailInlineMetaStyle?: StyleValue
+    detailFrameStyle?: StyleValue
+    detailActionsStyle?: StyleValue
     detailLoading?: boolean
     detailError?: string
     detailSrcdoc?: string
@@ -122,6 +125,9 @@ const props = withDefaults(
     detailMorphSummaryVisible: false,
     detailPreviewSummary: '',
     detailContentStyle: undefined,
+    detailInlineMetaStyle: undefined,
+    detailFrameStyle: undefined,
+    detailActionsStyle: undefined,
     detailLoading: false,
     detailError: '',
     detailSrcdoc: '',

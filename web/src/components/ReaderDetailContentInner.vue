@@ -10,7 +10,10 @@ withDefaults(
     error?: string
     displayDate?: string
     srcdoc?: string
+    inlineMetaStyle?: StyleValue
     inlineSourceStyle?: StyleValue
+    frameStyle?: StyleValue
+    actionsStyle?: StyleValue
   }>(),
   {
     item: null,
@@ -18,7 +21,10 @@ withDefaults(
     error: '',
     displayDate: '',
     srcdoc: '',
+    inlineMetaStyle: undefined,
     inlineSourceStyle: undefined,
+    frameStyle: undefined,
+    actionsStyle: undefined,
   },
 )
 
@@ -45,7 +51,7 @@ function setFrameRef(value: Element | ComponentPublicInstance | null) {
 <template>
   <a-alert v-if="error" type="warning" show-icon :content="error" />
   <section v-if="item" class="reader-detail__surface">
-    <div class="reader-detail__inline-meta">
+    <div class="reader-detail__inline-meta" :style="inlineMetaStyle">
       <span
         :ref="setInlineSourceRef"
         class="reader-detail__inline-source"
@@ -58,12 +64,13 @@ function setFrameRef(value: Element | ComponentPublicInstance | null) {
     <iframe
       :ref="setFrameRef"
       class="reader-detail__frame"
+      :style="frameStyle"
       title="条目正文"
       sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
       :srcdoc="srcdoc"
       @load="emit('frame-load')"
     />
-    <div class="reader-detail__actions">
+    <div class="reader-detail__actions" :style="actionsStyle">
       <a :href="item.url" target="_blank" rel="noreferrer">阅读原文</a>
     </div>
   </section>

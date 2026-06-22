@@ -645,6 +645,9 @@ const sourceReaderStyle = readerMotionState.sourceReaderStyle
 const detailReaderStyle = readerMotionState.detailReaderStyle
 const detailTransitionSurfaceStyle = readerMotionState.detailTransitionSurfaceStyle
 const detailContentStyle = readerMotionState.detailContentStyle
+const detailInlineMetaStyle = readerMotionState.detailInlineMetaStyle
+const detailFrameStyle = readerMotionState.detailFrameStyle
+const detailActionsStyle = readerMotionState.detailActionsStyle
 const detailProgressStyle = readerMotionState.detailProgressStyle
 const detailProgressFillStyle = readerMotionState.detailProgressFillStyle
 const detailProgressThumbStyle = readerMotionState.detailProgressThumbStyle
@@ -1244,6 +1247,9 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   sourceReaderVisible,
   detailTransitionSurfaceStyle,
   detailContentStyle,
+  detailInlineMetaStyle,
+  detailFrameStyle,
+  detailActionsStyle,
   detailLoading,
   detailError,
   detailSrcdoc,

@@ -50,6 +50,9 @@ type AppReaderStackOutletBindingOptions = {
   sourceReaderVisible: ReadableRef<boolean>
   detailTransitionSurfaceStyle: ReadableRef<StyleValue>
   detailContentStyle: ReadableRef<StyleValue>
+  detailInlineMetaStyle: ReadableRef<StyleValue>
+  detailFrameStyle: ReadableRef<StyleValue>
+  detailActionsStyle: ReadableRef<StyleValue>
   detailLoading: ReadableRef<boolean>
   detailError: ReadableRef<string>
   detailSrcdoc: ReadableRef<string>
@@ -134,6 +137,9 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       detailMorphSummaryVisible: readerMorph.detailMorphSummaryVisible.value,
       detailPreviewSummary: readerMorph.detailPreviewSummary.value,
       detailContentStyle: options.detailContentStyle.value,
+      detailInlineMetaStyle: options.detailInlineMetaStyle.value,
+      detailFrameStyle: options.detailFrameStyle.value,
+      detailActionsStyle: options.detailActionsStyle.value,
       detailLoading: options.detailLoading.value,
       detailError: options.detailError.value,
       detailSrcdoc: options.detailSrcdoc.value,

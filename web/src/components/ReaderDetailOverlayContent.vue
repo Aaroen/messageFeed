@@ -18,6 +18,9 @@ withDefaults(
     morphSummaryVisible?: boolean
     previewSummary?: string
     contentStyle?: StyleValue
+    inlineMetaStyle?: StyleValue
+    frameStyle?: StyleValue
+    actionsStyle?: StyleValue
     loading?: boolean
     error?: string
     srcdoc?: string
@@ -38,6 +41,9 @@ withDefaults(
     morphSummaryVisible: false,
     previewSummary: '',
     contentStyle: undefined,
+    inlineMetaStyle: undefined,
+    frameStyle: undefined,
+    actionsStyle: undefined,
     loading: false,
     error: '',
     srcdoc: '',
@@ -95,7 +101,10 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
         :error="error"
         :display-date="displayDate"
         :srcdoc="srcdoc"
+        :inline-meta-style="inlineMetaStyle"
         :inline-source-style="inlineSourceStyle"
+        :frame-style="frameStyle"
+        :actions-style="actionsStyle"
         @inline-source-ref="(element) => emit('inline-source-ref', element)"
         @frame-ref="(element) => emit('frame-ref', element)"
         @frame-load="emit('frame-load')"
