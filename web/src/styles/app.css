@@ -155,6 +155,9 @@ a:active,
   border: 1px solid var(--mf-border);
   color: var(--mf-text);
   cursor: pointer;
+}
+
+.theme-icon-button {
   transition:
     transform var(--motion-fast) var(--ease-standard),
     opacity var(--motion-fast) var(--ease-standard),
@@ -174,15 +177,16 @@ a:active,
   background: var(--mf-surface-raised);
   box-shadow: 0 12px 32px rgba(31, 45, 61, 0.14);
   backdrop-filter: blur(18px) saturate(1.2);
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
 }
 
 .nav-open-button--detail {
   z-index: 140;
 }
 
-.nav-open-button:hover,
-.theme-icon-button:hover {
-  transform: translateY(-1px);
+.nav-open-button:hover {
   border-color: rgba(37, 99, 235, 0.45);
   background: rgba(255, 255, 255, 0.92);
 }
@@ -190,6 +194,12 @@ a:active,
 body[arco-theme='dark'] .nav-open-button:hover,
 body[arco-theme='dark'] .theme-icon-button:hover {
   background: rgba(32, 43, 61, 0.92);
+}
+
+.theme-icon-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(37, 99, 235, 0.45);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .nav-open-button svg,
