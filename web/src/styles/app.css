@@ -770,27 +770,23 @@ body[arco-theme='dark'] .feed-tab--active {
 }
 
 .app-content--feed {
+  --app-content-top-offset: 10px;
   height: var(--mf-viewport-height);
   overflow: hidden;
   overflow-y: auto;
-  padding-top: calc(var(--feed-content-padding-space, var(--feed-header-space)) + 10px);
+  padding-top: calc(var(--feed-header-space) + var(--app-content-top-offset));
   touch-action: pan-y;
   user-select: none;
-  opacity: var(--app-content-underlay-opacity, 1);
-  filter: blur(var(--app-content-underlay-blur, 0px));
-  transition: var(--feed-content-transition, none);
   overflow-anchor: none;
   -webkit-overflow-scrolling: touch;
 }
 
 .app-content--page {
+  --app-content-top-offset: 10px;
   height: var(--mf-viewport-height);
   overflow: hidden;
   overflow-y: auto;
-  padding-top: calc(var(--page-content-padding-space, var(--feed-header-space)) + 10px);
-  opacity: var(--app-content-underlay-opacity, 1);
-  filter: blur(var(--app-content-underlay-blur, 0px));
-  transition: var(--page-content-transition, none);
+  padding-top: calc(var(--feed-header-space) + var(--app-content-top-offset));
   overflow-anchor: none;
   -webkit-overflow-scrolling: touch;
 }
@@ -2013,7 +2009,8 @@ body[arco-theme='dark'] .empty-surface {
 
   .app-content--feed,
   .app-content--page {
-    padding-top: calc(var(--feed-content-padding-space, var(--feed-header-space)) + 8px);
+    --app-content-top-offset: 8px;
+    padding-top: calc(var(--feed-header-space) + var(--app-content-top-offset));
   }
 
   .feed-stage {
@@ -2024,10 +2021,6 @@ body[arco-theme='dark'] .empty-surface {
 
   .feed-pane {
     padding: 0 14px;
-  }
-
-  .app-content--page {
-    padding-top: calc(var(--page-content-padding-space, var(--feed-header-space)) + 8px);
   }
 
   .empty-surface {

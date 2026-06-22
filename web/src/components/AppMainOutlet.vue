@@ -77,6 +77,8 @@ withDefaults(
     swipeIsBlocked?: boolean
     topChrome?: TopChromeOutletProps
     sourceReaderOpen?: boolean
+    feedContentStyle?: StyleValue
+    pageContentStyle?: StyleValue
     feedTrackStyle?: StyleValue
     feedScrollTop?: number
     topChromeProgress?: number
@@ -97,6 +99,8 @@ withDefaults(
     swipeIsBlocked: false,
     topChrome: () => ({ chrome: {}, feed: {}, page: {} }),
     sourceReaderOpen: false,
+    feedContentStyle: undefined,
+    pageContentStyle: undefined,
     feedTrackStyle: undefined,
     feedScrollTop: 0,
     topChromeProgress: 1,
@@ -155,6 +159,7 @@ const emit = defineEmits<{
       :active-key="topChrome.feed?.activeKey"
       :detail-reader-open="topChrome.feed?.detailReaderOpen"
       :source-reader-open="sourceReaderOpen"
+      :content-style="feedContentStyle"
       :feed-track-style="feedTrackStyle"
       :feed-scroll-top="feedScrollTop"
       :top-chrome-progress="topChromeProgress"
@@ -177,6 +182,7 @@ const emit = defineEmits<{
     />
     <AppPageOutlet
       v-else
+      :content-style="pageContentStyle"
       :inner-style="pageContentInnerStyle"
       @content-ref="(element) => emit('page-content-ref', element)"
       @view-ref="(view) => emit('page-view-ref', view)"

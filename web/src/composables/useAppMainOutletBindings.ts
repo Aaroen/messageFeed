@@ -21,6 +21,8 @@ type AppMainOutletBindingOptions = {
   swipeIsBlocked: ReadableRef<boolean>
   topChrome: AppTopChromeOutletState
   sourceReaderOpen: ReadableRef<boolean>
+  feedContentStyle: ReadableRef<StyleValue>
+  pageContentStyle: ReadableRef<StyleValue>
   feedTrackStyle: ReadableRef<StyleValue>
   feedScrollTop: ReadableRef<number>
   topChromeProgress: ReadableRef<number>
@@ -107,6 +109,8 @@ export function useAppMainOutletBindings(options: AppMainOutletBindingOptions) {
         },
       },
       sourceReaderOpen: options.sourceReaderOpen.value,
+      feedContentStyle: options.feedContentStyle.value,
+      pageContentStyle: options.pageContentStyle.value,
       feedTrackStyle: options.feedTrackStyle.value,
       feedScrollTop: options.feedScrollTop.value,
       topChromeProgress: options.topChromeProgress.value,

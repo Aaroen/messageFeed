@@ -10,6 +10,7 @@ withDefaults(
     activeKey?: string | symbol | null
     detailReaderOpen?: boolean
     sourceReaderOpen?: boolean
+    contentStyle?: StyleValue
     feedTrackStyle?: StyleValue
     feedScrollTop?: number
     topChromeProgress?: number
@@ -24,6 +25,7 @@ withDefaults(
     activeKey: null,
     detailReaderOpen: false,
     sourceReaderOpen: false,
+    contentStyle: undefined,
     feedTrackStyle: undefined,
     feedScrollTop: 0,
     topChromeProgress: 1,
@@ -58,6 +60,7 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
   <section
     :ref="setContentRef"
     class="app-content app-content--feed"
+    :style="contentStyle"
     @scroll.passive="(event) => emit('content-scroll', event)"
     @pointerdown="(event) => emit('pointer-down', event)"
     @pointermove="(event) => emit('pointer-move', event)"

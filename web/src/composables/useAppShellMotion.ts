@@ -21,7 +21,7 @@ function cssPx(value: number) {
 }
 
 export function useAppShellMotion(options: AppShellMotionOptions) {
-  const style = computed(() => {
+  const contentState = computed(() => {
     const detailUnderlayActive = options.detailReaderOpen.value && !options.detailReturningToFeed.value
     const underlayBlur = detailUnderlayActive ? options.detailSurfaceProgress.value * 7 : 0
     const underlayOpacity = detailUnderlayActive ? 1 - options.detailSurfaceProgress.value * 0.08 : 1
@@ -37,28 +37,53 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
       'opacity var(--motion-fast) var(--ease-linear), filter var(--motion-fast) var(--ease-linear)'
 
     return {
-      '--feed-header-height': `${options.feedHeaderHeight.value}px`,
-      '--feed-header-space': cssPx(options.feedContentSpace.value),
-      '--feed-content-padding-space': cssPx(feedContentSpace),
-      '--page-content-padding-space': cssPx(options.feedContentSpace.value),
-      '--feed-content-transition': [
+      feedContentSpace,
+      pageContentSpace: options.feedContentSpace.value,
+      underlayBlur,
+      underlayOpacity,
+      feedTransition: [
         feedContentSettling
           ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
           : 'padding-top 0ms var(--ease-standard)',
         underlayTransition,
       ].join(', '),
-      '--page-content-transition': [
+      pageTransition: [
         pageContentSettling
           ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
           : 'padding-top 0ms var(--ease-standard)',
         underlayTransition,
       ].join(', '),
-      '--app-content-underlay-blur': `${underlayBlur.toFixed(2)}px`,
-      '--app-content-underlay-opacity': underlayOpacity.toFixed(3),
+    }
+  })
+
+  const style = computed(() => ({
+    '--feed-header-height': `${options.feedHeaderHeight.value}px`,
+    '--feed-header-space': cssPx(options.feedContentSpace.value),
+  }))
+
+  const feedContentStyle = computed(() => {
+    const state = contentState.value
+    return {
+      paddingTop: `calc(${cssPx(state.feedContentSpace)} + var(--app-content-top-offset, 10px))`,
+      opacity: state.underlayOpacity.toFixed(3),
+      filter: `blur(${state.underlayBlur.toFixed(2)}px)`,
+      transition: state.feedTransition,
+    }
+  })
+
+  const pageContentStyle = computed(() => {
+    const state = contentState.value
+    return {
+      paddingTop: `calc(${cssPx(state.pageContentSpace)} + var(--app-content-top-offset, 10px))`,
+      opacity: state.underlayOpacity.toFixed(3),
+      filter: `blur(${state.underlayBlur.toFixed(2)}px)`,
+      transition: state.pageTransition,
     }
   })
 
   return {
     style,
+    feedContentStyle,
+    pageContentStyle,
   }
 }

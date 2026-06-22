@@ -6,9 +6,11 @@ import type { ReaderSource } from '@/composables/useReaderSession'
 
 withDefaults(
   defineProps<{
+    contentStyle?: StyleValue
     innerStyle?: StyleValue
   }>(),
   {
+    contentStyle: undefined,
     innerStyle: undefined,
   },
 )
@@ -41,6 +43,7 @@ function handleOpenSource(source: ReaderSource) {
   <section
     :ref="setContentRef"
     class="app-content app-content--page"
+    :style="contentStyle"
     @scroll.passive="(event) => emit('content-scroll', event)"
     @touchstart.passive="(event) => emit('touch-start', event)"
     @touchmove="(event) => emit('touch-move', event)"

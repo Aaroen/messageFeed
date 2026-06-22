@@ -488,6 +488,8 @@ const freezeFeedBodyDuringTopRefresh = feedChromeState.freezeFeedBodyDuringTopRe
 const feedTopChromeIsVisiblyOpen = feedChromeState.feedTopChromeIsVisiblyOpen
 const feedHeaderReturnProgress = feedChromeState.feedHeaderReturnProgress
 const mainStyle = feedChromeState.mainStyle
+const feedContentStyle = feedChromeState.feedContentStyle
+const pageContentStyle = feedChromeState.pageContentStyle
 const feedTabsLayerHidden = feedChromeState.feedTabsLayerHidden
 const feedCornerHidden = feedChromeState.feedCornerHidden
 const detailHeaderVisible = feedChromeState.detailHeaderVisible
@@ -1346,6 +1348,8 @@ const mainOutletBindings = useAppMainOutletBindings({
   swipeIsBlocked,
   topChrome: topChromeOutletState,
   sourceReaderOpen,
+  feedContentStyle,
+  pageContentStyle,
   feedTrackStyle,
   feedScrollTop,
   topChromeProgress,
