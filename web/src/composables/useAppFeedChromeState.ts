@@ -42,7 +42,6 @@ export function useAppFeedChromeState(options: AppFeedChromeStateOptions) {
     feedHeaderHeight: layout.headerHeight,
     feedHeaderProgress: layout.headerProgress,
     freezeFeedBodyDuringTopRefresh: layout.freezeBodyDuringTopRefresh,
-    feedTopChromeIsVisiblyOpen: layout.topChromeIsVisiblyOpen,
     feedHeaderReturnProgress: layout.headerReturnProgress,
     mainStyle: shellMotion.style,
     feedContentStyle: shellMotion.feedContentStyle,

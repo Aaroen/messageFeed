@@ -80,9 +80,6 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
   const freezeBodyDuringTopRefresh = computed(
     () => options.feedTopPullStartedWithChrome.value || options.refreshStartedWithChrome.value,
   )
-  const topChromeIsVisiblyOpen = computed(
-    () => !options.feedContentCollapsed.value || topChromeProgress.value > 0.04,
-  )
   const headerReturnProgress = computed(() =>
     options.isFeedRoute.value ? options.detailFeedHeaderReturnProgress.value : 0,
   )
@@ -92,7 +89,6 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     headerProgress,
     contentSpace,
     freezeBodyDuringTopRefresh,
-    topChromeIsVisiblyOpen,
     headerReturnProgress,
   }
 }
