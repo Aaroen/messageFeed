@@ -56,7 +56,7 @@ const emit = defineEmits<{
   <button
     v-if="!navigationVisible"
     class="nav-open-button"
-    :class="{ 'nav-open-button--hidden': feedCornerHidden, 'nav-open-button--detail': detailChromeVisible }"
+    :class="{ 'nav-open-button--detail': detailChromeVisible }"
     :style="navOpenButtonStyle"
     type="button"
     :aria-label="cornerButtonLabel"

@@ -198,13 +198,6 @@ body[arco-theme='dark'] .theme-icon-button:hover {
   height: 18px;
 }
 
-.nav-open-button--hidden {
-  visibility: hidden;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(0, -18px, 0) scale(0.92);
-}
-
 .nav-scrim {
   position: fixed;
   inset: 0;
