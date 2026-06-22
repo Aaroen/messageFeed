@@ -695,10 +695,6 @@ function openItem(item: FeedItem, event: MouseEvent) {
   emit('open-item', item, effectiveSourceKind.value, originRect)
 }
 
-function isInteractiveTarget(target: EventTarget | null) {
-  return target instanceof Element && Boolean(target.closest('button, a, input, textarea, select, [role="button"]'))
-}
-
 function resetPullTracking() {
   pullRefresh.finishGestureTracking()
 }
