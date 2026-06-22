@@ -21,6 +21,7 @@ type PagePullGestureHandlersOptions = {
   pullRefresh: PagePullRefreshController
   currentContentScrollTop: () => number
   hasRefreshPage: () => boolean
+  clearCurrentPageNotice: () => void
   isControlTarget: (target: EventTarget | null) => boolean
   shouldCancelTopPull: (deltaX: number, deltaY: number) => boolean
   shouldWaitForTopPull: (deltaX: number, deltaY: number) => boolean
@@ -102,6 +103,7 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
       }
 
       options.pullRefresh.beginGestureTracking()
+      options.clearCurrentPageNotice()
       options.setTopChromeVisible(true)
     }
 

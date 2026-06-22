@@ -14,6 +14,7 @@ type AppPagePullInteractionsOptions = {
   isFeedRoute: ReadableRef<boolean>
   topRefreshNoticeDelay: number
   currentRefreshPage: () => PageRefreshAction | null
+  clearCurrentPageNotice: () => void
   hasRefreshPage: () => boolean
   currentContentScrollTop: () => number
   isControlTarget: (target: EventTarget | null) => boolean
@@ -31,6 +32,7 @@ export function useAppPagePullInteractions(options: AppPagePullInteractionsOptio
     refreshing: options.pagePull.refreshing,
     noticeDelayMS: options.topRefreshNoticeDelay,
     currentRefreshPage: options.currentRefreshPage,
+    clearCurrentPageNotice: options.clearCurrentPageNotice,
     beginRefreshing: pullRefresh.beginRefreshing,
     settleRefreshCompletion: pullRefresh.settleRefreshCompletion,
     collapseTopChrome: options.collapseTopChrome,
@@ -42,6 +44,7 @@ export function useAppPagePullInteractions(options: AppPagePullInteractionsOptio
     pullRefresh,
     currentContentScrollTop: options.currentContentScrollTop,
     hasRefreshPage: options.hasRefreshPage,
+    clearCurrentPageNotice: options.clearCurrentPageNotice,
     isControlTarget: options.isControlTarget,
     shouldCancelTopPull: options.shouldCancelTopPull,
     shouldWaitForTopPull: options.shouldWaitForTopPull,

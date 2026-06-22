@@ -8,6 +8,7 @@ export type PageRefreshOptions = {
 
 export type PageViewExpose = {
   refreshPage?: (options?: PageRefreshOptions) => Promise<void> | void
+  clearNotice?: () => void
 }
 
 export function usePageOutletState() {
@@ -30,6 +31,14 @@ export function usePageOutletState() {
     return viewInstance.value?.refreshPage ?? null
   }
 
+  function currentClearNotice() {
+    return viewInstance.value?.clearNotice ?? null
+  }
+
+  function clearCurrentNotice() {
+    currentClearNotice()?.()
+  }
+
   function hasRefreshPage() {
     return currentRefreshPage() !== null
   }
@@ -41,6 +50,8 @@ export function usePageOutletState() {
     setViewInstance,
     currentScrollTop,
     currentRefreshPage,
+    currentClearNotice,
+    clearCurrentNotice,
     hasRefreshPage,
   }
 }

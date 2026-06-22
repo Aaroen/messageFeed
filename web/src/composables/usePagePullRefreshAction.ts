@@ -10,6 +10,7 @@ type PagePullRefreshActionOptions = {
   refreshing: ReadableRef<boolean>
   noticeDelayMS: number
   currentRefreshPage: () => PageRefreshAction | null
+  clearCurrentPageNotice: () => void
   beginRefreshing: () => void
   settleRefreshCompletion: (options: {
     releaseDelayMS?: number
@@ -44,6 +45,7 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
 
     const token = nextRefreshRunToken()
     const afterSettledCallbacks: Array<() => void> = []
+    options.clearCurrentPageNotice()
     options.beginRefreshing()
     try {
       await refreshPage({

@@ -1317,6 +1317,7 @@ const pagePullInteractions = useAppPagePullInteractions({
   isFeedRoute,
   topRefreshNoticeDelay,
   currentRefreshPage: pageOutlet.currentRefreshPage,
+  clearCurrentPageNotice: pageOutlet.clearCurrentNotice,
   hasRefreshPage: pageOutlet.hasRefreshPage,
   currentContentScrollTop,
   isControlTarget: isPageTopPullControlTarget,

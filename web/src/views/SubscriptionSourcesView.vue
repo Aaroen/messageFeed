@@ -589,7 +589,7 @@ onUnmounted(() => {
   refreshLayoutFreeze.release()
 })
 
-defineExpose({ refreshPage })
+defineExpose({ refreshPage, clearNotice })
 </script>
 
 <template>
