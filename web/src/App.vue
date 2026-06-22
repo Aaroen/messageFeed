@@ -1427,7 +1427,7 @@ useAppRouteSessionWatchers({
   resetBackSwipeOffset,
   resetPageTopPullTracking,
   finishFeedTopPull: feedTopPull.finish,
-  resetPagePullMotion: pagePullState.resetMotion,
+  resetPagePullMotion: pagePullState.reset,
   resetFeedViewDragOffset: appSwipeNavigationState.resetFeedViewDragOffset,
   setTopChromeVisible,
   currentFeedScrollTop: feedContent.currentScrollTop,

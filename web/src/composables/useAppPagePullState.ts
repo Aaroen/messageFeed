@@ -33,6 +33,7 @@ export function useAppPagePullState(options: AppPagePullStateOptions) {
     statusText: status.text,
     statusMeta: status.meta,
     settleOffset: pullRefresh.settleOffset,
+    reset: pullRefresh.reset,
     resetMotion: pullRefresh.resetMotion,
     clearTimers: pullRefresh.clearTimers,
     setSideOffset: contentMotion.setSideOffset,
