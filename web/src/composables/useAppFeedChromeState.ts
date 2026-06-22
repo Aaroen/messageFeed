@@ -49,7 +49,6 @@ export function useAppFeedChromeState(options: AppFeedChromeStateOptions) {
     feedTopChromeIsVisiblyOpen: layout.topChromeIsVisiblyOpen,
     feedHeaderReturnProgress: layout.headerReturnProgress,
     mainStyle: shellMotion.style,
-    feedChromeHidden: visibility.feedChromeHidden,
     feedTabsLayerHidden: visibility.feedTabsLayerHidden,
     feedCornerHidden: visibility.feedCornerHidden,
     detailHeaderVisible: visibility.detailHeaderVisible,

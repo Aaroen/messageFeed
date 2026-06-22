@@ -488,7 +488,6 @@ const freezeFeedBodyDuringTopRefresh = feedChromeState.freezeFeedBodyDuringTopRe
 const feedTopChromeIsVisiblyOpen = feedChromeState.feedTopChromeIsVisiblyOpen
 const feedHeaderReturnProgress = feedChromeState.feedHeaderReturnProgress
 const mainStyle = feedChromeState.mainStyle
-const feedChromeHidden = feedChromeState.feedChromeHidden
 const feedTabsLayerHidden = feedChromeState.feedTabsLayerHidden
 const feedCornerHidden = feedChromeState.feedCornerHidden
 const detailHeaderVisible = feedChromeState.detailHeaderVisible
@@ -527,7 +526,6 @@ const chromeVisualState = useAppChromeVisualState({
   },
   mainClass: {
     isFeedRoute,
-    feedChromeHidden,
     feedPullActive,
     pagePullActive,
     detailChromeVisible,

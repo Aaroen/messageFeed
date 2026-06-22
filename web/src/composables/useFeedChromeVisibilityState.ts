@@ -17,9 +17,6 @@ type FeedChromeVisibilityStateOptions = {
 
 export function useFeedChromeVisibilityState(options: FeedChromeVisibilityStateOptions) {
   const feedTabsVisible = computed(() => options.isFeedRoute.value && options.topChromeProgress.value > 0.04)
-  const feedChromeHidden = computed(
-    () => options.isFeedRoute.value && options.feedHeaderProgress.value <= 0.01 && !options.feedPullActive.value,
-  )
   const feedTabsLayerHidden = computed(() => {
     if (!options.isFeedRoute.value || options.feedPullActive.value) {
       return true
@@ -48,7 +45,6 @@ export function useFeedChromeVisibilityState(options: FeedChromeVisibilityStateO
 
   return {
     feedTabsVisible,
-    feedChromeHidden,
     feedTabsLayerHidden,
     feedCornerHidden,
     detailHeaderVisible,

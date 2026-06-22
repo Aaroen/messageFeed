@@ -146,10 +146,6 @@ a:active,
   overflow: hidden;
 }
 
-.app-main--feed.app-main--tabs-hidden {
-  --feed-header-space: 0px;
-}
-
 .nav-open-button,
 .theme-icon-button {
   display: grid;
