@@ -630,6 +630,8 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       } else {
         showFeedNotice('warning', `刷新失败：${message}`, noticeRevealDelay)
       }
+    } else if (isAppend) {
+      showFeedNotice('warning', `加载更多失败：${message}`)
     } else {
       error.value = `加载失败：${message}`
     }
