@@ -30,19 +30,16 @@ import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
-import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 import { useAppNavigationRuntime } from '@/composables/useAppNavigationRuntime'
 import { useAppReaderSessionSnapshots } from '@/composables/useAppReaderSessionSnapshots'
-import { useAppRouteSessionWatchers } from '@/composables/useAppRouteSessionWatchers'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
 import { useAppReaderSessionPersistence } from '@/composables/useAppReaderSessionPersistence'
 import { useAppFeedChromeState } from '@/composables/useAppFeedChromeState'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
 import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
-import { useAppWindowEventListeners } from '@/composables/useAppWindowEventListeners'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
-import { useAppLifecycle } from '@/composables/useAppLifecycle'
 import { useAppShellRuntime } from '@/composables/useAppShellRuntime'
+import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
 import { useAppReaderScrollMemoryActions } from '@/composables/useAppReaderScrollMemoryActions'
 import { useAppReaderRouteSyncAction } from '@/composables/useAppReaderRouteSyncAction'
 import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStackOutletBindings'
@@ -1411,126 +1408,121 @@ const mainOutletBindings = useAppMainOutletBindings({
 const mainOutletProps = mainOutletBindings.props
 const mainOutletListeners = mainOutletBindings.listeners
 
-const appWindowEventListeners = useAppWindowEventListeners({
-  handleKeydown,
-  handleResize,
-  handleMessage,
-  handleReaderSettingsChanged,
-  handlePopState: virtualBackGuard.handlePopState,
-  saveReaderSessionNow,
-  handleWindowPointerDown,
-  handleWindowPointerMove,
-  handleWindowPointerUp,
-  handleWindowPointerCancel,
-  handleTouchStart,
-  handleTouchMove,
-  handleTouchEnd,
-  handleTouchCancel,
-})
-const installWindowEventListeners = appWindowEventListeners.installWindowEventListeners
-const uninstallWindowEventListeners = appWindowEventListeners.uninstallWindowEventListeners
+useAppRuntimeEffects({
+  windowEvents: {
+    handleKeydown,
+    handleResize,
+    handleMessage,
+    handleReaderSettingsChanged,
+    handlePopState: virtualBackGuard.handlePopState,
+    saveReaderSessionNow,
+    handleWindowPointerDown,
+    handleWindowPointerMove,
+    handleWindowPointerUp,
+    handleWindowPointerCancel,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
+    handleTouchCancel,
+  },
+  routeSession: {
+    route,
+    isFeedRoute,
+    navigationVisible,
+    sourceReaderVisible,
+    readerSource,
+    detailItem,
+    detailSourceKind,
+    detailOpenedFromSourceReader,
+    detailListReturnCommitted,
+    sourceReaderReturnMode,
+    sourceReaderBackDetailItemId,
+    parkedDetailStackDepth,
+    detailSourceExitProgress,
+    topChromeProgress,
+    feedContentCollapsed,
+    feedScrollTop,
+    sourceReaderScrollTop,
+    detailScrollTop,
+    resetGestureTracking,
+    resetBackSwipeOffset,
+    resetPageTopPullTracking,
+    finishFeedTopPull: feedTopPull.finish,
+    resetRefreshCompletion: refreshCompletion.reset,
+    resetPagePullMotion: () => {
+      invalidatePagePullRefreshCompletion()
+      pagePullState.reset()
+    },
+    resetFeedViewDragOffset: appSwipeNavigationState.resetFeedViewDragOffset,
+    resetSwipeTransition,
+    setTopChromeVisible,
+    currentFeedScrollTop: feedContent.currentScrollTop,
+    updateFeedScrollTop: feedScroll.update,
+    currentPageScrollTop: pageOutlet.currentScrollTop,
+    rememberFeedScrollTop: (scrollTop) => {
+      scrollHistory.set('feed', scrollTop)
+    },
+    rememberPageScrollTop: (scrollTop) => {
+      scrollHistory.set('page', scrollTop)
+    },
+    scheduleReaderSessionSave,
+    scheduleReaderURLAndHistorySync,
+  },
+  feedRefreshCompletion: {
+    pullRefreshing: () => feedInteraction.pullRefreshing,
+    pullViewKey: () => feedInteraction.pullViewKey,
+    feedOrSourcePullActive,
+    refreshCompletion,
+    topPull: feedTopPull,
+    settleDelayMS: () => motionDelay(topChromeSettleDuration),
+    settleSourceContentAfterRefresh: () => {
+      readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
+    },
+    collapseTopChrome,
+    canApplyCompletionEffects: ({ wasSource }) => {
+      if (wasSource) {
+        return sourceReaderVisible.value && !sourceReaderUnderDetail.value && !navigationVisible.value
+      }
 
-useAppRouteSessionWatchers({
-  route,
-  isFeedRoute,
-  navigationVisible,
-  sourceReaderVisible,
-  readerSource,
-  detailItem,
-  detailSourceKind,
-  detailOpenedFromSourceReader,
-  detailListReturnCommitted,
-  sourceReaderReturnMode,
-  sourceReaderBackDetailItemId,
-  parkedDetailStackDepth,
-  detailSourceExitProgress,
-  topChromeProgress,
-  feedContentCollapsed,
-  feedScrollTop,
-  sourceReaderScrollTop,
-  detailScrollTop,
-  resetGestureTracking,
-  resetBackSwipeOffset,
-  resetPageTopPullTracking,
-  finishFeedTopPull: feedTopPull.finish,
-  resetRefreshCompletion: refreshCompletion.reset,
-  resetPagePullMotion: () => {
-    invalidatePagePullRefreshCompletion()
-    pagePullState.reset()
+      return (
+        isFeedRoute.value &&
+        !detailReaderOpen.value &&
+        !sourceReaderOpen.value &&
+        !navigationVisible.value
+      )
+    },
   },
-  resetFeedViewDragOffset: appSwipeNavigationState.resetFeedViewDragOffset,
-  resetSwipeTransition,
-  setTopChromeVisible,
-  currentFeedScrollTop: feedContent.currentScrollTop,
-  updateFeedScrollTop: feedScroll.update,
-  currentPageScrollTop: pageOutlet.currentScrollTop,
-  rememberFeedScrollTop: (scrollTop) => {
-    scrollHistory.set('feed', scrollTop)
+  lifecycle: {
+    loadReaderSettings,
+    loadTheme: () => themeState.load(),
+    installVirtualBackGuard: () => virtualBackGuard.installRouterGuard(),
+    uninstallVirtualBackGuard: () => virtualBackGuard.uninstallRouterGuard(),
+    waitForRouterReady: () => router.isReady(),
+    restoreReaderSession: restoreReaderStateOnLoad,
+    markReaderSessionReady: () => routeRuntime.markReaderSessionReady(),
+    scheduleReaderURLAndHistorySync,
+    saveReaderSessionNow,
+    clearRuntimeTimers: [
+      () => appSwipeNavigationState.clearFeedPagerTimers(),
+      () => clearSwipeTransitionTimer(),
+      () => navigationDrawer.clearTimer(),
+      () => refreshCompletion.reset(),
+      () => chromeState.clearTimer(),
+      () => routeRuntime.clearTimer(),
+      () => readerRouteSync.clearTimer(),
+      () => readerMotionState.clearSourceContentTimer(),
+      clearDetailSourceTransitionRectCapture,
+      () => invalidatePagePullRefreshCompletion(),
+      () => pagePullState.clearTimers(),
+      clearClickSuppressionTimer,
+      clearSourceSubscriptionRuntime,
+      clearReaderDetailFrames,
+      clearReaderSessionScrollRestoreTimers,
+      clearReaderStackTimers,
+      clearBackSwipeStretchAnchorTimer,
+      () => readerSession.clearTimer(),
+    ],
   },
-  rememberPageScrollTop: (scrollTop) => {
-    scrollHistory.set('page', scrollTop)
-  },
-  scheduleReaderSessionSave,
-  scheduleReaderURLAndHistorySync,
-})
-
-useFeedRefreshCompletionWatcher({
-  pullRefreshing: () => feedInteraction.pullRefreshing,
-  pullViewKey: () => feedInteraction.pullViewKey,
-  feedOrSourcePullActive,
-  refreshCompletion,
-  topPull: feedTopPull,
-  settleDelayMS: () => motionDelay(topChromeSettleDuration),
-  settleSourceContentAfterRefresh: () => {
-    readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
-  },
-  collapseTopChrome,
-  canApplyCompletionEffects: ({ wasSource }) => {
-    if (wasSource) {
-      return sourceReaderVisible.value && !sourceReaderUnderDetail.value && !navigationVisible.value
-    }
-
-    return (
-      isFeedRoute.value &&
-      !detailReaderOpen.value &&
-      !sourceReaderOpen.value &&
-      !navigationVisible.value
-    )
-  },
-})
-
-useAppLifecycle({
-  loadReaderSettings,
-  loadTheme: () => themeState.load(),
-  installVirtualBackGuard: () => virtualBackGuard.installRouterGuard(),
-  uninstallVirtualBackGuard: () => virtualBackGuard.uninstallRouterGuard(),
-  waitForRouterReady: () => router.isReady(),
-  restoreReaderSession: restoreReaderStateOnLoad,
-  markReaderSessionReady: () => routeRuntime.markReaderSessionReady(),
-  scheduleReaderURLAndHistorySync,
-  installWindowEventListeners,
-  uninstallWindowEventListeners,
-  saveReaderSessionNow,
-  clearRuntimeTimers: [
-    () => appSwipeNavigationState.clearFeedPagerTimers(),
-    () => clearSwipeTransitionTimer(),
-    () => navigationDrawer.clearTimer(),
-    () => refreshCompletion.reset(),
-    () => chromeState.clearTimer(),
-    () => routeRuntime.clearTimer(),
-    () => readerRouteSync.clearTimer(),
-    () => readerMotionState.clearSourceContentTimer(),
-    clearDetailSourceTransitionRectCapture,
-    () => invalidatePagePullRefreshCompletion(),
-    () => pagePullState.clearTimers(),
-    clearClickSuppressionTimer,
-    clearSourceSubscriptionRuntime,
-    clearReaderDetailFrames,
-    clearReaderSessionScrollRestoreTimers,
-    clearReaderStackTimers,
-    clearBackSwipeStretchAnchorTimer,
-    () => readerSession.clearTimer(),
-  ],
 })
 </script>
 
