@@ -46,12 +46,16 @@ type FeedPointerSwipeHandlersOptions = {
 }
 
 export function useFeedPointerSwipeHandlers(options: FeedPointerSwipeHandlersOptions) {
+  function ignoresPointerGesture(event: PointerEvent) {
+    return event.pointerType === 'mouse' || event.pointerType === 'touch'
+  }
+
   function handleFeedPointerDown(event: PointerEvent) {
     if (
       !options.isFeedRoute.value ||
       options.navigationVisible.value ||
       event.isPrimary === false ||
-      event.pointerType === 'mouse'
+      ignoresPointerGesture(event)
     ) {
       return
     }
@@ -68,7 +72,7 @@ export function useFeedPointerSwipeHandlers(options: FeedPointerSwipeHandlersOpt
   }
 
   function handleFeedPointerMove(event: PointerEvent) {
-    if (!options.feedPagerTransition.isActivePointer(event.pointerId) || event.pointerType === 'mouse') {
+    if (!options.feedPagerTransition.isActivePointer(event.pointerId) || ignoresPointerGesture(event)) {
       return
     }
 
@@ -109,7 +113,7 @@ export function useFeedPointerSwipeHandlers(options: FeedPointerSwipeHandlersOpt
   }
 
   function handleFeedPointerUp(event: PointerEvent) {
-    if (!options.feedPagerTransition.isActivePointer(event.pointerId) || event.pointerType === 'mouse') {
+    if (!options.feedPagerTransition.isActivePointer(event.pointerId) || ignoresPointerGesture(event)) {
       return
     }
 
@@ -137,7 +141,7 @@ export function useFeedPointerSwipeHandlers(options: FeedPointerSwipeHandlersOpt
   }
 
   function handleFeedPointerCancel(event: PointerEvent) {
-    if (!options.feedPagerTransition.isActivePointer(event.pointerId) || event.pointerType === 'mouse') {
+    if (!options.feedPagerTransition.isActivePointer(event.pointerId) || ignoresPointerGesture(event)) {
       return
     }
 

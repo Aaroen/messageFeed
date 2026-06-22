@@ -12,6 +12,10 @@ type SetChromeVisibleOptions = {
   settleDelayMS?: number
 }
 
+type BeginChromeGestureReturnOptions = SetChromeVisibleOptions & {
+  preserveContentCollapsed?: boolean
+}
+
 type SetChromeRefreshingProgressOptions = {
   contentCollapsed?: boolean
 }
@@ -100,7 +104,10 @@ export function useChromeState() {
     const nextProgress = visible ? 1 : 0
     if (progress.value === nextProgress) {
       if (visible && contentCollapsed.value) {
+        setSettling(true, 'revealing')
         setContentCollapsed(false)
+        scheduleSettlingEndIfNeeded(options.settleDelayMS)
+        return
       }
       if (!visible && contentCollapsed.value) {
         setSettling(true, 'hiding')
@@ -134,9 +141,11 @@ export function useChromeState() {
     settling.value = false
   }
 
-  function beginGestureReturn(options: SetChromeVisibleOptions = {}) {
+  function beginGestureReturn(options: BeginChromeGestureReturnOptions = {}) {
     setSettling(true, 'gesture-returning')
-    setContentCollapsed(false)
+    if (!options.preserveContentCollapsed) {
+      setContentCollapsed(false)
+    }
     setProgress(1, 'gesture-returning')
     scheduleSettlingEndIfNeeded(options.settleDelayMS)
   }

@@ -1663,7 +1663,7 @@ export function useReaderStackState() {
   }
 
   function readerBackSwipeCanReturnSourceToDetail(deltaX: number) {
-    return readerBackSwipeMatches('source') && deltaX < 0 && sourceReaderCanReturnToDetail()
+    return readerBackSwipeMatches('source') && deltaX > 0 && sourceReaderCanReturnToDetail()
   }
 
   function readerBackSwipeIntentAction(deltaX: number): ReaderBackSwipeIntentAction {
@@ -1762,12 +1762,12 @@ export function useReaderStackState() {
       }
     }
     if (intent === 'back' && target === 'source') {
-      if (offset < 0 && sourceReaderCanReturnToDetail()) {
+      if (offset > 0 && sourceReaderCanReturnToDetail()) {
         return {
           type: 'reader',
           state: {
             target: 'source-return',
-            returnProgress: clampProgress(Math.max(0, -offset) / progressBase),
+            returnProgress: clampProgress(Math.max(0, offset) / progressBase),
           },
         }
       }
@@ -1813,7 +1813,7 @@ export function useReaderStackState() {
       return deltaX > 0 && (detailBackExitProgress.value >= 0.42 || deltaX >= switchDistance)
     }
     if (intent === 'back' && target === 'source') {
-      return deltaX < 0 && (detailSourceExitProgress.value <= 0.58 || Math.abs(deltaX) >= switchDistance)
+      return deltaX > 0 && (detailSourceExitProgress.value <= 0.58 || deltaX >= switchDistance)
     }
     if (intent === 'source' && target === 'detail') {
       return deltaX < 0 && (detailSourceExitProgress.value >= 0.42 || Math.abs(deltaX) >= switchDistance)

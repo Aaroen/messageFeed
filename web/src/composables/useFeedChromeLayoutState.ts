@@ -43,7 +43,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       return headerHeight.value * Math.max(options.topChromeProgress.value, options.pullProgress.value)
     }
 
-    if (options.feedContentCollapsed.value && options.topChromeProgress.value <= 0.01) {
+    if (options.feedContentCollapsed.value) {
       return 0
     }
 

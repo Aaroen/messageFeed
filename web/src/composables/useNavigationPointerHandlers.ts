@@ -50,8 +50,12 @@ type NavigationPointerHandlersOptions = {
 }
 
 export function useNavigationPointerHandlers(options: NavigationPointerHandlersOptions) {
+  function ignoresPointerGesture(event: PointerEvent) {
+    return event.pointerType === 'mouse' || event.pointerType === 'touch'
+  }
+
   function handleWindowPointerDown(event: PointerEvent) {
-    if (event.pointerType === 'mouse' || event.isPrimary === false) {
+    if (ignoresPointerGesture(event) || event.isPrimary === false) {
       return
     }
 

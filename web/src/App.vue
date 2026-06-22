@@ -988,8 +988,10 @@ const feedViewSwipeInteractions = useAppFeedViewSwipeInteractions({
   settleFinishedSwipe: feedPagerTransition.settleFinishedSwipe,
   scheduleDelayedCommit: feedPagerTransition.scheduleDelayedCommit,
   markStartedWithHiddenChrome: feedPagerTransition.markStartedWithHiddenChrome,
+  beginTopChromeGestureReturn: chromeState.beginGestureReturn,
   setTopChromeVisible,
   pushRoute,
+  topChromeGestureSettleDelayMS: motionDelay(topChromeSettleDuration),
 })
 const scheduleSwipeTransitionReset = feedViewSwipeInteractions.scheduleSwipeTransitionReset
 const beginViewSwipeTransition = feedViewSwipeInteractions.beginViewSwipeTransition

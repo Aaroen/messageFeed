@@ -17,6 +17,7 @@ type FeedPagerSwipeFinishResult = {
     isBlocked: boolean
   }
   shouldRevealChromeFirst: boolean
+  startedWithHiddenChrome: boolean
 }
 
 type FeedPagerDragStartResult = {
@@ -143,6 +144,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   function finishSwipeResult(nextPath: string | null): FeedPagerSwipeFinishResult {
     const committed = Boolean(nextPath)
+    const swipeStartedWithHiddenChrome = consumeStartedWithHiddenChrome()
     setSettling(true)
     clearDelayedCommitTimer()
     clearSettlingTimer()
@@ -152,7 +154,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
         progress: committed ? 1 : 0,
         isBlocked: false,
       },
-      shouldRevealChromeFirst: committed && consumeStartedWithHiddenChrome(),
+      shouldRevealChromeFirst: committed && swipeStartedWithHiddenChrome,
+      startedWithHiddenChrome: swipeStartedWithHiddenChrome,
     }
   }
 
