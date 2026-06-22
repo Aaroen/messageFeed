@@ -36,20 +36,19 @@ import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTa
 import { useAppShellRuntime } from '@/composables/useAppShellRuntime'
 import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
 import { useAppReaderSessionRuntime } from '@/composables/useAppReaderSessionRuntime'
-import { useAppMainOutletBindings } from '@/composables/useAppMainOutletBindings'
 import { useAppPagePullInteractions } from '@/composables/useAppPagePullInteractions'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 import { useAppSwipeGestureRuntime } from '@/composables/useAppSwipeGestureRuntime'
 import { useReaderRouteQueryRestore } from '@/composables/useReaderRouteQueryRestore'
 import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
 import { useAppReaderPresentationRuntime } from '@/composables/useAppReaderPresentationRuntime'
-import { useAppTopChromeOutletState } from '@/composables/useAppTopChromeOutletState'
 import { useAppVirtualBackGuard } from '@/composables/useAppVirtualBackGuard'
 import { useAppFeedRefreshCompletionRuntime } from '@/composables/useAppFeedRefreshCompletionRuntime'
 import { useAppFeedChromeScrollRuntime } from '@/composables/useAppFeedChromeScrollRuntime'
 import { useAppReaderNavigationRuntime } from '@/composables/useAppReaderNavigationRuntime'
 import { useAppReaderStackOutletRuntime } from '@/composables/useAppReaderStackOutletRuntime'
 import { useAppGestureInteractionRuntime } from '@/composables/useAppGestureInteractionRuntime'
+import { useAppMainOutletRuntime } from '@/composables/useAppMainOutletRuntime'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1066,78 +1065,78 @@ const handlePageTouchStart = pagePullInteractions.handlePageTouchStart
 const handlePageTouchMove = pagePullInteractions.handlePageTouchMove
 const handlePageTouchEnd = pagePullInteractions.handlePageTouchEnd
 const handlePageTouchCancel = pagePullInteractions.handlePageTouchCancel
-const topChromeOutletState = useAppTopChromeOutletState({
-  phase: topChromePhase,
-  progress: feedHeaderProgress,
-  rootClass: headerClass,
-  rootStyle: headerStyle,
-  isFeedRoute,
-  readerDetailHeader: readerDetailHeaderState,
-  feedTabs,
-  activeKey: () => route.name,
-  feedTabsLayerStyle,
-  feedTabsTargetLayerStyle,
-  viewSwipeTargetKey,
-  feedPullActive,
-  feedPullRefreshing: () => feedInteraction.pullRefreshing,
-  pullStatusStyle,
-  pullIconStyle,
-  pullStatusText,
-  pullStatusMeta,
-  pageTitle,
-  pagePullActive,
-  pageTitleLayerStyle,
-  pagePullStatusStyle,
-  pagePullRefreshing,
-  pagePullIconStyle,
-  pagePullStatusText,
-  pagePullStatusMeta,
+const mainOutletRuntime = useAppMainOutletRuntime({
+  topChrome: {
+    phase: topChromePhase,
+    progress: feedHeaderProgress,
+    rootClass: headerClass,
+    rootStyle: headerStyle,
+    isFeedRoute,
+    readerDetailHeader: readerDetailHeaderState,
+    feedTabs,
+    activeKey: () => route.name,
+    feedTabsLayerStyle,
+    feedTabsTargetLayerStyle,
+    viewSwipeTargetKey,
+    feedPullActive,
+    feedPullRefreshing: () => feedInteraction.pullRefreshing,
+    pullStatusStyle,
+    pullIconStyle,
+    pullStatusText,
+    pullStatusMeta,
+    pageTitle,
+    pagePullActive,
+    pageTitleLayerStyle,
+    pagePullStatusStyle,
+    pagePullRefreshing,
+    pagePullIconStyle,
+    pagePullStatusText,
+    pagePullStatusMeta,
+  },
+  mainOutlet: {
+    mainClass,
+    mainStyle,
+    swipePhase,
+    swipeDirection,
+    swipeProgress,
+    swipeIsBlocked,
+    sourceReaderOpen,
+    feedContentStyle,
+    pageContentStyle,
+    feedTrackStyle,
+    feedScrollTop,
+    topChromeProgress,
+    feedContentCollapsed,
+    feedHeaderHeight,
+    freezeFeedBodyDuringTopRefresh,
+    morphingItemId,
+    morphingHeightLockItemId,
+    morphingItemHeight,
+    feedItemPreviewProgress,
+    pageContentInnerStyle,
+    navigateTo,
+    setFeedContentElement,
+    handleFeedContentScroll,
+    handleFeedPointerDown,
+    handleFeedPointerMove,
+    handleFeedPointerUp,
+    handleFeedPointerCancel,
+    handleFeedTopPullStart,
+    handleFeedTopPullMove,
+    handleFeedTopPullEnd,
+    openItemReader,
+    setPageContentElement,
+    setPageViewInstance,
+    handlePageContentScroll,
+    handlePageTouchStart,
+    handlePageTouchMove,
+    handlePageTouchEnd,
+    handlePageTouchCancel,
+    openSourceReader,
+  },
 })
-
-const mainOutletBindings = useAppMainOutletBindings({
-  mainClass,
-  mainStyle,
-  swipePhase,
-  swipeDirection,
-  swipeProgress,
-  swipeIsBlocked,
-  topChrome: topChromeOutletState,
-  sourceReaderOpen,
-  feedContentStyle,
-  pageContentStyle,
-  feedTrackStyle,
-  feedScrollTop,
-  topChromeProgress,
-  feedContentCollapsed,
-  feedHeaderHeight,
-  freezeFeedBodyDuringTopRefresh,
-  morphingItemId,
-  morphingHeightLockItemId,
-  morphingItemHeight,
-  feedItemPreviewProgress,
-  pageContentInnerStyle,
-  navigateTo,
-  setFeedContentElement,
-  handleFeedContentScroll,
-  handleFeedPointerDown,
-  handleFeedPointerMove,
-  handleFeedPointerUp,
-  handleFeedPointerCancel,
-  handleFeedTopPullStart,
-  handleFeedTopPullMove,
-  handleFeedTopPullEnd,
-  openItemReader,
-  setPageContentElement,
-  setPageViewInstance,
-  handlePageContentScroll,
-  handlePageTouchStart,
-  handlePageTouchMove,
-  handlePageTouchEnd,
-  handlePageTouchCancel,
-  openSourceReader,
-})
-const mainOutletProps = mainOutletBindings.props
-const mainOutletListeners = mainOutletBindings.listeners
+const mainOutletProps = mainOutletRuntime.props
+const mainOutletListeners = mainOutletRuntime.listeners
 
 useAppRuntimeEffects({
   windowEvents: {
