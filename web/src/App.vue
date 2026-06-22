@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { getFeedItem } from '@/api/feed'
 import AppMainOutlet from '@/components/AppMainOutlet.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
@@ -44,6 +43,7 @@ import { useAppReaderStackOutletRuntime } from '@/composables/useAppReaderStackO
 import { useAppGestureInteractionRuntime } from '@/composables/useAppGestureInteractionRuntime'
 import { useAppMainOutletRuntime } from '@/composables/useAppMainOutletRuntime'
 import { useAppRuntimeCleanup } from '@/composables/useAppRuntimeCleanup'
+import { useAppFeedPullInteractionRuntime } from '@/composables/useAppFeedPullInteractionRuntime'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -54,7 +54,6 @@ type SwipeSurface =
 
 const route = useRoute()
 const router = useRouter()
-const feedInteraction = useFeedInteractionStore()
 const feedContent = useFeedContentState()
 const pageOutlet = usePageOutletState()
 const scrollHistory = useScrollHistory()
@@ -220,6 +219,9 @@ const toggleTheme = themeState.toggle
 const feedTopPull = useTopPullState()
 const feedTopPulling = feedTopPull.pulling
 const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
+const feedPullInteraction = useAppFeedPullInteractionRuntime({
+  feedTopPulling,
+})
 const homeBackGuard = useDoubleBackGuard(motionTimings.homeExitDoubleBackTimeout)
 const {
   bindReaderRouteSync,
@@ -362,11 +364,7 @@ const {
   sourceReaderOpen,
   isSubscriptionsRoute: () => route.name === 'subscriptions',
   detailBlocksGestures,
-  feedPullBusy: () =>
-    feedInteraction.pullActive ||
-    feedInteraction.pullRefreshing ||
-    feedInteraction.pullOffset > 1 ||
-    feedTopPulling.value,
+  feedPullBusy: () => feedPullInteraction.feedPullBusy.value,
 })
 const chromeRuntime = useAppChromeRuntime({
   feed: {
@@ -375,10 +373,10 @@ const chromeRuntime = useAppChromeRuntime({
       pagePullRefreshing,
       pagePullOffset,
       sourceReaderOpen,
-      getFeedPullActive: () => feedInteraction.pullActive,
-      getFeedPullRefreshing: () => feedInteraction.pullRefreshing,
-      getFeedPullOffset: () => feedInteraction.pullOffset,
-      getFeedPullViewKey: () => feedInteraction.pullViewKey,
+      getFeedPullActive: feedPullInteraction.getPullActive,
+      getFeedPullRefreshing: feedPullInteraction.getPullRefreshing,
+      getFeedPullOffset: feedPullInteraction.getPullOffset,
+      getFeedPullViewKey: feedPullInteraction.getPullViewKey,
     },
     layout: {
       windowWidth,
@@ -405,8 +403,12 @@ const chromeRuntime = useAppChromeRuntime({
       detailChromeVisible,
     },
   },
+  feedPullStatus: {
+    pullStatusText: feedPullInteraction.pullStatusText,
+    pullStatusMeta: feedPullInteraction.pullStatusMeta,
+  },
   visual: {
-    feedPullRefreshing: () => feedInteraction.pullRefreshing,
+    feedPullRefreshing: feedPullInteraction.getPullRefreshing,
     pagePullRefreshing,
     pagePullProgress,
     detailReaderOpen,
@@ -889,7 +891,7 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
       topChromeProgress,
       feedContentCollapsed,
       feedHeaderHeight,
-      feedPullRefreshing: () => feedInteraction.pullRefreshing,
+      feedPullRefreshing: feedPullInteraction.getPullRefreshing,
       currentContentScrollTop,
       beginRefreshingChrome: chromeState.beginRefreshing,
       setRefreshingProgress: chromeState.setRefreshingProgress,
@@ -916,8 +918,8 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
     },
     refreshCompletion: {
       installWatcher: feedRefreshCompletionRuntime.installRefreshCompletionWatcher,
-      pullRefreshing: () => feedInteraction.pullRefreshing,
-      pullViewKey: () => feedInteraction.pullViewKey,
+      pullRefreshing: feedPullInteraction.getPullRefreshing,
+      pullViewKey: feedPullInteraction.getPullViewKey,
       feedOrSourcePullActive,
       settleDelayMS: () => motionDelay(topChromeSettleDuration),
       settleSourceContentAfterRefresh: () => {
@@ -1066,7 +1068,7 @@ const mainOutletRuntime = useAppMainOutletRuntime({
     feedTabsTargetLayerStyle,
     viewSwipeTargetKey,
     feedPullActive,
-    feedPullRefreshing: () => feedInteraction.pullRefreshing,
+    feedPullRefreshing: feedPullInteraction.getPullRefreshing,
     pullStatusStyle,
     pullIconStyle,
     pullStatusText,
