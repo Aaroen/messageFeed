@@ -262,7 +262,11 @@ async function refreshPage(options: PageRefreshOptions = {}) {
       )
       return
     }
-    showNotice('success', '刷新成功：已更新订阅管理数据', undefined, options.noticeDelayMS)
+    const successMessage =
+      fetchResult.requested_count === 0
+        ? '刷新成功：已更新订阅管理数据，当前暂无已开启订阅源'
+        : '刷新成功：已更新订阅管理数据'
+    showNotice('success', successMessage, undefined, options.noticeDelayMS)
   } catch (err) {
     if (pageRequestIsCurrent(token)) {
       showNotice(

@@ -503,7 +503,7 @@ async function refreshSubscriptionSources() {
 
     const result = await fetchActiveSources()
     if (result.requested_count === 0) {
-      return { type: 'warning' as const, message: '刷新异常：当前没有可抓取的订阅源，请在订阅管理中开启或导入来源' }
+      return { type: 'success' as const, message: '刷新成功：当前暂无已开启订阅源，请在订阅管理中开启或导入来源' }
     }
     if (result.failure_count > 0) {
       const prefix = result.success_count > 0 ? '刷新异常' : '刷新失败'
