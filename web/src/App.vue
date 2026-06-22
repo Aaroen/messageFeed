@@ -29,7 +29,6 @@ import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useAppRoutePageRuntime } from '@/composables/useAppRoutePageRuntime'
 import { useAppNavigationRuntime } from '@/composables/useAppNavigationRuntime'
-import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
 import { useAppChromeRuntime } from '@/composables/useAppChromeRuntime'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
@@ -441,6 +440,19 @@ const chromeRuntime = useAppChromeRuntime({
   mainClass: {
     isFeedRoute,
   },
+  topChromeActions: {
+    sourceReaderOpen,
+    sourceReaderScrollTop,
+    isFeedRoute,
+    feedScrollTop,
+    topChromeSettleDuration,
+    resolveDelay: motionDelay,
+    setChromeVisible: chromeState.setVisible,
+    setChromeCollapsedHidden: chromeState.setCollapsedHidden,
+    setChromeOverlayProgress: chromeState.setOverlayProgress,
+    currentPageScrollTop: pageOutlet.currentScrollTop,
+    settlePagePullOffset: pagePullState.settleOffset,
+  },
 })
 const feedPullActive = chromeRuntime.feedPullActive
 const pagePullActive = chromeRuntime.pagePullActive
@@ -474,6 +486,14 @@ const headerClass = chromeRuntime.headerClass
 const headerStyle = chromeRuntime.headerStyle
 const navOpenButtonStyle = chromeRuntime.navOpenButtonStyle
 const mainClass = chromeRuntime.mainClass
+const topChromeActions = chromeRuntime.topChromeActions
+const setTopChromeVisible = topChromeActions.setTopChromeVisible
+const hideTopChromeForScroll = topChromeActions.hideTopChromeForScroll
+const showTopChromeOverlay = topChromeActions.showTopChromeOverlay
+const setTopChromeOverlayProgress = topChromeActions.setTopChromeOverlayProgress
+const collapseTopChrome = topChromeActions.collapseTopChrome
+const currentContentScrollTop = topChromeActions.currentContentScrollTop
+const settlePagePullOffset = topChromeActions.settlePagePullOffset
 const readerPresentationRuntime = useAppReaderPresentationRuntime({
   readerStack: readerStackRuntime,
   viewport: {
@@ -534,26 +554,6 @@ const {
 
 const navigationOpenDistance = 72
 const viewSwitchDistance = 62
-const appTopChromeActions = useAppTopChromeActions({
-  sourceReaderOpen,
-  sourceReaderScrollTop,
-  isFeedRoute,
-  feedScrollTop,
-  topChromeSettleDuration,
-  resolveDelay: motionDelay,
-  setChromeVisible: chromeState.setVisible,
-  setChromeCollapsedHidden: chromeState.setCollapsedHidden,
-  setChromeOverlayProgress: chromeState.setOverlayProgress,
-  currentPageScrollTop: pageOutlet.currentScrollTop,
-  settlePagePullOffset: pagePullState.settleOffset,
-})
-const setTopChromeVisible = appTopChromeActions.setTopChromeVisible
-const hideTopChromeForScroll = appTopChromeActions.hideTopChromeForScroll
-const showTopChromeOverlay = appTopChromeActions.showTopChromeOverlay
-const setTopChromeOverlayProgress = appTopChromeActions.setTopChromeOverlayProgress
-const collapseTopChrome = appTopChromeActions.collapseTopChrome
-const currentContentScrollTop = appTopChromeActions.currentContentScrollTop
-const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
 
 const appInteractionTargetGuards = useAppInteractionTargetGuards()
 const isPageTopPullControlTarget = appInteractionTargetGuards.isPageTopPullControlTarget

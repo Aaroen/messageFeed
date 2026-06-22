@@ -2,12 +2,14 @@ import { computed } from 'vue'
 
 import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
 import { useAppFeedChromeState } from '@/composables/useAppFeedChromeState'
+import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
 
 type ReadableRef<T> = {
   readonly value: T
 }
 
 type AppChromeVisualLayerOptions = Parameters<typeof useAppChromeVisualState>[0]['layer']
+type AppTopChromeActionOptions = Parameters<typeof useAppTopChromeActions>[0]
 
 type AppChromeRuntimeOptions = {
   feed: Parameters<typeof useAppFeedChromeState>[0]
@@ -30,10 +32,12 @@ type AppChromeRuntimeOptions = {
     sourceReaderUnderDetail: ReadableRef<boolean>
   }
   mainClass: Parameters<typeof useAppChromeVisualState>[0]['mainClass']
+  topChromeActions: AppTopChromeActionOptions
 }
 
 export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
   const feedChrome = useAppFeedChromeState(options.feed)
+  const topChromeActions = useAppTopChromeActions(options.topChromeActions)
   const sourceReaderInteractive = computed(
     () => options.visual.sourceReaderVisible.value && !options.visual.sourceReaderUnderDetail.value,
   )
@@ -106,5 +110,6 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
     headerStyle: chromeVisual.headerStyle,
     navOpenButtonStyle: chromeVisual.navOpenButtonStyle,
     mainClass: chromeVisual.mainClass,
+    topChromeActions,
   }
 }
