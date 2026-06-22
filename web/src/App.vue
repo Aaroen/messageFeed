@@ -36,11 +36,9 @@ import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTa
 import { useAppShellRuntime } from '@/composables/useAppShellRuntime'
 import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
 import { useAppReaderSessionRuntime } from '@/composables/useAppReaderSessionRuntime'
-import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStackOutletBindings'
 import { useAppMainOutletBindings } from '@/composables/useAppMainOutletBindings'
 import { useAppPagePullInteractions } from '@/composables/useAppPagePullInteractions'
 import { useAppReaderBackSwipeInteractions } from '@/composables/useAppReaderBackSwipeInteractions'
-import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 import { useAppPointerGestureInteractions } from '@/composables/useAppPointerGestureInteractions'
 import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwipeInteractions'
@@ -53,6 +51,7 @@ import { useAppVirtualBackGuard } from '@/composables/useAppVirtualBackGuard'
 import { useAppFeedRefreshCompletionRuntime } from '@/composables/useAppFeedRefreshCompletionRuntime'
 import { useAppFeedChromeScrollRuntime } from '@/composables/useAppFeedChromeScrollRuntime'
 import { useAppReaderNavigationRuntime } from '@/composables/useAppReaderNavigationRuntime'
+import { useAppReaderStackOutletRuntime } from '@/composables/useAppReaderStackOutletRuntime'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -925,49 +924,6 @@ const handleFeedPointerMove = pointerGestureInteractions.handleFeedPointerMove
 const handleFeedPointerUp = pointerGestureInteractions.handleFeedPointerUp
 const handleFeedPointerCancel = pointerGestureInteractions.handleFeedPointerCancel
 
-const readerDetailInteractions = useAppReaderDetailInteractions({
-  progress: {
-    detailReaderOpen,
-    detailItemID: computed(() => detailItem.value?.id ?? null),
-    detailContentRef,
-    detailScrollMax,
-    detailScrollTop,
-    updateDetailScrollMetrics: updateDetailScrollMetricsState,
-    updateDetailScrollTop: updateDetailScrollTopState,
-    rememberDetailScrollTop,
-    scrollDetailContentElementTo,
-    suppressFollowingClick,
-    setDetailProgressDragging: setDetailProgressDraggingState,
-  },
-  message: {
-    detailReaderOpen,
-    detailFrameId,
-    navigationVisible,
-    readerBackSwipeTrackingActive,
-    detailCommittedListReturn,
-    isCurrentDetailFrameMessageSource: (source) => source === detailFrameRef.value?.contentWindow,
-    updateDetailFrameContentHeight: updateDetailFrameContentHeightState,
-    detailFrameViewportOffset,
-    beginDetailGestureCandidate,
-    updateBackSwipe,
-    finishBackSwipe,
-    cancelBackSwipe,
-    resetGestureTracking,
-  },
-  settings: {
-    setSourceTimelinePreloadEnabled: setSourceTimelinePreloadEnabledState,
-  },
-})
-const syncDetailContainerMetrics = readerDetailInteractions.syncDetailContainerMetrics
-const handleDetailProgressChange = readerDetailInteractions.handleDetailProgressChange
-const handleDetailProgressDragStart = readerDetailInteractions.handleDetailProgressDragStart
-const handleDetailProgressDragEnd = readerDetailInteractions.handleDetailProgressDragEnd
-const handleDetailFrameLoad = readerDetailInteractions.handleDetailFrameLoad
-const handleMessage = readerDetailInteractions.handleMessage
-const clearReaderDetailFrames = readerDetailInteractions.clearReaderDetailFrames
-const loadReaderSettings = readerDetailInteractions.loadReaderSettings
-const handleReaderSettingsChanged = readerDetailInteractions.handleReaderSettingsChanged
-
 const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
   feedChrome: {
     topPull: {
@@ -1018,59 +974,95 @@ const handlePageContentScroll = feedChromeScrollRuntime.handlePageContentScroll
 const handleSourceReaderScroll = feedChromeScrollRuntime.handleSourceReaderScroll
 const handleDetailContentScroll = feedChromeScrollRuntime.handleDetailContentScroll
 
-const readerStackOutletBindings = useAppReaderStackOutletBindings({
-  sourceReaderMounted,
-  sourceReaderUnderDetail,
-  readerMotion: readerMotionState,
-  readerSource,
-  sourceToggleActive,
-  detailItem,
-  readerMorph: readerMorphVisibilityState,
-  detailReaderOpen,
-  detailParkedBehindSource,
-  sourceNotice,
-  topChromePhase,
-  topChromeProgress,
-  sourceHeaderStyle,
-  sourceMainLayerStyle,
-  sourcePullStatusStyle,
-  sourcePullIconStyle,
-  sourcePullActive: foregroundSourcePullActive,
-  sourcePullRefreshing: () => sourcePullRefreshing.value,
-  pullStatusText,
-  pullStatusMeta,
-  sourceToggleLabel,
-  sourceToggleDisabled,
-  sourceReaderScrollTop,
-  feedHeaderHeight,
-  morphingItemId,
-  morphingHeightLockItemId,
-  morphingItemHeight,
-  feedItemPreviewProgress,
-  sourceReaderVisible,
-  detailLoading,
-  detailError,
-  detailProgressVisible,
-  detailReadingProgress,
-  setSourceReaderContentElement,
-  handleSourceReaderScroll,
-  openNavigation,
-  toggleSourceReaderSubscription,
-  handleFeedTopPullStart,
-  handleFeedTopPullMove,
-  handleFeedTopPullEnd,
-  openItemReader,
-  setDetailContentElement,
-  handleDetailContentScroll,
-  setDetailInlineSourceElement,
-  setDetailFrameElement,
-  handleDetailFrameLoad,
-  handleDetailProgressDragStart,
-  handleDetailProgressDragEnd,
-  handleDetailProgressChange,
+const readerStackOutletRuntime = useAppReaderStackOutletRuntime({
+  detail: {
+    progress: {
+      detailReaderOpen,
+      detailItemID: computed(() => detailItem.value?.id ?? null),
+      detailContentRef,
+      detailScrollMax,
+      detailScrollTop,
+      updateDetailScrollMetrics: updateDetailScrollMetricsState,
+      updateDetailScrollTop: updateDetailScrollTopState,
+      rememberDetailScrollTop,
+      scrollDetailContentElementTo,
+      suppressFollowingClick,
+      setDetailProgressDragging: setDetailProgressDraggingState,
+    },
+    message: {
+      detailReaderOpen,
+      detailFrameId,
+      navigationVisible,
+      readerBackSwipeTrackingActive,
+      detailCommittedListReturn,
+      isCurrentDetailFrameMessageSource: (source) => source === detailFrameRef.value?.contentWindow,
+      updateDetailFrameContentHeight: updateDetailFrameContentHeightState,
+      detailFrameViewportOffset,
+      beginDetailGestureCandidate,
+      updateBackSwipe,
+      finishBackSwipe,
+      cancelBackSwipe,
+      resetGestureTracking,
+    },
+    settings: {
+      setSourceTimelinePreloadEnabled: setSourceTimelinePreloadEnabledState,
+    },
+  },
+  outlet: {
+    sourceReaderMounted,
+    sourceReaderUnderDetail,
+    readerMotion: readerMotionState,
+    readerSource,
+    sourceToggleActive,
+    detailItem,
+    readerMorph: readerMorphVisibilityState,
+    detailReaderOpen,
+    detailParkedBehindSource,
+    sourceNotice,
+    topChromePhase,
+    topChromeProgress,
+    sourceHeaderStyle,
+    sourceMainLayerStyle,
+    sourcePullStatusStyle,
+    sourcePullIconStyle,
+    sourcePullActive: foregroundSourcePullActive,
+    sourcePullRefreshing: () => sourcePullRefreshing.value,
+    pullStatusText,
+    pullStatusMeta,
+    sourceToggleLabel,
+    sourceToggleDisabled,
+    sourceReaderScrollTop,
+    feedHeaderHeight,
+    morphingItemId,
+    morphingHeightLockItemId,
+    morphingItemHeight,
+    feedItemPreviewProgress,
+    sourceReaderVisible,
+    detailLoading,
+    detailError,
+    detailProgressVisible,
+    detailReadingProgress,
+    setSourceReaderContentElement,
+    handleSourceReaderScroll,
+    openNavigation,
+    toggleSourceReaderSubscription,
+    handleFeedTopPullStart,
+    handleFeedTopPullMove,
+    handleFeedTopPullEnd,
+    openItemReader,
+    setDetailContentElement,
+    handleDetailContentScroll,
+    setDetailInlineSourceElement,
+    setDetailFrameElement,
+  },
 })
-const readerStackOutletProps = readerStackOutletBindings.props
-const readerStackOutletListeners = readerStackOutletBindings.listeners
+const syncDetailContainerMetrics = readerStackOutletRuntime.syncDetailContainerMetrics
+const handleMessage = readerStackOutletRuntime.handleMessage
+const clearReaderDetailFrames = readerStackOutletRuntime.clearReaderDetailFrames
+const loadReaderSettings = readerStackOutletRuntime.loadReaderSettings
+const handleReaderSettingsChanged = readerStackOutletRuntime.handleReaderSettingsChanged
+const readerStackOutletProps = readerStackOutletRuntime.props
+const readerStackOutletListeners = readerStackOutletRuntime.listeners
 
 const pagePullInteractions = useAppPagePullInteractions({
   pagePull: pagePullState,
