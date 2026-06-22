@@ -6,9 +6,11 @@ type ReadableRef<T> = {
 
 type RefreshCompletionController = {
   readonly wasActive: ReadableRef<boolean>
+  readonly wasSource: ReadableRef<boolean>
   begin: (payload: { viewKey: string; startedWithVisibleChrome: boolean }) => void
   finish: (delayMS: number) => { wasActive: boolean; wasSource: boolean }
   resetInactive: () => void
+  reset: () => void
 }
 
 type TopPullCompletionController = {
@@ -25,15 +27,31 @@ type FeedRefreshCompletionWatcherOptions = {
   settleDelayMS: () => number
   settleSourceContentAfterRefresh: () => void
   collapseTopChrome: () => void
+  canApplyCompletionEffects?: (payload: { wasSource: boolean; pullViewKey: string }) => boolean
 }
 
 export function useFeedRefreshCompletionWatcher(options: FeedRefreshCompletionWatcherOptions) {
+  function canApplyCompletionEffects() {
+    return (
+      options.canApplyCompletionEffects?.({
+        wasSource: options.refreshCompletion.wasSource.value,
+        pullViewKey: options.pullViewKey(),
+      }) ?? true
+    )
+  }
+
   function finishRefreshCompletionIfInactive(active: boolean) {
     if (active) {
       return
     }
 
     if (options.refreshCompletion.wasActive.value) {
+      if (!canApplyCompletionEffects()) {
+        options.refreshCompletion.reset()
+        options.topPull.resetStartedWithChrome()
+        return
+      }
+
       const refreshResult = options.refreshCompletion.finish(options.settleDelayMS())
       if (refreshResult.wasSource) {
         options.settleSourceContentAfterRefresh()

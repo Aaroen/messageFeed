@@ -1461,6 +1461,18 @@ useFeedRefreshCompletionWatcher({
     readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
   },
   collapseTopChrome,
+  canApplyCompletionEffects: ({ wasSource }) => {
+    if (wasSource) {
+      return sourceReaderVisible.value && !sourceReaderUnderDetail.value && !navigationVisible.value
+    }
+
+    return (
+      isFeedRoute.value &&
+      !detailReaderOpen.value &&
+      !sourceReaderOpen.value &&
+      !navigationVisible.value
+    )
+  },
 })
 
 useAppLifecycle({

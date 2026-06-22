@@ -418,7 +418,16 @@ function clearFeedNotice() {
   feedNotice.value = null
 }
 
+function canShowFeedNotice() {
+  return !props.backgroundRefresh
+}
+
 function showFeedNotice(type: FeedNotice['type'], message: string, delayMS = 0) {
+  if (!canShowFeedNotice()) {
+    clearFeedNotice()
+    return
+  }
+
   const normalized = message.trim()
   if (!normalized) {
     clearFeedNotice()
@@ -427,7 +436,7 @@ function showFeedNotice(type: FeedNotice['type'], message: string, delayMS = 0) 
   clearFeedNoticeTimer()
   const token = feedNoticeTimerToken
   const show = () => {
-    if (token !== feedNoticeTimerToken) {
+    if (token !== feedNoticeTimerToken || !canShowFeedNotice()) {
       return
     }
     feedNotice.value = { type, message: normalized }
@@ -967,6 +976,7 @@ watch(
   () => props.backgroundRefresh,
   (backgroundRefresh) => {
     if (backgroundRefresh) {
+      clearFeedNotice()
       clearPullState(true)
     }
   },
