@@ -9,7 +9,10 @@ type AppTopChromeActionsOptions = {
   feedScrollTop: ReadableRef<number>
   topChromeSettleDuration: number
   resolveDelay: (duration: number) => number
-  setChromeVisible: (visible: boolean, options?: { settleDelayMS?: number }) => void
+  setChromeVisible: (
+    visible: boolean,
+    options?: { settleDelayMS?: number; preserveContentCollapsed?: boolean },
+  ) => void
   setChromeCollapsedHidden: (options?: { settleDelayMS?: number }) => void
   currentPageScrollTop: () => number
   settlePagePullOffset: (delayMS: number) => void
@@ -26,6 +29,13 @@ export function useAppTopChromeActions(options: AppTopChromeActionsOptions) {
       return
     }
     options.setChromeCollapsedHidden({ settleDelayMS: topChromeSettleDelay() })
+  }
+
+  function showTopChromeOverlay() {
+    options.setChromeVisible(true, {
+      settleDelayMS: topChromeSettleDelay(),
+      preserveContentCollapsed: true,
+    })
   }
 
   function collapseTopChrome() {
@@ -50,6 +60,7 @@ export function useAppTopChromeActions(options: AppTopChromeActionsOptions) {
 
   return {
     setTopChromeVisible,
+    showTopChromeOverlay,
     collapseTopChrome,
     currentContentScrollTop,
     settlePagePullOffset,

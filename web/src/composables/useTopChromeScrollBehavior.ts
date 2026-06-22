@@ -13,21 +13,11 @@ type TopChromeScrollBehaviorOptions = {
   feedHeaderHeight: ReadableRef<number>
   isFeedRoute: ReadableRef<boolean>
   setTopChromeVisible: (visible: boolean) => void
+  showTopChromeOverlay: () => void
 }
 
 export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptions) {
   function updateByScroll(current: number, previous: number) {
-    if (
-      current <= 1 &&
-      options.topChromeProgress.value < 0.99 &&
-      !options.feedPullActive.value &&
-      !options.sourcePullActive.value &&
-      !options.feedTopPulling.value
-    ) {
-      options.setTopChromeVisible(true)
-      return
-    }
-
     if (
       options.feedPullActive.value ||
       options.sourcePullActive.value ||
@@ -65,7 +55,7 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
     }
 
     if (delta < 0 && options.topChromeProgress.value < 0.99) {
-      options.setTopChromeVisible(true)
+      options.showTopChromeOverlay()
     }
   }
 

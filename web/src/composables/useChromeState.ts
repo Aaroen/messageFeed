@@ -10,6 +10,7 @@ export type ChromePhase =
 
 type SetChromeVisibleOptions = {
   settleDelayMS?: number
+  preserveContentCollapsed?: boolean
 }
 
 type BeginChromeGestureReturnOptions = SetChromeVisibleOptions & {
@@ -103,7 +104,7 @@ export function useChromeState() {
   function setVisible(visible: boolean, options: SetChromeVisibleOptions = {}) {
     const nextProgress = visible ? 1 : 0
     if (progress.value === nextProgress) {
-      if (visible && contentCollapsed.value) {
+      if (visible && contentCollapsed.value && !options.preserveContentCollapsed) {
         setSettling(true, 'revealing')
         setContentCollapsed(false)
         scheduleSettlingEndIfNeeded(options.settleDelayMS)
@@ -121,7 +122,7 @@ export function useChromeState() {
     }
 
     setSettling(true, visible ? 'revealing' : 'hiding')
-    if (visible) {
+    if (visible && !options.preserveContentCollapsed) {
       setContentCollapsed(false)
     }
     setProgress(nextProgress, visible ? 'revealing' : 'hiding')

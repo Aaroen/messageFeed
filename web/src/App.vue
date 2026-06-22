@@ -769,6 +769,7 @@ const appTopChromeActions = useAppTopChromeActions({
   settlePagePullOffset: pagePullState.settleOffset,
 })
 const setTopChromeVisible = appTopChromeActions.setTopChromeVisible
+const showTopChromeOverlay = appTopChromeActions.showTopChromeOverlay
 const collapseTopChrome = appTopChromeActions.collapseTopChrome
 const currentContentScrollTop = appTopChromeActions.currentContentScrollTop
 const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
@@ -1224,6 +1225,7 @@ const feedChromeInteractions = useAppFeedChromeInteractions({
     feedHeaderHeight,
     isFeedRoute,
     setTopChromeVisible,
+    showTopChromeOverlay,
   },
 })
 const handleFeedTopPullStart = feedChromeInteractions.handleFeedTopPullStart
