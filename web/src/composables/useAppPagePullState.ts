@@ -1,4 +1,4 @@
-import type { Ref } from 'vue'
+import { computed, ref, type Ref } from 'vue'
 
 import { usePageContentMotion } from '@/composables/usePageContentMotion'
 import { usePagePullStatus } from '@/composables/usePagePullStatus'
@@ -11,15 +11,30 @@ type AppPagePullStateOptions = {
 
 export function useAppPagePullState(options: AppPagePullStateOptions) {
   const pullRefresh = usePullRefresh({ threshold: options.threshold ?? 52 })
+  const completionRefreshing = ref(false)
+  const statusRefreshing = computed(() => pullRefresh.refreshing.value || completionRefreshing.value)
   const contentMotion = usePageContentMotion({
     pullOffset: pullRefresh.offset,
     settling: pullRefresh.settling,
   })
   const status = usePagePullStatus({
-    refreshing: pullRefresh.refreshing,
+    refreshing: statusRefreshing,
     progress: pullRefresh.distanceProgress,
     pageTitle: options.pageTitle,
   })
+
+  function holdCompletionRefreshing() {
+    completionRefreshing.value = true
+  }
+
+  function releaseCompletionRefreshing() {
+    completionRefreshing.value = false
+  }
+
+  function reset() {
+    releaseCompletionRefreshing()
+    pullRefresh.reset()
+  }
 
   return {
     pullRefresh,
@@ -32,8 +47,10 @@ export function useAppPagePullState(options: AppPagePullStateOptions) {
     contentStyle: contentMotion.contentStyle,
     statusText: status.text,
     statusMeta: status.meta,
+    holdCompletionRefreshing,
+    releaseCompletionRefreshing,
     settleOffset: pullRefresh.settleOffset,
-    reset: pullRefresh.reset,
+    reset,
     resetMotion: pullRefresh.resetMotion,
     clearTimers: pullRefresh.clearTimers,
     setSideOffset: contentMotion.setSideOffset,

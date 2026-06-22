@@ -12,6 +12,8 @@ type PagePullRefreshActionOptions = {
   currentRefreshPage: () => PageRefreshAction | null
   clearCurrentPageNotice: () => void
   beginRefreshing: () => void
+  holdCompletionRefreshing: () => void
+  releaseCompletionRefreshing: () => void
   settleRefreshCompletion: (options: {
     releaseDelayMS?: number
     settleDelayMS?: number
@@ -31,6 +33,7 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
 
   function invalidateRefreshCompletion() {
     refreshRunToken += 1
+    options.releaseCompletionRefreshing()
   }
 
   function refreshRunIsCurrent(token: number) {
@@ -47,6 +50,7 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
     const afterSettledCallbacks: Array<() => void> = []
     options.clearCurrentPageNotice()
     options.beginRefreshing()
+    options.holdCompletionRefreshing()
     try {
       await refreshPage({
         noticeDelayMS: options.noticeDelayMS,
@@ -57,11 +61,13 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
       })
     } finally {
       if (!refreshRunIsCurrent(token)) {
+        options.releaseCompletionRefreshing()
         return
       }
       options.settleRefreshCompletion({
         afterRelease: options.collapseTopChrome,
         afterSettled: () => {
+          options.releaseCompletionRefreshing()
           for (const callback of afterSettledCallbacks) {
             callback()
           }

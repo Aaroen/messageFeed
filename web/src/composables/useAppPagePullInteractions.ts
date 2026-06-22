@@ -34,6 +34,8 @@ export function useAppPagePullInteractions(options: AppPagePullInteractionsOptio
     currentRefreshPage: options.currentRefreshPage,
     clearCurrentPageNotice: options.clearCurrentPageNotice,
     beginRefreshing: pullRefresh.beginRefreshing,
+    holdCompletionRefreshing: options.pagePull.holdCompletionRefreshing,
+    releaseCompletionRefreshing: options.pagePull.releaseCompletionRefreshing,
     settleRefreshCompletion: pullRefresh.settleRefreshCompletion,
     collapseTopChrome: options.collapseTopChrome,
   })
