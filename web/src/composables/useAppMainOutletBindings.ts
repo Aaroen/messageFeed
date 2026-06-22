@@ -75,7 +75,6 @@ export function useAppMainOutletBindings(options: AppMainOutletBindingOptions) {
         feed: {
           active: topChrome.feed.active.value,
           detailReaderOpen: topChrome.feed.detailReaderOpen.value,
-          detailHeaderVisible: topChrome.feed.detailHeaderVisible.value,
           detailHeaderLayerStyle: topChrome.feed.detailHeaderLayerStyle.value,
           detailTitle: topChrome.feed.detailTitle.value,
           detailHeaderTitleStyle: topChrome.feed.detailHeaderTitleStyle.value,
@@ -85,9 +84,7 @@ export function useAppMainOutletBindings(options: AppMainOutletBindingOptions) {
           isFeedRoute: topChrome.feed.isFeedRoute.value,
           feedTabs: topChrome.feed.feedTabs,
           activeKey: topChrome.feed.activeKey.value,
-          feedTabsLayerHidden: topChrome.feed.feedTabsLayerHidden.value,
           feedTabsLayerStyle: topChrome.feed.feedTabsLayerStyle.value,
-          viewSwipeTargetVisible: topChrome.feed.viewSwipeTargetVisible.value,
           feedTabsTargetLayerStyle: topChrome.feed.feedTabsTargetLayerStyle.value,
           viewSwipeTargetKey: topChrome.feed.viewSwipeTargetKey.value,
           feedPullActive: topChrome.feed.feedPullActive.value,

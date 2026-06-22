@@ -490,7 +490,6 @@ const feedHeaderReturnProgress = feedChromeState.feedHeaderReturnProgress
 const mainStyle = feedChromeState.mainStyle
 const feedContentStyle = feedChromeState.feedContentStyle
 const pageContentStyle = feedChromeState.pageContentStyle
-const feedTabsLayerHidden = feedChromeState.feedTabsLayerHidden
 const feedCornerHidden = feedChromeState.feedCornerHidden
 const detailHeaderVisible = feedChromeState.detailHeaderVisible
 const headerDetailLayoutActive = feedChromeState.headerDetailLayoutActive
@@ -1323,9 +1322,7 @@ const topChromeOutletState = useAppTopChromeOutletState({
   readerDetailHeader: readerDetailHeaderState,
   feedTabs,
   activeKey: () => route.name,
-  feedTabsLayerHidden,
   feedTabsLayerStyle,
-  viewSwipeTargetVisible,
   feedTabsTargetLayerStyle,
   viewSwipeTargetKey,
   feedPullActive,

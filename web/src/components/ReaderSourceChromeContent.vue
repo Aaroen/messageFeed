@@ -8,7 +8,6 @@ withDefaults(
     titleTextStyle?: StyleValue
     titleLayerStyle?: StyleValue
     mainLayerStyle?: StyleValue
-    pullActive?: boolean
     toggleActive?: boolean
     toggleLabel?: string
     toggleDisabled?: boolean
@@ -19,7 +18,6 @@ withDefaults(
     titleTextStyle: undefined,
     titleLayerStyle: undefined,
     mainLayerStyle: undefined,
-    pullActive: false,
     toggleActive: false,
     toggleLabel: '',
     toggleDisabled: false,

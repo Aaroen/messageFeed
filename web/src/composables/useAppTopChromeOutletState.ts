@@ -25,9 +25,7 @@ type AppTopChromeOutletStateOptions = {
   readerDetailHeader: AppReaderDetailHeaderState
   feedTabs: FeedTab[]
   activeKey: () => string | symbol | null | undefined
-  feedTabsLayerHidden: ReadableRef<boolean>
   feedTabsLayerStyle: ReadableRef<StyleValue>
-  viewSwipeTargetVisible: ReadableRef<boolean>
   feedTabsTargetLayerStyle: ReadableRef<StyleValue>
   viewSwipeTargetKey: ReadableRef<string | null>
   feedPullActive: ReadableRef<boolean>
@@ -56,7 +54,6 @@ export type AppTopChromeOutletState = {
   feed: {
     active: ReadableRef<boolean>
     detailReaderOpen: ReadableRef<boolean>
-    detailHeaderVisible: ReadableRef<boolean>
     detailHeaderLayerStyle: ReadableRef<StyleValue>
     detailTitle: ReadableRef<string>
     detailHeaderTitleStyle: ReadableRef<StyleValue>
@@ -66,9 +63,7 @@ export type AppTopChromeOutletState = {
     isFeedRoute: ReadableRef<boolean>
     feedTabs: FeedTab[]
     activeKey: ReadableRef<string | symbol | null>
-    feedTabsLayerHidden: ReadableRef<boolean>
     feedTabsLayerStyle: ReadableRef<StyleValue>
-    viewSwipeTargetVisible: ReadableRef<boolean>
     feedTabsTargetLayerStyle: ReadableRef<StyleValue>
     viewSwipeTargetKey: ReadableRef<string | null>
     feedPullActive: ReadableRef<boolean>
@@ -110,7 +105,6 @@ export function useAppTopChromeOutletState(
     feed: {
       active: feedHeaderActive,
       detailReaderOpen: readerDetailHeader.readerOpen,
-      detailHeaderVisible: readerDetailHeader.visible,
       detailHeaderLayerStyle: readerDetailHeader.layerStyle,
       detailTitle: readerDetailHeader.title,
       detailHeaderTitleStyle: readerDetailHeader.titleStyle,
@@ -120,9 +114,7 @@ export function useAppTopChromeOutletState(
       isFeedRoute: options.isFeedRoute,
       feedTabs: options.feedTabs,
       activeKey,
-      feedTabsLayerHidden: options.feedTabsLayerHidden,
       feedTabsLayerStyle: options.feedTabsLayerStyle,
-      viewSwipeTargetVisible: options.viewSwipeTargetVisible,
       feedTabsTargetLayerStyle: options.feedTabsTargetLayerStyle,
       viewSwipeTargetKey: options.viewSwipeTargetKey,
       feedPullActive: options.feedPullActive,

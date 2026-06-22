@@ -51,7 +51,6 @@ export function useAppFeedChromeState(options: AppFeedChromeStateOptions) {
     mainStyle: shellMotion.style,
     feedContentStyle: shellMotion.feedContentStyle,
     pageContentStyle: shellMotion.pageContentStyle,
-    feedTabsLayerHidden: visibility.feedTabsLayerHidden,
     feedCornerHidden: visibility.feedCornerHidden,
     detailHeaderVisible: visibility.detailHeaderVisible,
     headerDetailLayoutActive: visibility.headerDetailLayoutActive,

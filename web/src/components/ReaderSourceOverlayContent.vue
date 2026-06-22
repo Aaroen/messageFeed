@@ -114,7 +114,6 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
       :title-text-style="titleTextStyle"
       :title-layer-style="titleLayerStyle"
       :main-layer-style="mainLayerStyle"
-      :pull-active="pullActive"
       :toggle-active="toggleActive"
       :toggle-label="toggleLabel"
       :toggle-disabled="toggleDisabled"

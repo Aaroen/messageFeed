@@ -27,7 +27,6 @@ type TopChromeChromeProps = {
 type TopChromeFeedProps = {
   active?: boolean
   detailReaderOpen?: boolean
-  detailHeaderVisible?: boolean
   detailHeaderLayerStyle?: StyleValue
   detailTitle?: string
   detailHeaderTitleStyle?: StyleValue
@@ -37,9 +36,7 @@ type TopChromeFeedProps = {
   isFeedRoute?: boolean
   feedTabs?: FeedTab[]
   activeKey?: string | symbol | null
-  feedTabsLayerHidden?: boolean
   feedTabsLayerStyle?: StyleValue
-  viewSwipeTargetVisible?: boolean
   feedTabsTargetLayerStyle?: StyleValue
   viewSwipeTargetKey?: string | null
   feedPullActive?: boolean

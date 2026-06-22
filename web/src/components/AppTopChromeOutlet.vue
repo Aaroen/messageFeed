@@ -24,7 +24,6 @@ type TopChromeChromeProps = {
 type TopChromeFeedProps = {
   active?: boolean
   detailReaderOpen?: boolean
-  detailHeaderVisible?: boolean
   detailHeaderLayerStyle?: StyleValue
   detailTitle?: string
   detailHeaderTitleStyle?: StyleValue
@@ -34,9 +33,7 @@ type TopChromeFeedProps = {
   isFeedRoute?: boolean
   feedTabs?: FeedTab[]
   activeKey?: string | symbol | null
-  feedTabsLayerHidden?: boolean
   feedTabsLayerStyle?: StyleValue
-  viewSwipeTargetVisible?: boolean
   feedTabsTargetLayerStyle?: StyleValue
   viewSwipeTargetKey?: string | null
   feedPullActive?: boolean
@@ -88,7 +85,6 @@ const emit = defineEmits<{
       <AppFeedHeaderContent
         v-if="feed.active"
         :detail-reader-open="feed.detailReaderOpen"
-        :detail-header-visible="feed.detailHeaderVisible"
         :detail-header-layer-style="feed.detailHeaderLayerStyle"
         :detail-title="feed.detailTitle"
         :detail-header-title-style="feed.detailHeaderTitleStyle"
@@ -98,9 +94,7 @@ const emit = defineEmits<{
         :is-feed-route="feed.isFeedRoute"
         :feed-tabs="feed.feedTabs"
         :active-key="feed.activeKey"
-        :feed-tabs-layer-hidden="feed.feedTabsLayerHidden"
         :feed-tabs-layer-style="feed.feedTabsLayerStyle"
-        :view-swipe-target-visible="feed.viewSwipeTargetVisible"
         :feed-tabs-target-layer-style="feed.feedTabsTargetLayerStyle"
         :view-swipe-target-key="feed.viewSwipeTargetKey"
         :feed-pull-active="feed.feedPullActive"

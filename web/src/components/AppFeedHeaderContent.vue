@@ -12,7 +12,6 @@ type FeedTab = {
 withDefaults(
   defineProps<{
     detailReaderOpen?: boolean
-    detailHeaderVisible?: boolean
     detailHeaderLayerStyle?: StyleValue
     detailTitle?: string
     detailHeaderTitleStyle?: StyleValue
@@ -22,9 +21,7 @@ withDefaults(
     isFeedRoute?: boolean
     feedTabs?: FeedTab[]
     activeKey?: string | symbol | null
-    feedTabsLayerHidden?: boolean
     feedTabsLayerStyle?: StyleValue
-    viewSwipeTargetVisible?: boolean
     feedTabsTargetLayerStyle?: StyleValue
     viewSwipeTargetKey?: string | null
     feedPullActive?: boolean
@@ -36,7 +33,6 @@ withDefaults(
   }>(),
   {
     detailReaderOpen: false,
-    detailHeaderVisible: false,
     detailHeaderLayerStyle: undefined,
     detailTitle: '',
     detailHeaderTitleStyle: undefined,
@@ -46,9 +42,7 @@ withDefaults(
     isFeedRoute: false,
     feedTabs: () => [],
     activeKey: null,
-    feedTabsLayerHidden: true,
     feedTabsLayerStyle: undefined,
-    viewSwipeTargetVisible: false,
     feedTabsTargetLayerStyle: undefined,
     viewSwipeTargetKey: null,
     feedPullActive: false,
