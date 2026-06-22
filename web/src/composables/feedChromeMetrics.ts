@@ -13,6 +13,10 @@ export function feedContentTopOffset(headerHeight: number) {
   return headerHeight <= 78 ? 8 : 10
 }
 
+export function sourceContentTopOffset() {
+  return 14
+}
+
 export function topScrollInset(scrollTop: number, topOffset: number) {
   if (!Number.isFinite(scrollTop)) {
     return 0

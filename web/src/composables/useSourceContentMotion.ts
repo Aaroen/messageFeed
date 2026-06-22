@@ -1,5 +1,7 @@
 import { computed, ref, type Ref } from 'vue'
 
+import { sourceContentTopOffset } from '@/composables/feedChromeMetrics'
+
 type SourceContentMotionOptions = {
   headerSpace: Ref<number>
   headerHeight: Ref<number>
@@ -31,6 +33,7 @@ const sourceContentShiftTransition = [
 export function useSourceContentMotion(options: SourceContentMotionOptions) {
   const settleOffset = ref(0)
   const settlePhase = ref<SourceContentSettlePhase>('idle')
+  const topOffset = sourceContentTopOffset()
   let settleTimer = 0
   let settleFrame = 0
   let motionToken = 0
@@ -53,7 +56,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
           : sourceUnderlayTransition
 
     return {
-      paddingTop: cssPx(options.headerHeight.value + 14),
+      paddingTop: cssPx(options.headerHeight.value + topOffset),
       opacity: underlayOpacity.toFixed(3),
       filter: `blur(${underlayBlur.toFixed(2)}px)`,
       transform: cssTranslate3d(0, contentShift + settleOffset.value),
