@@ -31,6 +31,10 @@ type FeedChromeLayoutStateOptions = {
   detailFeedHeaderReturnProgress: ReadableRef<number>
 }
 
+function chromePhaseNeedsVisibleTopClearance(phase: ChromePhase) {
+  return phase === 'visible' || phase === 'revealing' || phase === 'gesture-returning'
+}
+
 export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) {
   const headerHeight = computed(() => feedHeaderHeightForWidth(options.windowWidth.value))
   const contentTopOffset = computed(() => feedContentTopOffset(headerHeight.value))
@@ -56,7 +60,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       return false
     }
 
-    return options.topChromePhase.value === 'visible' || options.topChromePhase.value === 'revealing'
+    return chromePhaseNeedsVisibleTopClearance(options.topChromePhase.value)
   })
   const headerProgress = computed(() => {
     if (!options.isFeedRoute.value) {
