@@ -42,6 +42,20 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
     options.pullRefresh.finishGestureTracking()
   }
 
+  function cancelPageTopPullGesture() {
+    const wasTracking = options.pullRefresh.gestureTracking.value
+    if (!wasTracking && !options.pullRefresh.gestureCandidate.value) {
+      return
+    }
+
+    options.finishFeedTopPull()
+    if (wasTracking) {
+      options.setTopChromeVisible(true)
+      options.settlePullOffset()
+    }
+    resetPageTopPullTracking()
+  }
+
   function handlePageTouchStart(event: TouchEvent) {
     if (
       options.isFeedRoute.value ||
@@ -51,7 +65,7 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
       options.currentContentScrollTop() > 0 ||
       options.isControlTarget(event.target)
     ) {
-      resetPageTopPullTracking()
+      cancelPageTopPullGesture()
       return
     }
 
@@ -64,9 +78,13 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
       options.isFeedRoute.value ||
       !options.hasRefreshPage() ||
       event.touches.length !== 1 ||
-      options.currentContentScrollTop() > 0 ||
-      (!options.pullRefresh.gestureCandidate.value && !options.pullRefresh.gestureTracking.value)
+      options.currentContentScrollTop() > 0
     ) {
+      cancelPageTopPullGesture()
+      return
+    }
+
+    if (!options.pullRefresh.gestureCandidate.value && !options.pullRefresh.gestureTracking.value) {
       return
     }
 
@@ -110,12 +128,7 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
   }
 
   function handlePageTouchCancel() {
-    if (options.pullRefresh.gestureTracking.value || options.pullRefresh.gestureCandidate.value) {
-      options.finishFeedTopPull()
-      options.setTopChromeVisible(true)
-      options.settlePullOffset()
-    }
-    resetPageTopPullTracking()
+    cancelPageTopPullGesture()
   }
 
   return {
