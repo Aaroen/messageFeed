@@ -1147,6 +1147,50 @@ const mainOutletRuntime = useAppMainOutletRuntime({
 const mainOutletProps = mainOutletRuntime.props
 const mainOutletListeners = mainOutletRuntime.listeners
 
+routeRuntime.installRouteSessionWatchers({
+  route,
+  isFeedRoute,
+  navigationVisible,
+  sourceReaderVisible,
+  readerSource,
+  detailItem,
+  detailSourceKind,
+  detailOpenedFromSourceReader,
+  detailListReturnCommitted,
+  sourceReaderReturnMode,
+  sourceReaderBackDetailItemId,
+  parkedDetailStackDepth,
+  detailSourceExitProgress,
+  topChromeProgress,
+  feedContentCollapsed,
+  feedScrollTop,
+  sourceReaderScrollTop,
+  detailScrollTop,
+  resetGestureTracking,
+  resetBackSwipeOffset,
+  resetPageTopPullTracking,
+  finishFeedTopPull: feedTopPull.finish,
+  resetRefreshCompletion: feedRefreshCompletionRuntime.resetRefreshCompletion,
+  resetPagePullMotion: () => {
+    invalidatePagePullRefreshCompletion()
+    pagePullState.reset()
+  },
+  resetFeedViewDragOffset,
+  resetSwipeTransition,
+  setTopChromeVisible,
+  currentFeedScrollTop: feedContent.currentScrollTop,
+  updateFeedScrollTop: feedScroll.update,
+  currentPageScrollTop: pageOutlet.currentScrollTop,
+  rememberFeedScrollTop: (scrollTop) => {
+    scrollHistory.set('feed', scrollTop)
+  },
+  rememberPageScrollTop: (scrollTop) => {
+    scrollHistory.set('page', scrollTop)
+  },
+  scheduleReaderSessionSave,
+  scheduleReaderURLAndHistorySync,
+})
+
 useAppRuntimeEffects({
   windowEvents: {
     handleKeydown,
@@ -1163,49 +1207,6 @@ useAppRuntimeEffects({
     handleTouchMove,
     handleTouchEnd,
     handleTouchCancel,
-  },
-  routeSession: {
-    route,
-    isFeedRoute,
-    navigationVisible,
-    sourceReaderVisible,
-    readerSource,
-    detailItem,
-    detailSourceKind,
-    detailOpenedFromSourceReader,
-    detailListReturnCommitted,
-    sourceReaderReturnMode,
-    sourceReaderBackDetailItemId,
-    parkedDetailStackDepth,
-    detailSourceExitProgress,
-    topChromeProgress,
-    feedContentCollapsed,
-    feedScrollTop,
-    sourceReaderScrollTop,
-    detailScrollTop,
-    resetGestureTracking,
-    resetBackSwipeOffset,
-    resetPageTopPullTracking,
-    finishFeedTopPull: feedTopPull.finish,
-    resetRefreshCompletion: feedRefreshCompletionRuntime.resetRefreshCompletion,
-    resetPagePullMotion: () => {
-      invalidatePagePullRefreshCompletion()
-      pagePullState.reset()
-    },
-    resetFeedViewDragOffset,
-    resetSwipeTransition,
-    setTopChromeVisible,
-    currentFeedScrollTop: feedContent.currentScrollTop,
-    updateFeedScrollTop: feedScroll.update,
-    currentPageScrollTop: pageOutlet.currentScrollTop,
-    rememberFeedScrollTop: (scrollTop) => {
-      scrollHistory.set('feed', scrollTop)
-    },
-    rememberPageScrollTop: (scrollTop) => {
-      scrollHistory.set('page', scrollTop)
-    },
-    scheduleReaderSessionSave,
-    scheduleReaderURLAndHistorySync,
   },
   lifecycle: {
     loadReaderSettings,

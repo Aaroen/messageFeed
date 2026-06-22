@@ -1,3 +1,7 @@
+import { useAppRouteSessionWatchers } from '@/composables/useAppRouteSessionWatchers'
+
+type RouteSessionWatcherOptions = Parameters<typeof useAppRouteSessionWatchers>[0]
+
 export function useRouteRuntimeState() {
   let programmaticNavigation = false
   let readerSessionReady = false
@@ -61,6 +65,10 @@ export function useRouteRuntimeState() {
     return readerSessionReady || restoring
   }
 
+  function installRouteSessionWatchers(options: RouteSessionWatcherOptions) {
+    useAppRouteSessionWatchers(options)
+  }
+
   return {
     setProgrammaticNavigation,
     runProgrammaticNavigation,
@@ -69,5 +77,6 @@ export function useRouteRuntimeState() {
     canHandleNavigation,
     canSyncReaderRoute,
     canSaveReaderSession,
+    installRouteSessionWatchers,
   }
 }
