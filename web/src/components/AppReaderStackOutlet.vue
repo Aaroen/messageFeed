@@ -27,6 +27,7 @@ const props = withDefaults(
     sourceNameMorphText?: string
     detailOpen?: boolean
     detailStyle?: StyleValue
+    detailBackdropStyle?: StyleValue
     sourceNotice?: SourceNotice | null
     topChromePhase?: ChromePhase
     topChromeProgress?: number
@@ -93,6 +94,7 @@ const props = withDefaults(
     sourceNameMorphText: '',
     detailOpen: false,
     detailStyle: undefined,
+    detailBackdropStyle: undefined,
     sourceNotice: null,
     topChromePhase: 'visible',
     topChromeProgress: 1,

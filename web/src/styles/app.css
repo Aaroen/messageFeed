@@ -1158,13 +1158,11 @@ body[arco-theme='dark'] .reader-overlay {
   overflow: hidden;
 }
 
-.reader-overlay--detail::before {
+.reader-overlay__backdrop {
   position: fixed;
   inset: 0;
   z-index: 0;
   background: var(--mf-page);
-  content: '';
-  opacity: var(--detail-overlay-opacity, 1);
   pointer-events: none;
 }
 

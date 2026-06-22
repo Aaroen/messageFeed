@@ -25,6 +25,7 @@ type AppReaderStackOutletBindingOptions = {
   readerMorph: AppReaderMorphVisibilityState
   detailReaderOpen: ReadableRef<boolean>
   detailReaderStyle: ReadableRef<StyleValue>
+  detailBackdropStyle: ReadableRef<StyleValue>
   sourceNotice: ReadableRef<SourceNotice | null>
   topChromePhase: ReadableRef<ChromePhase>
   topChromeProgress: ReadableRef<number>
@@ -102,6 +103,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       sourceNameMorphText: readerMorph.sourceNameMorphText.value,
       detailOpen: options.detailReaderOpen.value,
       detailStyle: options.detailReaderStyle.value,
+      detailBackdropStyle: options.detailBackdropStyle.value,
       sourceNotice: options.sourceNotice.value,
       topChromePhase: options.topChromePhase.value,
       topChromeProgress: options.topChromeProgress.value,

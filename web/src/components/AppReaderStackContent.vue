@@ -29,6 +29,7 @@ withDefaults(
     sourceNameMorphText?: string
     detailOpen?: boolean
     detailStyle?: StyleValue
+    detailBackdropStyle?: StyleValue
     sourceNotice?: SourceNotice | null
     topChromePhase?: ChromePhase
     topChromeProgress?: number
@@ -95,6 +96,7 @@ withDefaults(
     sourceNameMorphText: '',
     detailOpen: false,
     detailStyle: undefined,
+    detailBackdropStyle: undefined,
     sourceNotice: null,
     topChromePhase: 'visible',
     topChromeProgress: 1,
@@ -184,6 +186,7 @@ const emit = defineEmits<{
     :source-name-morph-text="sourceNameMorphText"
     :detail-open="detailOpen"
     :detail-style="detailStyle"
+    :detail-backdrop-style="detailBackdropStyle"
   >
     <template #source>
       <AppReaderSourceOutlet

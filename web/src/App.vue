@@ -648,6 +648,7 @@ const readerMotionState = useAppReaderMotionState({
 const sourceContentStyle = readerMotionState.sourceContentStyle
 const sourceReaderStyle = readerMotionState.sourceReaderStyle
 const detailReaderStyle = readerMotionState.detailReaderStyle
+const detailBackdropStyle = readerMotionState.detailBackdropStyle
 const detailTransitionSurfaceStyle = readerMotionState.detailTransitionSurfaceStyle
 const detailContentStyle = readerMotionState.detailContentStyle
 const detailInlineMetaStyle = readerMotionState.detailInlineMetaStyle
@@ -1233,6 +1234,7 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   readerMorph: readerMorphVisibilityState,
   detailReaderOpen,
   detailReaderStyle,
+  detailBackdropStyle,
   sourceNotice,
   topChromePhase,
   topChromeProgress,

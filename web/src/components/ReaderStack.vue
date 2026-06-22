@@ -17,6 +17,7 @@ withDefaults(
     sourceNameMorphText?: string
     detailOpen?: boolean
     detailStyle?: StyleValue
+    detailBackdropStyle?: StyleValue
   }>(),
   {
     sourceMounted: false,
@@ -33,6 +34,7 @@ withDefaults(
     sourceNameMorphText: '',
     detailOpen: false,
     detailStyle: undefined,
+    detailBackdropStyle: undefined,
   },
 )
 </script>
@@ -72,6 +74,7 @@ withDefaults(
     class="reader-overlay reader-overlay--detail"
     :style="detailStyle"
   >
+    <div class="reader-overlay__backdrop" :style="detailBackdropStyle" aria-hidden="true" />
     <slot name="detail" />
   </section>
 </template>
