@@ -470,6 +470,10 @@ const sourceMainLayerStyle = chromeRuntime.sourceMainLayerStyle
 const headerClass = chromeRuntime.headerClass
 const headerStyle = chromeRuntime.headerStyle
 const navOpenButtonStyle = chromeRuntime.navOpenButtonStyle
+const navOpenButtonInteractive = computed(() => {
+  const style = navOpenButtonStyle.value as Record<string, unknown> | undefined
+  return style?.pointerEvents === 'auto' && style?.visibility !== 'hidden'
+})
 const mainClass = chromeRuntime.mainClass
 const topChromeActions = chromeRuntime.topChromeActions
 const setTopChromeVisible = topChromeActions.setTopChromeVisible
@@ -1248,6 +1252,7 @@ useAppRuntimeEffects({
       :navigation-visible="navigationVisible"
       :detail-chrome-visible="detailChromeVisible"
       :nav-open-button-style="navOpenButtonStyle"
+      :nav-open-button-interactive="navOpenButtonInteractive"
       :corner-button-label="cornerButtonLabel"
       :navigation-scrim-style="navigationScrimStyle"
       :navigation-panel-style="navigationPanelStyle"

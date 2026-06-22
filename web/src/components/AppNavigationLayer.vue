@@ -18,6 +18,7 @@ withDefaults(
     navigationVisible?: boolean
     detailChromeVisible?: boolean
     navOpenButtonStyle?: StyleValue
+    navOpenButtonInteractive?: boolean
     cornerButtonLabel?: string
     navigationScrimStyle?: StyleValue
     navigationPanelStyle?: StyleValue
@@ -30,6 +31,7 @@ withDefaults(
     navigationVisible: false,
     detailChromeVisible: false,
     navOpenButtonStyle: undefined,
+    navOpenButtonInteractive: true,
     cornerButtonLabel: '打开导航',
     navigationScrimStyle: undefined,
     navigationPanelStyle: undefined,
@@ -58,6 +60,8 @@ const emit = defineEmits<{
     :style="navOpenButtonStyle"
     type="button"
     :aria-label="cornerButtonLabel"
+    :aria-hidden="navOpenButtonInteractive ? undefined : 'true'"
+    :tabindex="navOpenButtonInteractive ? undefined : -1"
     @pointerdown.stop
     @touchstart.stop
     @click="emit('corner-click')"
