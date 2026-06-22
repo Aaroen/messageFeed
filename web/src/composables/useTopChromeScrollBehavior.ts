@@ -1,4 +1,4 @@
-import { feedContentTopOffset } from '@/composables/feedChromeMetrics'
+import { clampProgress, feedContentTopOffset } from '@/composables/feedChromeMetrics'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -19,13 +19,6 @@ type TopChromeScrollBehaviorOptions = {
   hideTopChromeForScroll: () => void
   showTopChromeOverlay: () => void
   setTopChromeOverlayProgress: (progress: number) => void
-}
-
-function clampProgress(value: number) {
-  if (!Number.isFinite(value)) {
-    return 0
-  }
-  return Math.min(Math.max(value, 0), 1)
 }
 
 function nonOverlappingFeedRevealProgress(payload: {

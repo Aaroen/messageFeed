@@ -1,5 +1,6 @@
 import { computed } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import type { RectSnapshot } from '@/composables/useReaderSession'
 
 type ReadableRef<T> = {
@@ -20,7 +21,7 @@ export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
       return options.feedHeaderHeight.value
     }
 
-    return options.feedHeaderHeight.value * Math.min(Math.max(options.topChromeProgress.value, 0), 1)
+    return options.feedHeaderHeight.value * clampProgress(options.topChromeProgress.value)
   })
   const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
     const side = options.windowWidth.value <= 720 ? 24 : 46

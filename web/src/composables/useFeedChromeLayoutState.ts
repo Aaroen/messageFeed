@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 
-import { feedContentTopOffset } from '@/composables/feedChromeMetrics'
+import { feedContentTopOffset, feedHeaderHeightForWidth } from '@/composables/feedChromeMetrics'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -21,7 +21,7 @@ type FeedChromeLayoutStateOptions = {
 }
 
 export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) {
-  const headerHeight = computed(() => (options.windowWidth.value <= 720 ? 78 : 86))
+  const headerHeight = computed(() => feedHeaderHeightForWidth(options.windowWidth.value))
   const contentTopOffset = computed(() => feedContentTopOffset(headerHeight.value))
   const headerProgress = computed(() => {
     if (!options.isFeedRoute.value) {
