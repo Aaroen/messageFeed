@@ -4,7 +4,6 @@ type StretchAnchor = 'left' | 'right' | null
 
 type ReaderSourceSurfaceMotionOptions = {
   feedHeaderHeight: Ref<number>
-  headerSpace: Ref<number>
   darkTheme: Ref<boolean>
   visible: Ref<boolean>
   underDetail: Ref<boolean>
@@ -44,7 +43,6 @@ export function useReaderSourceSurfaceMotion(options: ReaderSourceSurfaceMotionO
     const sourceStretch = options.stretch.value
     return {
       '--feed-header-height': `${options.feedHeaderHeight.value}px`,
-      '--source-header-space': cssPx(options.headerSpace.value),
       zIndex: options.underDetail.value ? 96 : options.visible.value ? 110 : 90,
       opacity: !options.visible.value
         ? '0'

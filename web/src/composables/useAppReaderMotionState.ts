@@ -11,7 +11,7 @@ import { useSourceContentMotion } from '@/composables/useSourceContentMotion'
 
 type AppReaderMotionStateOptions = {
   layout: Parameters<typeof useReaderLayoutState>[0]
-  sourceSurface: Omit<Parameters<typeof useReaderSourceSurfaceMotion>[0], 'headerSpace'>
+  sourceSurface: Parameters<typeof useReaderSourceSurfaceMotion>[0]
   sourceContent: Omit<Parameters<typeof useSourceContentMotion>[0], 'headerSpace'>
   detailSurface: Parameters<typeof useReaderDetailSurfaceMotion>[0]
   detailContent: Omit<Parameters<typeof useReaderDetailContentMotion>[0], 'frameMinHeight'>
@@ -27,10 +27,7 @@ type AppReaderMotionStateOptions = {
 
 export function useAppReaderMotionState(options: AppReaderMotionStateOptions) {
   const layout = useReaderLayoutState(options.layout)
-  const sourceSurfaceMotion = useReaderSourceSurfaceMotion({
-    ...options.sourceSurface,
-    headerSpace: layout.sourceHeaderSpace,
-  })
+  const sourceSurfaceMotion = useReaderSourceSurfaceMotion(options.sourceSurface)
   const sourceContentMotion = useSourceContentMotion({
     ...options.sourceContent,
     headerSpace: layout.sourceHeaderSpace,

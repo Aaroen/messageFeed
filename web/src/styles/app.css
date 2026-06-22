@@ -1371,7 +1371,7 @@ body[arco-theme='dark'] .reader-back-button {
 
 .reader-overlay__content--source {
   height: 100%;
-  padding-top: calc(var(--source-header-space, var(--feed-header-height, 86px)) + 14px);
+  padding-top: calc(var(--feed-header-height, 86px) + 14px);
   transition: none;
 }
 
