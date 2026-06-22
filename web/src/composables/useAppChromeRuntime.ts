@@ -1,6 +1,7 @@
 import { computed } from 'vue'
 
 import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
+import { useAppFeedRefreshCompletionRuntime } from '@/composables/useAppFeedRefreshCompletionRuntime'
 import { useAppFeedChromeState } from '@/composables/useAppFeedChromeState'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
 
@@ -9,10 +10,17 @@ type ReadableRef<T> = {
 }
 
 type AppChromeVisualLayerOptions = Parameters<typeof useAppChromeVisualState>[0]['layer']
+type AppFeedChromeStateOptions = Parameters<typeof useAppFeedChromeState>[0]
+type AppFeedRefreshCompletionOptions = Parameters<typeof useAppFeedRefreshCompletionRuntime>[0]
 type AppTopChromeActionOptions = Parameters<typeof useAppTopChromeActions>[0]
+type AppChromeFeedOptions = Omit<AppFeedChromeStateOptions, 'layout' | 'shellMotion'> & {
+  layout: Omit<AppFeedChromeStateOptions['layout'], 'refreshStartedWithChrome'>
+  shellMotion: Omit<AppFeedChromeStateOptions['shellMotion'], 'feedRefreshSettling'>
+}
 
 type AppChromeRuntimeOptions = {
-  feed: Parameters<typeof useAppFeedChromeState>[0]
+  feed: AppChromeFeedOptions
+  feedRefreshCompletion: AppFeedRefreshCompletionOptions
   visual: Omit<
     AppChromeVisualLayerOptions,
     | 'feedPullActive'
@@ -27,6 +35,7 @@ type AppChromeRuntimeOptions = {
     | 'feedCornerHidden'
     | 'detailHeaderVisible'
     | 'headerDetailLayoutActive'
+    | 'feedRefreshSettling'
   > & {
     sourceReaderVisible: ReadableRef<boolean>
     sourceReaderUnderDetail: ReadableRef<boolean>
@@ -36,7 +45,18 @@ type AppChromeRuntimeOptions = {
 }
 
 export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
-  const feedChrome = useAppFeedChromeState(options.feed)
+  const feedRefreshCompletion = useAppFeedRefreshCompletionRuntime(options.feedRefreshCompletion)
+  const feedChrome = useAppFeedChromeState({
+    ...options.feed,
+    layout: {
+      ...options.feed.layout,
+      refreshStartedWithChrome: feedRefreshCompletion.refreshStartedWithChrome,
+    },
+    shellMotion: {
+      ...options.feed.shellMotion,
+      feedRefreshSettling: feedRefreshCompletion.feedRefreshSettling,
+    },
+  })
   const topChromeActions = useAppTopChromeActions(options.topChromeActions)
   const sourceReaderInteractive = computed(
     () => options.visual.sourceReaderVisible.value && !options.visual.sourceReaderUnderDetail.value,
@@ -69,7 +89,7 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
       topChromeProgress: options.visual.topChromeProgress,
       feedHeaderHeight: feedChrome.feedHeaderHeight,
       feedChromeSettling: options.visual.feedChromeSettling,
-      feedRefreshSettling: options.visual.feedRefreshSettling,
+      feedRefreshSettling: feedRefreshCompletion.feedRefreshSettling,
       feedTopPulling: options.visual.feedTopPulling,
       feedCornerHidden: feedChrome.feedCornerHidden,
       detailHeaderVisible: feedChrome.detailHeaderVisible,
@@ -110,6 +130,7 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
     headerStyle: chromeVisual.headerStyle,
     navOpenButtonStyle: chromeVisual.navOpenButtonStyle,
     mainClass: chromeVisual.mainClass,
+    feedRefreshCompletion,
     topChromeActions,
   }
 }

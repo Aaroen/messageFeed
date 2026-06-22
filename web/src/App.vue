@@ -40,7 +40,6 @@ import { useAppSwipeGestureRuntime } from '@/composables/useAppSwipeGestureRunti
 import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
 import { useAppReaderPresentationRuntime } from '@/composables/useAppReaderPresentationRuntime'
 import { useAppVirtualBackGuard } from '@/composables/useAppVirtualBackGuard'
-import { useAppFeedRefreshCompletionRuntime } from '@/composables/useAppFeedRefreshCompletionRuntime'
 import { useAppFeedChromeScrollRuntime } from '@/composables/useAppFeedChromeScrollRuntime'
 import { useAppReaderNavigationRuntime } from '@/composables/useAppReaderNavigationRuntime'
 import { useAppReaderStackOutletRuntime } from '@/composables/useAppReaderStackOutletRuntime'
@@ -278,16 +277,6 @@ const {
   pagePullStatusText,
   pagePullStatusMeta,
 } = routePageRuntime
-const feedRefreshCompletionRuntime = useAppFeedRefreshCompletionRuntime({
-  isFeedRoute,
-  detailReaderOpen,
-  sourceReaderOpen,
-  sourceReaderVisible,
-  sourceReaderUnderDetail,
-  navigationVisible,
-})
-const refreshStartedWithChrome = feedRefreshCompletionRuntime.refreshStartedWithChrome
-const feedRefreshSettling = feedRefreshCompletionRuntime.feedRefreshSettling
 const virtualBackGuard = useAppVirtualBackGuard({
   route,
   router,
@@ -398,14 +387,12 @@ const chromeRuntime = useAppChromeRuntime({
       isFeedRoute,
       topChromeProgress,
       feedTopPullStartedWithChrome,
-      refreshStartedWithChrome,
       feedTopPulling,
       feedContentCollapsed,
       detailFeedHeaderReturnProgress,
     },
     shellMotion: {
       detailSurfaceProgress,
-      feedRefreshSettling,
       feedChromeSettling,
       feedTopPulling,
       readerBackDragging,
@@ -434,8 +421,15 @@ const chromeRuntime = useAppChromeRuntime({
     sourceReaderUnderDetail,
     topChromeProgress,
     feedChromeSettling,
-    feedRefreshSettling,
     feedTopPulling,
+  },
+  feedRefreshCompletion: {
+    isFeedRoute,
+    detailReaderOpen,
+    sourceReaderOpen,
+    sourceReaderVisible,
+    sourceReaderUnderDetail,
+    navigationVisible,
   },
   mainClass: {
     isFeedRoute,
@@ -455,6 +449,7 @@ const chromeRuntime = useAppChromeRuntime({
   },
 })
 const feedPullActive = chromeRuntime.feedPullActive
+const feedRefreshCompletionRuntime = chromeRuntime.feedRefreshCompletion
 const pagePullActive = chromeRuntime.pagePullActive
 const foregroundSourcePullActive = chromeRuntime.foregroundSourcePullActive
 const sourcePullRefreshing = chromeRuntime.sourcePullRefreshing
