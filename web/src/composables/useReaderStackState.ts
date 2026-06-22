@@ -1959,6 +1959,13 @@ export function useReaderStackState() {
     }
   }
 
+  function readerBackSwipeDirection(deltaX: number) {
+    if (Math.abs(deltaX) <= 0.5) {
+      return null
+    }
+    return deltaX < 0 ? ('left' as const) : ('right' as const)
+  }
+
   function readerBackSwipeTransitionBeginPayload<TSurface extends string>(
     deltaX: number,
     surfaces: {
@@ -1970,7 +1977,7 @@ export function useReaderStackState() {
     return {
       from: transitionSurfaces.from,
       to: transitionSurfaces.to,
-      direction: deltaX < 0 ? ('left' as const) : ('right' as const),
+      direction: readerBackSwipeDirection(deltaX),
       isBlocked: transitionSurfaces.isBlocked,
     }
   }
@@ -1986,7 +1993,7 @@ export function useReaderStackState() {
     const transitionSurfaces = readerBackSwipeTransitionSurfaces(surfaces)
     return {
       to: transitionSurfaces.to,
-      direction: deltaX < 0 ? ('left' as const) : ('right' as const),
+      direction: readerBackSwipeDirection(deltaX),
       progress: readerBackSwipeTransitionProgress(fallbackStretch),
       isBlocked: transitionSurfaces.isBlocked,
     }

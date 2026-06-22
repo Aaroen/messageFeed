@@ -116,6 +116,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function directionFromOffset(offset: number) {
+    if (Math.abs(offset) <= 0.5) {
+      return null
+    }
     return offset < 0 ? ('left' as const) : ('right' as const)
   }
 
