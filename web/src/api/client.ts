@@ -29,6 +29,15 @@ export function formatAPIError(error: unknown): string {
     if (error.code === 'ECONNABORTED') {
       return '请求超时'
     }
+    if (error.code === 'ERR_NETWORK' || error.message === 'Network Error') {
+      return '网络请求失败，请检查网络连接或服务可用性'
+    }
+    if (error.code === 'ERR_CANCELED') {
+      return '请求已取消'
+    }
+    if (error.response?.status) {
+      return `请求失败（HTTP ${error.response.status}）`
+    }
     return error.message
   }
   if (error instanceof Error) {
