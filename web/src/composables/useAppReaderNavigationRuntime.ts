@@ -3,10 +3,15 @@ import { useAppReaderOpenInteractions } from '@/composables/useAppReaderOpenInte
 import { useAppReaderSourceCloseInteractions } from '@/composables/useAppReaderSourceCloseInteractions'
 import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
 import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitionRects'
+import { useReaderRouteQueryRestore } from '@/composables/useReaderRouteQueryRestore'
 
 type ReaderOpenOptions = Parameters<typeof useAppReaderOpenInteractions>[0]
 type ReaderSourceCloseOptions = Parameters<typeof useAppReaderSourceCloseInteractions>[0]
 type ReaderCloseOptions = Parameters<typeof useAppReaderCloseInteractions>[0]
+type ReaderRouteQueryRestoreOptions = Omit<
+  Parameters<typeof useReaderRouteQueryRestore>[0],
+  'openSourceReader' | 'openItemReader'
+>
 
 type AppReaderNavigationRuntimeOptions = {
   transitionRects: Parameters<typeof useAppReaderTransitionRects>[0]
@@ -80,6 +85,14 @@ export function useAppReaderNavigationRuntime(options: AppReaderNavigationRuntim
     },
   })
 
+  function installRouteQueryRestore(routeOptions: ReaderRouteQueryRestoreOptions) {
+    return useReaderRouteQueryRestore({
+      ...routeOptions,
+      openSourceReader: openInteractions.openSourceReader,
+      openItemReader: openInteractions.openItemReader,
+    })
+  }
+
   return {
     openSourceReader: openInteractions.openSourceReader,
     showSourceReaderUnderDetail: openInteractions.showSourceReaderUnderDetail,
@@ -100,5 +113,6 @@ export function useAppReaderNavigationRuntime(options: AppReaderNavigationRuntim
     captureDetailSourceTransitionRects: transitionRects.captureDetailSourceTransitionRects,
     captureVisibleSourceReturnTarget: transitionRects.captureVisibleSourceReturnTarget,
     clearDetailSourceTransitionRectCapture: transitionRects.clearDetailSourceTransitionRectCapture,
+    installRouteQueryRestore,
   }
 }

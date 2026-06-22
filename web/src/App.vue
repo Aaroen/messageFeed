@@ -38,7 +38,6 @@ import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
 import { useAppReaderSessionRuntime } from '@/composables/useAppReaderSessionRuntime'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 import { useAppSwipeGestureRuntime } from '@/composables/useAppSwipeGestureRuntime'
-import { useReaderRouteQueryRestore } from '@/composables/useReaderRouteQueryRestore'
 import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
 import { useAppReaderPresentationRuntime } from '@/composables/useAppReaderPresentationRuntime'
 import { useAppVirtualBackGuard } from '@/composables/useAppVirtualBackGuard'
@@ -725,10 +724,8 @@ const openSourceReader = readerNavigationRuntime.openSourceReader
 const showSourceReaderUnderDetail = readerNavigationRuntime.showSourceReaderUnderDetail
 const openItemReader = readerNavigationRuntime.openItemReader
 
-const readerRouteQueryRestore = useReaderRouteQueryRestore({
+const readerRouteQueryRestore = readerNavigationRuntime.installRouteQueryRestore({
   route,
-  openSourceReader,
-  openItemReader,
   restoreReaderSession,
 })
 const restoreReaderStateOnLoad = readerRouteQueryRestore.restoreReaderStateOnLoad
