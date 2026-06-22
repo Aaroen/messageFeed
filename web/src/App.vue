@@ -54,8 +54,7 @@ import { useAppFeedChromeInteractions } from '@/composables/useAppFeedChromeInte
 import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
 import { useAppPointerGestureInteractions } from '@/composables/useAppPointerGestureInteractions'
 import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwipeInteractions'
-import { useAppGesturePolicy } from '@/composables/useAppGesturePolicy'
-import { useAppSwipeNavigationState } from '@/composables/useAppSwipeNavigationState'
+import { useAppSwipeGestureRuntime } from '@/composables/useAppSwipeGestureRuntime'
 import { useReaderRouteQueryRestore } from '@/composables/useReaderRouteQueryRestore'
 import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
 import { useAppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
@@ -378,54 +377,54 @@ const readerRouteSync = useAppReaderRouteSyncBinding({
   setProgrammaticRouteNavigation: routeRuntime.setProgrammaticNavigation,
   syncVirtualHistoryState: virtualBackGuard.syncHistoryState,
 })
-const appSwipeNavigationState = useAppSwipeNavigationState<SwipeSurface>({
-  feedPager: {
-    getActiveKey: () => route.name,
-    getWindowWidth: () => windowWidth.value,
-    isFeedRoute: () => isFeedRoute.value,
-    isDetailReaderOpen: () => detailReaderOpen.value,
-  },
+const {
+  swipePhase,
+  swipeDirection,
+  swipeProgress,
+  swipeIsBlocked,
+  beginSwipeTransition,
+  updateSwipeTransition,
+  settleSwipeTransition,
+  scheduleSwipeReset,
+  resetSwipeTransition,
+  clearSwipeTransitionTimer,
+  feedPagerTransition,
+  viewDragOffset,
+  viewSwipeCandidateActive,
+  viewSwipeActive,
+  activeFeedIndex,
+  activeFeedSurface,
+  feedTrackStyle,
+  viewSwipeTargetKey,
+  viewSwipeTargetVisible,
+  viewSwipeTargetProgress,
+  resetFeedViewSwipeTracking,
+  clearFeedViewStartedWithHiddenChrome,
+  resetFeedViewDragOffset,
+  clearFeedPagerTimers,
+  isHorizontalSwipe,
+  isViewHorizontalSwipe,
+  isNavigationDrag,
+  isBackHorizontalSwipe,
+  shouldCancelTopPull,
+  shouldWaitForTopPull,
+  canStartViewSwipe,
+  canStartNavigationOpen,
+} = useAppSwipeGestureRuntime<SwipeSurface>({
+  getActiveKey: () => route.name,
+  windowWidth,
+  isFeedRoute,
+  detailReaderOpen,
+  navigationVisible,
+  sourceReaderOpen,
+  isSubscriptionsRoute: () => route.name === 'subscriptions',
+  detailBlocksGestures,
+  feedPullBusy: () =>
+    feedInteraction.pullActive ||
+    feedInteraction.pullRefreshing ||
+    feedInteraction.pullOffset > 1 ||
+    feedTopPulling.value,
 })
-const swipePhase = appSwipeNavigationState.swipePhase
-const swipeDirection = appSwipeNavigationState.swipeDirection
-const swipeProgress = appSwipeNavigationState.swipeProgress
-const swipeIsBlocked = appSwipeNavigationState.swipeIsBlocked
-const beginSwipeTransition = appSwipeNavigationState.beginSwipeTransition
-const updateSwipeTransition = appSwipeNavigationState.updateSwipeTransition
-const settleSwipeTransition = appSwipeNavigationState.settleSwipeTransition
-const scheduleSwipeReset = appSwipeNavigationState.scheduleSwipeReset
-const resetSwipeTransition = appSwipeNavigationState.resetSwipeTransition
-const clearSwipeTransitionTimer = appSwipeNavigationState.clearSwipeTransitionTimer
-const feedPagerTransition = appSwipeNavigationState.feedPagerTransition
-const gesturePolicy = useAppGesturePolicy({
-  direction: {
-    viewDragThreshold: appSwipeNavigationState.feedPagerDragThreshold,
-  },
-  startGuards: {
-    isFeedRoute,
-    navigationVisible,
-    sourceReaderOpen,
-    isSubscriptionsRoute: () => route.name === 'subscriptions',
-    detailBlocksGestures,
-    feedPullBusy: () =>
-      feedInteraction.pullActive ||
-      feedInteraction.pullRefreshing ||
-      feedInteraction.pullOffset > 1 ||
-      feedTopPulling.value,
-  },
-})
-const isHorizontalSwipe = gesturePolicy.isHorizontalSwipe
-const isViewHorizontalSwipe = gesturePolicy.isViewHorizontalSwipe
-const isNavigationDrag = gesturePolicy.isNavigationDrag
-const isBackHorizontalSwipe = gesturePolicy.isBackHorizontalSwipe
-const shouldCancelTopPull = gesturePolicy.shouldCancelTopPull
-const shouldWaitForTopPull = gesturePolicy.shouldWaitForTopPull
-const canStartViewSwipe = gesturePolicy.canStartViewSwipe
-const canStartNavigationOpen = gesturePolicy.canStartNavigationOpen
-const viewDragOffset = appSwipeNavigationState.viewDragOffset
-const viewSwipeCandidateActive = appSwipeNavigationState.viewSwipeCandidateActive
-const viewSwipeActive = appSwipeNavigationState.viewSwipeActive
-const activeFeedIndex = appSwipeNavigationState.activeFeedIndex
 const feedChromeState = useAppFeedChromeState({
   pullActivity: {
     isFeedRoute,
@@ -488,10 +487,6 @@ const feedCornerHidden = feedChromeState.feedCornerHidden
 const detailHeaderVisible = feedChromeState.detailHeaderVisible
 const headerDetailLayoutActive = feedChromeState.headerDetailLayoutActive
 const { statusText: pullStatusText, statusMeta: pullStatusMeta } = storeToRefs(feedInteraction)
-const feedTrackStyle = appSwipeNavigationState.feedTrackStyle
-const viewSwipeTargetKey = appSwipeNavigationState.viewSwipeTargetKey
-const viewSwipeTargetVisible = appSwipeNavigationState.viewSwipeTargetVisible
-const viewSwipeTargetProgress = appSwipeNavigationState.viewSwipeTargetProgress
 const chromeVisualState = useAppChromeVisualState({
   layer: {
     feedPullActive,
@@ -718,8 +713,8 @@ const {
   navigationDrawer,
   feedPagerTransition,
   resetNavigationGesture: navigationGesture.reset,
-  resetFeedViewSwipeTracking: appSwipeNavigationState.resetFeedViewSwipeTracking,
-  clearFeedViewStartedWithHiddenChrome: appSwipeNavigationState.clearFeedViewStartedWithHiddenChrome,
+  resetFeedViewSwipeTracking,
+  clearFeedViewStartedWithHiddenChrome,
   resetReaderBackSwipeCandidate: resetReaderBackSwipeCandidateState,
   setChromeStableVisible: chromeState.setStableVisible,
   motionDelay,
@@ -974,7 +969,7 @@ const syncViewSwipeTransition = feedViewSwipeInteractions.syncViewSwipeTransitio
 const readerBackSwipeInteractions = useAppReaderBackSwipeInteractions({
   pagePull: pagePullState,
   transition: {
-    activeFeedSurface: appSwipeNavigationState.activeFeedSurface,
+    activeFeedSurface,
     pageReturnSurface: 'feed:recommendations',
     beginSwipeTransition,
     updateSwipeTransition,
@@ -1433,7 +1428,7 @@ useAppRuntimeEffects({
       invalidatePagePullRefreshCompletion()
       pagePullState.reset()
     },
-    resetFeedViewDragOffset: appSwipeNavigationState.resetFeedViewDragOffset,
+    resetFeedViewDragOffset,
     resetSwipeTransition,
     setTopChromeVisible,
     currentFeedScrollTop: feedContent.currentScrollTop,
@@ -1483,7 +1478,7 @@ useAppRuntimeEffects({
     scheduleReaderURLAndHistorySync,
     saveReaderSessionNow,
     clearRuntimeTimers: [
-      () => appSwipeNavigationState.clearFeedPagerTimers(),
+      () => clearFeedPagerTimers(),
       () => clearSwipeTransitionTimer(),
       () => navigationDrawer.clearTimer(),
       () => refreshCompletion.reset(),
