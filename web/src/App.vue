@@ -373,6 +373,7 @@ const chromeRuntime = useAppChromeRuntime({
     layout: {
       windowWidth,
       isFeedRoute,
+      feedScrollTop,
       topChromeProgress,
       feedContentCollapsed,
       detailFeedHeaderReturnProgress,

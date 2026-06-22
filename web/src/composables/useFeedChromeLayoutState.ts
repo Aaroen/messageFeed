@@ -7,6 +7,7 @@ type ReadableRef<T> = {
 type FeedChromeLayoutStateOptions = {
   windowWidth: ReadableRef<number>
   isFeedRoute: ReadableRef<boolean>
+  feedScrollTop: ReadableRef<number>
   topChromeProgress: ReadableRef<number>
   feedPullActive: ReadableRef<boolean>
   pullProgress: ReadableRef<number>
@@ -19,6 +20,7 @@ type FeedChromeLayoutStateOptions = {
 
 export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) {
   const headerHeight = computed(() => (options.windowWidth.value <= 720 ? 78 : 86))
+  const contentTopOffset = computed(() => (headerHeight.value <= 78 ? 8 : 10))
   const headerProgress = computed(() => {
     if (!options.isFeedRoute.value) {
       return options.topChromeProgress.value
@@ -36,8 +38,14 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       options.topChromeProgress.value,
       options.pullProgress.value,
     )
+    const feedAtTop = options.isFeedRoute.value && options.feedScrollTop.value <= contentTopOffset.value
+    const feedTopChromeVisible = headerProgress.value > 0.04 || !options.feedContentCollapsed.value
 
     if (options.feedTopPullStartedWithChrome.value || options.refreshStartedWithChrome.value) {
+      return headerHeight.value
+    }
+
+    if (!options.feedTopPulling.value && !options.feedPullActive.value && feedAtTop && feedTopChromeVisible) {
       return headerHeight.value
     }
 
