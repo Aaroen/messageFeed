@@ -1,3 +1,5 @@
+import { feedContentTopOffset } from '@/composables/feedChromeMetrics'
+
 type ReadableRef<T> = {
   readonly value: T
 }
@@ -24,10 +26,6 @@ function clampProgress(value: number) {
     return 0
   }
   return Math.min(Math.max(value, 0), 1)
-}
-
-function feedContentTopOffset(headerHeight: number) {
-  return headerHeight <= 78 ? 8 : 10
 }
 
 function nonOverlappingFeedRevealProgress(payload: {
