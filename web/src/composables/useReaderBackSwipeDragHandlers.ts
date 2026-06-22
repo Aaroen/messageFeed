@@ -73,7 +73,10 @@ type ReaderBackSwipeDragHandlersOptions = {
   cancelViewSwipeCandidate: () => void
   isBackHorizontalSwipe: (deltaX: number, deltaY: number) => boolean
   suppressFollowingClick: () => void
-  beginTopChromeGestureReturn: (options: { settleDelayMS: number }) => void
+  beginTopChromeGestureReturn: (options: {
+    settleDelayMS: number
+    preserveContentCollapsed?: boolean
+  }) => void
   refreshDetailFeedOriginRect: (lock?: boolean) => void
   captureDetailSourceTransitionRects: (retry?: number, options?: { force?: boolean; lock?: boolean }) => void
   showSourceReaderUnderDetail: () => void
@@ -86,6 +89,7 @@ export function useReaderBackSwipeDragHandlers(options: ReaderBackSwipeDragHandl
     if (clampProgress(options.topChromeProgress.value) < 0.99 || options.feedContentCollapsed.value) {
       options.beginTopChromeGestureReturn({
         settleDelayMS: options.resolveDelay(options.chromeSettleDuration),
+        preserveContentCollapsed: true,
       })
     }
   }
