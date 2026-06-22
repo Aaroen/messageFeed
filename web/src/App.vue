@@ -555,18 +555,6 @@ const collapseTopChrome = appTopChromeActions.collapseTopChrome
 const currentContentScrollTop = appTopChromeActions.currentContentScrollTop
 const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
 
-feedRefreshCompletionRuntime.installRefreshCompletionWatcher({
-  pullRefreshing: () => feedInteraction.pullRefreshing,
-  pullViewKey: () => feedInteraction.pullViewKey,
-  feedOrSourcePullActive,
-  topPull: feedTopPull,
-  settleDelayMS: () => motionDelay(topChromeSettleDuration),
-  settleSourceContentAfterRefresh: () => {
-    readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
-  },
-  collapseTopChrome,
-})
-
 const appInteractionTargetGuards = useAppInteractionTargetGuards()
 const isPageTopPullControlTarget = appInteractionTargetGuards.isPageTopPullControlTarget
 
@@ -942,6 +930,16 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
       hideTopChromeForScroll,
       showTopChromeOverlay,
       setTopChromeOverlayProgress,
+    },
+    refreshCompletion: {
+      installWatcher: feedRefreshCompletionRuntime.installRefreshCompletionWatcher,
+      pullRefreshing: () => feedInteraction.pullRefreshing,
+      pullViewKey: () => feedInteraction.pullViewKey,
+      feedOrSourcePullActive,
+      settleDelayMS: () => motionDelay(topChromeSettleDuration),
+      settleSourceContentAfterRefresh: () => {
+        readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
+      },
     },
   },
   scroll: {
