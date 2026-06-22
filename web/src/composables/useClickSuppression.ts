@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-export function useClickSuppression(durationMS = 420) {
+export function useClickSuppression(durationMS: number) {
   const suppressNextClick = ref(false)
   let timer = 0
   let timerToken = 0

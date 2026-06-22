@@ -249,11 +249,11 @@ const topChromeProgress = chromeState.progress
 const topChromePhase = chromeState.phase
 const feedContentCollapsed = chromeState.contentCollapsed
 const feedChromeSettling = chromeState.settling
-const clickSuppression = useClickSuppression()
 const viewportSize = useViewportSize({ defaultWidth: 1440, defaultHeight: 900 })
 const windowWidth = viewportSize.width
 const windowHeight = viewportSize.height
 const motionTimings = useMotionTimings()
+const clickSuppressionDuration = motionTimings.clickSuppressionDuration
 const motionQuickDuration = motionTimings.quickDuration
 const motionNormalDuration = motionTimings.normalDuration
 const motionStretchAnchorClearDuration = motionTimings.stretchAnchorClearDuration
@@ -270,6 +270,7 @@ const readerScrollRestoreSettledDelay = motionTimings.readerScrollRestoreSettled
 const readerMorphDuration = motionTimings.readerMorphDuration
 const readerRectRetryDelay = motionTimings.readerRectRetryDelay
 const motionDelay = motionTimings.delay
+const clickSuppression = useClickSuppression(clickSuppressionDuration)
 const navigationDrawer = useNavigationDrawer({
   windowWidth,
   resolveDelay: motionDelay,

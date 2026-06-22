@@ -7,6 +7,7 @@ export function useMotionTimings() {
   const stretchAnchorClearDuration = 280
   const headerSwapDuration = 320
   const readerDuration = 360
+  const slowDuration = 420
   const chromeDuration = 1000
   const noticeSuccessDuration = 1000
   const noticeFailureDuration = 3000
@@ -14,6 +15,7 @@ export function useMotionTimings() {
   const topRefreshReleaseDelay = 120
   const topRefreshSettleDuration = chromeDuration
   const topChromeSettleDuration = chromeDuration
+  const clickSuppressionDuration = slowDuration
   const motionCleanupBuffer = 96
   const topRefreshNoticeDelay = topRefreshReleaseDelay + topRefreshSettleDuration + motionCleanupBuffer
   const noticeRevealDelay = topRefreshNoticeDelay
@@ -51,6 +53,7 @@ export function useMotionTimings() {
     stretchAnchorClearDuration,
     headerSwapDuration,
     readerDuration,
+    slowDuration,
     chromeDuration,
     noticeSuccessDuration,
     noticeFailureDuration,
@@ -60,6 +63,7 @@ export function useMotionTimings() {
     topRefreshNoticeDelay,
     topRefreshSettleDuration,
     topChromeSettleDuration,
+    clickSuppressionDuration,
     navigationDrawerSettleDuration,
     hiddenSourceCleanupDelay,
     sourceReaderCloseCleanupDelay,
