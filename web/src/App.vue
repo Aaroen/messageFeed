@@ -15,7 +15,6 @@ import {
   type ReaderSource,
 } from '@/composables/useReaderSession'
 import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
-import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
 import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
 import { useThemeState } from '@/composables/useThemeState'
@@ -58,6 +57,7 @@ import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime
 import { useAppReaderPresentationRuntime } from '@/composables/useAppReaderPresentationRuntime'
 import { useAppTopChromeOutletState } from '@/composables/useAppTopChromeOutletState'
 import { useAppVirtualBackGuard } from '@/composables/useAppVirtualBackGuard'
+import { useAppFeedRefreshCompletionRuntime } from '@/composables/useAppFeedRefreshCompletionRuntime'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -231,9 +231,6 @@ const navigationScrimStyle = navigationDrawer.scrimStyle
 const themeState = useThemeState()
 const darkTheme = themeState.dark
 const toggleTheme = themeState.toggle
-const refreshCompletion = useRefreshCompletionState()
-const refreshStartedWithChrome = refreshCompletion.startedWithChrome
-const feedRefreshSettling = refreshCompletion.settling
 const feedTopPull = useTopPullState()
 const feedTopPulling = feedTopPull.pulling
 const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
@@ -291,6 +288,17 @@ const {
   pagePullStatusText,
   pagePullStatusMeta,
 } = useAppRoutePageRuntime(route)
+const feedRefreshCompletionRuntime = useAppFeedRefreshCompletionRuntime({
+  isFeedRoute,
+  detailReaderOpen,
+  sourceReaderOpen,
+  sourceReaderVisible,
+  sourceReaderUnderDetail,
+  navigationVisible,
+})
+const refreshCompletion = feedRefreshCompletionRuntime.refreshCompletion
+const refreshStartedWithChrome = feedRefreshCompletionRuntime.refreshStartedWithChrome
+const feedRefreshSettling = feedRefreshCompletionRuntime.feedRefreshSettling
 const virtualBackGuard = useAppVirtualBackGuard({
   route,
   router,
@@ -994,7 +1002,7 @@ const feedChromeInteractions = useAppFeedChromeInteractions({
     beginRefreshingChrome: chromeState.beginRefreshing,
     setRefreshingProgress: chromeState.setRefreshingProgress,
     commitRefreshingChrome: chromeState.commitRefreshing,
-    recordRefreshStartedWithChrome: refreshCompletion.recordStartedWithChrome,
+    recordRefreshStartedWithChrome: feedRefreshCompletionRuntime.recordRefreshStartedWithChrome,
     collapseTopChrome,
     setTopChromeVisible,
   },
@@ -1224,7 +1232,7 @@ useAppRuntimeEffects({
     resetBackSwipeOffset,
     resetPageTopPullTracking,
     finishFeedTopPull: feedTopPull.finish,
-    resetRefreshCompletion: refreshCompletion.reset,
+    resetRefreshCompletion: feedRefreshCompletionRuntime.resetRefreshCompletion,
     resetPagePullMotion: () => {
       invalidatePagePullRefreshCompletion()
       pagePullState.reset()
@@ -1255,18 +1263,7 @@ useAppRuntimeEffects({
       readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
     },
     collapseTopChrome,
-    canApplyCompletionEffects: ({ wasSource }) => {
-      if (wasSource) {
-        return sourceReaderVisible.value && !sourceReaderUnderDetail.value && !navigationVisible.value
-      }
-
-      return (
-        isFeedRoute.value &&
-        !detailReaderOpen.value &&
-        !sourceReaderOpen.value &&
-        !navigationVisible.value
-      )
-    },
+    canApplyCompletionEffects: feedRefreshCompletionRuntime.canApplyCompletionEffects,
   },
   lifecycle: {
     loadReaderSettings,
@@ -1282,7 +1279,7 @@ useAppRuntimeEffects({
       () => clearFeedPagerTimers(),
       () => clearSwipeTransitionTimer(),
       () => navigationDrawer.clearTimer(),
-      () => refreshCompletion.reset(),
+      () => feedRefreshCompletionRuntime.resetRefreshCompletion(),
       () => chromeState.clearTimer(),
       () => routeRuntime.clearTimer(),
       () => readerRouteSync.clearTimer(),
