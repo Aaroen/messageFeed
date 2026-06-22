@@ -21,7 +21,11 @@ export function useAppTopChromeActions(options: AppTopChromeActionsOptions) {
   }
 
   function setTopChromeVisible(visible: boolean) {
-    options.setChromeVisible(visible, { settleDelayMS: topChromeSettleDelay() })
+    if (visible) {
+      options.setChromeVisible(true, { settleDelayMS: topChromeSettleDelay() })
+      return
+    }
+    options.setChromeCollapsedHidden({ settleDelayMS: topChromeSettleDelay() })
   }
 
   function collapseTopChrome() {
