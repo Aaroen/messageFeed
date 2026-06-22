@@ -13,16 +13,35 @@ export function useAppPointerGestureInteractions(options: AppPointerGestureInter
   const navigationPointerHandlers = useNavigationPointerHandlers(options.navigationPointer)
   const feedPointerHandlers = useFeedPointerSwipeHandlers(options.feedPointer)
 
+  function cancelStaleReaderBackSwipe(event: PointerEvent) {
+    if (event.pointerType === 'mouse' || event.isPrimary === false) {
+      return
+    }
+    if (options.touch.readerBackSwipeTrackingActive.value) {
+      options.touch.cancelBackSwipe()
+    }
+  }
+
+  function handleWindowPointerDown(event: PointerEvent) {
+    cancelStaleReaderBackSwipe(event)
+    navigationPointerHandlers.handleWindowPointerDown(event)
+  }
+
+  function handleFeedPointerDown(event: PointerEvent) {
+    cancelStaleReaderBackSwipe(event)
+    feedPointerHandlers.handleFeedPointerDown(event)
+  }
+
   return {
     handleTouchStart: touchHandlers.handleTouchStart,
     handleTouchMove: touchHandlers.handleTouchMove,
     handleTouchEnd: touchHandlers.handleTouchEnd,
     handleTouchCancel: touchHandlers.handleTouchCancel,
-    handleWindowPointerDown: navigationPointerHandlers.handleWindowPointerDown,
+    handleWindowPointerDown,
     handleWindowPointerMove: navigationPointerHandlers.handleWindowPointerMove,
     handleWindowPointerUp: navigationPointerHandlers.handleWindowPointerUp,
     handleWindowPointerCancel: navigationPointerHandlers.handleWindowPointerCancel,
-    handleFeedPointerDown: feedPointerHandlers.handleFeedPointerDown,
+    handleFeedPointerDown,
     handleFeedPointerMove: feedPointerHandlers.handleFeedPointerMove,
     handleFeedPointerUp: feedPointerHandlers.handleFeedPointerUp,
     handleFeedPointerCancel: feedPointerHandlers.handleFeedPointerCancel,
