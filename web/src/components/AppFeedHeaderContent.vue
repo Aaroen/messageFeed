@@ -95,7 +95,6 @@ const emit = defineEmits<{
           role="tab"
           :aria-selected="activeKey === tab.key"
           @pointerdown.stop
-          @touchstart.stop
           @click="emit('navigate', tab.path)"
         >
           {{ tab.label }}

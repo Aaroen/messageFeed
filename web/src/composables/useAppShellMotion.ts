@@ -27,9 +27,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
     const underlayOpacity = detailUnderlayActive ? 1 - options.detailSurfaceProgress.value * 0.08 : 1
     const feedContentSpace = options.feedContentSpace.value
     const feedContentSettling =
-      (options.feedRefreshSettling.value || options.feedChromeSettling.value) &&
-      !options.feedTopPulling.value &&
-      !options.readerBackDragging.value
+      options.feedRefreshSettling.value && !options.feedTopPulling.value && !options.readerBackDragging.value
     const underlayTransition =
       'opacity var(--motion-fast) var(--ease-linear), filter var(--motion-fast) var(--ease-linear)'
 

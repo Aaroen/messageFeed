@@ -48,11 +48,17 @@ type AppRouteSessionWatchersOptions = {
 export function useAppRouteSessionWatchers(options: AppRouteSessionWatchersOptions) {
   let routeChangeToken = 0
 
+  function routeNameIsFeed(name: unknown) {
+    return name === 'subscriptions' || name === 'recommendations'
+  }
+
   watch(
     () => options.route.name,
-    () => {
+    (nextName, previousName) => {
       routeChangeToken += 1
       const token = routeChangeToken
+      const nextIsFeedRoute = routeNameIsFeed(nextName)
+      const previousWasFeedRoute = routeNameIsFeed(previousName)
       options.resetGestureTracking()
       options.resetBackSwipeOffset()
       options.resetPageTopPullTracking()
@@ -61,8 +67,10 @@ export function useAppRouteSessionWatchers(options: AppRouteSessionWatchersOptio
       options.resetPagePullMotion()
       options.resetFeedViewDragOffset()
       options.resetSwipeTransition()
-      if (options.isFeedRoute.value) {
-        options.setTopChromeVisible(true)
+      if (nextIsFeedRoute) {
+        if (!previousWasFeedRoute) {
+          options.setTopChromeVisible(true)
+        }
         nextTick(() => {
           if (token !== routeChangeToken || !options.isFeedRoute.value) {
             return

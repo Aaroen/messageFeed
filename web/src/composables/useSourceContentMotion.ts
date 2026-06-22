@@ -37,26 +37,23 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
     const underlayOpacity = options.underDetail.value
       ? underlayBaseOpacity + options.revealProgress.value * (1 - underlayBaseOpacity)
       : 1
+    const contentShift = options.headerSpace.value - options.headerHeight.value
     const transition = settling.value
       ? [
-          'padding-top var(--motion-chrome) var(--ease-emphasized)',
           'transform var(--motion-chrome) var(--ease-emphasized)',
           sourceUnderlayTransition,
         ].join(', ')
       : settleOffset.value > 0
         ? 'none'
         : options.chromeSettling.value
-          ? [
-              'padding-top var(--motion-chrome) var(--ease-emphasized)',
-              sourceUnderlayTransition,
-            ].join(', ')
+          ? sourceUnderlayTransition
           : sourceUnderlayTransition
 
     return {
-      paddingTop: cssPx(options.headerSpace.value + 14),
+      paddingTop: cssPx(options.headerHeight.value + 14),
       opacity: underlayOpacity.toFixed(3),
       filter: `blur(${underlayBlur.toFixed(2)}px)`,
-      transform: cssTranslate3d(0, settleOffset.value),
+      transform: cssTranslate3d(0, contentShift + settleOffset.value),
       transition,
     }
   })
