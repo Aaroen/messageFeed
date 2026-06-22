@@ -376,7 +376,7 @@ const virtualBackGuard = useAppVirtualBackGuard({
   collapseItemReader: () => collapseItemReader(),
   restoreSourceReaderBackTarget: () => restoreSourceReaderBackTarget(),
   closeSourceReader: () => closeSourceReader(),
-  goHome: (replace) => goHome(replace),
+  goHome: (options) => goHome(options),
   getRouteFullPath: () => route.fullPath,
   canHandleNavigation: routeRuntime.canHandleNavigation,
   onBackConsumed: () => {
@@ -1031,7 +1031,7 @@ const readerBackSwipeInteractions = useAppReaderBackSwipeInteractions({
     completeDetailToSource: completeDetailToSourceReader,
     collapseDetail: collapseItemReader,
     restoreDetailFromParkedSource: restoreDetailFromParkedSource,
-    returnPage: () => goHome(false),
+    returnPage: () => goHome({ closePanel: false }),
     reset: resetBackSwipeOffset,
   },
 })
@@ -1504,7 +1504,7 @@ useAppLifecycle({
       :settings-active="route.name === 'settings'"
       @corner-click="handleCornerButtonClick"
       @close-navigation="closeNavigation"
-      @go-home="goHome(true)"
+      @go-home="goHome({ closePanel: true })"
       @menu-click="handleMenuClick"
       @toggle-theme="toggleTheme"
       @open-settings="pushRoute('/settings'); closeNavigation()"

@@ -9,6 +9,11 @@ type ManagementItem = {
   path: string
 }
 
+type GoHomeOptions = {
+  closePanel?: boolean
+  replace?: boolean
+}
+
 type AppNavigationActionsOptions = {
   router: Router
   routeRuntime: {
@@ -62,8 +67,10 @@ export function useAppNavigationActions(options: AppNavigationActionsOptions) {
     }
   }
 
-  function goHome(closePanel = options.navigationDrawer.visible.value) {
-    void pushRoute('/recommendations')
+  function goHome(actionOptions: GoHomeOptions = {}) {
+    const closePanel = actionOptions.closePanel ?? options.navigationDrawer.visible.value
+    const navigate = actionOptions.replace ? replaceRoute : pushRoute
+    void navigate('/recommendations')
     options.setChromeStableVisible()
     options.feedPagerTransition.reset()
     if (closePanel) {

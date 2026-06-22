@@ -21,7 +21,7 @@ type AppVirtualBackActionsOptions = {
   collapseItemReader: () => void
   restoreSourceReaderBackTarget: () => void
   closeSourceReader: () => void
-  goHome: (replace?: boolean) => void
+  goHome: (options?: { closePanel?: boolean; replace?: boolean }) => void
 }
 
 export function useAppVirtualBackActions(options: AppVirtualBackActionsOptions) {
@@ -76,7 +76,7 @@ export function useAppVirtualBackActions(options: AppVirtualBackActionsOptions) 
 
     if (!options.isFeedRoute.value && !options.navigationVisible.value) {
       resetHomeGuard()
-      options.goHome(false)
+      options.goHome({ closePanel: false, replace: true })
       return true
     }
 
