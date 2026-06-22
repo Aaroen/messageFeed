@@ -29,6 +29,7 @@ type AppReaderStackOutletBindingOptions = {
   sourceNotice: ReadableRef<SourceNotice | null>
   topChromePhase: ReadableRef<ChromePhase>
   topChromeProgress: ReadableRef<number>
+  feedContentCollapsed: ReadableRef<boolean>
   sourceHeaderStyle: ReadableRef<StyleValue>
   sourceMainLayerStyle: ReadableRef<StyleValue>
   sourcePullStatusStyle: ReadableRef<StyleValue>
@@ -96,6 +97,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       sourceNotice: sourceInteractive ? options.sourceNotice.value : null,
       topChromePhase: options.topChromePhase.value,
       topChromeProgress: options.topChromeProgress.value,
+      topChromeContentCollapsed: options.feedContentCollapsed.value,
       sourceHeaderStyle: options.sourceHeaderStyle.value,
       sourceName,
       sourceTitleTextStyle: readerMotion.sourceTitleTextStyle.value,

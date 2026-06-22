@@ -8,6 +8,7 @@ withDefaults(
     readerSource?: ReaderSource | null
     scrollTop?: number
     topChromeProgress?: number
+    topChromeContentCollapsed?: boolean
     headerHeight?: number
     morphingItemId?: number | null
     morphingHeightLockItemId?: number | null
@@ -19,6 +20,7 @@ withDefaults(
     readerSource: null,
     scrollTop: 0,
     topChromeProgress: 1,
+    topChromeContentCollapsed: false,
     headerHeight: 86,
     morphingItemId: null,
     morphingHeightLockItemId: null,
@@ -45,8 +47,8 @@ const emit = defineEmits<{
     :active="true"
     :scroll-top="scrollTop"
     :top-chrome-progress="topChromeProgress"
+    :top-chrome-content-collapsed="topChromeContentCollapsed"
     :header-height="headerHeight"
-    :freeze-body-during-top-refresh="true"
     :morphing-item-id="morphingItemId"
     :morphing-height-lock-item-id="morphingHeightLockItemId"
     :morphing-item-height="morphingItemHeight"

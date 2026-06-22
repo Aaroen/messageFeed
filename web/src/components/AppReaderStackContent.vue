@@ -33,6 +33,7 @@ withDefaults(
     sourceNotice?: SourceNotice | null
     topChromePhase?: ChromePhase
     topChromeProgress?: number
+    topChromeContentCollapsed?: boolean
     sourceHeaderStyle?: StyleValue
     sourceName?: string
     sourceTitleTextStyle?: StyleValue
@@ -100,6 +101,7 @@ withDefaults(
     sourceNotice: null,
     topChromePhase: 'visible',
     topChromeProgress: 1,
+    topChromeContentCollapsed: false,
     sourceHeaderStyle: undefined,
     sourceName: '',
     sourceTitleTextStyle: undefined,
@@ -193,6 +195,7 @@ const emit = defineEmits<{
         :source-notice="sourceNotice"
         :top-chrome-phase="topChromePhase"
         :top-chrome-progress="topChromeProgress"
+        :top-chrome-content-collapsed="topChromeContentCollapsed"
         :source-header-style="sourceHeaderStyle"
         :source-name="sourceName"
         :source-meta="sourceMeta"

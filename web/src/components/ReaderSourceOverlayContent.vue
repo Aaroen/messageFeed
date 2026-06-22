@@ -21,6 +21,7 @@ withDefaults(
     notice?: SourceNotice | null
     topChromePhase?: ChromePhase
     topChromeProgress?: number
+    topChromeContentCollapsed?: boolean
     headerStyle?: StyleValue
     sourceName?: string
     sourceMeta?: string
@@ -50,6 +51,7 @@ withDefaults(
     notice: null,
     topChromePhase: 'visible',
     topChromeProgress: 1,
+    topChromeContentCollapsed: false,
     headerStyle: undefined,
     sourceName: '',
     sourceMeta: '',
@@ -139,6 +141,7 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
       :reader-source="readerSource"
       :scroll-top="scrollTop"
       :top-chrome-progress="topChromeProgress"
+      :top-chrome-content-collapsed="topChromeContentCollapsed"
       :header-height="headerHeight"
       :morphing-item-id="morphingItemId"
       :morphing-height-lock-item-id="morphingHeightLockItemId"

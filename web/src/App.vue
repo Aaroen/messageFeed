@@ -977,6 +977,7 @@ const readerStackOutletRuntime = useAppReaderStackOutletRuntime({
     sourceNotice,
     topChromePhase,
     topChromeProgress,
+    feedContentCollapsed,
     sourceHeaderStyle,
     sourceMainLayerStyle,
     sourcePullStatusStyle,
