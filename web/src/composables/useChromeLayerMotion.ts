@@ -37,7 +37,7 @@ function finiteNumber(value: number) {
 }
 
 export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
-  function headerStyle(progress: number, headerHeight: number, refreshing = false) {
+  function headerStyle(progress: number, headerHeight: number, refreshing = false, elevated = false) {
     const safeProgress = finiteNumber(progress)
     return {
       background: refreshing ? 'var(--mf-header-refresh-bg)' : undefined,
@@ -47,6 +47,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
       transition: options.isSettling?.()
         ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard)'
         : undefined,
+      zIndex: elevated ? 130 : undefined,
     }
   }
 

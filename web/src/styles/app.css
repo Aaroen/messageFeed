@@ -544,10 +544,6 @@ body[arco-theme='dark'] .settings-icon-button--active {
   will-change: transform, opacity;
 }
 
-.app-main--detail-chrome .app-header {
-  z-index: 130;
-}
-
 .app-header--feed-inactive {
   visibility: hidden;
 }

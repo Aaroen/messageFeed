@@ -526,7 +526,6 @@ const chromeVisualState = useAppChromeVisualState({
   },
   mainClass: {
     isFeedRoute,
-    detailChromeVisible,
   },
 })
 const pullStatusStyle = chromeVisualState.pullStatusStyle

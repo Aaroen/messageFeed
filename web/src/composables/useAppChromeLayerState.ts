@@ -104,6 +104,7 @@ export function useAppChromeLayerState(options: AppChromeLayerStateOptions) {
       options.feedHeaderProgress.value,
       options.feedHeaderHeight.value,
       options.feedPullActive.value || options.pagePullActive.value,
+      options.headerDetailLayoutActive.value,
     ),
   )
   const navOpenButtonStyle = computed(() =>
