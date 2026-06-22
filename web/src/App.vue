@@ -881,7 +881,6 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
       topChromeProgress,
       feedContentCollapsed,
       feedHeaderHeight,
-      feedPullRefreshing: feedPullInteraction.getPullRefreshing,
       currentContentScrollTop,
       beginRefreshingChrome: chromeState.beginRefreshing,
       setRefreshingProgress: chromeState.setRefreshingProgress,
@@ -890,6 +889,7 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
       collapseTopChrome,
       setTopChromeVisible,
     },
+    feedPull: feedPullInteraction,
     scroll: {
       topChromeProgress,
       feedPullActive,
@@ -908,8 +908,6 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
     },
     refreshCompletion: {
       installWatcher: feedRefreshCompletionRuntime.installRefreshCompletionWatcher,
-      pullRefreshing: feedPullInteraction.getPullRefreshing,
-      pullViewKey: feedPullInteraction.getPullViewKey,
       feedOrSourcePullActive,
       settleDelayMS: () => motionDelay(topChromeSettleDuration),
       settleSourceContentAfterRefresh: () => {

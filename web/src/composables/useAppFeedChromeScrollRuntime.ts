@@ -3,31 +3,47 @@ import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import type { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 
 type FeedChromeInteractionOptions = Parameters<typeof useAppFeedChromeInteractions>[0]
+type FeedPullRuntimeOptions = {
+  getPullRefreshing: () => boolean
+  getPullViewKey: () => string
+}
+type FeedChromeTopPullOptions = Omit<
+  FeedChromeInteractionOptions['topPull'],
+  'feedPullRefreshing'
+>
 type RefreshCompletionWatcherOptions = Omit<
   Parameters<typeof useFeedRefreshCompletionWatcher>[0],
   'refreshCompletion' | 'canApplyCompletionEffects'
 >
 type FeedChromeRefreshCompletionOptions = Omit<
   RefreshCompletionWatcherOptions,
-  'topPull' | 'collapseTopChrome'
+  'topPull' | 'collapseTopChrome' | 'pullRefreshing' | 'pullViewKey'
 > & {
   installWatcher: (options: RefreshCompletionWatcherOptions) => void
 }
 
 type AppFeedChromeScrollRuntimeOptions = {
-  feedChrome: FeedChromeInteractionOptions & {
+  feedChrome: Omit<FeedChromeInteractionOptions, 'topPull'> & {
+    topPull: FeedChromeTopPullOptions
+    feedPull: FeedPullRuntimeOptions
     refreshCompletion?: FeedChromeRefreshCompletionOptions
   }
   scroll: Omit<Parameters<typeof useAppScrollHandlers>[0], 'updateTopTabsByScroll'>
 }
 
 export function useAppFeedChromeScrollRuntime(options: AppFeedChromeScrollRuntimeOptions) {
-  const feedChromeInteractions = useAppFeedChromeInteractions(options.feedChrome)
+  const feedChromeInteractions = useAppFeedChromeInteractions({
+    ...options.feedChrome,
+    topPull: {
+      ...options.feedChrome.topPull,
+      feedPullRefreshing: options.feedChrome.feedPull.getPullRefreshing,
+    },
+  })
   const refreshCompletion = options.feedChrome.refreshCompletion
   if (refreshCompletion) {
     refreshCompletion.installWatcher({
-      pullRefreshing: refreshCompletion.pullRefreshing,
-      pullViewKey: refreshCompletion.pullViewKey,
+      pullRefreshing: options.feedChrome.feedPull.getPullRefreshing,
+      pullViewKey: options.feedChrome.feedPull.getPullViewKey,
       feedOrSourcePullActive: refreshCompletion.feedOrSourcePullActive,
       topPull: options.feedChrome.topPull.topPull,
       settleDelayMS: refreshCompletion.settleDelayMS,
