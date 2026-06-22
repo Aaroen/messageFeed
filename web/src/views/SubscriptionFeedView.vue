@@ -390,14 +390,21 @@ function feedItemStyle(item: FeedItem) {
     style.height = cssPx(props.morphingItemHeight)
   }
 
-  if (props.morphingItemId === item.id) {
-    const progress = safeMorphingPreviewProgress.value
-    style['--feed-morph-preview-opacity'] = progress.toFixed(3)
-    style['--feed-morph-preview-shift'] = cssPx((1 - progress) * 6)
-    style['--feed-morph-preview-blur'] = `${((1 - progress) * 2.4).toFixed(2)}px`
+  return Object.keys(style).length > 0 ? style : undefined
+}
+
+function feedItemPreviewStyle(item: FeedItem) {
+  if (props.morphingItemId !== item.id) {
+    return undefined
   }
 
-  return Object.keys(style).length > 0 ? style : undefined
+  const progress = safeMorphingPreviewProgress.value
+  return {
+    filter: `blur(${((1 - progress) * 2.4).toFixed(2)}px)`,
+    opacity: progress.toFixed(3),
+    pointerEvents: 'none' as const,
+    transform: `translate3d(0, ${cssPx((1 - progress) * 6)}, 0)`,
+  }
 }
 
 function clearFeedNoticeTimer() {
@@ -976,17 +983,22 @@ watch(
           :data-load-more-trigger="index === loadMoreTriggerIndex ? 'true' : undefined"
           :style="feedItemStyle(item)"
         >
-          <div class="feed-item__meta">
+          <div class="feed-item__meta" :style="feedItemPreviewStyle(item)">
             <span class="feed-item__source">
               {{ item.source_name || '未知来源' }}
             </span>
             <span>{{ formatDate(item.published_at || item.fetched_at) }}</span>
           </div>
-          <button class="feed-item__read-target" type="button" @click="openItem(item, $event)">
+          <button
+            class="feed-item__read-target"
+            type="button"
+            :style="feedItemPreviewStyle(item)"
+            @click="openItem(item, $event)"
+          >
             <h2>{{ item.title }}</h2>
             <p>{{ itemSummary(item) }}</p>
           </button>
-          <div class="feed-item__actions">
+          <div class="feed-item__actions" :style="feedItemPreviewStyle(item)">
             <a :href="item.url" target="_blank" rel="noreferrer">阅读原文</a>
           </div>
         </article>
