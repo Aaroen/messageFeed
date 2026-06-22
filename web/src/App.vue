@@ -376,6 +376,8 @@ const chromeRuntime = useAppChromeRuntime({
       feedScrollTop,
       topChromePhase,
       topChromeProgress,
+      viewSwipeActive,
+      detailReaderOpen,
       feedContentCollapsed,
       detailFeedHeaderReturnProgress,
     },

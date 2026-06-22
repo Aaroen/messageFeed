@@ -20,6 +20,8 @@ type FeedChromeLayoutStateOptions = {
   feedScrollTop: ReadableRef<number>
   topChromePhase: ReadableRef<ChromePhase>
   topChromeProgress: ReadableRef<number>
+  viewSwipeActive: ReadableRef<boolean>
+  detailReaderOpen: ReadableRef<boolean>
   feedPullActive: ReadableRef<boolean>
   pullProgress: ReadableRef<number>
   feedTopPullStartedWithChrome: ReadableRef<boolean>
@@ -38,6 +40,24 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
   const collapsedLayoutProgress = computed(() =>
     chromePhaseConsumesCollapsedLayout(options.topChromePhase.value) ? topChromeProgress.value : 0,
   )
+  const visibleChromeNeedsTopClearance = computed(() => {
+    if (
+      !options.isFeedRoute.value ||
+      options.detailReaderOpen.value ||
+      options.viewSwipeActive.value ||
+      options.feedTopPulling.value ||
+      options.feedPullActive.value ||
+      !options.feedContentCollapsed.value
+    ) {
+      return false
+    }
+
+    if (options.feedScrollTop.value > contentTopOffset.value || topChromeProgress.value <= 0.04) {
+      return false
+    }
+
+    return options.topChromePhase.value === 'visible' || options.topChromePhase.value === 'revealing'
+  })
   const headerProgress = computed(() => {
     if (!options.isFeedRoute.value) {
       return topChromeProgress.value
@@ -52,7 +72,9 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
   const contentSpace = computed(() => {
     const collapsedRestoreSpace = headerHeight.value * collapsedLayoutProgress.value
     const pullRestoreSpace = headerHeight.value * Math.max(topChromeProgress.value, pullProgress.value)
-    const feedLayoutChromeVisible = options.isFeedRoute.value && !options.feedContentCollapsed.value
+    const feedLayoutChromeVisible =
+      options.isFeedRoute.value &&
+      (!options.feedContentCollapsed.value || visibleChromeNeedsTopClearance.value)
     const feedTopInset = options.isFeedRoute.value
       ? feedTopScrollInset(options.feedScrollTop.value, headerHeight.value)
       : 0
