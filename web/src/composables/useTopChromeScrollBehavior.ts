@@ -94,7 +94,7 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
     const hideThreshold = options.detailReaderOpen.value
       ? options.feedHeaderHeight.value
       : options.isFeedRoute.value
-        ? 8
+        ? feedContentTopOffset(options.feedHeaderHeight.value)
         : options.feedHeaderHeight.value
     const currentTopChromeProgress = topChromeProgress()
     if (delta > 0 && current >= hideThreshold && currentTopChromeProgress > 0.01) {
