@@ -1,23 +1,29 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
 
+type DetailHeaderTitleSwapPhase = 'idle' | 'swapping'
+
 export function useDetailHeaderTitleSwap() {
-  const previousTitle = ref('')
+  const previousTitleText = ref('')
   const progress = ref(1)
+  const phase = ref<DetailHeaderTitleSwapPhase>('idle')
+  const previousTitle = computed(() => (phase.value === 'swapping' ? previousTitleText.value : ''))
   let timer = 0
   let frame = 0
   let swapToken = 0
 
   function begin(nextItem: FeedItem, currentItem: FeedItem | null) {
     if (!currentItem || currentItem.id === nextItem.id) {
-      previousTitle.value = ''
+      previousTitleText.value = ''
       progress.value = 1
+      phase.value = 'idle'
       return false
     }
 
-    previousTitle.value = currentItem.title
+    previousTitleText.value = currentItem.title
     progress.value = 0
+    phase.value = 'swapping'
     return true
   }
 
@@ -26,7 +32,8 @@ export function useDetailHeaderTitleSwap() {
   }
 
   function finish() {
-    previousTitle.value = ''
+    previousTitleText.value = ''
+    phase.value = 'idle'
   }
 
   function clearTimer() {
@@ -43,8 +50,9 @@ export function useDetailHeaderTitleSwap() {
 
   function reset() {
     clearTimer()
-    previousTitle.value = ''
+    previousTitleText.value = ''
     progress.value = 1
+    phase.value = 'idle'
   }
 
   function start(nextItem: FeedItem, currentItem: FeedItem | null, delay: number) {
