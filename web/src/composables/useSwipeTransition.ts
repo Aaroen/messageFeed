@@ -1,5 +1,7 @@
 import { computed, readonly, ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 export type SwipePhase = 'idle' | 'dragging' | 'settling' | 'canceled' | 'committed'
 export type SwipeDirection = 'left' | 'right' | 'up' | 'down' | null
 type SwipeSettleOutcome = Extract<SwipePhase, 'canceled' | 'committed'>
@@ -11,13 +13,6 @@ export type SwipeTransitionSnapshot<TSurface extends string = string> = {
   direction: SwipeDirection
   progress: number
   isBlocked: boolean
-}
-
-function clampProgress(value: number) {
-  if (!Number.isFinite(value)) {
-    return 0
-  }
-  return Math.min(Math.max(value, 0), 1)
 }
 
 export function useSwipeTransition<TSurface extends string = string>() {

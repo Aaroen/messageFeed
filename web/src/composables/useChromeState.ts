@@ -1,5 +1,7 @@
 import { readonly, ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 export type ChromePhase =
   | 'hidden'
   | 'visible'
@@ -24,13 +26,6 @@ type SetChromeRefreshingProgressOptions = {
 type RestoreChromeSnapshotOptions = {
   progress?: number
   contentCollapsed?: boolean
-}
-
-function clampProgress(value: number) {
-  if (!Number.isFinite(value)) {
-    return 0
-  }
-  return Math.min(Math.max(value, 0), 1)
 }
 
 function phaseFromProgress(progress: number): ChromePhase {

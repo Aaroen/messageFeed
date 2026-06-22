@@ -1,5 +1,7 @@
 import { computed, readonly, ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 export type FeedSwipeSurface = 'feed:subscriptions' | 'feed:recommendations'
 
 type FeedPagerTransitionOptions = {
@@ -32,13 +34,6 @@ type FeedPagerDragUpdateResult = {
   blocked: boolean
 }
 
-function clamp(value: number) {
-  if (!Number.isFinite(value)) {
-    return 0
-  }
-  return Math.min(Math.max(value, 0), 1)
-}
-
 function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
 }
@@ -67,7 +62,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }))
 
   const swipeProgress = computed(() =>
-    clamp(Math.abs(dragOffset.value) / Math.max(1, Math.min(options.getWindowWidth(), 320))),
+    clampProgress(Math.abs(dragOffset.value) / Math.max(1, Math.min(options.getWindowWidth(), 320))),
   )
 
   const targetKey = computed(() => {
@@ -81,7 +76,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   })
 
   const targetVisible = computed(() => options.isFeedRoute() && !options.isDetailReaderOpen() && Boolean(targetKey.value))
-  const targetProgress = computed(() => (targetVisible.value ? clamp((swipeProgress.value - 0.26) / 0.48) : 0))
+  const targetProgress = computed(() =>
+    targetVisible.value ? clampProgress((swipeProgress.value - 0.26) / 0.48) : 0,
+  )
 
   function surfaceFromOffset(offset: number): FeedSwipeSurface | null {
     if (offset < -dragThreshold && activeIndex.value === 0) {

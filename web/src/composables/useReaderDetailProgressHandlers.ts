@@ -1,3 +1,5 @@
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type ReadableRef<T> = {
   readonly value: T
 }
@@ -14,10 +16,6 @@ type ReaderDetailProgressHandlersOptions = {
   scrollDetailContentElementTo: (scrollTop: number) => void
   suppressFollowingClick: () => void
   setDetailProgressDragging: (dragging: boolean) => void
-}
-
-function clamp(value: number, min = 0, max = 1) {
-  return Math.min(max, Math.max(min, value))
 }
 
 export function useReaderDetailProgressHandlers(options: ReaderDetailProgressHandlersOptions) {
@@ -54,7 +52,7 @@ export function useReaderDetailProgressHandlers(options: ReaderDetailProgressHan
       return
     }
 
-    const nextScrollTop = options.detailScrollMax.value * clamp(progress)
+    const nextScrollTop = options.detailScrollMax.value * clampProgress(progress)
     options.updateDetailScrollTop(nextScrollTop)
     options.rememberDetailScrollTop(nextScrollTop)
     scrollDetailContentTo(nextScrollTop)

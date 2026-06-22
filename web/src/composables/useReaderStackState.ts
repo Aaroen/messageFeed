@@ -8,6 +8,7 @@ import type {
   ReaderSource,
   RectSnapshot,
 } from '@/composables/useReaderSession'
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useDetailHeaderTitleSwap } from '@/composables/useDetailHeaderTitleSwap'
 
@@ -252,13 +253,6 @@ type ReaderStackSessionSnapshot = Pick<
   | 'morphingItemHeight'
   | 'parkedDetailStack'
 >
-
-function clampProgress(value: number) {
-  if (!Number.isFinite(value)) {
-    return 0
-  }
-  return Math.min(Math.max(value, 0), 1)
-}
 
 function updateStretchAnchor(anchorRef: { value: 'left' | 'right' | null }, stretch: number) {
   if (stretch > 0) {

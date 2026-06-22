@@ -1,5 +1,6 @@
 import { computed, readonly, ref, type Ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 
 type NavigationDrawerOptions = {
@@ -14,13 +15,6 @@ function cssPx(value: number) {
 
 function cssTranslate3d(x: number, y: number, z = 0) {
   return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
-}
-
-function clampProgress(value: number) {
-  if (!Number.isFinite(value)) {
-    return 0
-  }
-  return Math.min(Math.max(value, 0), 1)
 }
 
 export function useNavigationDrawer(options: NavigationDrawerOptions) {
