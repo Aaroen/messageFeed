@@ -1924,6 +1924,7 @@ export function useReaderStackState() {
       return
     }
     if (action === 'return-page') {
+      handlers.reset()
       handlers.returnPage()
       return
     }
