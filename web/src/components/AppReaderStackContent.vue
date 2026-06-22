@@ -19,12 +19,10 @@ withDefaults(
     sourceUnderDetail?: boolean
     sourceStyle?: StyleValue
     sourceTitleRevealMounted?: boolean
-    sourceTitleRevealVisible?: boolean
     sourceTitleRevealStyle?: StyleValue
     sourceTitle?: string
     sourceMeta?: string
     sourceNameMorphMounted?: boolean
-    sourceNameMorphVisible?: boolean
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
@@ -86,12 +84,10 @@ withDefaults(
     sourceUnderDetail: false,
     sourceStyle: undefined,
     sourceTitleRevealMounted: false,
-    sourceTitleRevealVisible: false,
     sourceTitleRevealStyle: undefined,
     sourceTitle: '',
     sourceMeta: '',
     sourceNameMorphMounted: false,
-    sourceNameMorphVisible: false,
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,
@@ -176,12 +172,10 @@ const emit = defineEmits<{
     :source-under-detail="sourceUnderDetail"
     :source-style="sourceStyle"
     :source-title-reveal-mounted="sourceTitleRevealMounted"
-    :source-title-reveal-visible="sourceTitleRevealVisible"
     :source-title-reveal-style="sourceTitleRevealStyle"
     :source-title="sourceTitle"
     :source-meta="sourceMeta"
     :source-name-morph-mounted="sourceNameMorphMounted"
-    :source-name-morph-visible="sourceNameMorphVisible"
     :source-name-morph-style="sourceNameMorphStyle"
     :source-name-morph-text="sourceNameMorphText"
     :detail-open="detailOpen"

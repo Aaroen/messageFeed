@@ -17,12 +17,10 @@ const props = withDefaults(
     sourceUnderDetail?: boolean
     sourceStyle?: StyleValue
     sourceTitleRevealMounted?: boolean
-    sourceTitleRevealVisible?: boolean
     sourceTitleRevealStyle?: StyleValue
     sourceTitle?: string
     sourceMeta?: string
     sourceNameMorphMounted?: boolean
-    sourceNameMorphVisible?: boolean
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
@@ -84,12 +82,10 @@ const props = withDefaults(
     sourceUnderDetail: false,
     sourceStyle: undefined,
     sourceTitleRevealMounted: false,
-    sourceTitleRevealVisible: false,
     sourceTitleRevealStyle: undefined,
     sourceTitle: '',
     sourceMeta: '',
     sourceNameMorphMounted: false,
-    sourceNameMorphVisible: false,
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,

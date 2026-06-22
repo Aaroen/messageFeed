@@ -29,12 +29,10 @@ type AppReaderMorphVisibilityStateOptions = {
 
 export type AppReaderMorphVisibilityState = {
   sourceTitleRevealMounted: ReadableRef<boolean>
-  sourceTitleRevealVisible: ReadableRef<boolean>
   sourceTitleRevealStyle: ReadableRef<StyleValue>
   sourceTitle: ReadableRef<string>
   sourceMeta: ReadableRef<string>
   sourceNameMorphMounted: ReadableRef<boolean>
-  sourceNameMorphVisible: ReadableRef<boolean>
   sourceNameMorphStyle: ReadableRef<StyleValue>
   sourceNameMorphText: ReadableRef<string>
   detailMorphVisible: ReadableRef<boolean>
@@ -67,12 +65,10 @@ export function useAppReaderMorphVisibilityState(
 
   return {
     sourceTitleRevealMounted,
-    sourceTitleRevealVisible: options.sourceTitleRevealVisible,
     sourceTitleRevealStyle: options.sourceTitleRevealStyle,
     sourceTitle,
     sourceMeta,
     sourceNameMorphMounted,
-    sourceNameMorphVisible: options.sourceNameMorphVisible,
     sourceNameMorphStyle: options.sourceNameMorphStyle,
     sourceNameMorphText,
     detailMorphVisible: options.detailMorphTextVisible,
