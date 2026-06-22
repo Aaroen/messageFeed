@@ -189,7 +189,7 @@ const feedBodyStyle = computed(() => ({
   transition: pullDragging.value ? 'none' : 'transform var(--motion-chrome) var(--ease-emphasized)',
   ...refreshLayoutFreeze.style.value,
 }))
-const safeMorphingPreviewProgress = computed(() => Math.min(Math.max(props.morphingPreviewProgress, 0), 1))
+const safeMorphingPreviewProgress = computed(() => clampProgress(props.morphingPreviewProgress))
 
 const feedPullRefreshCompletion = useFeedPullRefreshCompletionAction({
   usesGlobalPullState,

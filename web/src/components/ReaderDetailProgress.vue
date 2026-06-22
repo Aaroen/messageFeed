@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, type StyleValue } from 'vue'
+import { computed, ref, type StyleValue } from 'vue'
+
+import { clampProgress } from '@/composables/feedChromeMetrics'
 
 const props = withDefaults(
   defineProps<{
@@ -26,6 +28,7 @@ const emit = defineEmits<{
 
 const trackRef = ref<HTMLElement | null>(null)
 let activePointerID: number | null = null
+const safeProgress = computed(() => clampProgress(props.progress))
 
 function progressFromPointer(clientY: number) {
   const track = trackRef.value
@@ -91,7 +94,7 @@ function finishDrag(event?: PointerEvent) {
     role="scrollbar"
     aria-label="正文阅读进度"
     aria-orientation="vertical"
-    :aria-valuenow="Math.round(props.progress * 100)"
+    :aria-valuenow="Math.round(safeProgress * 100)"
     aria-valuemin="0"
     aria-valuemax="100"
     :style="props.rootStyle"

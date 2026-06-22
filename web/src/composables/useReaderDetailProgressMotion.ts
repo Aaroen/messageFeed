@@ -1,5 +1,7 @@
 import { computed, type Ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type ReaderDetailProgressMotionOptions = {
   surfaceMargin: Ref<number>
   expandedTop: Ref<number>
@@ -37,15 +39,18 @@ export function useReaderDetailProgressMotion(options: ReaderDetailProgressMotio
     }
   })
 
-  const fillStyle = computed(() => ({
-    height: `${(options.readingProgress.value * 100).toFixed(2)}%`,
-    transition: options.dragging.value
-      ? 'none'
-      : 'height var(--motion-micro) var(--ease-linear)',
-  }))
+  const fillStyle = computed(() => {
+    const progress = clampProgress(options.readingProgress.value)
+    return {
+      height: `${(progress * 100).toFixed(2)}%`,
+      transition: options.dragging.value
+        ? 'none'
+        : 'height var(--motion-micro) var(--ease-linear)',
+    }
+  })
 
   const thumbStyle = computed(() => {
-    const progress = options.readingProgress.value
+    const progress = clampProgress(options.readingProgress.value)
     return {
       top: `${(progress * 100).toFixed(2)}%`,
       transform: `translate3d(0, ${(-progress * 42).toFixed(2)}px, 0)`,

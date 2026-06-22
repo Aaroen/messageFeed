@@ -1,5 +1,7 @@
 import { computed, type Ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type StretchAnchor = 'left' | 'right' | null
 
 type ReaderDetailSurfaceMotionOptions = {
@@ -26,11 +28,11 @@ export function useReaderDetailSurfaceMotion(options: ReaderDetailSurfaceMotionO
   const surfaceState = computed(() => {
     const committedListReturn = options.committedListReturn()
     const returningToFeed = options.returningToFeed.value
-    const stretch = options.stretch.value
+    const stretch = Number.isFinite(options.stretch.value) ? options.stretch.value : 0
     const overlayOpacity =
       options.blockedBackSwipeActive.value || committedListReturn || returningToFeed
         ? 0
-        : options.surfaceProgress.value
+        : clampProgress(options.surfaceProgress.value)
     return {
       committedListReturn,
       returningToFeed,

@@ -1,5 +1,7 @@
 import { computed } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type ReadableRef<T> = {
   readonly value: T
 }
@@ -26,9 +28,10 @@ function cssPx(value: number) {
 
 export function useAppShellMotion(options: AppShellMotionOptions) {
   const contentState = computed(() => {
+    const detailSurfaceProgress = clampProgress(options.detailSurfaceProgress.value)
     const detailUnderlayActive = options.detailReaderOpen.value && !options.detailReturningToFeed.value
-    const underlayBlur = detailUnderlayActive ? options.detailSurfaceProgress.value * 7 : 0
-    const underlayOpacity = detailUnderlayActive ? 1 - options.detailSurfaceProgress.value * 0.08 : 1
+    const underlayBlur = detailUnderlayActive ? detailSurfaceProgress * 7 : 0
+    const underlayOpacity = detailUnderlayActive ? 1 - detailSurfaceProgress * 0.08 : 1
     const feedContentSpace = options.feedContentSpace.value
     const contentShiftSettling =
       (options.feedRefreshSettling.value || options.feedChromeSettling.value) &&

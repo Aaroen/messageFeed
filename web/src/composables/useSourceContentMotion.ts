@@ -1,6 +1,6 @@
 import { computed, ref, type Ref } from 'vue'
 
-import { sourceContentTopOffset } from '@/composables/feedChromeMetrics'
+import { clampProgress, sourceContentTopOffset } from '@/composables/feedChromeMetrics'
 
 type SourceContentMotionOptions = {
   headerSpace: Ref<number>
@@ -39,12 +39,13 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   let motionToken = 0
 
   const contentStyle = computed(() => {
+    const revealProgress = clampProgress(options.revealProgress.value)
     const underlayBaseOpacity = options.darkTheme.value ? 0.74 : 0.54
     const underlayBlur = options.underDetail.value
-      ? (1 - options.revealProgress.value) * (options.darkTheme.value ? 5 : 8)
+      ? (1 - revealProgress) * (options.darkTheme.value ? 5 : 8)
       : 0
     const underlayOpacity = options.underDetail.value
-      ? underlayBaseOpacity + options.revealProgress.value * (1 - underlayBaseOpacity)
+      ? underlayBaseOpacity + revealProgress * (1 - underlayBaseOpacity)
       : 1
     const contentShift = options.headerSpace.value - options.headerHeight.value
     const transition = settlePhase.value === 'settling'
