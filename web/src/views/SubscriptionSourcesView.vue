@@ -45,6 +45,7 @@ type ImportFetchSummary = {
   requestedCount: number
   successCount: number
   failureCount: number
+  errors: Array<{ source_name?: string; message: string }>
 }
 type FetchNowResult = {
   success: boolean
@@ -270,6 +271,7 @@ async function fetchImportedSources(importedSources: Source[], token: number): P
     requestedCount: activeSources.length,
     successCount: 0,
     failureCount: 0,
+    errors: [],
   }
   if (!activeSources.length) {
     return summary
@@ -288,11 +290,15 @@ async function fetchImportedSources(importedSources: Source[], token: number): P
             return
           }
           summary.successCount += 1
-        } catch {
+        } catch (err) {
           if (!pageRequestIsCurrent(token)) {
             return
           }
           summary.failureCount += 1
+          summary.errors.push({
+            source_name: source.name,
+            message: formatAPIError(err),
+          })
         }
       }
     }),
@@ -307,13 +313,19 @@ function importNoticeType(result: ImportSourcesResult, fetchSummary: ImportFetch
 function importNoticeMessage(prefix: string, result: ImportSourcesResult, fetchSummary: ImportFetchSummary) {
   const parts = [`${prefix} ${result.success_count} 个来源`]
   if (result.failure_count > 0) {
-    parts.push(`${result.failure_count} 个导入失败`)
+    const importErrors = result.errors.map((item) => ({
+      source_name: item.reference,
+      message: item.message,
+    }))
+    const reason = importErrors.length ? `。导入失败原因：${formatFetchErrors(importErrors)}` : ''
+    parts.push(`${result.failure_count} 个导入失败${reason}`)
   }
   if (fetchSummary.requestedCount > 0) {
     parts.push(`已抓取 ${fetchSummary.successCount} 个`)
   }
   if (fetchSummary.failureCount > 0) {
-    parts.push(`${fetchSummary.failureCount} 个抓取失败`)
+    const reason = fetchSummary.errors.length ? `。抓取失败原因：${formatFetchErrors(fetchSummary.errors)}` : ''
+    parts.push(`${fetchSummary.failureCount} 个抓取失败${reason}`)
   }
   return parts.join('，')
 }
