@@ -412,6 +412,7 @@ const beginSwipeTransition = appSwipeNavigationState.beginSwipeTransition
 const updateSwipeTransition = appSwipeNavigationState.updateSwipeTransition
 const settleSwipeTransition = appSwipeNavigationState.settleSwipeTransition
 const scheduleSwipeReset = appSwipeNavigationState.scheduleSwipeReset
+const resetSwipeTransition = appSwipeNavigationState.resetSwipeTransition
 const clearSwipeTransitionTimer = appSwipeNavigationState.clearSwipeTransitionTimer
 const feedPagerTransition = appSwipeNavigationState.feedPagerTransition
 const gesturePolicy = useAppGesturePolicy({
@@ -1434,6 +1435,7 @@ useAppRouteSessionWatchers({
     pagePullState.reset()
   },
   resetFeedViewDragOffset: appSwipeNavigationState.resetFeedViewDragOffset,
+  resetSwipeTransition,
   setTopChromeVisible,
   currentFeedScrollTop: feedContent.currentScrollTop,
   updateFeedScrollTop: feedScroll.update,

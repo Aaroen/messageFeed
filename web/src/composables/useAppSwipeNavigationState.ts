@@ -20,6 +20,7 @@ export function useAppSwipeNavigationState<TSurface extends string>(
     updateSwipeTransition: swipeTransition.update,
     settleSwipeTransition: swipeTransition.settle,
     scheduleSwipeReset: swipeTransition.scheduleReset,
+    resetSwipeTransition: swipeTransition.reset,
     clearSwipeTransitionTimer: swipeTransition.clearTimer,
     feedPagerTransition,
     feedPagerDragThreshold: feedPagerTransition.dragThreshold,
