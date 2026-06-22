@@ -52,6 +52,13 @@ export function useAppReaderSessionSnapshots(options: AppReaderSessionSnapshotsO
   let scrollRestoreSettledTimer = 0
 
   function stableChromeSnapshot(snapshot: ChromeSnapshot): ChromeSnapshot {
+    if (snapshot.contentCollapsed) {
+      return {
+        progress: 0,
+        contentCollapsed: true,
+      }
+    }
+
     const progress = Number.isFinite(snapshot.progress) ? snapshot.progress : 1
     const stableProgress = progress >= 0.5 ? 1 : 0
     return {
