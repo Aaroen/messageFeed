@@ -544,10 +544,6 @@ body[arco-theme='dark'] .settings-icon-button--active {
   will-change: transform, opacity;
 }
 
-.app-header--feed-inactive {
-  visibility: hidden;
-}
-
 .app-header-slot {
   display: flex;
   align-items: center;

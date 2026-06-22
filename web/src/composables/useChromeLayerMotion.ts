@@ -9,6 +9,14 @@ type ChromeLayerMotionOptions = {
   isSettling?: () => boolean
 }
 
+type HeaderStylePayload = {
+  progress: number
+  headerHeight: number
+  refreshing?: boolean
+  elevated?: boolean
+  inactive?: boolean
+}
+
 function clampProgress(value: number) {
   if (!Number.isFinite(value)) {
     return 0
@@ -37,17 +45,18 @@ function finiteNumber(value: number) {
 }
 
 export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
-  function headerStyle(progress: number, headerHeight: number, refreshing = false, elevated = false) {
-    const safeProgress = finiteNumber(progress)
+  function headerStyle(payload: HeaderStylePayload) {
+    const safeProgress = finiteNumber(payload.progress)
     return {
-      background: refreshing ? 'var(--mf-header-refresh-bg)' : undefined,
+      background: payload.refreshing ? 'var(--mf-header-refresh-bg)' : undefined,
       opacity: safeProgress.toFixed(3),
       pointerEvents: safeProgress > 0.86 ? ('auto' as const) : ('none' as const),
-      transform: cssTranslate3d(0, (safeProgress - 1) * headerHeight),
+      transform: cssTranslate3d(0, (safeProgress - 1) * payload.headerHeight),
       transition: options.isSettling?.()
         ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard)'
         : undefined,
-      zIndex: elevated ? 130 : undefined,
+      visibility: payload.inactive ? ('hidden' as const) : undefined,
+      zIndex: payload.elevated ? 130 : undefined,
     }
   }
 

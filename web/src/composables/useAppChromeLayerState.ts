@@ -92,20 +92,23 @@ export function useAppChromeLayerState(options: AppChromeLayerStateOptions) {
   const sourceMainLayerStyle = computed(() =>
     chromeLayerMotion.layerStyle(!options.sourcePullActive.value, options.topChromeProgress.value),
   )
-  const headerClass = computed(() => ({
-    'app-header--feed-inactive':
+  const headerInactive = computed(
+    () =>
       options.feedHeaderProgress.value <= 0.01 &&
       !options.feedChromeSettling.value &&
       !options.feedTopPulling.value,
+  )
+  const headerClass = computed(() => ({
     'app-header--detail': options.headerDetailLayoutActive.value,
   }))
   const headerStyle = computed(() =>
-    chromeLayerMotion.headerStyle(
-      options.feedHeaderProgress.value,
-      options.feedHeaderHeight.value,
-      options.feedPullActive.value || options.pagePullActive.value,
-      options.headerDetailLayoutActive.value,
-    ),
+    chromeLayerMotion.headerStyle({
+      progress: options.feedHeaderProgress.value,
+      headerHeight: options.feedHeaderHeight.value,
+      refreshing: options.feedPullActive.value || options.pagePullActive.value,
+      elevated: options.headerDetailLayoutActive.value,
+      inactive: headerInactive.value,
+    }),
   )
   const navOpenButtonStyle = computed(() =>
     chromeLayerMotion.navOpenButtonStyle(
