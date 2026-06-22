@@ -1,9 +1,11 @@
+import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
 
 import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
 import { useAppFeedRefreshCompletionRuntime } from '@/composables/useAppFeedRefreshCompletionRuntime'
 import { useAppFeedChromeState } from '@/composables/useAppFeedChromeState'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
+import { useFeedInteractionStore } from '@/stores/feedInteraction'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -45,6 +47,8 @@ type AppChromeRuntimeOptions = {
 }
 
 export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
+  const feedInteraction = useFeedInteractionStore()
+  const { statusText: pullStatusText, statusMeta: pullStatusMeta } = storeToRefs(feedInteraction)
   const feedRefreshCompletion = useAppFeedRefreshCompletionRuntime(options.feedRefreshCompletion)
   const feedChrome = useAppFeedChromeState({
     ...options.feed,
@@ -114,6 +118,8 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
     feedContentStyle: feedChrome.feedContentStyle,
     pageContentStyle: feedChrome.pageContentStyle,
     detailHeaderVisible: feedChrome.detailHeaderVisible,
+    pullStatusText,
+    pullStatusMeta,
     pullStatusStyle: chromeVisual.pullStatusStyle,
     pullIconStyle: chromeVisual.pullIconStyle,
     pagePullStatusStyle: chromeVisual.pagePullStatusStyle,

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -463,7 +462,8 @@ const mainStyle = chromeRuntime.mainStyle
 const feedContentStyle = chromeRuntime.feedContentStyle
 const pageContentStyle = chromeRuntime.pageContentStyle
 const detailHeaderVisible = chromeRuntime.detailHeaderVisible
-const { statusText: pullStatusText, statusMeta: pullStatusMeta } = storeToRefs(feedInteraction)
+const pullStatusText = chromeRuntime.pullStatusText
+const pullStatusMeta = chromeRuntime.pullStatusMeta
 const pullStatusStyle = chromeRuntime.pullStatusStyle
 const pullIconStyle = chromeRuntime.pullIconStyle
 const pagePullStatusStyle = chromeRuntime.pagePullStatusStyle
