@@ -5,6 +5,7 @@ import {
   feedContentTopOffset,
   feedHeaderHeightForWidth,
   feedTopScrollInset,
+  feedVisibleContentTopOffset,
 } from '@/composables/feedChromeMetrics'
 
 type ReadableRef<T> = {
@@ -28,6 +29,7 @@ type FeedChromeLayoutStateOptions = {
 export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) {
   const headerHeight = computed(() => feedHeaderHeightForWidth(options.windowWidth.value))
   const contentTopOffset = computed(() => feedContentTopOffset(headerHeight.value))
+  const visibleContentTopOffset = computed(() => feedVisibleContentTopOffset(headerHeight.value))
   const topChromeProgress = computed(() => clampProgress(options.topChromeProgress.value))
   const pullProgress = computed(() => clampProgress(options.pullProgress.value))
   const headerProgress = computed(() => {
@@ -49,7 +51,8 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     const feedTopInset = options.isFeedRoute.value
       ? feedTopScrollInset(options.feedScrollTop.value, headerHeight.value)
       : 0
-    const visibleTopSpace = headerHeight.value + feedTopInset
+    const visibleTopSpace =
+      headerHeight.value + feedTopInset + visibleContentTopOffset.value - contentTopOffset.value
 
     if (options.feedTopPullStartedWithChrome.value || options.refreshStartedWithChrome.value) {
       return headerHeight.value

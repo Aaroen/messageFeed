@@ -13,6 +13,10 @@ export function feedContentTopOffset(headerHeight: number) {
   return headerHeight <= 78 ? 8 : 10
 }
 
+export function feedVisibleContentTopOffset(headerHeight: number) {
+  return feedContentTopOffset(headerHeight) * 2
+}
+
 export function sourceContentTopOffset() {
   return 14
 }
