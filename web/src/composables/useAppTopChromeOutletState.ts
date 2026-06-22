@@ -29,7 +29,7 @@ type AppTopChromeOutletStateOptions = {
   feedTabsTargetLayerStyle: ReadableRef<StyleValue>
   viewSwipeTargetKey: ReadableRef<string | null>
   feedPullActive: ReadableRef<boolean>
-  feedPullRefreshing: () => boolean
+  feedPullRefreshing: ReadableRef<boolean>
   pullStatusStyle: ReadableRef<StyleValue>
   pullIconStyle: ReadableRef<StyleValue>
   pullStatusText: ReadableRef<string>
@@ -93,7 +93,6 @@ export function useAppTopChromeOutletState(
     () => options.isFeedRoute.value || readerDetailHeader.chromeVisible.value,
   )
   const activeKey = computed(() => options.activeKey() ?? null)
-  const feedPullRefreshing = computed(() => options.feedPullRefreshing())
 
   return {
     chrome: {
@@ -118,7 +117,7 @@ export function useAppTopChromeOutletState(
       feedTabsTargetLayerStyle: options.feedTabsTargetLayerStyle,
       viewSwipeTargetKey: options.viewSwipeTargetKey,
       feedPullActive: options.feedPullActive,
-      pullRefreshing: feedPullRefreshing,
+      pullRefreshing: options.feedPullRefreshing,
       pullStatusStyle: options.pullStatusStyle,
       pullIconStyle: options.pullIconStyle,
       pullStatusText: options.pullStatusText,

@@ -86,13 +86,14 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
   const foregroundSourcePullActive = computed(
     () => feedChrome.sourcePullActive.value && sourceReaderInteractive.value,
   )
+  const feedPullRefreshing = computed(() => options.feedPull.getPullRefreshing())
   const sourcePullRefreshing = computed(
-    () => foregroundSourcePullActive.value && options.feedPull.getPullRefreshing(),
+    () => foregroundSourcePullActive.value && feedPullRefreshing.value,
   )
   const chromeVisual = useAppChromeVisualState({
     layer: {
       feedPullActive: feedChrome.feedPullActive,
-      feedPullRefreshing: options.feedPull.getPullRefreshing,
+      feedPullRefreshing: () => feedPullRefreshing.value,
       pullProgress: feedChrome.pullProgress,
       pagePullActive: feedChrome.pagePullActive,
       pagePullRefreshing: options.visual.pagePullRefreshing,
@@ -122,6 +123,7 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
 
   return {
     feedPullActive: feedChrome.feedPullActive,
+    feedPullRefreshing,
     pagePullActive: feedChrome.pagePullActive,
     foregroundSourcePullActive,
     sourcePullRefreshing,

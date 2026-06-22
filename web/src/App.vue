@@ -439,6 +439,7 @@ const chromeRuntime = useAppChromeRuntime({
   },
 })
 const feedPullActive = chromeRuntime.feedPullActive
+const feedPullRefreshing = chromeRuntime.feedPullRefreshing
 const feedRefreshCompletionRuntime = chromeRuntime.feedRefreshCompletion
 const pagePullActive = chromeRuntime.pagePullActive
 const foregroundSourcePullActive = chromeRuntime.foregroundSourcePullActive
@@ -1054,7 +1055,7 @@ const mainOutletRuntime = useAppMainOutletRuntime({
     feedTabsTargetLayerStyle,
     viewSwipeTargetKey,
     feedPullActive,
-    feedPullRefreshing: feedPullInteraction.getPullRefreshing,
+    feedPullRefreshing,
     pullStatusStyle,
     pullIconStyle,
     pullStatusText,
