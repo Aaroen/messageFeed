@@ -43,6 +43,7 @@ import { useAppGestureInteractionRuntime } from '@/composables/useAppGestureInte
 import { useAppMainOutletRuntime } from '@/composables/useAppMainOutletRuntime'
 import { useAppRuntimeCleanup } from '@/composables/useAppRuntimeCleanup'
 import { useAppFeedPullInteractionRuntime } from '@/composables/useAppFeedPullInteractionRuntime'
+import { chromeStyleIsInteractive } from '@/composables/chromeStyleInteractivity'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -469,15 +470,9 @@ const pageTitleLayerStyle = chromeRuntime.pageTitleLayerStyle
 const sourceMainLayerStyle = chromeRuntime.sourceMainLayerStyle
 const headerClass = chromeRuntime.headerClass
 const headerStyle = chromeRuntime.headerStyle
-const topChromeInteractive = computed(() => {
-  const style = headerStyle.value as Record<string, unknown> | undefined
-  return style?.pointerEvents === 'auto' && style?.visibility !== 'hidden'
-})
+const topChromeInteractive = computed(() => chromeStyleIsInteractive(headerStyle.value))
 const navOpenButtonStyle = chromeRuntime.navOpenButtonStyle
-const navOpenButtonInteractive = computed(() => {
-  const style = navOpenButtonStyle.value as Record<string, unknown> | undefined
-  return style?.pointerEvents === 'auto' && style?.visibility !== 'hidden'
-})
+const navOpenButtonInteractive = computed(() => chromeStyleIsInteractive(navOpenButtonStyle.value))
 const mainClass = chromeRuntime.mainClass
 const topChromeActions = chromeRuntime.topChromeActions
 const setTopChromeVisible = topChromeActions.setTopChromeVisible

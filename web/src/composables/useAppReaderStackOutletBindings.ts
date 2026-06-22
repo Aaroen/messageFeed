@@ -2,6 +2,7 @@ import { computed } from 'vue'
 import type { StyleValue } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
+import { chromeStyleIsInteractive } from '@/composables/chromeStyleInteractivity'
 import type { AppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
 import type { AppReaderMotionState } from '@/composables/useAppReaderMotionState'
 import type { ChromePhase } from '@/composables/useChromeState'
@@ -77,8 +78,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
     const readerMorph = options.readerMorph
     const readerMotion = options.readerMotion
     const sourceInteractive = options.sourceReaderVisible.value && !options.sourceReaderUnderDetail.value
-    const sourceHeaderStyle = options.sourceHeaderStyle.value as Record<string, unknown> | undefined
-    const sourceChromeInteractive = sourceHeaderStyle?.pointerEvents === 'auto'
+    const sourceChromeInteractive = chromeStyleIsInteractive(options.sourceHeaderStyle.value)
 
     return {
       sourceMounted: options.sourceReaderMounted.value && Boolean(readerSource),
