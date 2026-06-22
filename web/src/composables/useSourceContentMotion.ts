@@ -11,6 +11,8 @@ type SourceContentMotionOptions = {
   resolveDelay?: (duration: number) => number
 }
 
+type SourceContentSettlePhase = 'idle' | 'holding' | 'settling'
+
 function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
 }
@@ -28,7 +30,7 @@ const sourceContentShiftTransition = [
 
 export function useSourceContentMotion(options: SourceContentMotionOptions) {
   const settleOffset = ref(0)
-  const settling = ref(false)
+  const settlePhase = ref<SourceContentSettlePhase>('idle')
   let settleTimer = 0
   let settleFrame = 0
   let motionToken = 0
@@ -42,9 +44,9 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
       ? underlayBaseOpacity + options.revealProgress.value * (1 - underlayBaseOpacity)
       : 1
     const contentShift = options.headerSpace.value - options.headerHeight.value
-    const transition = settling.value
+    const transition = settlePhase.value === 'settling'
       ? sourceContentShiftTransition
-      : settleOffset.value > 0
+      : settlePhase.value === 'holding'
         ? 'none'
         : options.chromeSettling.value
           ? sourceContentShiftTransition
@@ -78,7 +80,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   function reset() {
     clearTimer()
     settleOffset.value = 0
-    settling.value = false
+    settlePhase.value = 'idle'
   }
 
   function settleAfterRefresh(duration: number) {
@@ -90,7 +92,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
     clearTimer()
     const token = motionToken + 1
     motionToken = token
-    settling.value = false
+    settlePhase.value = 'holding'
     settleOffset.value = options.headerHeight.value
     settleFrame = window.requestAnimationFrame(() => {
       if (token !== motionToken) {
@@ -105,7 +107,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
           reset()
           return
         }
-        settling.value = true
+        settlePhase.value = 'settling'
         settleOffset.value = 0
       })
     })
@@ -114,7 +116,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
         return
       }
       settleTimer = 0
-      settling.value = false
+      settlePhase.value = 'idle'
     }, delay(duration))
   }
 
