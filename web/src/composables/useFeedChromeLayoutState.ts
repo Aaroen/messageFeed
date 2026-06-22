@@ -46,8 +46,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
   const contentSpace = computed(() => {
     const collapsedRestoreSpace = headerHeight.value * topChromeProgress.value
     const pullRestoreSpace = headerHeight.value * Math.max(topChromeProgress.value, pullProgress.value)
-    const feedAtTop = options.isFeedRoute.value && options.feedScrollTop.value <= contentTopOffset.value
-    const feedTopChromeVisible = headerProgress.value > 0.04 || !options.feedContentCollapsed.value
+    const feedLayoutChromeVisible = options.isFeedRoute.value && !options.feedContentCollapsed.value
     const feedTopInset = options.isFeedRoute.value
       ? feedTopScrollInset(options.feedScrollTop.value, headerHeight.value)
       : 0
@@ -58,7 +57,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       return headerHeight.value
     }
 
-    if (!options.feedTopPulling.value && !options.feedPullActive.value && feedAtTop && feedTopChromeVisible) {
+    if (!options.feedTopPulling.value && !options.feedPullActive.value && feedLayoutChromeVisible) {
       return visibleTopSpace
     }
 
