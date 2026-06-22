@@ -3,6 +3,9 @@ import { computed, ref, type Ref } from 'vue'
 type SourceContentMotionOptions = {
   headerSpace: Ref<number>
   headerHeight: Ref<number>
+  darkTheme: Ref<boolean>
+  underDetail: Ref<boolean>
+  revealProgress: Ref<number>
   chromeSettling: Ref<boolean>
   isVisible: () => boolean
   resolveDelay?: (duration: number) => number
@@ -27,6 +30,13 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   let motionToken = 0
 
   const contentStyle = computed(() => {
+    const underlayBaseOpacity = options.darkTheme.value ? 0.74 : 0.54
+    const underlayBlur = options.underDetail.value
+      ? (1 - options.revealProgress.value) * (options.darkTheme.value ? 5 : 8)
+      : 0
+    const underlayOpacity = options.underDetail.value
+      ? underlayBaseOpacity + options.revealProgress.value * (1 - underlayBaseOpacity)
+      : 1
     const transition = settling.value
       ? [
           'padding-top var(--motion-chrome) var(--ease-emphasized)',
@@ -44,8 +54,8 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
 
     return {
       paddingTop: cssPx(options.headerSpace.value + 14),
-      opacity: 'var(--source-underlay-opacity, 1)',
-      filter: 'blur(var(--source-underlay-blur, 0px))',
+      opacity: underlayOpacity.toFixed(3),
+      filter: `blur(${underlayBlur.toFixed(2)}px)`,
       transform: cssTranslate3d(0, settleOffset.value),
       transition,
     }

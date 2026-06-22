@@ -40,18 +40,8 @@ function stretchTransformOrigin(stretch: number, anchor: StretchAnchor) {
 
 export function useReaderSourceSurfaceMotion(options: ReaderSourceSurfaceMotionOptions) {
   const surfaceStyle = computed(() => {
-    const underlayBaseOpacity = options.darkTheme.value ? 0.74 : 0.54
     const overlayBaseOpacity = options.darkTheme.value ? 0.48 : 0.34
     const sourceStretch = options.stretch.value
-    const underlayBlur = options.underDetail.value
-      ? `${((1 - options.revealProgress.value) * (options.darkTheme.value ? 5 : 8)).toFixed(2)}px`
-      : '0.00px'
-    const underlayOpacity = options.underDetail.value
-      ? (
-          underlayBaseOpacity +
-          options.revealProgress.value * (1 - underlayBaseOpacity)
-        ).toFixed(3)
-      : '1.000'
     return {
       '--feed-header-height': `${options.feedHeaderHeight.value}px`,
       '--source-header-space': cssPx(options.headerSpace.value),
@@ -63,8 +53,6 @@ export function useReaderSourceSurfaceMotion(options: ReaderSourceSurfaceMotionO
           : '1',
       pointerEvents:
         !options.visible.value || options.blocksGestures() ? ('none' as const) : ('auto' as const),
-      '--source-underlay-blur': underlayBlur,
-      '--source-underlay-opacity': underlayOpacity,
       transform: `${cssTranslate3d(options.offset.value, 0)} scaleX(${(1 + Math.abs(sourceStretch)).toFixed(4)})`,
       transformOrigin: stretchTransformOrigin(sourceStretch, options.stretchAnchor.value),
       transition: options.dragging.value
