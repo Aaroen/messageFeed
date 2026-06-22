@@ -20,6 +20,7 @@ type FeedTab = {
 type TopChromeChromeProps = {
   phase?: ChromePhase
   progress?: number
+  interactive?: boolean
   rootClass?: ClassValue
   rootStyle?: StyleValue
 }

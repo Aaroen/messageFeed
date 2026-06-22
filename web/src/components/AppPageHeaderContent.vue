@@ -6,6 +6,7 @@ import RefreshStatusLayer from '@/components/RefreshStatusLayer.vue'
 withDefaults(
   defineProps<{
     pageTitle?: string
+    chromeInteractive?: boolean
     pagePullActive?: boolean
     pageTitleLayerStyle?: StyleValue
     pagePullStatusStyle?: StyleValue
@@ -16,6 +17,7 @@ withDefaults(
   }>(),
   {
     pageTitle: '',
+    chromeInteractive: true,
     pagePullActive: false,
     pageTitleLayerStyle: undefined,
     pagePullStatusStyle: undefined,
@@ -32,7 +34,7 @@ withDefaults(
     <div
       class="feed-header-layer feed-header-layer--tabs"
       :style="pageTitleLayerStyle"
-      :aria-hidden="pagePullActive ? 'true' : undefined"
+      :aria-hidden="!chromeInteractive || pagePullActive ? 'true' : undefined"
     >
       <h1>{{ pageTitle }}</h1>
     </div>

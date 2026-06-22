@@ -17,6 +17,7 @@ type FeedTab = {
 type TopChromeChromeProps = {
   phase?: ChromePhase
   progress?: number
+  interactive?: boolean
   rootClass?: ClassValue
   rootStyle?: StyleValue
 }
@@ -91,6 +92,7 @@ const emit = defineEmits<{
         :detail-header-previous-title="feed.detailHeaderPreviousTitle"
         :detail-header-previous-text-style="feed.detailHeaderPreviousTextStyle"
         :detail-header-current-text-style="feed.detailHeaderCurrentTextStyle"
+        :chrome-interactive="chrome.interactive"
         :is-feed-route="feed.isFeedRoute"
         :feed-tabs="feed.feedTabs"
         :active-key="feed.activeKey"
@@ -108,6 +110,7 @@ const emit = defineEmits<{
       <AppPageHeaderContent
         v-else
         :page-title="page.title"
+        :chrome-interactive="chrome.interactive"
         :page-pull-active="page.pullActive"
         :page-title-layer-style="page.titleLayerStyle"
         :page-pull-status-style="page.pullStatusStyle"

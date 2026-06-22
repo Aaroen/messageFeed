@@ -18,6 +18,7 @@ withDefaults(
     detailHeaderPreviousTitle?: string
     detailHeaderPreviousTextStyle?: StyleValue
     detailHeaderCurrentTextStyle?: StyleValue
+    chromeInteractive?: boolean
     isFeedRoute?: boolean
     feedTabs?: FeedTab[]
     activeKey?: string | symbol | null
@@ -39,6 +40,7 @@ withDefaults(
     detailHeaderPreviousTitle: '',
     detailHeaderPreviousTextStyle: undefined,
     detailHeaderCurrentTextStyle: undefined,
+    chromeInteractive: true,
     isFeedRoute: false,
     feedTabs: () => [],
     activeKey: null,
@@ -65,6 +67,7 @@ const emit = defineEmits<{
       v-if="detailReaderOpen"
       class="feed-header-layer feed-header-layer--detail"
       :style="detailHeaderLayerStyle"
+      :aria-hidden="chromeInteractive ? undefined : 'true'"
     >
       <div v-if="detailTitle" class="detail-header-title" :style="detailHeaderTitleStyle">
         <span
@@ -84,7 +87,7 @@ const emit = defineEmits<{
       v-if="isFeedRoute"
       class="feed-header-layer feed-header-layer--tabs"
       :style="feedTabsLayerStyle"
-      :aria-hidden="detailReaderOpen || feedPullActive ? 'true' : undefined"
+      :aria-hidden="!chromeInteractive || detailReaderOpen || feedPullActive ? 'true' : undefined"
     >
       <div class="feed-tabs" role="tablist" aria-label="阅读视图">
         <button
@@ -95,7 +98,7 @@ const emit = defineEmits<{
           type="button"
           role="tab"
           :aria-selected="activeKey === tab.key"
-          :tabindex="detailReaderOpen || feedPullActive ? -1 : undefined"
+          :tabindex="!chromeInteractive || detailReaderOpen || feedPullActive ? -1 : undefined"
           @pointerdown.stop
           @click="emit('navigate', tab.path)"
         >

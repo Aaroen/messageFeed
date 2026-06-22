@@ -19,6 +19,7 @@ type FeedTab = {
 type AppTopChromeOutletStateOptions = {
   phase: ReadableRef<ChromePhase>
   progress: ReadableRef<number>
+  interactive: ReadableRef<boolean>
   rootClass: ReadableRef<ClassValue>
   rootStyle: ReadableRef<StyleValue>
   isFeedRoute: ReadableRef<boolean>
@@ -48,6 +49,7 @@ export type AppTopChromeOutletState = {
   chrome: {
     phase: ReadableRef<ChromePhase>
     progress: ReadableRef<number>
+    interactive: ReadableRef<boolean>
     rootClass: ReadableRef<ClassValue>
     rootStyle: ReadableRef<StyleValue>
   }
@@ -98,6 +100,7 @@ export function useAppTopChromeOutletState(
     chrome: {
       phase: options.phase,
       progress: options.progress,
+      interactive: options.interactive,
       rootClass: options.rootClass,
       rootStyle: options.rootStyle,
     },

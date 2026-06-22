@@ -70,6 +70,7 @@ export function useAppMainOutletBindings(options: AppMainOutletBindingOptions) {
         chrome: {
           phase: topChrome.chrome.phase.value,
           progress: topChrome.chrome.progress.value,
+          interactive: topChrome.chrome.interactive.value,
           rootClass: topChrome.chrome.rootClass.value,
           rootStyle: topChrome.chrome.rootStyle.value,
         },

@@ -469,6 +469,10 @@ const pageTitleLayerStyle = chromeRuntime.pageTitleLayerStyle
 const sourceMainLayerStyle = chromeRuntime.sourceMainLayerStyle
 const headerClass = chromeRuntime.headerClass
 const headerStyle = chromeRuntime.headerStyle
+const topChromeInteractive = computed(() => {
+  const style = headerStyle.value as Record<string, unknown> | undefined
+  return style?.pointerEvents === 'auto' && style?.visibility !== 'hidden'
+})
 const navOpenButtonStyle = chromeRuntime.navOpenButtonStyle
 const navOpenButtonInteractive = computed(() => {
   const style = navOpenButtonStyle.value as Record<string, unknown> | undefined
@@ -1050,6 +1054,7 @@ const mainOutletRuntime = useAppMainOutletRuntime({
   topChrome: {
     phase: topChromePhase,
     progress: feedHeaderProgress,
+    interactive: topChromeInteractive,
     rootClass: headerClass,
     rootStyle: headerStyle,
     isFeedRoute,
