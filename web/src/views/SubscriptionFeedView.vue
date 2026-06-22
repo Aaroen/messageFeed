@@ -964,6 +964,15 @@ watch(
 )
 
 watch(
+  () => props.backgroundRefresh,
+  (backgroundRefresh) => {
+    if (backgroundRefresh) {
+      clearPullState(true)
+    }
+  },
+)
+
+watch(
   [pullOffset, refreshing, lastUpdatedAt, () => props.active],
   () => {
     feedPullRefreshCompletion.syncPullState()

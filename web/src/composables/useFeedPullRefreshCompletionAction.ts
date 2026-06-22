@@ -61,7 +61,7 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
   }
 
   function canAccessPullState(force = false, ownerViewKey = options.viewKey.value) {
-    if (!options.usesGlobalPullState.value) {
+    if (!options.usesGlobalPullState.value && !force) {
       return false
     }
     if (!pullStateIsUnowned() && !ownsPullState(ownerViewKey)) {
