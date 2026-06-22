@@ -88,6 +88,16 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
     options.feedInteraction.resetPullState()
   }
 
+  function releasePullStateAfterRefresh() {
+    setPullState({
+      offset: 0,
+      active: false,
+      refreshing: false,
+      statusText: options.isSourceMode.value ? '抓取中' : '正在刷新',
+      statusMeta: options.pullStatusMeta.value,
+    })
+  }
+
   function completeLoad(payload: {
     isRefresh: boolean
     isBackgroundRefresh: boolean
@@ -111,8 +121,11 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
       statusMeta: options.pullStatusMeta.value,
     })
     options.pullRefresh.settleRefreshCompletion({
-      afterRelease: clearPullState,
-      afterSettled: payload.afterSettled,
+      afterRelease: releasePullStateAfterRefresh,
+      afterSettled: () => {
+        clearPullState()
+        payload.afterSettled?.()
+      },
     })
   }
 
