@@ -37,12 +37,16 @@ function nonOverlappingFeedRevealProgress(payload: {
 }
 
 export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptions) {
+  function topChromeProgress() {
+    return clampProgress(options.topChromeProgress.value)
+  }
+
   function restoreFeedTopChromeSpaceIfNeeded(current: number) {
     if (!options.isFeedRoute.value || options.detailReaderOpen.value || !options.feedContentCollapsed.value) {
       return false
     }
 
-    if (options.topChromeProgress.value <= 0.04) {
+    if (topChromeProgress() <= 0.04) {
       return false
     }
 
@@ -92,12 +96,13 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
       : options.isFeedRoute.value
         ? 8
         : options.feedHeaderHeight.value
-    if (delta > 0 && current >= hideThreshold && options.topChromeProgress.value > 0.01) {
+    const currentTopChromeProgress = topChromeProgress()
+    if (delta > 0 && current >= hideThreshold && currentTopChromeProgress > 0.01) {
       options.hideTopChromeForScroll()
       return
     }
 
-    if (delta < 0 && options.topChromeProgress.value < 0.99) {
+    if (delta < 0 && currentTopChromeProgress < 0.99) {
       if (options.isFeedRoute.value && !options.detailReaderOpen.value) {
         const headerHeight = options.feedHeaderHeight.value
         const revealDistance = Math.max(headerHeight * 2, 1)
@@ -110,7 +115,7 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
         })
         if (
           (progress >= 0.95 || current <= revealSettleDistance) &&
-          options.topChromeProgress.value < 0.99
+          currentTopChromeProgress < 0.99
         ) {
           if (options.feedContentCollapsed.value) {
             options.setTopChromeVisible(true)

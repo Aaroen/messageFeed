@@ -16,12 +16,13 @@ type ReaderLayoutStateOptions = {
 }
 
 export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
+  const topChromeProgress = computed(() => clampProgress(options.topChromeProgress.value))
   const sourceHeaderSpace = computed(() => {
     if (!options.feedContentCollapsed.value) {
       return options.feedHeaderHeight.value
     }
 
-    return options.feedHeaderHeight.value * clampProgress(options.topChromeProgress.value)
+    return options.feedHeaderHeight.value * topChromeProgress.value
   })
   const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
     const side = options.windowWidth.value <= 720 ? 24 : 46
@@ -35,7 +36,7 @@ export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
   })
   const detailSurfaceMargin = computed(() => (options.windowWidth.value <= 720 ? 10 : 14))
   const detailExpandedTop = computed(
-    () => (options.feedHeaderHeight.value + detailSurfaceMargin.value) * options.topChromeProgress.value,
+    () => (options.feedHeaderHeight.value + detailSurfaceMargin.value) * topChromeProgress.value,
   )
   const detailFrameMinHeight = computed(() =>
     Math.max(300, options.windowHeight.value - detailExpandedTop.value - detailSurfaceMargin.value - 96),
