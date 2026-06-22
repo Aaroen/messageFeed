@@ -33,7 +33,7 @@ export function useAppTopChromeActions(options: AppTopChromeActionsOptions) {
   }
 
   function hideTopChromeForScroll() {
-    options.setChromeVisible(false, { settleDelayMS: topChromeSettleDelay() })
+    options.setChromeCollapsedHidden({ settleDelayMS: topChromeSettleDelay() })
   }
 
   function showTopChromeOverlay() {
