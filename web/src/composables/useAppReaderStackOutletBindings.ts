@@ -104,7 +104,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       detailOpen: options.detailReaderOpen.value,
       detailStyle: options.detailReaderStyle.value,
       detailBackdropStyle: options.detailBackdropStyle.value,
-      sourceNotice: options.sourceNotice.value,
+      sourceNotice: sourceInteractive ? options.sourceNotice.value : null,
       topChromePhase: options.topChromePhase.value,
       topChromeProgress: options.topChromeProgress.value,
       sourceHeaderStyle: options.sourceHeaderStyle.value,
