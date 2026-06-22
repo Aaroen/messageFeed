@@ -434,6 +434,11 @@ const gesturePolicy = useAppGesturePolicy({
     sourceReaderOpen,
     isSubscriptionsRoute: () => route.name === 'subscriptions',
     detailBlocksGestures,
+    feedPullBusy: () =>
+      feedInteraction.pullActive ||
+      feedInteraction.pullRefreshing ||
+      feedInteraction.pullOffset > 1 ||
+      feedTopPulling.value,
   },
 })
 const isHorizontalSwipe = gesturePolicy.isHorizontalSwipe
