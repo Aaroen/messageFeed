@@ -65,6 +65,7 @@ withDefaults(
     v-if="sourceNameMorphMounted"
     class="detail-source-morph"
     :style="sourceNameMorphStyle"
+    aria-hidden="true"
   >
     {{ sourceNameMorphText }}
   </div>

@@ -32,7 +32,7 @@ withDefaults(
 </script>
 
 <template>
-  <article v-if="item && visible" class="reader-morph-text" :style="rootStyle">
+  <article v-if="item && visible" class="reader-morph-text" :style="rootStyle" aria-hidden="true">
     <div class="reader-morph-text__meta" :style="metaStyle">
       <span class="reader-morph-text__source-label" :style="sourceLabelStyle">
         {{ item.source_name || '未知来源' }}
