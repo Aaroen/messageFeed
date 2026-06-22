@@ -287,7 +287,6 @@ const feedRefreshCompletionRuntime = useAppFeedRefreshCompletionRuntime({
   sourceReaderUnderDetail,
   navigationVisible,
 })
-const refreshCompletion = feedRefreshCompletionRuntime.refreshCompletion
 const refreshStartedWithChrome = feedRefreshCompletionRuntime.refreshStartedWithChrome
 const feedRefreshSettling = feedRefreshCompletionRuntime.feedRefreshSettling
 const virtualBackGuard = useAppVirtualBackGuard({
@@ -555,6 +554,18 @@ const setTopChromeOverlayProgress = appTopChromeActions.setTopChromeOverlayProgr
 const collapseTopChrome = appTopChromeActions.collapseTopChrome
 const currentContentScrollTop = appTopChromeActions.currentContentScrollTop
 const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
+
+feedRefreshCompletionRuntime.installRefreshCompletionWatcher({
+  pullRefreshing: () => feedInteraction.pullRefreshing,
+  pullViewKey: () => feedInteraction.pullViewKey,
+  feedOrSourcePullActive,
+  topPull: feedTopPull,
+  settleDelayMS: () => motionDelay(topChromeSettleDuration),
+  settleSourceContentAfterRefresh: () => {
+    readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
+  },
+  collapseTopChrome,
+})
 
 const appInteractionTargetGuards = useAppInteractionTargetGuards()
 const isPageTopPullControlTarget = appInteractionTargetGuards.isPageTopPullControlTarget
@@ -1197,19 +1208,6 @@ useAppRuntimeEffects({
     },
     scheduleReaderSessionSave,
     scheduleReaderURLAndHistorySync,
-  },
-  feedRefreshCompletion: {
-    pullRefreshing: () => feedInteraction.pullRefreshing,
-    pullViewKey: () => feedInteraction.pullViewKey,
-    feedOrSourcePullActive,
-    refreshCompletion,
-    topPull: feedTopPull,
-    settleDelayMS: () => motionDelay(topChromeSettleDuration),
-    settleSourceContentAfterRefresh: () => {
-      readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
-    },
-    collapseTopChrome,
-    canApplyCompletionEffects: feedRefreshCompletionRuntime.canApplyCompletionEffects,
   },
   lifecycle: {
     loadReaderSettings,

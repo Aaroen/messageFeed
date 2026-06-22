@@ -1,4 +1,5 @@
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
+import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -39,6 +40,19 @@ export function useAppFeedRefreshCompletionRuntime(
     )
   }
 
+  function installRefreshCompletionWatcher(
+    watcherOptions: Omit<
+      Parameters<typeof useFeedRefreshCompletionWatcher>[0],
+      'refreshCompletion' | 'canApplyCompletionEffects'
+    >,
+  ) {
+    useFeedRefreshCompletionWatcher({
+      ...watcherOptions,
+      refreshCompletion,
+      canApplyCompletionEffects,
+    })
+  }
+
   return {
     refreshCompletion,
     refreshStartedWithChrome: refreshCompletion.startedWithChrome,
@@ -46,5 +60,6 @@ export function useAppFeedRefreshCompletionRuntime(
     recordRefreshStartedWithChrome: refreshCompletion.recordStartedWithChrome,
     resetRefreshCompletion: refreshCompletion.reset,
     canApplyCompletionEffects,
+    installRefreshCompletionWatcher,
   }
 }
