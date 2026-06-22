@@ -711,7 +711,7 @@ body[arco-theme='dark'] .app-header {
 .app-header h1 {
   margin: 0;
   color: var(--mf-text);
-  font-size: clamp(22px, 3vw, 30px);
+  font-size: 28px;
   font-weight: 760;
   line-height: 1.22;
 }
@@ -1502,7 +1502,7 @@ body[arco-theme='dark'] .reader-back-button {
 .reader-detail__surface h1 {
   margin: 0;
   color: var(--mf-text);
-  font-size: clamp(24px, 4vw, 34px);
+  font-size: 32px;
   line-height: 1.25;
 }
 
@@ -1983,10 +1983,18 @@ body[arco-theme='dark'] .empty-surface {
     padding: 16px 72px 12px;
   }
 
+  .app-header h1 {
+    font-size: 24px;
+  }
+
   .reader-overlay__header {
     min-height: var(--feed-header-height, 78px);
     max-height: var(--feed-header-height, 78px);
     padding: 16px 16px 12px;
+  }
+
+  .reader-detail__surface h1 {
+    font-size: 26px;
   }
 
   .feed-tabs {
