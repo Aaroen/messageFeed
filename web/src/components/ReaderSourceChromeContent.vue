@@ -35,7 +35,6 @@ const emit = defineEmits<{
   <div class="reader-overlay__source-stack">
     <div
       class="reader-source-layer"
-      :class="{ 'reader-source-layer--hidden': pullActive }"
       :style="mainLayerStyle"
     >
       <div class="reader-overlay__title" :style="titleLayerStyle">

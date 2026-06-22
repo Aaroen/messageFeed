@@ -122,7 +122,6 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
     />
     <RefreshStatusLayer
       root-class="reader-source-refresh-layer"
-      hidden-class="reader-source-layer--hidden"
       :hidden="!pullActive"
       :root-style="pullStatusStyle"
       :refreshing="pullRefreshing"

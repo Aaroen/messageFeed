@@ -635,12 +635,6 @@ body[arco-theme='dark'] .settings-icon-button--active {
   white-space: nowrap;
 }
 
-.feed-header-layer--hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(0, -6px, 0);
-}
-
 .feed-header-layer--tabs {
   justify-content: center;
   width: 100%;
@@ -1333,12 +1327,6 @@ body[arco-theme='dark'] .reader-back-button {
   gap: 12px;
   opacity: 1;
   transform: translate3d(0, 0, 0);
-}
-
-.reader-source-layer--hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(0, -8px, 0);
 }
 
 .reader-source-refresh-layer {

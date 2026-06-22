@@ -31,14 +31,12 @@ withDefaults(
   <div class="app-header-page-stack">
     <div
       class="feed-header-layer feed-header-layer--tabs"
-      :class="{ 'feed-header-layer--hidden': pagePullActive }"
       :style="pageTitleLayerStyle"
     >
       <h1>{{ pageTitle }}</h1>
     </div>
     <RefreshStatusLayer
       root-class="feed-header-layer feed-header-layer--refresh"
-      hidden-class="feed-header-layer--hidden"
       :hidden="!pagePullActive"
       :root-style="pagePullStatusStyle"
       :refreshing="pagePullRefreshing"

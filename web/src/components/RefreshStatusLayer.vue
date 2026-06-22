@@ -7,7 +7,6 @@ type ClassValue = string | Record<string, boolean> | Array<string | Record<strin
 withDefaults(
   defineProps<{
     rootClass?: ClassValue
-    hiddenClass?: string
     hidden?: boolean
     rootStyle?: StyleValue
     refreshing?: boolean
@@ -17,7 +16,6 @@ withDefaults(
   }>(),
   {
     rootClass: '',
-    hiddenClass: '',
     hidden: false,
     rootStyle: undefined,
     refreshing: false,
@@ -30,8 +28,9 @@ withDefaults(
 
 <template>
   <div
-    :class="[rootClass, hidden && hiddenClass ? hiddenClass : '']"
+    :class="rootClass"
     :style="rootStyle"
+    :aria-hidden="hidden ? 'true' : undefined"
     aria-live="polite"
   >
     <span

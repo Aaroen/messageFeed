@@ -70,7 +70,6 @@ const emit = defineEmits<{
     <div
       v-if="detailReaderOpen"
       class="feed-header-layer feed-header-layer--detail"
-      :class="{ 'feed-header-layer--hidden': !detailHeaderVisible }"
       :style="detailHeaderLayerStyle"
     >
       <div v-if="detailTitle" class="detail-header-title" :style="detailHeaderTitleStyle">
@@ -90,7 +89,6 @@ const emit = defineEmits<{
     <div
       v-if="isFeedRoute"
       class="feed-header-layer feed-header-layer--tabs"
-      :class="{ 'feed-header-layer--hidden': feedTabsLayerHidden }"
       :style="feedTabsLayerStyle"
     >
       <div class="feed-tabs" role="tablist" aria-label="阅读视图">
@@ -113,7 +111,6 @@ const emit = defineEmits<{
     <div
       v-if="isFeedRoute"
       class="feed-header-layer feed-header-layer--tabs feed-header-layer--view-target"
-      :class="{ 'feed-header-layer--hidden': !viewSwipeTargetVisible }"
       :style="feedTabsTargetLayerStyle"
       aria-hidden="true"
     >
@@ -133,7 +130,6 @@ const emit = defineEmits<{
     <RefreshStatusLayer
       v-if="isFeedRoute"
       root-class="feed-header-layer feed-header-layer--refresh"
-      hidden-class="feed-header-layer--hidden"
       :hidden="detailReaderOpen || !feedPullActive"
       :root-style="pullStatusStyle"
       :refreshing="pullRefreshing"
