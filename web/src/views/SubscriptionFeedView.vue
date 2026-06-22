@@ -750,8 +750,11 @@ function resetPullGesture(force = false) {
 }
 
 function cancelPullGesture(force = false) {
+  const shouldNotifyTopPullEnd = trackingPullCandidate.value || trackingPull.value
   resetPullGesture(force)
-  emit('top-pull-end', false)
+  if (shouldNotifyTopPullEnd) {
+    emit('top-pull-end', false)
+  }
 }
 
 function resetTransientLoadState(
@@ -783,7 +786,7 @@ function handleTouchStart(event: TouchEvent) {
     refreshing.value ||
     loadingMore.value
   ) {
-    pullRefresh.cancelGesture()
+    cancelPullGesture()
     return
   }
 
