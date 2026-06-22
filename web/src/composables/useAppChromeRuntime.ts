@@ -18,6 +18,8 @@ type AppChromeFeedPullActivityOptions = Omit<
   'getFeedPullActive' | 'getFeedPullRefreshing' | 'getFeedPullOffset' | 'getFeedPullViewKey'
 >
 type AppChromeFeedPullOptions = {
+  topPulling: ReadableRef<boolean>
+  topPullStartedWithChrome: ReadableRef<boolean>
   pullStatusText: ReadableRef<string>
   pullStatusMeta: ReadableRef<string>
   getPullActive: () => boolean
@@ -27,8 +29,11 @@ type AppChromeFeedPullOptions = {
 }
 type AppChromeFeedOptions = Omit<AppFeedChromeStateOptions, 'pullActivity' | 'layout' | 'shellMotion'> & {
   pullActivity: AppChromeFeedPullActivityOptions
-  layout: Omit<AppFeedChromeStateOptions['layout'], 'refreshStartedWithChrome'>
-  shellMotion: Omit<AppFeedChromeStateOptions['shellMotion'], 'feedRefreshSettling'>
+  layout: Omit<
+    AppFeedChromeStateOptions['layout'],
+    'refreshStartedWithChrome' | 'feedTopPullStartedWithChrome' | 'feedTopPulling'
+  >
+  shellMotion: Omit<AppFeedChromeStateOptions['shellMotion'], 'feedRefreshSettling' | 'feedTopPulling'>
 }
 
 type AppChromeRuntimeOptions = {
@@ -51,6 +56,7 @@ type AppChromeRuntimeOptions = {
     | 'detailHeaderVisible'
     | 'headerDetailLayoutActive'
     | 'feedRefreshSettling'
+    | 'feedTopPulling'
   > & {
     sourceReaderVisible: ReadableRef<boolean>
     sourceReaderUnderDetail: ReadableRef<boolean>
@@ -73,10 +79,13 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
     layout: {
       ...options.feed.layout,
       refreshStartedWithChrome: feedRefreshCompletion.refreshStartedWithChrome,
+      feedTopPullStartedWithChrome: options.feedPull.topPullStartedWithChrome,
+      feedTopPulling: options.feedPull.topPulling,
     },
     shellMotion: {
       ...options.feed.shellMotion,
       feedRefreshSettling: feedRefreshCompletion.feedRefreshSettling,
+      feedTopPulling: options.feedPull.topPulling,
     },
   })
   const topChromeActions = useAppTopChromeActions(options.topChromeActions)
@@ -113,7 +122,7 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
       feedHeaderHeight: feedChrome.feedHeaderHeight,
       feedChromeSettling: options.visual.feedChromeSettling,
       feedRefreshSettling: feedRefreshCompletion.feedRefreshSettling,
-      feedTopPulling: options.visual.feedTopPulling,
+      feedTopPulling: options.feedPull.topPulling,
       feedCornerHidden: feedChrome.feedCornerHidden,
       detailHeaderVisible: feedChrome.detailHeaderVisible,
       headerDetailLayoutActive: feedChrome.headerDetailLayoutActive,

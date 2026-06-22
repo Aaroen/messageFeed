@@ -1,15 +1,19 @@
-import { computed, type Ref } from 'vue'
+import { computed } from 'vue'
+
+type ReadableRef<T> = {
+  readonly value: T
+}
 
 type AppShellMotionOptions = {
-  feedHeaderHeight: Ref<number>
-  feedContentSpace: Ref<number>
-  detailSurfaceProgress: Ref<number>
-  feedRefreshSettling: Ref<boolean>
-  feedChromeSettling: Ref<boolean>
-  feedTopPulling: Ref<boolean>
-  readerBackDragging: Ref<boolean>
-  detailReaderOpen: Ref<boolean>
-  detailReturningToFeed: Ref<boolean>
+  feedHeaderHeight: ReadableRef<number>
+  feedContentSpace: ReadableRef<number>
+  detailSurfaceProgress: ReadableRef<number>
+  feedRefreshSettling: ReadableRef<boolean>
+  feedChromeSettling: ReadableRef<boolean>
+  feedTopPulling: ReadableRef<boolean>
+  readerBackDragging: ReadableRef<boolean>
+  detailReaderOpen: ReadableRef<boolean>
+  detailReturningToFeed: ReadableRef<boolean>
 }
 
 function cssNumber(value: number, precision = 2) {

@@ -217,8 +217,6 @@ const darkTheme = themeState.dark
 const toggleTheme = themeState.toggle
 const feedPullInteraction = useAppFeedPullInteractionRuntime()
 const feedTopPull = feedPullInteraction.topPull
-const feedTopPulling = feedPullInteraction.topPulling
-const feedTopPullStartedWithChrome = feedPullInteraction.topPullStartedWithChrome
 const finishFeedTopPull = feedPullInteraction.finishTopPull
 const homeBackGuard = useDoubleBackGuard(motionTimings.homeExitDoubleBackTimeout)
 const {
@@ -376,15 +374,12 @@ const chromeRuntime = useAppChromeRuntime({
       windowWidth,
       isFeedRoute,
       topChromeProgress,
-      feedTopPullStartedWithChrome,
-      feedTopPulling,
       feedContentCollapsed,
       detailFeedHeaderReturnProgress,
     },
     shellMotion: {
       detailSurfaceProgress,
       feedChromeSettling,
-      feedTopPulling,
       readerBackDragging,
       detailReaderOpen,
       detailReturningToFeed,
@@ -411,7 +406,6 @@ const chromeRuntime = useAppChromeRuntime({
     sourceReaderUnderDetail,
     topChromeProgress,
     feedChromeSettling,
-    feedTopPulling,
   },
   feedRefreshCompletion: {
     isFeedRoute,
@@ -895,7 +889,6 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
       topChromeProgress,
       feedPullActive,
       sourcePullActive: foregroundSourcePullActive,
-      feedTopPulling,
       feedChromeSettling,
       feedContentCollapsed,
       detailReaderOpen,
