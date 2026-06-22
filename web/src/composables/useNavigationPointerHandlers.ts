@@ -62,7 +62,6 @@ export function useNavigationPointerHandlers(options: NavigationPointerHandlersO
       edgeSwipe: options.canStartNavigationOpen(options.gestureOrigin.originX()),
       closeSwipe: options.navigationOpen.value,
     })
-    options.cancelViewSwipeCandidate()
     options.gestureOrigin.setActivePointerId(
       options.navigationGesture.hasCandidate() ? event.pointerId : null,
     )
@@ -77,11 +76,13 @@ export function useNavigationPointerHandlers(options: NavigationPointerHandlersO
 
     if (options.navigationGesture.edgeSwipeCandidate() && deltaX > 8 && options.isNavigationDrag(deltaX, deltaY)) {
       options.navigationGesture.beginEdgeSwipe()
+      options.cancelViewSwipeCandidate()
       options.navigationDrawer.beginDrag()
     }
 
     if (options.navigationGesture.closeSwipeCandidate() && deltaX < -8 && options.isNavigationDrag(deltaX, deltaY)) {
       options.navigationGesture.beginCloseSwipe()
+      options.cancelViewSwipeCandidate()
       options.navigationDrawer.beginDrag()
     }
 
