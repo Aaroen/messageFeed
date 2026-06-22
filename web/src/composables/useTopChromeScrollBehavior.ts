@@ -21,7 +21,7 @@ type TopChromeScrollBehaviorOptions = {
   setTopChromeOverlayProgress: (progress: number) => void
 }
 
-function nonOverlappingFeedRevealProgress(payload: {
+function safeGapFeedRevealProgress(payload: {
   progress: number
   scrollTop: number
   headerHeight: number
@@ -32,7 +32,7 @@ function nonOverlappingFeedRevealProgress(payload: {
     return payload.scrollTop <= topOffset ? payload.progress : 0
   }
 
-  const maxProgress = (payload.headerHeight + topOffset - payload.scrollTop) / payload.headerHeight
+  const maxProgress = (payload.headerHeight - payload.scrollTop) / payload.headerHeight
   return Math.min(payload.progress, clampProgress(maxProgress))
 }
 
@@ -107,7 +107,7 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
         const headerHeight = options.feedHeaderHeight.value
         const revealDistance = Math.max(headerHeight * 2, 1)
         const revealSettleDistance = feedContentTopOffset(headerHeight)
-        const progress = nonOverlappingFeedRevealProgress({
+        const progress = safeGapFeedRevealProgress({
           progress: clampProgress(1 - current / revealDistance),
           scrollTop: current,
           headerHeight,

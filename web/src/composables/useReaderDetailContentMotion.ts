@@ -1,5 +1,7 @@
 import { computed, type Ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type ReaderDetailContentMotionOptions = {
   surfaceProgress: Ref<number>
   sourceExitProgress: Ref<number>
@@ -7,13 +9,6 @@ type ReaderDetailContentMotionOptions = {
   frameContentHeight: Ref<number>
   dragging: Ref<boolean>
   committedListReturn: () => boolean
-}
-
-function clamp(value: number, min = 0, max = 1) {
-  if (!Number.isFinite(value)) {
-    return min
-  }
-  return Math.min(Math.max(value, min), max)
 }
 
 function cssNumber(value: number, precision = 2) {
@@ -30,12 +25,12 @@ function cssTranslate3d(x: number, y: number, z = 0) {
 
 export function useReaderDetailContentMotion(options: ReaderDetailContentMotionOptions) {
   const motionState = computed(() => {
-    const progress = options.surfaceProgress.value
-    const sourceExitProgress = options.sourceExitProgress.value
+    const progress = clampProgress(options.surfaceProgress.value)
+    const sourceExitProgress = clampProgress(options.sourceExitProgress.value)
     const committedListReturn = options.committedListReturn()
-    const opacity = sourceExitProgress > 0 ? 1 : clamp((progress - 0.56) / 0.22)
-    const bodyOpacity = sourceExitProgress > 0 ? clamp((0.72 - sourceExitProgress) / 0.32) : 1
-    const inlineMetaOpacity = sourceExitProgress > 0 ? clamp((0.24 - sourceExitProgress) / 0.18) : 1
+    const opacity = sourceExitProgress > 0 ? 1 : clampProgress((progress - 0.56) / 0.22)
+    const bodyOpacity = sourceExitProgress > 0 ? clampProgress((0.72 - sourceExitProgress) / 0.32) : 1
+    const inlineMetaOpacity = sourceExitProgress > 0 ? clampProgress((0.24 - sourceExitProgress) / 0.18) : 1
     const transitionsDisabled = options.dragging.value || committedListReturn
     return {
       progress,

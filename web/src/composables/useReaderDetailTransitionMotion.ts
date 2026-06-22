@@ -1,5 +1,6 @@
 import { computed, type Ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import type { RectSnapshot } from '@/composables/useReaderSession'
 
 type ReaderDetailTransitionMotionOptions = {
@@ -22,13 +23,6 @@ type ReaderDetailTransitionMotionOptions = {
   entrySettling: Ref<boolean>
   chromeSettling: Ref<boolean>
   committedListReturn: () => boolean
-}
-
-function clamp(value: number, min = 0, max = 1) {
-  if (!Number.isFinite(value)) {
-    return min
-  }
-  return Math.min(Math.max(value, min), max)
 }
 
 function cssNumber(value: number, precision = 2) {
@@ -70,14 +64,16 @@ function surfaceTransition(dragging: boolean, entrySettling: boolean, chromeSett
 export function useReaderDetailTransitionMotion(options: ReaderDetailTransitionMotionOptions) {
   const surfaceStyle = computed(() => {
     const origin = options.originRect.value
+    const backExitProgress = clampProgress(options.backExitProgress.value)
+    const sourceExitProgress = clampProgress(options.sourceExitProgress.value)
+    const progress = clampProgress(options.surfaceProgress.value)
     const sourceExiting =
       options.restoringFromSourceReader.value ||
-      (options.sourceExitProgress.value >= options.backExitProgress.value && options.sourceExitProgress.value > 0)
+      (sourceExitProgress >= backExitProgress && sourceExitProgress > 0)
     const collapsedTarget = sourceExiting
       ? options.sourceItemTargetRect.value ?? options.fallbackTargetRect.value
       : origin
-    const exitProgress = Math.max(options.backExitProgress.value, options.sourceExitProgress.value)
-    const progress = options.surfaceProgress.value
+    const exitProgress = Math.max(backExitProgress, sourceExitProgress)
     const surfaceMargin = options.surfaceMargin.value
     const expandedLeft = surfaceMargin
     const targetTop = options.expandedTop.value
@@ -85,7 +81,7 @@ export function useReaderDetailTransitionMotion(options: ReaderDetailTransitionM
     const targetHeight = Math.max(1, options.windowHeight.value - targetTop - surfaceMargin)
     const draggingToList =
       options.readerBackDragging.value &&
-      (options.backExitProgress.value > 0 || options.sourceExitProgress.value > 0) &&
+      (backExitProgress > 0 || sourceExitProgress > 0) &&
       !options.sourceReturnTargetPending.value
     const committedListReturn = options.committedListReturn()
     const suppressSourceReturnPreview = options.blockedBackSwipeActive.value
@@ -105,7 +101,7 @@ export function useReaderDetailTransitionMotion(options: ReaderDetailTransitionM
       return {
         width: cssPx(expandedWidth),
         height: cssPx(targetHeight),
-        opacity: suppressSourceReturnPreview ? '0' : clamp(opacity).toFixed(3),
+        opacity: suppressSourceReturnPreview ? '0' : clampProgress(opacity).toFixed(3),
         transform: cssTranslate3d(expandedLeft, targetTop + exitProgress * 18),
         transition,
         borderRadius: cssPx(16 - exitProgress * 4),
@@ -128,7 +124,7 @@ export function useReaderDetailTransitionMotion(options: ReaderDetailTransitionM
     return {
       width: cssPx(width),
       height: cssPx(height),
-      opacity: suppressSourceReturnPreview ? '0' : clamp(opacity).toFixed(3),
+      opacity: suppressSourceReturnPreview ? '0' : clampProgress(opacity).toFixed(3),
       transform: cssTranslate3d(x, y),
       borderRadius: cssPx(radius),
       transition,
