@@ -110,6 +110,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
     feedPullActive: boolean
     headerProgress: number
     targetProgress: number
+    dragging: boolean
   }) {
     return layerStyle(
       payload.visible && !payload.feedPullActive,
@@ -117,6 +118,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
       {
         shift: 0,
         scaleStart: 1,
+        disableTransition: payload.dragging,
         pointerEnabled: false,
       },
     )

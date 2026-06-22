@@ -531,6 +531,7 @@ const chromeVisualState = useAppChromeVisualState({
     readerBackDragging,
     detailBlocksGestures,
     feedHeaderProgress,
+    viewSwipeActive,
     viewSwipeTargetVisible,
     viewSwipeTargetProgress,
     sourcePullActive: foregroundSourcePullActive,
