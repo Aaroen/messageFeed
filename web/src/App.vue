@@ -371,10 +371,6 @@ const chromeRuntime = useAppChromeRuntime({
       pagePullRefreshing,
       pagePullOffset,
       sourceReaderOpen,
-      getFeedPullActive: feedPullInteraction.getPullActive,
-      getFeedPullRefreshing: feedPullInteraction.getPullRefreshing,
-      getFeedPullOffset: feedPullInteraction.getPullOffset,
-      getFeedPullViewKey: feedPullInteraction.getPullViewKey,
     },
     layout: {
       windowWidth,
@@ -401,12 +397,8 @@ const chromeRuntime = useAppChromeRuntime({
       detailChromeVisible,
     },
   },
-  feedPullStatus: {
-    pullStatusText: feedPullInteraction.pullStatusText,
-    pullStatusMeta: feedPullInteraction.pullStatusMeta,
-  },
+  feedPull: feedPullInteraction,
   visual: {
-    feedPullRefreshing: feedPullInteraction.getPullRefreshing,
     pagePullRefreshing,
     pagePullProgress,
     detailReaderOpen,

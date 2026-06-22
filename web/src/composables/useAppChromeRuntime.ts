@@ -13,20 +13,31 @@ type AppChromeVisualLayerOptions = Parameters<typeof useAppChromeVisualState>[0]
 type AppFeedChromeStateOptions = Parameters<typeof useAppFeedChromeState>[0]
 type AppFeedRefreshCompletionOptions = Parameters<typeof useAppFeedRefreshCompletionRuntime>[0]
 type AppTopChromeActionOptions = Parameters<typeof useAppTopChromeActions>[0]
-type AppChromeFeedOptions = Omit<AppFeedChromeStateOptions, 'layout' | 'shellMotion'> & {
+type AppChromeFeedPullActivityOptions = Omit<
+  AppFeedChromeStateOptions['pullActivity'],
+  'getFeedPullActive' | 'getFeedPullRefreshing' | 'getFeedPullOffset' | 'getFeedPullViewKey'
+>
+type AppChromeFeedPullOptions = {
+  pullStatusText: ReadableRef<string>
+  pullStatusMeta: ReadableRef<string>
+  getPullActive: () => boolean
+  getPullRefreshing: () => boolean
+  getPullOffset: () => number
+  getPullViewKey: () => string
+}
+type AppChromeFeedOptions = Omit<AppFeedChromeStateOptions, 'pullActivity' | 'layout' | 'shellMotion'> & {
+  pullActivity: AppChromeFeedPullActivityOptions
   layout: Omit<AppFeedChromeStateOptions['layout'], 'refreshStartedWithChrome'>
   shellMotion: Omit<AppFeedChromeStateOptions['shellMotion'], 'feedRefreshSettling'>
 }
 
 type AppChromeRuntimeOptions = {
   feed: AppChromeFeedOptions
-  feedPullStatus: {
-    pullStatusText: ReadableRef<string>
-    pullStatusMeta: ReadableRef<string>
-  }
+  feedPull: AppChromeFeedPullOptions
   feedRefreshCompletion: AppFeedRefreshCompletionOptions
   visual: Omit<
     AppChromeVisualLayerOptions,
+    | 'feedPullRefreshing'
     | 'feedPullActive'
     | 'pagePullActive'
     | 'pullProgress'
@@ -52,6 +63,13 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
   const feedRefreshCompletion = useAppFeedRefreshCompletionRuntime(options.feedRefreshCompletion)
   const feedChrome = useAppFeedChromeState({
     ...options.feed,
+    pullActivity: {
+      ...options.feed.pullActivity,
+      getFeedPullActive: options.feedPull.getPullActive,
+      getFeedPullRefreshing: options.feedPull.getPullRefreshing,
+      getFeedPullOffset: options.feedPull.getPullOffset,
+      getFeedPullViewKey: options.feedPull.getPullViewKey,
+    },
     layout: {
       ...options.feed.layout,
       refreshStartedWithChrome: feedRefreshCompletion.refreshStartedWithChrome,
@@ -69,12 +87,12 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
     () => feedChrome.sourcePullActive.value && sourceReaderInteractive.value,
   )
   const sourcePullRefreshing = computed(
-    () => foregroundSourcePullActive.value && options.visual.feedPullRefreshing(),
+    () => foregroundSourcePullActive.value && options.feedPull.getPullRefreshing(),
   )
   const chromeVisual = useAppChromeVisualState({
     layer: {
       feedPullActive: feedChrome.feedPullActive,
-      feedPullRefreshing: options.visual.feedPullRefreshing,
+      feedPullRefreshing: options.feedPull.getPullRefreshing,
       pullProgress: feedChrome.pullProgress,
       pagePullActive: feedChrome.pagePullActive,
       pagePullRefreshing: options.visual.pagePullRefreshing,
@@ -118,8 +136,8 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
     feedContentStyle: feedChrome.feedContentStyle,
     pageContentStyle: feedChrome.pageContentStyle,
     detailHeaderVisible: feedChrome.detailHeaderVisible,
-    pullStatusText: options.feedPullStatus.pullStatusText,
-    pullStatusMeta: options.feedPullStatus.pullStatusMeta,
+    pullStatusText: options.feedPull.pullStatusText,
+    pullStatusMeta: options.feedPull.pullStatusMeta,
     pullStatusStyle: chromeVisual.pullStatusStyle,
     pullIconStyle: chromeVisual.pullIconStyle,
     pagePullStatusStyle: chromeVisual.pagePullStatusStyle,
