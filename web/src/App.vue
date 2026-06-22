@@ -634,37 +634,15 @@ const readerMotionState = useAppReaderMotionState({
     metricsSettledDelay: detailFrameMetricsSettledDelay,
   },
 })
-const detailMorphTextStyle = readerMotionState.detailMorphTextStyle
-const detailMorphMetaStyle = readerMotionState.detailMorphMetaStyle
-const detailMorphTitleStyle = readerMotionState.detailMorphTitleStyle
-const detailMorphSummaryStyle = readerMotionState.detailMorphSummaryStyle
-const detailHeaderTitleStyle = readerMotionState.detailHeaderTitleStyle
-const detailHeaderCurrentTextStyle = readerMotionState.detailHeaderCurrentTextStyle
-const detailHeaderPreviousTextStyle = readerMotionState.detailHeaderPreviousTextStyle
-const detailMorphSourceLabelStyle = readerMotionState.detailMorphSourceLabelStyle
-const sourceTitleRevealVisible = readerMotionState.sourceTitleRevealVisible
-const sourceNameMorphStyle = readerMotionState.sourceNameMorphStyle
-const sourceTitleRevealStyle = readerMotionState.sourceTitleRevealStyle
-const detailPreviewSummary = readerMotionState.detailPreviewSummary
-const detailDisplayDate = readerMotionState.detailDisplayDate
 const detailFrameId = readerMotionState.detailFrameId
 const readerMorphVisibilityState = useAppReaderMorphVisibilityState({
   readerSource,
   sourceToggleActive,
-  sourceTitleRevealVisible,
-  sourceTitleRevealStyle,
+  readerMotion: readerMotionState,
   detailItem,
   sourceNameMorphVisible,
-  sourceNameMorphStyle,
   detailMorphTextVisible,
-  detailMorphTextStyle,
-  detailMorphMetaStyle,
-  detailMorphTitleStyle,
-  detailMorphSummaryStyle,
-  detailMorphSourceLabelStyle,
-  detailDisplayDate,
   detailMorphSummaryVisible,
-  detailPreviewSummary,
 })
 const readerDetailHeaderState = useAppReaderDetailHeaderState({
   chromeVisible: detailChromeVisible,
@@ -672,10 +650,8 @@ const readerDetailHeaderState = useAppReaderDetailHeaderState({
   visible: detailHeaderVisible,
   layerStyle: detailHeaderLayerStyle,
   item: detailItem,
-  titleStyle: detailHeaderTitleStyle,
+  readerMotion: readerMotionState,
   previousTitle: detailHeaderPreviousTitle,
-  previousTextStyle: detailHeaderPreviousTextStyle,
-  currentTextStyle: detailHeaderCurrentTextStyle,
 })
 
 const {

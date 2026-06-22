@@ -87,3 +87,5 @@ export function useAppReaderMotionState(options: AppReaderMotionStateOptions) {
     detailSrcdoc: detailFrame.srcdoc,
   }
 }
+
+export type AppReaderMotionState = ReturnType<typeof useAppReaderMotionState>

@@ -3,7 +3,7 @@ import type { StyleValue } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
 import type { AppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
-import type { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
+import type { AppReaderMotionState } from '@/composables/useAppReaderMotionState'
 import type { ChromePhase } from '@/composables/useChromeState'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
 
@@ -15,8 +15,6 @@ type SourceNotice = {
   type: 'running' | 'success' | 'warning'
   message: string
 }
-
-type AppReaderMotionState = ReturnType<typeof useAppReaderMotionState>
 
 type AppReaderStackOutletBindingOptions = {
   sourceReaderMounted: ReadableRef<boolean>

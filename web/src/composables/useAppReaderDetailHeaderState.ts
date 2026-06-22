@@ -2,6 +2,7 @@ import { computed } from 'vue'
 import type { StyleValue } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
+import type { AppReaderMotionState } from '@/composables/useAppReaderMotionState'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -13,10 +14,8 @@ type AppReaderDetailHeaderStateOptions = {
   visible: ReadableRef<boolean>
   layerStyle: ReadableRef<StyleValue>
   item: ReadableRef<FeedItem | null>
-  titleStyle: ReadableRef<StyleValue>
+  readerMotion: AppReaderMotionState
   previousTitle: ReadableRef<string>
-  previousTextStyle: ReadableRef<StyleValue>
-  currentTextStyle: ReadableRef<StyleValue>
 }
 
 export type AppReaderDetailHeaderState = {
@@ -34,6 +33,7 @@ export type AppReaderDetailHeaderState = {
 export function useAppReaderDetailHeaderState(
   options: AppReaderDetailHeaderStateOptions,
 ): AppReaderDetailHeaderState {
+  const readerMotion = options.readerMotion
   const title = computed(() => options.item.value?.title || '')
 
   return {
@@ -42,9 +42,9 @@ export function useAppReaderDetailHeaderState(
     visible: options.visible,
     layerStyle: options.layerStyle,
     title,
-    titleStyle: options.titleStyle,
+    titleStyle: readerMotion.detailHeaderTitleStyle,
     previousTitle: options.previousTitle,
-    previousTextStyle: options.previousTextStyle,
-    currentTextStyle: options.currentTextStyle,
+    previousTextStyle: readerMotion.detailHeaderPreviousTextStyle,
+    currentTextStyle: readerMotion.detailHeaderCurrentTextStyle,
   }
 }
