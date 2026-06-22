@@ -100,7 +100,11 @@ export function useAppChromeLayerState(options: AppChromeLayerStateOptions) {
     'app-header--detail': options.headerDetailLayoutActive.value,
   }))
   const headerStyle = computed(() =>
-    chromeLayerMotion.headerStyle(options.feedHeaderProgress.value, options.feedHeaderHeight.value),
+    chromeLayerMotion.headerStyle(
+      options.feedHeaderProgress.value,
+      options.feedHeaderHeight.value,
+      options.feedPullActive.value || options.pagePullActive.value,
+    ),
   )
   const navOpenButtonStyle = computed(() =>
     chromeLayerMotion.navOpenButtonStyle(

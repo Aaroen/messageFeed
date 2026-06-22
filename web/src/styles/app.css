@@ -13,6 +13,7 @@
   --mf-amber: #b7791f;
   --mf-panel-shadow: 0 24px 80px rgba(27, 43, 68, 0.22);
   --mf-header-bg: linear-gradient(180deg, rgba(246, 248, 251, 0.92), rgba(246, 248, 251, 0.64)), transparent;
+  --mf-header-refresh-bg: linear-gradient(180deg, rgba(246, 248, 251, 0.96), rgba(246, 248, 251, 0.74)), transparent;
   --mf-header-shadow: 0 12px 32px rgba(31, 45, 61, 0.08);
   --mf-viewport-height: 100vh;
   --motion-micro: 90ms;
@@ -58,6 +59,7 @@ body[arco-theme='dark'] {
   --mf-amber: #f7c948;
   --mf-panel-shadow: 0 24px 90px rgba(0, 0, 0, 0.42);
   --mf-header-bg: linear-gradient(180deg, rgba(16, 23, 34, 0.94), rgba(16, 23, 34, 0.7)), transparent;
+  --mf-header-refresh-bg: linear-gradient(180deg, rgba(16, 23, 34, 0.96), rgba(16, 23, 34, 0.74)), transparent;
   --mf-header-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
 }
 
@@ -850,18 +852,6 @@ body[arco-theme='dark'] .feed-tab--active {
   margin-bottom: 12px;
   color: var(--mf-text-muted);
   font-size: 13px;
-}
-
-.app-main--refreshing .app-header {
-  background:
-    linear-gradient(180deg, rgba(246, 248, 251, 0.96), rgba(246, 248, 251, 0.74)),
-    transparent;
-}
-
-body[arco-theme='dark'] .app-main--refreshing .app-header {
-  background:
-    linear-gradient(180deg, rgba(16, 23, 34, 0.96), rgba(16, 23, 34, 0.74)),
-    transparent;
 }
 
 .feed-refresh-button,

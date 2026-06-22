@@ -37,9 +37,10 @@ function finiteNumber(value: number) {
 }
 
 export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
-  function headerStyle(progress: number, headerHeight: number) {
+  function headerStyle(progress: number, headerHeight: number, refreshing = false) {
     const safeProgress = finiteNumber(progress)
     return {
+      background: refreshing ? 'var(--mf-header-refresh-bg)' : undefined,
       opacity: safeProgress.toFixed(3),
       pointerEvents: safeProgress > 0.86 ? ('auto' as const) : ('none' as const),
       transform: cssTranslate3d(0, (safeProgress - 1) * headerHeight),

@@ -526,8 +526,6 @@ const chromeVisualState = useAppChromeVisualState({
   },
   mainClass: {
     isFeedRoute,
-    feedPullActive,
-    pagePullActive,
     detailChromeVisible,
   },
 })
