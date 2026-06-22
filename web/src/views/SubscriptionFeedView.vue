@@ -505,6 +505,17 @@ async function refreshSubscriptionSources() {
   }
 }
 
+function completeBlockedForegroundRefresh() {
+  if (!pullActive.value || refreshing.value) {
+    return
+  }
+
+  feedPullRefreshCompletion.completeLoad({
+    isRefresh: true,
+    isBackgroundRefresh: false,
+  })
+}
+
 async function loadItems(options: { refresh?: boolean; append?: boolean; background?: boolean } = {}) {
   const isRefresh = Boolean(options.refresh)
   const isAppend = Boolean(options.append)
@@ -517,6 +528,9 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     (isBackgroundRefresh && backgroundRefreshing.value) ||
     (isAppend && !canLoadMore.value)
   ) {
+    if (isRefresh && !isBackgroundRefresh) {
+      completeBlockedForegroundRefresh()
+    }
     return
   }
   const requestViewKey = viewKey.value
