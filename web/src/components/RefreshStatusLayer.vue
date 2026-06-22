@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { StyleValue } from 'vue'
 import { IconSync } from '@arco-design/web-vue/es/icon'
 
+import { chromeStyleIsVisible } from '@/composables/chromeStyleInteractivity'
+
 type ClassValue = string | Record<string, boolean> | Array<string | Record<string, boolean>>
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     rootClass?: ClassValue
     hidden?: boolean
@@ -24,15 +27,17 @@ withDefaults(
     meta: '',
   },
 )
+
+const semanticHidden = computed(() => props.hidden || !chromeStyleIsVisible(props.rootStyle))
 </script>
 
 <template>
   <div
     :class="rootClass"
     :style="rootStyle"
-    :aria-hidden="hidden ? 'true' : undefined"
-    :aria-live="hidden ? 'off' : 'polite'"
-    :role="hidden ? undefined : 'status'"
+    :aria-hidden="semanticHidden ? 'true' : undefined"
+    :aria-live="semanticHidden ? 'off' : 'polite'"
+    :role="semanticHidden ? undefined : 'status'"
   >
     <span
       class="feed-refresh-header__icon"
