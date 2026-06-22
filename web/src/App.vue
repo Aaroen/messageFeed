@@ -32,7 +32,7 @@ import { useAppRoutePageRuntime } from '@/composables/useAppRoutePageRuntime'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useAppNavigationRuntime } from '@/composables/useAppNavigationRuntime'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
-import { useAppFeedChromeState } from '@/composables/useAppFeedChromeState'
+import { useAppChromeRuntime } from '@/composables/useAppChromeRuntime'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
 import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
@@ -50,7 +50,6 @@ import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitio
 import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 import { useAppFeedChromeInteractions } from '@/composables/useAppFeedChromeInteractions'
-import { useAppChromeVisualState } from '@/composables/useAppChromeVisualState'
 import { useAppPointerGestureInteractions } from '@/composables/useAppPointerGestureInteractions'
 import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwipeInteractions'
 import { useAppSwipeGestureRuntime } from '@/composables/useAppSwipeGestureRuntime'
@@ -385,116 +384,98 @@ const {
     feedInteraction.pullOffset > 1 ||
     feedTopPulling.value,
 })
-const feedChromeState = useAppFeedChromeState({
-  pullActivity: {
-    isFeedRoute,
-    pagePullRefreshing,
-    pagePullOffset,
-    sourceReaderOpen,
-    getFeedPullActive: () => feedInteraction.pullActive,
-    getFeedPullRefreshing: () => feedInteraction.pullRefreshing,
-    getFeedPullOffset: () => feedInteraction.pullOffset,
-    getFeedPullViewKey: () => feedInteraction.pullViewKey,
+const chromeRuntime = useAppChromeRuntime({
+  feed: {
+    pullActivity: {
+      isFeedRoute,
+      pagePullRefreshing,
+      pagePullOffset,
+      sourceReaderOpen,
+      getFeedPullActive: () => feedInteraction.pullActive,
+      getFeedPullRefreshing: () => feedInteraction.pullRefreshing,
+      getFeedPullOffset: () => feedInteraction.pullOffset,
+      getFeedPullViewKey: () => feedInteraction.pullViewKey,
+    },
+    layout: {
+      windowWidth,
+      isFeedRoute,
+      topChromeProgress,
+      feedTopPullStartedWithChrome,
+      refreshStartedWithChrome,
+      feedTopPulling,
+      feedContentCollapsed,
+      detailFeedHeaderReturnProgress,
+    },
+    shellMotion: {
+      detailSurfaceProgress,
+      feedRefreshSettling,
+      feedChromeSettling,
+      feedTopPulling,
+      readerBackDragging,
+      detailReaderOpen,
+      detailReturningToFeed,
+    },
+    visibility: {
+      isFeedRoute,
+      topChromeProgress,
+      detailReaderOpen,
+      sourceReaderOpen,
+      detailChromeVisible,
+    },
   },
-  layout: {
-    windowWidth,
-    isFeedRoute,
-    topChromeProgress,
-    feedTopPullStartedWithChrome,
-    refreshStartedWithChrome,
-    feedTopPulling,
-    feedContentCollapsed,
-    detailFeedHeaderReturnProgress,
-  },
-  shellMotion: {
-    detailSurfaceProgress,
-    feedRefreshSettling,
-    feedChromeSettling,
-    feedTopPulling,
-    readerBackDragging,
-    detailReaderOpen,
-    detailReturningToFeed,
-  },
-  visibility: {
-    isFeedRoute,
-    topChromeProgress,
-    detailReaderOpen,
-    sourceReaderOpen,
-    detailChromeVisible,
-  },
-})
-const feedPullActive = feedChromeState.feedPullActive
-const pagePullActive = feedChromeState.pagePullActive
-const sourcePullActive = feedChromeState.sourcePullActive
-const sourceReaderInteractive = computed(
-  () => sourceReaderVisible.value && !sourceReaderUnderDetail.value,
-)
-const foregroundSourcePullActive = computed(
-  () => sourcePullActive.value && sourceReaderInteractive.value,
-)
-const sourcePullRefreshing = computed(() => foregroundSourcePullActive.value && feedInteraction.pullRefreshing)
-const feedOrSourcePullActive = feedChromeState.feedOrSourcePullActive
-const pullProgress = feedChromeState.pullProgress
-const sourcePullProgress = feedChromeState.sourcePullProgress
-const feedHeaderHeight = feedChromeState.feedHeaderHeight
-const feedHeaderProgress = feedChromeState.feedHeaderProgress
-const freezeFeedBodyDuringTopRefresh = feedChromeState.freezeFeedBodyDuringTopRefresh
-const feedHeaderReturnProgress = feedChromeState.feedHeaderReturnProgress
-const mainStyle = feedChromeState.mainStyle
-const feedContentStyle = feedChromeState.feedContentStyle
-const pageContentStyle = feedChromeState.pageContentStyle
-const feedCornerHidden = feedChromeState.feedCornerHidden
-const detailHeaderVisible = feedChromeState.detailHeaderVisible
-const headerDetailLayoutActive = feedChromeState.headerDetailLayoutActive
-const { statusText: pullStatusText, statusMeta: pullStatusMeta } = storeToRefs(feedInteraction)
-const chromeVisualState = useAppChromeVisualState({
-  layer: {
-    feedPullActive,
+  visual: {
     feedPullRefreshing: () => feedInteraction.pullRefreshing,
-    pullProgress,
-    pagePullActive,
     pagePullRefreshing,
     pagePullProgress,
     detailReaderOpen,
-    feedHeaderReturnProgress,
     readerBackDragging,
     detailBlocksGestures,
-    feedHeaderProgress,
     viewSwipeActive,
     viewSwipeTargetVisible,
     viewSwipeTargetProgress,
-    sourcePullActive: foregroundSourcePullActive,
-    sourcePullRefreshing: () => sourcePullRefreshing.value,
-    sourcePullProgress,
+    sourceReaderVisible,
+    sourceReaderUnderDetail,
     topChromeProgress,
-    feedHeaderHeight,
     feedChromeSettling,
     feedRefreshSettling,
     feedTopPulling,
-    feedCornerHidden,
-    detailHeaderVisible,
-    headerDetailLayoutActive,
   },
   mainClass: {
     isFeedRoute,
   },
 })
-const pullStatusStyle = chromeVisualState.pullStatusStyle
-const pullIconStyle = chromeVisualState.pullIconStyle
-const pagePullStatusStyle = chromeVisualState.pagePullStatusStyle
-const pagePullIconStyle = chromeVisualState.pagePullIconStyle
-const feedTabsLayerStyle = chromeVisualState.feedTabsLayerStyle
-const feedTabsTargetLayerStyle = chromeVisualState.feedTabsTargetLayerStyle
-const sourcePullStatusStyle = chromeVisualState.sourcePullStatusStyle
-const sourcePullIconStyle = chromeVisualState.sourcePullIconStyle
-const sourceHeaderStyle = chromeVisualState.sourceHeaderStyle
-const detailHeaderLayerStyle = chromeVisualState.detailHeaderLayerStyle
-const pageTitleLayerStyle = chromeVisualState.pageTitleLayerStyle
-const sourceMainLayerStyle = chromeVisualState.sourceMainLayerStyle
-const headerClass = chromeVisualState.headerClass
-const headerStyle = chromeVisualState.headerStyle
-const navOpenButtonStyle = chromeVisualState.navOpenButtonStyle
-const mainClass = chromeVisualState.mainClass
+const feedPullActive = chromeRuntime.feedPullActive
+const pagePullActive = chromeRuntime.pagePullActive
+const foregroundSourcePullActive = chromeRuntime.foregroundSourcePullActive
+const sourcePullRefreshing = chromeRuntime.sourcePullRefreshing
+const feedOrSourcePullActive = chromeRuntime.feedOrSourcePullActive
+const pullProgress = chromeRuntime.pullProgress
+const sourcePullProgress = chromeRuntime.sourcePullProgress
+const feedHeaderHeight = chromeRuntime.feedHeaderHeight
+const feedHeaderProgress = chromeRuntime.feedHeaderProgress
+const freezeFeedBodyDuringTopRefresh = chromeRuntime.freezeFeedBodyDuringTopRefresh
+const feedHeaderReturnProgress = chromeRuntime.feedHeaderReturnProgress
+const mainStyle = chromeRuntime.mainStyle
+const feedContentStyle = chromeRuntime.feedContentStyle
+const pageContentStyle = chromeRuntime.pageContentStyle
+const detailHeaderVisible = chromeRuntime.detailHeaderVisible
+const { statusText: pullStatusText, statusMeta: pullStatusMeta } = storeToRefs(feedInteraction)
+const pullStatusStyle = chromeRuntime.pullStatusStyle
+const pullIconStyle = chromeRuntime.pullIconStyle
+const pagePullStatusStyle = chromeRuntime.pagePullStatusStyle
+const pagePullIconStyle = chromeRuntime.pagePullIconStyle
+const feedTabsLayerStyle = chromeRuntime.feedTabsLayerStyle
+const feedTabsTargetLayerStyle = chromeRuntime.feedTabsTargetLayerStyle
+const sourcePullStatusStyle = chromeRuntime.sourcePullStatusStyle
+const sourcePullIconStyle = chromeRuntime.sourcePullIconStyle
+const sourceHeaderStyle = chromeRuntime.sourceHeaderStyle
+const detailHeaderLayerStyle = chromeRuntime.detailHeaderLayerStyle
+const pageTitleLayerStyle = chromeRuntime.pageTitleLayerStyle
+const sourceMainLayerStyle = chromeRuntime.sourceMainLayerStyle
+const headerClass = chromeRuntime.headerClass
+const headerStyle = chromeRuntime.headerStyle
+const navOpenButtonStyle = chromeRuntime.navOpenButtonStyle
+const mainClass = chromeRuntime.mainClass
 const readerPresentationRuntime = useAppReaderPresentationRuntime({
   readerStack: readerStackRuntime,
   viewport: {
