@@ -381,6 +381,15 @@ const virtualBackGuard = useAppVirtualBackGuard({
   canHandleNavigation: routeRuntime.canHandleNavigation,
   onBackConsumed: () => {
     scheduleReaderSessionSave()
+    if (
+      !isFeedRoute.value &&
+      !navigationVisible.value &&
+      !sourceReaderOpen.value &&
+      !detailReaderOpen.value &&
+      !hasParkedDetailSourceState()
+    ) {
+      return
+    }
     scheduleReaderURLAndHistorySync(true)
   },
 })
