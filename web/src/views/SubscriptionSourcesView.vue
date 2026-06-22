@@ -179,7 +179,9 @@ async function loadSources(options: { silent?: boolean; notify?: boolean; token?
   }
 }
 
-async function loadCatalog(options: { silent?: boolean; notify?: boolean; token?: number } = {}) {
+async function loadCatalog(
+  options: { silent?: boolean; notify?: boolean; token?: number; failurePrefix?: string } = {},
+) {
   if (!options.silent) {
     catalogLoading.value = true
   }
@@ -191,7 +193,10 @@ async function loadCatalog(options: { silent?: boolean; notify?: boolean; token?
     catalog.value = result.entries
   } catch (err) {
     if (pageRequestIsCurrent(options.token) && options.notify !== false) {
-      showNotice('warning', `刷新失败：推荐源目录加载失败。详细原因：${formatAPIError(err)}`)
+      showNotice(
+        'warning',
+        `${options.failurePrefix ?? '刷新失败'}：推荐源目录加载失败。详细原因：${formatAPIError(err)}`,
+      )
     }
     throw err
   } finally {
@@ -440,6 +445,19 @@ function catalogToggleLabel(entry: SourceCatalogEntry) {
   return catalogStatus(entry) === 'active' ? '关闭' : '开启'
 }
 
+function catalogHealthLabel(status: SourceCatalogEntry['health_status']) {
+  if (status === 'healthy') {
+    return '健康'
+  }
+  if (status === 'degraded') {
+    return '不稳定'
+  }
+  if (status === 'unreachable') {
+    return '不可达'
+  }
+  return '未知'
+}
+
 function openCatalogSource(entry: SourceCatalogEntry) {
   const source = sourceForCatalog(entry)
   const subscribed = catalogStatus(entry) === 'active' && Boolean(source || entry.source_id)
@@ -575,7 +593,12 @@ defineExpose({ refreshPage })
     <div class="sources-toolbar">
       <div class="sources-toolbar__group">
         <input v-model="catalogQuery" class="sources-input" type="search" placeholder="搜索订阅源" />
-        <button class="sources-button" type="button" :disabled="pageBusy" @click="() => loadCatalog()">
+        <button
+          class="sources-button"
+          type="button"
+          :disabled="pageBusy"
+          @click="() => loadCatalog({ failurePrefix: '搜索失败' })"
+        >
           <IconSearch />
           <span>搜索</span>
         </button>
@@ -597,7 +620,9 @@ defineExpose({ refreshPage })
         >
           <div>
             <div class="source-row__title">{{ entry.name }}</div>
-            <div class="source-row__meta">{{ entry.category }} · {{ entry.health_status }}</div>
+            <div class="source-row__meta">
+              {{ entry.category }} · {{ catalogHealthLabel(entry.health_status) }}
+            </div>
             <div class="source-row__meta">{{ entry.feed_url }}</div>
           </div>
           <div class="source-row__actions">
