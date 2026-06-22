@@ -472,6 +472,7 @@ const topChromeActions = chromeRuntime.topChromeActions
 const setTopChromeVisible = topChromeActions.setTopChromeVisible
 const hideTopChromeForScroll = topChromeActions.hideTopChromeForScroll
 const showTopChromeOverlay = topChromeActions.showTopChromeOverlay
+const hideTopChromeOverlay = topChromeActions.hideTopChromeOverlay
 const setTopChromeOverlayProgress = topChromeActions.setTopChromeOverlayProgress
 const collapseTopChrome = topChromeActions.collapseTopChrome
 const currentContentScrollTop = topChromeActions.currentContentScrollTop
@@ -729,6 +730,7 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
     markStartedWithHiddenChrome: feedPagerTransition.markStartedWithHiddenChrome,
     beginTopChromeGestureReturn: chromeState.beginGestureReturn,
     setTopChromeVisible,
+    hideTopChromeOverlay,
     pushRoute,
     topChromeGestureSettleDelayMS: motionDelay(topChromeSettleDuration),
   },

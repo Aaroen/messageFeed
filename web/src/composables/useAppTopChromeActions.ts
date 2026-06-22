@@ -43,6 +43,13 @@ export function useAppTopChromeActions(options: AppTopChromeActionsOptions) {
     })
   }
 
+  function hideTopChromeOverlay() {
+    options.setChromeVisible(false, {
+      settleDelayMS: topChromeSettleDelay(),
+      preserveContentCollapsed: true,
+    })
+  }
+
   function setTopChromeOverlayProgress(progress: number) {
     options.setChromeOverlayProgress(progress)
   }
@@ -71,6 +78,7 @@ export function useAppTopChromeActions(options: AppTopChromeActionsOptions) {
     setTopChromeVisible,
     hideTopChromeForScroll,
     showTopChromeOverlay,
+    hideTopChromeOverlay,
     setTopChromeOverlayProgress,
     collapseTopChrome,
     currentContentScrollTop,

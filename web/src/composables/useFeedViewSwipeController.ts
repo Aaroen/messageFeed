@@ -48,6 +48,7 @@ type FeedViewSwipeControllerOptions<TSurface extends string> = {
     preserveContentCollapsed?: boolean
   }) => void
   setTopChromeVisible: (visible: boolean) => void
+  hideTopChromeOverlay: () => void
   pushRoute: (path: string) => Promise<unknown> | void
   topChromeGestureSettleDelayMS: number
 }
@@ -72,7 +73,11 @@ export function useFeedViewSwipeController<TSurface extends string>(
     options.settleSwipeTransition(result.committed, result.settlePayload)
 
     if (result.startedWithHiddenChrome) {
-      options.setTopChromeVisible(!options.feedContentCollapsed.value)
+      if (options.feedContentCollapsed.value) {
+        options.hideTopChromeOverlay()
+      } else {
+        options.setTopChromeVisible(true)
+      }
     }
 
     if (nextPath) {
