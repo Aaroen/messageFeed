@@ -29,10 +29,10 @@ withDefaults(
 )
 
 const emit = defineEmits<{
-  topPullStart: [startedWithVisibleChrome: boolean]
-  topPullMove: [distance: number]
-  topPullEnd: [shouldRefresh: boolean]
-  openItem: [item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect]
+  'top-pull-start': [startedWithVisibleChrome: boolean]
+  'top-pull-move': [distance: number]
+  'top-pull-end': [shouldRefresh: boolean]
+  'open-item': [item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect]
 }>()
 </script>
 
@@ -52,9 +52,9 @@ const emit = defineEmits<{
     :morphing-item-height="morphingItemHeight"
     :morphing-preview-progress="morphingPreviewProgress"
     :background-refresh="backgroundRefresh"
-    @top-pull-start="(startedWithVisibleChrome) => emit('topPullStart', startedWithVisibleChrome)"
-    @top-pull-move="(distance) => emit('topPullMove', distance)"
-    @top-pull-end="(shouldRefresh) => emit('topPullEnd', shouldRefresh)"
-    @open-item="(item, sourceKind, originRect) => emit('openItem', item, sourceKind, originRect)"
+    @top-pull-start="(startedWithVisibleChrome) => emit('top-pull-start', startedWithVisibleChrome)"
+    @top-pull-move="(distance) => emit('top-pull-move', distance)"
+    @top-pull-end="(shouldRefresh) => emit('top-pull-end', shouldRefresh)"
+    @open-item="(item, sourceKind, originRect) => emit('open-item', item, sourceKind, originRect)"
   />
 </template>
