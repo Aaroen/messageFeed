@@ -101,6 +101,7 @@ export function useFeedPointerSwipeHandlers(options: FeedPointerSwipeHandlersOpt
 
     const dragUpdate = options.feedPagerTransition.updateDragDelta(deltaX, { resetBlockedDirection: true })
     if (dragUpdate.blocked) {
+      options.syncViewSwipeTransition(options.viewDragOffset.value)
       return
     }
 
