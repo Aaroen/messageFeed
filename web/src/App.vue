@@ -31,7 +31,6 @@ import { useAppRoutePageRuntime } from '@/composables/useAppRoutePageRuntime'
 import { useAppNavigationRuntime } from '@/composables/useAppNavigationRuntime'
 import { useAppChromeRuntime } from '@/composables/useAppChromeRuntime'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
-import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
 import { useAppShellRuntime } from '@/composables/useAppShellRuntime'
 import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
 import { useAppReaderSessionRuntime } from '@/composables/useAppReaderSessionRuntime'
@@ -550,9 +549,6 @@ const {
 const navigationOpenDistance = 72
 const viewSwitchDistance = 62
 
-const appInteractionTargetGuards = useAppInteractionTargetGuards()
-const isPageTopPullControlTarget = appInteractionTargetGuards.isPageTopPullControlTarget
-
 const {
   handleClickCapture,
   suppressFollowingClick,
@@ -1049,7 +1045,6 @@ const pagePullInteractions = routePageRuntime.installPagePullInteractions({
   clearCurrentPageNotice: pageOutlet.clearCurrentNotice,
   hasRefreshPage: pageOutlet.hasRefreshPage,
   currentContentScrollTop,
-  isControlTarget: isPageTopPullControlTarget,
   shouldCancelTopPull,
   shouldWaitForTopPull,
   setTopChromeVisible,
