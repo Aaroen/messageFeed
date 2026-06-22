@@ -31,7 +31,8 @@ withDefaults(
     :class="rootClass"
     :style="rootStyle"
     :aria-hidden="hidden ? 'true' : undefined"
-    aria-live="polite"
+    :aria-live="hidden ? 'off' : 'polite'"
+    :role="hidden ? undefined : 'status'"
   >
     <span
       class="feed-refresh-header__icon"

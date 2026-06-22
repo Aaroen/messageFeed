@@ -32,6 +32,7 @@ withDefaults(
     <div
       class="feed-header-layer feed-header-layer--tabs"
       :style="pageTitleLayerStyle"
+      :aria-hidden="pagePullActive ? 'true' : undefined"
     >
       <h1>{{ pageTitle }}</h1>
     </div>

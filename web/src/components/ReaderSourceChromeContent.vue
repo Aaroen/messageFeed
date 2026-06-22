@@ -8,6 +8,7 @@ withDefaults(
     titleTextStyle?: StyleValue
     titleLayerStyle?: StyleValue
     mainLayerStyle?: StyleValue
+    mainHidden?: boolean
     toggleActive?: boolean
     toggleLabel?: string
     toggleDisabled?: boolean
@@ -18,6 +19,7 @@ withDefaults(
     titleTextStyle: undefined,
     titleLayerStyle: undefined,
     mainLayerStyle: undefined,
+    mainHidden: false,
     toggleActive: false,
     toggleLabel: '',
     toggleDisabled: false,
@@ -34,6 +36,7 @@ const emit = defineEmits<{
     <div
       class="reader-source-layer"
       :style="mainLayerStyle"
+      :aria-hidden="mainHidden ? 'true' : undefined"
     >
       <div class="reader-overlay__title" :style="titleLayerStyle">
         <span :style="titleTextStyle">{{ sourceName }}</span>
@@ -44,6 +47,7 @@ const emit = defineEmits<{
         :class="{ 'sources-button--active': toggleActive }"
         type="button"
         :disabled="toggleDisabled"
+        :tabindex="mainHidden ? -1 : undefined"
         @pointerdown.stop
         @touchstart.stop
         @click="emit('toggle-subscription')"

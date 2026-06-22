@@ -84,6 +84,7 @@ const emit = defineEmits<{
       v-if="isFeedRoute"
       class="feed-header-layer feed-header-layer--tabs"
       :style="feedTabsLayerStyle"
+      :aria-hidden="feedPullActive ? 'true' : undefined"
     >
       <div class="feed-tabs" role="tablist" aria-label="阅读视图">
         <button
@@ -94,6 +95,7 @@ const emit = defineEmits<{
           type="button"
           role="tab"
           :aria-selected="activeKey === tab.key"
+          :tabindex="feedPullActive ? -1 : undefined"
           @pointerdown.stop
           @click="emit('navigate', tab.path)"
         >
