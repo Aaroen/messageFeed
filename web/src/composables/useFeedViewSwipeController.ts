@@ -1,3 +1,4 @@
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import type { SwipeDirection } from '@/composables/useSwipeTransition'
 
 type ReadableRef<T> = {
@@ -82,7 +83,7 @@ export function useFeedViewSwipeController<TSurface extends string>(
   }
 
   function showTopChromeForViewSwipe() {
-    const shouldRevealChrome = options.topChromeProgress.value < 0.99 || options.feedContentCollapsed.value
+    const shouldRevealChrome = clampProgress(options.topChromeProgress.value) < 0.99 || options.feedContentCollapsed.value
     if (shouldRevealChrome) {
       options.markStartedWithHiddenChrome()
       options.beginTopChromeGestureReturn({

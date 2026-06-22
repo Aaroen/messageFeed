@@ -1,4 +1,5 @@
 import type { FeedItem } from '@/api/feed'
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
 
 type ReadableRef<T> = {
@@ -82,7 +83,7 @@ type ReaderBackSwipeDragHandlersOptions = {
 
 export function useReaderBackSwipeDragHandlers(options: ReaderBackSwipeDragHandlersOptions) {
   function showTopChromeForSourceReturn() {
-    if (options.topChromeProgress.value < 0.99 || options.feedContentCollapsed.value) {
+    if (clampProgress(options.topChromeProgress.value) < 0.99 || options.feedContentCollapsed.value) {
       options.beginTopChromeGestureReturn({
         settleDelayMS: options.resolveDelay(options.chromeSettleDuration),
       })
