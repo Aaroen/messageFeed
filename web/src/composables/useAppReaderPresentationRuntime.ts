@@ -4,6 +4,7 @@ import type { Ref, StyleValue } from 'vue'
 import { useAppReaderDetailHeaderState } from '@/composables/useAppReaderDetailHeaderState'
 import { useAppReaderMorphVisibilityState } from '@/composables/useAppReaderMorphVisibilityState'
 import { useAppReaderMotionState } from '@/composables/useAppReaderMotionState'
+import type { ChromePhase } from '@/composables/useChromeState'
 import type { AppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
 
 type AppReaderPresentationRuntimeOptions = {
@@ -14,6 +15,7 @@ type AppReaderPresentationRuntimeOptions = {
   }
   chrome: {
     feedHeaderHeight: Ref<number>
+    topChromePhase: Ref<ChromePhase>
     topChromeProgress: Ref<number>
     feedContentCollapsed: Ref<boolean>
     feedChromeSettling: Ref<boolean>
@@ -41,6 +43,7 @@ export function useAppReaderPresentationRuntime(options: AppReaderPresentationRu
       windowHeight: options.viewport.windowHeight,
       feedHeaderHeight: options.chrome.feedHeaderHeight,
       sourceReaderScrollTop: readerStack.sourceReaderScrollTop,
+      topChromePhase: options.chrome.topChromePhase,
       topChromeProgress: options.chrome.topChromeProgress,
       feedContentCollapsed: options.chrome.feedContentCollapsed,
     },

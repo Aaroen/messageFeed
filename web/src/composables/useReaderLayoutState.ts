@@ -1,6 +1,12 @@
 import { computed } from 'vue'
 
-import { clampProgress, sourceContentTopOffset, topScrollInset } from '@/composables/feedChromeMetrics'
+import {
+  chromePhaseConsumesCollapsedLayout,
+  clampProgress,
+  sourceContentTopOffset,
+  topScrollInset,
+} from '@/composables/feedChromeMetrics'
+import type { ChromePhase } from '@/composables/useChromeState'
 import type { RectSnapshot } from '@/composables/useReaderSession'
 
 type ReadableRef<T> = {
@@ -12,12 +18,16 @@ type ReaderLayoutStateOptions = {
   windowHeight: ReadableRef<number>
   feedHeaderHeight: ReadableRef<number>
   sourceReaderScrollTop: ReadableRef<number>
+  topChromePhase: ReadableRef<ChromePhase>
   topChromeProgress: ReadableRef<number>
   feedContentCollapsed: ReadableRef<boolean>
 }
 
 export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
   const topChromeProgress = computed(() => clampProgress(options.topChromeProgress.value))
+  const collapsedLayoutProgress = computed(() =>
+    chromePhaseConsumesCollapsedLayout(options.topChromePhase.value) ? topChromeProgress.value : 0,
+  )
   const sourceTopOffset = sourceContentTopOffset()
   const sourceTopInset = computed(() => topScrollInset(options.sourceReaderScrollTop.value, sourceTopOffset))
   const sourceHeaderSpace = computed(() => {
@@ -25,8 +35,8 @@ export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
       return options.feedHeaderHeight.value + sourceTopInset.value
     }
 
-    const collapsedSpace = options.feedHeaderHeight.value * topChromeProgress.value
-    if (topChromeProgress.value > 0.04 && options.sourceReaderScrollTop.value <= sourceTopOffset) {
+    const collapsedSpace = options.feedHeaderHeight.value * collapsedLayoutProgress.value
+    if (collapsedLayoutProgress.value > 0.04 && options.sourceReaderScrollTop.value <= sourceTopOffset) {
       return collapsedSpace + sourceTopInset.value
     }
 

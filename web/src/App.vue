@@ -374,6 +374,7 @@ const chromeRuntime = useAppChromeRuntime({
       windowWidth,
       isFeedRoute,
       feedScrollTop,
+      topChromePhase,
       topChromeProgress,
       feedContentCollapsed,
       detailFeedHeaderReturnProgress,
@@ -485,6 +486,7 @@ const readerPresentationRuntime = useAppReaderPresentationRuntime({
   },
   chrome: {
     feedHeaderHeight,
+    topChromePhase,
     topChromeProgress,
     feedContentCollapsed,
     feedChromeSettling,

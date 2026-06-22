@@ -1,12 +1,14 @@
 import { computed } from 'vue'
 
 import {
+  chromePhaseConsumesCollapsedLayout,
   clampProgress,
   feedContentTopOffset,
   feedHeaderHeightForWidth,
   feedTopScrollInset,
   feedVisibleContentTopOffset,
 } from '@/composables/feedChromeMetrics'
+import type { ChromePhase } from '@/composables/useChromeState'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -16,6 +18,7 @@ type FeedChromeLayoutStateOptions = {
   windowWidth: ReadableRef<number>
   isFeedRoute: ReadableRef<boolean>
   feedScrollTop: ReadableRef<number>
+  topChromePhase: ReadableRef<ChromePhase>
   topChromeProgress: ReadableRef<number>
   feedPullActive: ReadableRef<boolean>
   pullProgress: ReadableRef<number>
@@ -32,6 +35,9 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
   const visibleContentTopOffset = computed(() => feedVisibleContentTopOffset(headerHeight.value))
   const topChromeProgress = computed(() => clampProgress(options.topChromeProgress.value))
   const pullProgress = computed(() => clampProgress(options.pullProgress.value))
+  const collapsedLayoutProgress = computed(() =>
+    chromePhaseConsumesCollapsedLayout(options.topChromePhase.value) ? topChromeProgress.value : 0,
+  )
   const headerProgress = computed(() => {
     if (!options.isFeedRoute.value) {
       return topChromeProgress.value
@@ -44,7 +50,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     return topChromeProgress.value
   })
   const contentSpace = computed(() => {
-    const collapsedRestoreSpace = headerHeight.value * topChromeProgress.value
+    const collapsedRestoreSpace = headerHeight.value * collapsedLayoutProgress.value
     const pullRestoreSpace = headerHeight.value * Math.max(topChromeProgress.value, pullProgress.value)
     const feedLayoutChromeVisible = options.isFeedRoute.value && !options.feedContentCollapsed.value
     const feedTopInset = options.isFeedRoute.value
