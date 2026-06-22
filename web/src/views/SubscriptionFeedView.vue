@@ -97,6 +97,7 @@ let feedNoticeTimer = 0
 let feedNoticeTimerToken = 0
 let loadRequestToken = 0
 let backgroundRefreshRequestToken = 0
+let topPullStartedNotified = false
 let disposed = false
 let loadMoreObserver: IntersectionObserver | null = null
 
@@ -760,14 +761,23 @@ function resetPullTracking() {
 function resetPullGesture(force = false) {
   pullRefresh.cancelGesture()
   clearPullState(force)
+  topPullStartedNotified = false
 }
 
 function cancelPullGesture(force = false) {
-  const shouldNotifyTopPullEnd = trackingPullCandidate.value || trackingPull.value
+  const shouldNotifyTopPullEnd = topPullStartedNotified
   resetPullGesture(force)
   if (shouldNotifyTopPullEnd) {
     emit('top-pull-end', false)
   }
+}
+
+function notifyTopPullStart() {
+  if (topPullStartedNotified) {
+    return
+  }
+  topPullStartedNotified = true
+  emit('top-pull-start', pullStartedWithVisibleChrome.value)
 }
 
 function resetTransientLoadState(
@@ -804,10 +814,10 @@ function handleTouchStart(event: TouchEvent) {
   }
 
   const touch = event.touches[0]
+  topPullStartedNotified = false
   touchStartChromeDistance = props.headerHeight * props.topChromeProgress
   pullRefresh.begin(props.freezeBodyDuringTopRefresh || props.topChromeProgress > 0.04)
   pullRefresh.beginGestureCandidate(touch.clientX, touch.clientY)
-  emit('top-pull-start', pullStartedWithVisibleChrome.value)
 }
 
 function handleTouchMove(event: TouchEvent) {
@@ -841,6 +851,7 @@ function handleTouchMove(event: TouchEvent) {
     }
 
     pullRefresh.beginGestureTracking()
+    notifyTopPullStart()
     clearFeedNotice()
   }
 
@@ -859,7 +870,7 @@ function handleTouchMove(event: TouchEvent) {
 
 function handleTouchEnd() {
   if (!trackingPull.value) {
-    const shouldNotifyTopPullEnd = trackingPullCandidate.value
+    const shouldNotifyTopPullEnd = topPullStartedNotified
     resetPullGesture()
     if (shouldNotifyTopPullEnd) {
       emit('top-pull-end', false)
@@ -873,6 +884,7 @@ function handleTouchEnd() {
   if (shouldRefresh) {
     pullRefresh.commitRefreshOffset()
     emit('top-pull-end', true)
+    topPullStartedNotified = false
     void loadItems({ refresh: true })
     return
   }
@@ -882,7 +894,7 @@ function handleTouchEnd() {
 }
 
 function handleTouchCancel() {
-  const shouldNotifyTopPullEnd = trackingPullCandidate.value || trackingPull.value
+  const shouldNotifyTopPullEnd = topPullStartedNotified
   resetPullGesture()
   if (shouldNotifyTopPullEnd) {
     emit('top-pull-end', false)

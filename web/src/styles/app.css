@@ -795,6 +795,9 @@ body[arco-theme='dark'] .feed-tab--active {
   width: calc(100% + 48px);
   margin-right: -24px;
   margin-left: -24px;
+  transform: translate3d(0, var(--feed-content-shift, 0px), 0);
+  transition: var(--feed-content-shift-transition, none);
+  will-change: transform;
 }
 
 .feed-track {

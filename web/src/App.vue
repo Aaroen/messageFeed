@@ -475,6 +475,10 @@ const feedChromeState = useAppFeedChromeState({
   },
   shellMotion: {
     detailSurfaceProgress,
+    feedRefreshSettling,
+    feedChromeSettling,
+    feedTopPulling,
+    readerBackDragging,
     detailReaderOpen,
     detailReturningToFeed,
   },
