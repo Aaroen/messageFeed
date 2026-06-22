@@ -16,6 +16,9 @@ function cssTranslate3d(x: number, y: number, z = 0) {
   return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
 }
 
+const sourceUnderlayTransition =
+  'opacity var(--motion-quick) var(--ease-linear), filter var(--motion-quick) var(--ease-linear)'
+
 export function useSourceContentMotion(options: SourceContentMotionOptions) {
   const settleOffset = ref(0)
   const settling = ref(false)
@@ -23,17 +26,30 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   let settleFrame = 0
   let motionToken = 0
 
-  const contentStyle = computed(() => ({
-    paddingTop: cssPx(options.headerSpace.value + 14),
-    transform: cssTranslate3d(0, settleOffset.value),
-    transition: settling.value
-      ? 'padding-top var(--motion-chrome) var(--ease-emphasized), transform var(--motion-chrome) var(--ease-emphasized)'
+  const contentStyle = computed(() => {
+    const transition = settling.value
+      ? [
+          'padding-top var(--motion-chrome) var(--ease-emphasized)',
+          'transform var(--motion-chrome) var(--ease-emphasized)',
+          sourceUnderlayTransition,
+        ].join(', ')
       : settleOffset.value > 0
         ? 'none'
         : options.chromeSettling.value
-          ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
-          : undefined,
-  }))
+          ? [
+              'padding-top var(--motion-chrome) var(--ease-emphasized)',
+              sourceUnderlayTransition,
+            ].join(', ')
+          : sourceUnderlayTransition
+
+    return {
+      paddingTop: cssPx(options.headerSpace.value + 14),
+      opacity: 'var(--source-underlay-opacity, 1)',
+      filter: 'blur(var(--source-underlay-blur, 0px))',
+      transform: cssTranslate3d(0, settleOffset.value),
+      transition,
+    }
+  })
 
   function delay(duration: number) {
     return options.resolveDelay?.(duration) ?? duration

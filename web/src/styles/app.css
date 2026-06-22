@@ -1240,14 +1240,6 @@ body[arco-theme='dark'] .reader-overlay {
   opacity: 0;
 }
 
-.reader-overlay--under-detail .reader-overlay__content {
-  opacity: var(--source-underlay-opacity, 1);
-  filter: blur(var(--source-underlay-blur, 0));
-  transition:
-    opacity var(--motion-quick) var(--ease-linear),
-    filter var(--motion-quick) var(--ease-linear);
-}
-
 .detail-source-morph {
   position: fixed;
   z-index: 145;
