@@ -26,6 +26,25 @@ function clampProgress(value: number) {
   return Math.min(Math.max(value, 0), 1)
 }
 
+function feedContentTopOffset(headerHeight: number) {
+  return headerHeight <= 78 ? 8 : 10
+}
+
+function nonOverlappingFeedRevealProgress(payload: {
+  progress: number
+  scrollTop: number
+  headerHeight: number
+  contentCollapsed: boolean
+}) {
+  const topOffset = feedContentTopOffset(payload.headerHeight)
+  if (payload.contentCollapsed) {
+    return payload.scrollTop <= topOffset ? payload.progress : 0
+  }
+
+  const maxProgress = (payload.headerHeight + topOffset - payload.scrollTop) / payload.headerHeight
+  return Math.min(payload.progress, clampProgress(maxProgress))
+}
+
 export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptions) {
   function updateByScroll(current: number, previous: number) {
     if (options.feedPullActive.value || options.sourcePullActive.value || options.feedTopPulling.value) {
@@ -67,9 +86,15 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
 
     if (delta < 0 && options.topChromeProgress.value < 0.99) {
       if (options.isFeedRoute.value && !options.detailReaderOpen.value) {
-        const revealDistance = Math.max(options.feedHeaderHeight.value * 2, 1)
-        const revealSettleDistance = Math.max(options.feedHeaderHeight.value * 0.1, 8)
-        const progress = clampProgress(1 - current / revealDistance)
+        const headerHeight = options.feedHeaderHeight.value
+        const revealDistance = Math.max(headerHeight * 2, 1)
+        const revealSettleDistance = feedContentTopOffset(headerHeight)
+        const progress = nonOverlappingFeedRevealProgress({
+          progress: clampProgress(1 - current / revealDistance),
+          scrollTop: current,
+          headerHeight,
+          contentCollapsed: options.feedContentCollapsed.value,
+        })
         if (
           (progress >= 0.95 || current <= revealSettleDistance) &&
           options.topChromeProgress.value < 0.99
@@ -79,6 +104,11 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
             return
           }
           options.showTopChromeOverlay()
+          return
+        }
+
+        if (progress <= 0.01) {
+          options.setTopChromeOverlayProgress(0)
           return
         }
         options.setTopChromeOverlayProgress(progress)
