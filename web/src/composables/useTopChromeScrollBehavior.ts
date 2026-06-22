@@ -46,8 +46,30 @@ function nonOverlappingFeedRevealProgress(payload: {
 }
 
 export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptions) {
+  function restoreFeedTopChromeSpaceIfNeeded(current: number) {
+    if (!options.isFeedRoute.value || options.detailReaderOpen.value || !options.feedContentCollapsed.value) {
+      return false
+    }
+
+    if (options.topChromeProgress.value <= 0.04) {
+      return false
+    }
+
+    const topOffset = feedContentTopOffset(options.feedHeaderHeight.value)
+    if (current > topOffset) {
+      return false
+    }
+
+    options.setTopChromeVisible(true)
+    return true
+  }
+
   function updateByScroll(current: number, previous: number) {
     if (options.feedPullActive.value || options.sourcePullActive.value || options.feedTopPulling.value) {
+      return
+    }
+
+    if (restoreFeedTopChromeSpaceIfNeeded(current)) {
       return
     }
 
