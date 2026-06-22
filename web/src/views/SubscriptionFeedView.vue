@@ -559,6 +559,7 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     if (shouldRefreshVisibleSource.value && pullOffset.value <= 0) {
       pullRefresh.commitRefreshOffset()
     }
+    clearFeedNotice()
     pullRefresh.beginRefreshing()
   } else if (!isBackgroundRefresh) {
     loading.value = true
@@ -840,6 +841,7 @@ function handleTouchMove(event: TouchEvent) {
     }
 
     pullRefresh.beginGestureTracking()
+    clearFeedNotice()
   }
 
   if (trackingPull.value) {
