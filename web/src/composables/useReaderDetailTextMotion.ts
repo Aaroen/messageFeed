@@ -1,5 +1,7 @@
 import { computed, type Ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type ReaderDetailTextMotionOptions = {
   surfaceProgress: Ref<number>
   sourceListTitleProgress: Ref<number>
@@ -11,13 +13,6 @@ type ReaderDetailTextMotionOptions = {
   sourceLabelBlur: Ref<number>
   readerBackDragging: Ref<boolean>
   committedListReturn: () => boolean
-}
-
-function clamp(value: number, min = 0, max = 1) {
-  if (!Number.isFinite(value)) {
-    return min
-  }
-  return Math.min(Math.max(value, min), max)
 }
 
 function cssNumber(value: number, precision = 2) {
@@ -37,10 +32,10 @@ const morphTextTransition =
 
 export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions) {
   const morphState = computed(() => {
-    const progress = options.surfaceProgress.value
+    const progress = clampProgress(options.surfaceProgress.value)
     const committedListReturn = options.committedListReturn()
-    const summaryOpacity = clamp((0.56 - progress) / 0.18)
-    const textOpacity = clamp((0.74 - progress) / 0.18)
+    const summaryOpacity = clampProgress((0.56 - progress) / 0.18)
+    const textOpacity = clampProgress((0.74 - progress) / 0.18)
     return {
       progress,
       committedListReturn,
@@ -73,11 +68,12 @@ export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions
   }))
 
   const headerTitleStyle = computed(() => {
-    const sourceListTitleProgress = options.sourceListTitleProgress.value
+    const sourceListTitleProgress = clampProgress(options.sourceListTitleProgress.value)
     const opacity =
       sourceListTitleProgress > 0
         ? sourceListTitleProgress
-        : options.headerFeedTitleProgress.value * (1 - options.feedHeaderReturnProgress.value)
+        : clampProgress(options.headerFeedTitleProgress.value) *
+          (1 - clampProgress(options.feedHeaderReturnProgress.value))
     return {
       opacity: opacity.toFixed(3),
       transform: cssTranslate3d(0, (1 - opacity) * 8),
@@ -87,7 +83,7 @@ export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions
   })
 
   const headerCurrentTextStyle = computed(() => {
-    const progress = options.headerTitleSwapping.value ? options.headerSwapProgress.value : 1
+    const progress = options.headerTitleSwapping.value ? clampProgress(options.headerSwapProgress.value) : 1
     return {
       opacity: progress.toFixed(3),
       filter: `blur(${((1 - progress) * 2.8).toFixed(2)}px)`,
@@ -99,7 +95,7 @@ export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions
   })
 
   const headerPreviousTextStyle = computed(() => {
-    const progress = options.headerSwapProgress.value
+    const progress = clampProgress(options.headerSwapProgress.value)
     return {
       opacity: (1 - progress).toFixed(3),
       filter: `blur(${(progress * 3.2).toFixed(2)}px)`,
@@ -111,8 +107,8 @@ export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions
   })
 
   const inlineSourceStyle = computed(() => ({
-    opacity: options.sourceLabelOpacity.value.toFixed(3),
-    filter: `blur(${options.sourceLabelBlur.value.toFixed(2)}px)`,
+    opacity: clampProgress(options.sourceLabelOpacity.value).toFixed(3),
+    filter: `blur(${cssNumber(Math.max(0, options.sourceLabelBlur.value))}px)`,
     transform: 'translate3d(0, 0, 0)',
     transition: options.readerBackDragging.value
       ? 'none'
@@ -120,8 +116,8 @@ export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions
   }))
 
   const morphSourceLabelStyle = computed(() => ({
-    opacity: options.sourceLabelOpacity.value.toFixed(3),
-    filter: `blur(${options.sourceLabelBlur.value.toFixed(2)}px)`,
+    opacity: clampProgress(options.sourceLabelOpacity.value).toFixed(3),
+    filter: `blur(${cssNumber(Math.max(0, options.sourceLabelBlur.value))}px)`,
     pointerEvents: morphState.value.textOpacity > 0.12 ? ('auto' as const) : ('none' as const),
     transition: options.readerBackDragging.value
       ? 'none'

@@ -1,5 +1,6 @@
 import { computed, type Ref } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import type { RectSnapshot } from '@/composables/useReaderSession'
 
 type ReaderSourceTitleMotionOptions = {
@@ -13,13 +14,6 @@ type ReaderSourceTitleMotionOptions = {
   windowWidth: Ref<number>
   headerHeight: Ref<number>
   readerBackDragging: Ref<boolean>
-}
-
-function clamp(value: number, min = 0, max = 1) {
-  if (!Number.isFinite(value)) {
-    return min
-  }
-  return Math.min(Math.max(value, min), max)
 }
 
 function cssNumber(value: number, precision = 2) {
@@ -40,7 +34,7 @@ export function useReaderSourceTitleMotion(options: ReaderSourceTitleMotionOptio
   const nameMorphStyle = computed(() => {
     const origin = options.nameOriginRect.value
     const target = options.nameTargetRect.value
-    const progress = options.nameMorphProgress.value
+    const progress = clampProgress(options.nameMorphProgress.value)
     if (!origin || !target) {
       return {
         opacity: '0',
@@ -53,8 +47,8 @@ export function useReaderSourceTitleMotion(options: ReaderSourceTitleMotionOptio
     const top = origin.top + (target.top - origin.top) * progress
     const width = Math.max(origin.width, target.width, origin.width + (target.width - origin.width) * progress) + 18
     const size = 13 + (12 - 13) * progress
-    const fadeOut = clamp((progress - 0.62) / 0.28)
-    const opacity = clamp(1 - fadeOut)
+    const fadeOut = clampProgress((progress - 0.62) / 0.28)
+    const opacity = clampProgress(1 - fadeOut)
     const blur = Math.sin(progress * Math.PI) * 1.6 + fadeOut * 2.2
 
     return {
@@ -72,8 +66,8 @@ export function useReaderSourceTitleMotion(options: ReaderSourceTitleMotionOptio
   })
 
   const titleLayerStyle = computed(() => {
-    const activeRevealProgress = revealVisible.value ? options.revealProgress.value : 0
-    const opacity = options.titleProgress.value * (revealVisible.value ? 1 - activeRevealProgress : 1)
+    const activeRevealProgress = revealVisible.value ? clampProgress(options.revealProgress.value) : 0
+    const opacity = clampProgress(options.titleProgress.value) * (revealVisible.value ? 1 - activeRevealProgress : 1)
 
     return {
       opacity: opacity.toFixed(3),
@@ -90,7 +84,7 @@ export function useReaderSourceTitleMotion(options: ReaderSourceTitleMotionOptio
   }))
 
   const revealStyle = computed(() => {
-    const progress = options.revealProgress.value
+    const progress = clampProgress(options.revealProgress.value)
     const left = options.windowWidth.value <= 720 ? 72 : 80
     const right = options.windowWidth.value <= 720 ? 104 : 120
     const top = (options.headerHeight.value - 44) / 2
