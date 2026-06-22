@@ -13,6 +13,9 @@ withDefaults(
     item?: FeedItem | null
     morphVisible?: boolean
     morphTextStyle?: StyleValue
+    morphMetaStyle?: StyleValue
+    morphTitleStyle?: StyleValue
+    morphSummaryStyle?: StyleValue
     morphSourceLabelStyle?: StyleValue
     displayDate?: string
     morphSummaryVisible?: boolean
@@ -36,6 +39,9 @@ withDefaults(
     item: null,
     morphVisible: false,
     morphTextStyle: undefined,
+    morphMetaStyle: undefined,
+    morphTitleStyle: undefined,
+    morphSummaryStyle: undefined,
     morphSourceLabelStyle: undefined,
     displayDate: '',
     morphSummaryVisible: false,
@@ -84,6 +90,9 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
       :item="item"
       :visible="morphVisible"
       :root-style="morphTextStyle"
+      :meta-style="morphMetaStyle"
+      :title-style="morphTitleStyle"
+      :summary-style="morphSummaryStyle"
       :source-label-style="morphSourceLabelStyle"
       :display-date="displayDate"
       :summary-visible="morphSummaryVisible"

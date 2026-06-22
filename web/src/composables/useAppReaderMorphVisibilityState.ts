@@ -18,6 +18,9 @@ type AppReaderMorphVisibilityStateOptions = {
   sourceNameMorphStyle: ReadableRef<StyleValue>
   detailMorphTextVisible: ReadableRef<boolean>
   detailMorphTextStyle: ReadableRef<StyleValue>
+  detailMorphMetaStyle: ReadableRef<StyleValue>
+  detailMorphTitleStyle: ReadableRef<StyleValue>
+  detailMorphSummaryStyle: ReadableRef<StyleValue>
   detailMorphSourceLabelStyle: ReadableRef<StyleValue>
   detailDisplayDate: ReadableRef<string>
   detailMorphSummaryVisible: ReadableRef<boolean>
@@ -36,6 +39,9 @@ export type AppReaderMorphVisibilityState = {
   sourceNameMorphText: ReadableRef<string>
   detailMorphVisible: ReadableRef<boolean>
   detailMorphTextStyle: ReadableRef<StyleValue>
+  detailMorphMetaStyle: ReadableRef<StyleValue>
+  detailMorphTitleStyle: ReadableRef<StyleValue>
+  detailMorphSummaryStyle: ReadableRef<StyleValue>
   detailMorphSourceLabelStyle: ReadableRef<StyleValue>
   detailDisplayDate: ReadableRef<string>
   detailMorphSummaryVisible: ReadableRef<boolean>
@@ -71,6 +77,9 @@ export function useAppReaderMorphVisibilityState(
     sourceNameMorphText,
     detailMorphVisible: options.detailMorphTextVisible,
     detailMorphTextStyle: options.detailMorphTextStyle,
+    detailMorphMetaStyle: options.detailMorphMetaStyle,
+    detailMorphTitleStyle: options.detailMorphTitleStyle,
+    detailMorphSummaryStyle: options.detailMorphSummaryStyle,
     detailMorphSourceLabelStyle: options.detailMorphSourceLabelStyle,
     detailDisplayDate: options.detailDisplayDate,
     detailMorphSummaryVisible: options.detailMorphSummaryVisible,

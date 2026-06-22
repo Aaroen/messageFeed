@@ -1404,7 +1404,6 @@ body[arco-theme='dark'] .reader-back-button {
   color: var(--mf-text-muted);
   font-size: 12px;
   line-height: 1.3;
-  opacity: var(--morph-text-opacity, 1);
 }
 
 .reader-morph-text__source,
@@ -1417,7 +1416,6 @@ body[arco-theme='dark'] .reader-back-button {
   cursor: pointer;
   font: inherit;
   font-weight: 760;
-  pointer-events: var(--morph-source-pointer-events, auto);
 }
 
 .reader-morph-text__source-label {
@@ -1431,9 +1429,8 @@ body[arco-theme='dark'] .reader-back-button {
   margin: 0;
   overflow: hidden;
   color: var(--mf-text);
-  font-size: var(--morph-title-size, 18px);
+  font-size: 18px;
   line-height: 1.38;
-  opacity: var(--morph-text-opacity, 1);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -1445,7 +1442,6 @@ body[arco-theme='dark'] .reader-back-button {
   color: var(--mf-text-muted);
   font-size: 14px;
   line-height: 1.65;
-  opacity: var(--morph-summary-opacity, 1);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }

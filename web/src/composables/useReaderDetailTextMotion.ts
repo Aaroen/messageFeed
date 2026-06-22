@@ -36,21 +36,41 @@ const morphTextTransition =
   'opacity var(--motion-fast) var(--ease-linear), transform var(--motion-quick) var(--ease-standard)'
 
 export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions) {
-  const morphTextStyle = computed(() => {
+  const morphState = computed(() => {
     const progress = options.surfaceProgress.value
     const committedListReturn = options.committedListReturn()
     const summaryOpacity = clamp((0.56 - progress) / 0.18)
     const textOpacity = clamp((0.74 - progress) / 0.18)
     return {
-      opacity: committedListReturn ? '0' : '1',
-      '--morph-title-size': `${(18 + progress * 10).toFixed(2)}px`,
-      '--morph-text-opacity': textOpacity.toFixed(3),
-      '--morph-summary-opacity': summaryOpacity.toFixed(3),
-      '--morph-source-pointer-events': textOpacity > 0.12 ? 'auto' : 'none',
-      transform: cssTranslate3d(0, progress * -4),
-      transition: options.readerBackDragging.value || committedListReturn ? 'none' : morphTextTransition,
+      progress,
+      committedListReturn,
+      summaryOpacity,
+      textOpacity,
     }
   })
+
+  const morphTextStyle = computed(() => {
+    const state = morphState.value
+    return {
+      opacity: state.committedListReturn ? '0' : '1',
+      transform: cssTranslate3d(0, state.progress * -4),
+      transition:
+        options.readerBackDragging.value || state.committedListReturn ? 'none' : morphTextTransition,
+    }
+  })
+
+  const morphMetaStyle = computed(() => ({
+    opacity: morphState.value.textOpacity.toFixed(3),
+  }))
+
+  const morphTitleStyle = computed(() => ({
+    fontSize: `${(18 + morphState.value.progress * 10).toFixed(2)}px`,
+    opacity: morphState.value.textOpacity.toFixed(3),
+  }))
+
+  const morphSummaryStyle = computed(() => ({
+    opacity: morphState.value.summaryOpacity.toFixed(3),
+  }))
 
   const headerTitleStyle = computed(() => {
     const sourceListTitleProgress = options.sourceListTitleProgress.value
@@ -102,6 +122,7 @@ export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions
   const morphSourceLabelStyle = computed(() => ({
     opacity: options.sourceLabelOpacity.value.toFixed(3),
     filter: `blur(${options.sourceLabelBlur.value.toFixed(2)}px)`,
+    pointerEvents: morphState.value.textOpacity > 0.12 ? ('auto' as const) : ('none' as const),
     transition: options.readerBackDragging.value
       ? 'none'
       : 'opacity var(--motion-short) var(--ease-standard), filter var(--motion-short) var(--ease-standard)',
@@ -109,6 +130,9 @@ export function useReaderDetailTextMotion(options: ReaderDetailTextMotionOptions
 
   return {
     morphTextStyle,
+    morphMetaStyle,
+    morphTitleStyle,
+    morphSummaryStyle,
     headerTitleStyle,
     headerCurrentTextStyle,
     headerPreviousTextStyle,

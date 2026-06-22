@@ -57,6 +57,9 @@ const props = withDefaults(
     detailItem?: FeedItem | null
     detailMorphVisible?: boolean
     detailMorphTextStyle?: StyleValue
+    detailMorphMetaStyle?: StyleValue
+    detailMorphTitleStyle?: StyleValue
+    detailMorphSummaryStyle?: StyleValue
     detailMorphSourceLabelStyle?: StyleValue
     detailDisplayDate?: string
     detailMorphSummaryVisible?: boolean
@@ -120,6 +123,9 @@ const props = withDefaults(
     detailItem: null,
     detailMorphVisible: false,
     detailMorphTextStyle: undefined,
+    detailMorphMetaStyle: undefined,
+    detailMorphTitleStyle: undefined,
+    detailMorphSummaryStyle: undefined,
     detailMorphSourceLabelStyle: undefined,
     detailDisplayDate: '',
     detailMorphSummaryVisible: false,

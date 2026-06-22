@@ -59,6 +59,9 @@ withDefaults(
     detailItem?: FeedItem | null
     detailMorphVisible?: boolean
     detailMorphTextStyle?: StyleValue
+    detailMorphMetaStyle?: StyleValue
+    detailMorphTitleStyle?: StyleValue
+    detailMorphSummaryStyle?: StyleValue
     detailMorphSourceLabelStyle?: StyleValue
     detailDisplayDate?: string
     detailMorphSummaryVisible?: boolean
@@ -122,6 +125,9 @@ withDefaults(
     detailItem: null,
     detailMorphVisible: false,
     detailMorphTextStyle: undefined,
+    detailMorphMetaStyle: undefined,
+    detailMorphTitleStyle: undefined,
+    detailMorphSummaryStyle: undefined,
     detailMorphSourceLabelStyle: undefined,
     detailDisplayDate: '',
     detailMorphSummaryVisible: false,
@@ -225,6 +231,9 @@ const emit = defineEmits<{
         :detail-item="detailItem"
         :detail-morph-visible="detailMorphVisible"
         :detail-morph-text-style="detailMorphTextStyle"
+        :detail-morph-meta-style="detailMorphMetaStyle"
+        :detail-morph-title-style="detailMorphTitleStyle"
+        :detail-morph-summary-style="detailMorphSummaryStyle"
         :detail-morph-source-label-style="detailMorphSourceLabelStyle"
         :detail-display-date="detailDisplayDate"
         :detail-morph-summary-visible="detailMorphSummaryVisible"

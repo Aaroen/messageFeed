@@ -652,6 +652,9 @@ const detailProgressStyle = readerMotionState.detailProgressStyle
 const detailProgressFillStyle = readerMotionState.detailProgressFillStyle
 const detailProgressThumbStyle = readerMotionState.detailProgressThumbStyle
 const detailMorphTextStyle = readerMotionState.detailMorphTextStyle
+const detailMorphMetaStyle = readerMotionState.detailMorphMetaStyle
+const detailMorphTitleStyle = readerMotionState.detailMorphTitleStyle
+const detailMorphSummaryStyle = readerMotionState.detailMorphSummaryStyle
 const detailHeaderTitleStyle = readerMotionState.detailHeaderTitleStyle
 const detailHeaderCurrentTextStyle = readerMotionState.detailHeaderCurrentTextStyle
 const detailHeaderPreviousTextStyle = readerMotionState.detailHeaderPreviousTextStyle
@@ -676,6 +679,9 @@ const readerMorphVisibilityState = useAppReaderMorphVisibilityState({
   sourceNameMorphStyle,
   detailMorphTextVisible,
   detailMorphTextStyle,
+  detailMorphMetaStyle,
+  detailMorphTitleStyle,
+  detailMorphSummaryStyle,
   detailMorphSourceLabelStyle,
   detailDisplayDate,
   detailMorphSummaryVisible,
