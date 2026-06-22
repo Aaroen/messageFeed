@@ -35,9 +35,14 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
       feedContentSpace,
       pageContentSpace: feedContentSpace,
       feedContentShift: feedContentSpace - options.feedHeaderHeight.value,
+      pageContentShift: feedContentSpace - options.feedHeaderHeight.value,
       feedContentShiftTransition: feedContentSettling
         ? 'transform var(--motion-chrome) var(--ease-emphasized)'
         : 'none',
+      pageContentShiftTransition:
+        options.feedChromeSettling.value && !options.feedTopPulling.value && !options.readerBackDragging.value
+          ? 'transform var(--motion-chrome) var(--ease-emphasized)'
+          : 'none',
       underlayBlur,
       underlayOpacity,
       transition: underlayTransition,
@@ -64,7 +69,9 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
   const pageContentStyle = computed(() => {
     const state = contentState.value
     return {
-      paddingTop: `calc(${cssPx(state.pageContentSpace)} + var(--app-content-top-offset, 10px))`,
+      '--page-content-shift': cssPx(state.pageContentShift),
+      '--page-content-shift-transition': state.pageContentShiftTransition,
+      paddingTop: `calc(${cssPx(options.feedHeaderHeight.value)} + var(--app-content-top-offset, 10px))`,
       opacity: state.underlayOpacity.toFixed(3),
       filter: `blur(${state.underlayBlur.toFixed(2)}px)`,
       transition: state.transition,

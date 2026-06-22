@@ -14,8 +14,8 @@ function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
 }
 
-function cssTranslate3d(x: number, y: number, z = 0) {
-  return `translate3d(${cssPx(x)}, ${cssPx(y)}, ${cssPx(z)})`
+function cssTranslate3dWithPageShift(x: number, y: number) {
+  return `translate3d(${cssPx(x)}, calc(var(--page-content-shift, 0px) + ${cssPx(y)}), 0)`
 }
 
 function stretchTransformOrigin(stretch: number, anchor: StretchAnchor) {
@@ -34,11 +34,13 @@ export function usePageContentMotion(options: PageContentMotionOptions) {
   const stretchAnchor = ref<StretchAnchor>(null)
 
   const contentStyle = computed(() => ({
-    transform: `${cssTranslate3d(sideOffset.value, options.pullOffset.value)} scaleX(${(
+    transform: `${cssTranslate3dWithPageShift(sideOffset.value, options.pullOffset.value)} scaleX(${(
       1 + Math.abs(sideStretch.value)
     ).toFixed(4)})`,
     transformOrigin: stretchTransformOrigin(sideStretch.value, stretchAnchor.value),
-    transition: options.settling.value ? 'transform var(--motion-chrome) var(--ease-emphasized)' : undefined,
+    transition: options.settling.value
+      ? 'transform var(--motion-chrome) var(--ease-emphasized)'
+      : 'var(--page-content-shift-transition, none)',
   }))
 
   function setSideOffset(nextOffset: number) {
