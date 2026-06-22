@@ -142,10 +142,10 @@ export function useFeedPointerSwipeHandlers(options: FeedPointerSwipeHandlersOpt
     }
 
     const hadViewSwipe = options.viewSwipeActive.value
-    options.feedPagerTransition.endPointerTracking()
     if (hadViewSwipe) {
       options.finishViewSwipe(null)
     }
+    options.feedPagerTransition.endPointerTracking()
   }
 
   return {

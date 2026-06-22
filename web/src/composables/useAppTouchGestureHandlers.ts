@@ -270,12 +270,12 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
     if (hadBackGesture) {
       options.cancelBackSwipe()
     }
+    if (hadViewGesture) {
+      options.finishViewSwipe(null)
+    }
     options.resetGestureTracking()
     if (hadNavigationGesture && options.navigationVisible.value) {
       options.settleNavigation(options.navigationProgress.value >= 0.42)
-    }
-    if (hadViewGesture) {
-      options.finishViewSwipe(null)
     }
     options.feedPagerTransition.endPointerTracking()
   }
