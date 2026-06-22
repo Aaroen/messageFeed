@@ -31,16 +31,18 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     return options.topChromeProgress.value
   })
   const contentSpace = computed(() => {
+    const collapsedRestoreSpace = headerHeight.value * options.topChromeProgress.value
+
     if (options.feedTopPullStartedWithChrome.value || options.refreshStartedWithChrome.value) {
       return headerHeight.value
     }
 
     if (options.feedTopPulling.value || options.feedPullActive.value) {
-      return options.feedContentCollapsed.value ? 0 : headerHeight.value
+      return options.feedContentCollapsed.value ? collapsedRestoreSpace : headerHeight.value
     }
 
     if (options.feedContentCollapsed.value) {
-      return 0
+      return collapsedRestoreSpace
     }
 
     return headerHeight.value
