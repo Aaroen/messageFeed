@@ -10,6 +10,7 @@ import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
 import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
+import { subscriptionFeedFetchNotice } from '@/utils/sourceFetchMessages'
 
 type FeedMode = 'subscriptions' | 'recommendations' | 'source'
 type SourceKind = 'subscriptions' | 'recommendations'
@@ -423,22 +424,6 @@ function showFeedNotice(type: FeedNotice['type'], message: string, delayMS = 0) 
   feedNoticeRuntime.show(type, message, undefined, delayMS)
 }
 
-function formatFetchErrors(errors: Array<{ source_name?: string; message: string }> = []) {
-  const details = errors
-    .map((item) => {
-      const name = item.source_name?.trim() || '未知来源'
-      const message = item.message.trim()
-      return message ? `${name}：${message}` : name
-    })
-    .filter(Boolean)
-    .slice(0, 3)
-  if (!details.length) {
-    return '服务未返回具体错误原因'
-  }
-  const overflow = errors.length > details.length ? `；另有 ${errors.length - details.length} 个失败来源` : ''
-  return `${details.join('；')}${overflow}`
-}
-
 function refreshSuccessMessage() {
   if (effectiveSourceKind.value === 'recommendations') {
     return '刷新成功：已更新当前推荐来源'
@@ -460,17 +445,7 @@ async function refreshSubscriptionSources() {
     }
 
     const result = await fetchActiveSources()
-    if (result.requested_count === 0) {
-      return { type: 'success' as const, message: '刷新成功：当前暂无已开启订阅源，请在订阅管理中开启或导入来源' }
-    }
-    if (result.failure_count > 0) {
-      const prefix = result.success_count > 0 ? '刷新异常' : '刷新失败'
-      return {
-        type: 'warning' as const,
-        message: `${prefix}：已刷新 ${result.success_count} 个订阅源，${result.failure_count} 个失败。失败原因：${formatFetchErrors(result.errors)}`,
-      }
-    }
-    return { type: 'success' as const, message: refreshSuccessMessage() }
+    return subscriptionFeedFetchNotice(result, refreshSuccessMessage())
   } catch (err) {
     return { type: 'warning' as const, message: `刷新失败：${formatAPIError(err)}` }
   }

@@ -21,6 +21,7 @@ import type { PageRefreshOptions } from '@/composables/usePageOutletState'
 import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
 import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedListCacheStore } from '@/stores/feedListCache'
+import { formatSourceFetchErrors, subscriptionManagementFetchNotice } from '@/utils/sourceFetchMessages'
 
 const sourcesPageRef = ref<HTMLElement | null>(null)
 const sources = ref<Source[]>([])
@@ -94,22 +95,6 @@ function finishPageRefresh(token: number) {
   }
   pageRefreshingToken = 0
   pageRefreshing.value = false
-}
-
-function formatFetchErrors(errors: Array<{ source_name?: string; message: string }> = []) {
-  const details = errors
-    .map((item) => {
-      const name = item.source_name?.trim() || '未知来源'
-      const message = item.message.trim()
-      return message ? `${name}：${message}` : name
-    })
-    .filter(Boolean)
-    .slice(0, 3)
-  if (!details.length) {
-    return '服务未返回具体错误原因'
-  }
-  const overflow = errors.length > details.length ? `；另有 ${errors.length - details.length} 个失败来源` : ''
-  return `${details.join('；')}${overflow}`
 }
 
 function invalidateSubscriptionFeedCaches(sourceIDs: number[] = []) {
@@ -205,21 +190,8 @@ async function refreshPage(options: PageRefreshOptions = {}) {
     if (!pageRequestIsCurrent(token)) {
       return
     }
-    if (fetchResult.failure_count > 0) {
-      const prefix = fetchResult.success_count > 0 ? '刷新异常' : '刷新失败'
-      showNotice(
-        'warning',
-        `${prefix}：推荐源目录已更新；已抓取 ${fetchResult.success_count} 个订阅源，${fetchResult.failure_count} 个失败。失败原因：${formatFetchErrors(fetchResult.errors)}`,
-        undefined,
-        options.noticeDelayMS,
-      )
-      return
-    }
-    const successMessage =
-      fetchResult.requested_count === 0
-        ? '刷新成功：已更新订阅管理数据，当前暂无已开启订阅源'
-        : '刷新成功：已更新订阅管理数据'
-    showNotice('success', successMessage, undefined, options.noticeDelayMS)
+    const fetchNotice = subscriptionManagementFetchNotice(fetchResult)
+    showNotice(fetchNotice.type, fetchNotice.message, undefined, options.noticeDelayMS)
   } catch (err) {
     if (pageRequestIsCurrent(token)) {
       showNotice(
@@ -291,14 +263,16 @@ function importNoticeMessage(prefix: string, result: ImportSourcesResult, fetchS
       source_name: item.reference,
       message: item.message,
     }))
-    const reason = importErrors.length ? `。导入失败原因：${formatFetchErrors(importErrors)}` : ''
+    const reason = importErrors.length ? `。导入失败原因：${formatSourceFetchErrors(importErrors)}` : ''
     parts.push(`${result.failure_count} 个导入失败${reason}`)
   }
   if (fetchSummary.requestedCount > 0) {
     parts.push(`已抓取 ${fetchSummary.successCount} 个`)
   }
   if (fetchSummary.failureCount > 0) {
-    const reason = fetchSummary.errors.length ? `。抓取失败原因：${formatFetchErrors(fetchSummary.errors)}` : ''
+    const reason = fetchSummary.errors.length
+      ? `。抓取失败原因：${formatSourceFetchErrors(fetchSummary.errors)}`
+      : ''
     parts.push(`${fetchSummary.failureCount} 个抓取失败${reason}`)
   }
   return parts.join('，')
