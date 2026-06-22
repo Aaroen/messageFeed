@@ -24,6 +24,7 @@ type AppReaderStackOutletBindingOptions = {
   detailItem: ReadableRef<FeedItem | null>
   readerMorph: AppReaderMorphVisibilityState
   detailReaderOpen: ReadableRef<boolean>
+  detailParkedBehindSource: ReadableRef<boolean>
   detailReaderStyle: ReadableRef<StyleValue>
   detailBackdropStyle: ReadableRef<StyleValue>
   sourceNotice: ReadableRef<SourceNotice | null>
@@ -102,6 +103,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       sourceNameMorphStyle: readerMorph.sourceNameMorphStyle.value,
       sourceNameMorphText: readerMorph.sourceNameMorphText.value,
       detailOpen: options.detailReaderOpen.value,
+      detailInteractive: options.detailReaderOpen.value && !options.detailParkedBehindSource.value,
       detailStyle: options.detailReaderStyle.value,
       detailBackdropStyle: options.detailBackdropStyle.value,
       sourceNotice: sourceInteractive ? options.sourceNotice.value : null,

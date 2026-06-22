@@ -1253,6 +1253,7 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   detailItem,
   readerMorph: readerMorphVisibilityState,
   detailReaderOpen,
+  detailParkedBehindSource,
   detailReaderStyle,
   detailBackdropStyle,
   sourceNotice,

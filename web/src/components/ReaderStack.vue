@@ -15,6 +15,7 @@ withDefaults(
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
+    detailInteractive?: boolean
     detailStyle?: StyleValue
     detailBackdropStyle?: StyleValue
   }>(),
@@ -31,6 +32,7 @@ withDefaults(
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,
+    detailInteractive: false,
     detailStyle: undefined,
     detailBackdropStyle: undefined,
   },
@@ -71,6 +73,8 @@ withDefaults(
     v-if="detailOpen"
     class="reader-overlay reader-overlay--detail"
     :style="detailStyle"
+    :aria-hidden="!detailInteractive"
+    :inert="!detailInteractive"
   >
     <div class="reader-overlay__backdrop" :style="detailBackdropStyle" aria-hidden="true" />
     <slot name="detail" />

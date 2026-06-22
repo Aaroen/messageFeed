@@ -25,6 +25,7 @@ const props = withDefaults(
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
+    detailInteractive?: boolean
     detailStyle?: StyleValue
     detailBackdropStyle?: StyleValue
     sourceNotice?: SourceNotice | null
@@ -91,6 +92,7 @@ const props = withDefaults(
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,
+    detailInteractive: false,
     detailStyle: undefined,
     detailBackdropStyle: undefined,
     sourceNotice: null,
