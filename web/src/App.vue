@@ -48,6 +48,7 @@ import { useAppReaderNavigationRuntime } from '@/composables/useAppReaderNavigat
 import { useAppReaderStackOutletRuntime } from '@/composables/useAppReaderStackOutletRuntime'
 import { useAppGestureInteractionRuntime } from '@/composables/useAppGestureInteractionRuntime'
 import { useAppMainOutletRuntime } from '@/composables/useAppMainOutletRuntime'
+import { useAppRuntimeCleanup } from '@/composables/useAppRuntimeCleanup'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -1191,6 +1192,57 @@ routeRuntime.installRouteSessionWatchers({
   scheduleReaderURLAndHistorySync,
 })
 
+const runtimeCleanup = useAppRuntimeCleanup({
+  swipe: {
+    clearFeedPagerTimers,
+    clearSwipeTransitionTimer,
+  },
+  navigation: {
+    clearTimer: navigationDrawer.clearTimer,
+  },
+  feedRefresh: {
+    resetRefreshCompletion: feedRefreshCompletionRuntime.resetRefreshCompletion,
+  },
+  chrome: {
+    clearTimer: chromeState.clearTimer,
+  },
+  route: {
+    clearTimer: routeRuntime.clearTimer,
+  },
+  readerRouteSync: {
+    clearTimer: readerRouteSync.clearTimer,
+  },
+  readerMotion: {
+    clearSourceContentTimer: readerMotionState.clearSourceContentTimer,
+  },
+  detailSourceTransition: {
+    clearRectCapture: clearDetailSourceTransitionRectCapture,
+  },
+  pagePull: {
+    invalidateRefreshCompletion: invalidatePagePullRefreshCompletion,
+    clearTimers: pagePullState.clearTimers,
+  },
+  shell: {
+    clearClickSuppressionTimer,
+  },
+  sourceSubscription: {
+    clearRuntime: clearSourceSubscriptionRuntime,
+  },
+  readerDetailFrames: {
+    clear: clearReaderDetailFrames,
+  },
+  readerSessionScrollRestore: {
+    clearTimers: clearReaderSessionScrollRestoreTimers,
+  },
+  readerStack: {
+    clearTimers: clearReaderStackTimers,
+    clearBackSwipeStretchAnchorTimer,
+  },
+  readerSession: {
+    clearTimer: readerSession.clearTimer,
+  },
+})
+
 useAppRuntimeEffects({
   windowEvents: {
     handleKeydown,
@@ -1218,26 +1270,7 @@ useAppRuntimeEffects({
     markReaderSessionReady: () => routeRuntime.markReaderSessionReady(),
     scheduleReaderURLAndHistorySync,
     saveReaderSessionNow,
-    clearRuntimeTimers: [
-      () => clearFeedPagerTimers(),
-      () => clearSwipeTransitionTimer(),
-      () => navigationDrawer.clearTimer(),
-      () => feedRefreshCompletionRuntime.resetRefreshCompletion(),
-      () => chromeState.clearTimer(),
-      () => routeRuntime.clearTimer(),
-      () => readerRouteSync.clearTimer(),
-      () => readerMotionState.clearSourceContentTimer(),
-      clearDetailSourceTransitionRectCapture,
-      () => invalidatePagePullRefreshCompletion(),
-      () => pagePullState.clearTimers(),
-      clearClickSuppressionTimer,
-      clearSourceSubscriptionRuntime,
-      clearReaderDetailFrames,
-      clearReaderSessionScrollRestoreTimers,
-      clearReaderStackTimers,
-      clearBackSwipeStretchAnchorTimer,
-      () => readerSession.clearTimer(),
-    ],
+    clearRuntimeTimers: runtimeCleanup.clearRuntimeTimers,
   },
 })
 </script>
