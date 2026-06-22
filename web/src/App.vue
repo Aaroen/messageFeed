@@ -38,10 +38,7 @@ import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
 import { useAppReaderSessionRuntime } from '@/composables/useAppReaderSessionRuntime'
 import { useAppMainOutletBindings } from '@/composables/useAppMainOutletBindings'
 import { useAppPagePullInteractions } from '@/composables/useAppPagePullInteractions'
-import { useAppReaderBackSwipeInteractions } from '@/composables/useAppReaderBackSwipeInteractions'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
-import { useAppPointerGestureInteractions } from '@/composables/useAppPointerGestureInteractions'
-import { useAppFeedViewSwipeInteractions } from '@/composables/useAppFeedViewSwipeInteractions'
 import { useAppSwipeGestureRuntime } from '@/composables/useAppSwipeGestureRuntime'
 import { useReaderRouteQueryRestore } from '@/composables/useReaderRouteQueryRestore'
 import { useAppReaderStackRuntime } from '@/composables/useAppReaderStackRuntime'
@@ -52,6 +49,7 @@ import { useAppFeedRefreshCompletionRuntime } from '@/composables/useAppFeedRefr
 import { useAppFeedChromeScrollRuntime } from '@/composables/useAppFeedChromeScrollRuntime'
 import { useAppReaderNavigationRuntime } from '@/composables/useAppReaderNavigationRuntime'
 import { useAppReaderStackOutletRuntime } from '@/composables/useAppReaderStackOutletRuntime'
+import { useAppGestureInteractionRuntime } from '@/composables/useAppGestureInteractionRuntime'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -742,187 +740,167 @@ const captureVisibleSourceReturnTarget = readerNavigationRuntime.captureVisibleS
 const clearDetailSourceTransitionRectCapture =
   readerNavigationRuntime.clearDetailSourceTransitionRectCapture
 
-const feedViewSwipeInteractions = useAppFeedViewSwipeInteractions({
-  topChromeProgress,
-  feedContentCollapsed,
-  motionNormalDuration,
-  resolveDelay: motionDelay,
-  beginSwipeTransition,
-  updateSwipeTransition,
-  settleSwipeTransition,
-  scheduleSwipeReset,
-  swipeTransitionBeginPayload: feedPagerTransition.swipeTransitionBeginPayload,
-  swipeTransitionUpdatePayload: feedPagerTransition.swipeTransitionUpdatePayload,
-  finishSwipeResult: feedPagerTransition.finishSwipeResult,
-  settleFinishedSwipe: feedPagerTransition.settleFinishedSwipe,
-  markStartedWithHiddenChrome: feedPagerTransition.markStartedWithHiddenChrome,
-  beginTopChromeGestureReturn: chromeState.beginGestureReturn,
-  setTopChromeVisible,
-  pushRoute,
-  topChromeGestureSettleDelayMS: motionDelay(topChromeSettleDuration),
-})
-const scheduleSwipeTransitionReset = feedViewSwipeInteractions.scheduleSwipeTransitionReset
-const beginViewSwipeTransition = feedViewSwipeInteractions.beginViewSwipeTransition
-const syncViewSwipeTransition = feedViewSwipeInteractions.syncViewSwipeTransition
-
-const readerBackSwipeInteractions = useAppReaderBackSwipeInteractions({
-  pagePull: pagePullState,
-  transition: {
-    activeFeedSurface,
-    pageReturnSurface: 'feed:recommendations',
-    beginSwipeTransition,
-    updateSwipeTransition,
-    transitionBeginPayload: readerBackSwipeTransitionBeginPayload,
-    transitionUpdatePayload: readerBackSwipeTransitionUpdatePayload,
-  },
-  drag: {
+const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, typeof activeFeedSurface.value>({
+  feedView: {
     topChromeProgress,
     feedContentCollapsed,
-    navigationProgress,
-    sourceTimelinePreloadEnabled,
-    detailItem,
-    readerSource,
-    detailSourceKind,
-    readerBackSwipeCandidateActive,
-    readerBackSwipeTrackingActive,
-    windowWidth,
-    chromeSettleDuration: topChromeSettleDuration,
+    motionNormalDuration,
     resolveDelay: motionDelay,
-    gestureOrigin,
-    resetGestureTracking,
-    beginReaderBackSwipeCandidateState,
-    prepareSourceReaderReturnDragState,
-    rememberDetailScrollTop,
-    captureVisibleSourceReturnTarget,
-    openSourceReader,
-    beginReaderBackSwipeDragState,
-    updateReaderBackSwipeDragState,
-    cancelNavigationCandidates: navigationGesture.cancelCandidates,
-    cancelViewSwipeCandidate: feedPagerTransition.cancelViewSwipeCandidate,
-    isBackHorizontalSwipe,
-    suppressFollowingClick,
+    beginSwipeTransition,
+    updateSwipeTransition,
+    settleSwipeTransition,
+    scheduleSwipeReset,
+    swipeTransitionBeginPayload: feedPagerTransition.swipeTransitionBeginPayload,
+    swipeTransitionUpdatePayload: feedPagerTransition.swipeTransitionUpdatePayload,
+    finishSwipeResult: feedPagerTransition.finishSwipeResult,
+    settleFinishedSwipe: feedPagerTransition.settleFinishedSwipe,
+    markStartedWithHiddenChrome: feedPagerTransition.markStartedWithHiddenChrome,
     beginTopChromeGestureReturn: chromeState.beginGestureReturn,
-    refreshDetailFeedOriginRect,
-    captureDetailSourceTransitionRects,
-    showSourceReaderUnderDetail,
+    setTopChromeVisible,
+    pushRoute,
+    topChromeGestureSettleDelayMS: motionDelay(topChromeSettleDuration),
   },
-  completion: {
-    switchDistance: viewSwitchDistance,
-    finishResult: readerBackSwipeFinishResult,
-    cancelResult: readerBackSwipeCancelResult,
-    settleTransition: settleSwipeTransition,
-    scheduleTransitionReset: () => {
-      scheduleSwipeTransitionReset(motionReaderDuration)
+  readerBackSwipe: {
+    pagePull: pagePullState,
+    transition: {
+      activeFeedSurface,
+      pageReturnSurface: 'feed:recommendations',
+      beginSwipeTransition,
+      updateSwipeTransition,
+      transitionBeginPayload: readerBackSwipeTransitionBeginPayload,
+      transitionUpdatePayload: readerBackSwipeTransitionUpdatePayload,
     },
-    suppressFollowingClick,
-    applyAction: applyReaderBackSwipeAction,
-    restoreItemExpansion: restoreItemReaderExpansion,
-    restoreDetailFromSourceSwipe: restoreDetailFromSourceSwipe,
-    restoreParkedSource: restoreParkedSourceReader,
-    completeDetailToSource: completeDetailToSourceReader,
-    collapseDetail: collapseItemReader,
-    restoreDetailFromParkedSource: restoreDetailFromParkedSource,
-    returnPage: () => goHome({ closePanel: false }),
-    reset: resetBackSwipeOffset,
+    drag: {
+      topChromeProgress,
+      feedContentCollapsed,
+      navigationProgress,
+      sourceTimelinePreloadEnabled,
+      detailItem,
+      readerSource,
+      detailSourceKind,
+      readerBackSwipeCandidateActive,
+      readerBackSwipeTrackingActive,
+      windowWidth,
+      chromeSettleDuration: topChromeSettleDuration,
+      resolveDelay: motionDelay,
+      gestureOrigin,
+      resetGestureTracking,
+      beginReaderBackSwipeCandidateState,
+      prepareSourceReaderReturnDragState,
+      rememberDetailScrollTop,
+      captureVisibleSourceReturnTarget,
+      openSourceReader,
+      beginReaderBackSwipeDragState,
+      updateReaderBackSwipeDragState,
+      cancelNavigationCandidates: navigationGesture.cancelCandidates,
+      cancelViewSwipeCandidate: feedPagerTransition.cancelViewSwipeCandidate,
+      isBackHorizontalSwipe,
+      suppressFollowingClick,
+      beginTopChromeGestureReturn: chromeState.beginGestureReturn,
+      refreshDetailFeedOriginRect,
+      captureDetailSourceTransitionRects,
+      showSourceReaderUnderDetail,
+    },
+    completion: {
+      switchDistance: viewSwitchDistance,
+      finishResult: readerBackSwipeFinishResult,
+      cancelResult: readerBackSwipeCancelResult,
+      settleTransition: settleSwipeTransition,
+      suppressFollowingClick,
+      applyAction: applyReaderBackSwipeAction,
+      restoreItemExpansion: restoreItemReaderExpansion,
+      restoreDetailFromSourceSwipe: restoreDetailFromSourceSwipe,
+      restoreParkedSource: restoreParkedSourceReader,
+      completeDetailToSource: completeDetailToSourceReader,
+      collapseDetail: collapseItemReader,
+      restoreDetailFromParkedSource: restoreDetailFromParkedSource,
+      returnPage: () => goHome({ closePanel: false }),
+      reset: resetBackSwipeOffset,
+    },
+    transitionResetDuration: motionReaderDuration,
+  },
+  pointer: {
+    touch: {
+      navigationVisible,
+      navigationOpen,
+      navigationProgress,
+      sourceReaderOpen,
+      isFeedRoute,
+      viewSwipeCandidateActive,
+      viewSwipeActive,
+      viewDragOffset,
+      readerBackSwipeCandidateActive,
+      readerBackSwipeTrackingActive,
+      navigationOpenDistance,
+      viewSwitchDistance,
+      gestureOrigin,
+      navigationGesture,
+      navigationDrawer,
+      feedPagerTransition,
+      finishCommittedListReturnForGesture,
+      resetGestureTracking,
+      detailBlocksGestures,
+      beginReaderBackSwipeCandidateState,
+      resetReaderBackSwipeCandidateState,
+      canStartNavigationOpen,
+      canStartViewSwipe,
+      isHorizontalSwipe,
+      isViewHorizontalSwipe,
+      isNavigationDrag,
+      settleNavigation,
+      suppressFollowingClick,
+    },
+    navigationPointer: {
+      navigationOpen,
+      navigationProgress,
+      viewSwipeActive,
+      navigationOpenDistance,
+      gestureOrigin,
+      navigationGesture,
+      navigationDrawer,
+      finishCommittedListReturnForGesture,
+      canStartNavigationOpen,
+      cancelViewSwipeCandidate: feedPagerTransition.cancelViewSwipeCandidate,
+      isNavigationDrag,
+      isHorizontalSwipe,
+      isViewHorizontalSwipe,
+      settleNavigation,
+      resetGestureTracking,
+    },
+    feedPointer: {
+      isFeedRoute,
+      navigationVisible,
+      navigationProgress,
+      viewSwipeCandidateActive,
+      viewSwipeActive,
+      viewDragOffset,
+      viewSwitchDistance,
+      gestureOrigin,
+      navigationGesture,
+      feedPagerTransition,
+      canStartViewSwipe,
+      finishCommittedListReturnForGesture,
+      isViewHorizontalSwipe,
+      suppressFollowingClick,
+    },
   },
 })
-const beginDetailGestureCandidate = readerBackSwipeInteractions.beginDetailGestureCandidate
-const updateBackSwipe = readerBackSwipeInteractions.updateBackSwipe
-const finishBackSwipe = readerBackSwipeInteractions.finishBackSwipe
-const cancelBackSwipe = readerBackSwipeInteractions.cancelBackSwipe
-
-const finishViewSwipe = feedViewSwipeInteractions.finishViewSwipe
-const showTopChromeForViewSwipe = feedViewSwipeInteractions.showTopChromeForViewSwipe
-
-const pointerGestureInteractions = useAppPointerGestureInteractions({
-  touch: {
-    navigationVisible,
-    navigationOpen,
-    navigationProgress,
-    sourceReaderOpen,
-    isFeedRoute,
-    viewSwipeCandidateActive,
-    viewSwipeActive,
-    viewDragOffset,
-    readerBackSwipeCandidateActive,
-    readerBackSwipeTrackingActive,
-    navigationOpenDistance,
-    viewSwitchDistance,
-    gestureOrigin,
-    navigationGesture,
-    navigationDrawer,
-    feedPagerTransition,
-    finishCommittedListReturnForGesture,
-    resetGestureTracking,
-    detailBlocksGestures,
-    beginDetailGestureCandidate,
-    beginReaderBackSwipeCandidateState,
-    resetReaderBackSwipeCandidateState,
-    updateBackSwipe,
-    finishBackSwipe,
-    cancelBackSwipe,
-    canStartNavigationOpen,
-    canStartViewSwipe,
-    isHorizontalSwipe,
-    isViewHorizontalSwipe,
-    isNavigationDrag,
-    settleNavigation,
-    showTopChromeForViewSwipe,
-    beginViewSwipeTransition,
-    syncViewSwipeTransition,
-    suppressFollowingClick,
-    finishViewSwipe,
-  },
-  navigationPointer: {
-    navigationOpen,
-    navigationProgress,
-    viewSwipeActive,
-    navigationOpenDistance,
-    gestureOrigin,
-    navigationGesture,
-    navigationDrawer,
-    finishCommittedListReturnForGesture,
-    canStartNavigationOpen,
-    cancelViewSwipeCandidate: feedPagerTransition.cancelViewSwipeCandidate,
-    isNavigationDrag,
-    isHorizontalSwipe,
-    isViewHorizontalSwipe,
-    settleNavigation,
-    resetGestureTracking,
-  },
-  feedPointer: {
-    isFeedRoute,
-    navigationVisible,
-    navigationProgress,
-    viewSwipeCandidateActive,
-    viewSwipeActive,
-    viewDragOffset,
-    viewSwitchDistance,
-    gestureOrigin,
-    navigationGesture,
-    feedPagerTransition,
-    canStartViewSwipe,
-    finishCommittedListReturnForGesture,
-    isViewHorizontalSwipe,
-    suppressFollowingClick,
-    showTopChromeForViewSwipe,
-    beginViewSwipeTransition,
-    syncViewSwipeTransition,
-    finishViewSwipe,
-  },
-})
-const handleTouchStart = pointerGestureInteractions.handleTouchStart
-const handleTouchMove = pointerGestureInteractions.handleTouchMove
-const handleTouchEnd = pointerGestureInteractions.handleTouchEnd
-const handleTouchCancel = pointerGestureInteractions.handleTouchCancel
-const handleWindowPointerDown = pointerGestureInteractions.handleWindowPointerDown
-const handleWindowPointerMove = pointerGestureInteractions.handleWindowPointerMove
-const handleWindowPointerUp = pointerGestureInteractions.handleWindowPointerUp
-const handleWindowPointerCancel = pointerGestureInteractions.handleWindowPointerCancel
-const handleFeedPointerDown = pointerGestureInteractions.handleFeedPointerDown
-const handleFeedPointerMove = pointerGestureInteractions.handleFeedPointerMove
-const handleFeedPointerUp = pointerGestureInteractions.handleFeedPointerUp
-const handleFeedPointerCancel = pointerGestureInteractions.handleFeedPointerCancel
+const beginDetailGestureCandidate = gestureInteractionRuntime.beginDetailGestureCandidate
+const updateBackSwipe = gestureInteractionRuntime.updateBackSwipe
+const finishBackSwipe = gestureInteractionRuntime.finishBackSwipe
+const cancelBackSwipe = gestureInteractionRuntime.cancelBackSwipe
+const handleTouchStart = gestureInteractionRuntime.handleTouchStart
+const handleTouchMove = gestureInteractionRuntime.handleTouchMove
+const handleTouchEnd = gestureInteractionRuntime.handleTouchEnd
+const handleTouchCancel = gestureInteractionRuntime.handleTouchCancel
+const handleWindowPointerDown = gestureInteractionRuntime.handleWindowPointerDown
+const handleWindowPointerMove = gestureInteractionRuntime.handleWindowPointerMove
+const handleWindowPointerUp = gestureInteractionRuntime.handleWindowPointerUp
+const handleWindowPointerCancel = gestureInteractionRuntime.handleWindowPointerCancel
+const handleFeedPointerDown = gestureInteractionRuntime.handleFeedPointerDown
+const handleFeedPointerMove = gestureInteractionRuntime.handleFeedPointerMove
+const handleFeedPointerUp = gestureInteractionRuntime.handleFeedPointerUp
+const handleFeedPointerCancel = gestureInteractionRuntime.handleFeedPointerCancel
 
 const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
   feedChrome: {
