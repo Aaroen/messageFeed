@@ -1,6 +1,6 @@
 import { computed } from 'vue'
 
-import { feedContentTopOffset, feedHeaderHeightForWidth } from '@/composables/feedChromeMetrics'
+import { clampProgress, feedContentTopOffset, feedHeaderHeightForWidth } from '@/composables/feedChromeMetrics'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -23,23 +23,22 @@ type FeedChromeLayoutStateOptions = {
 export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) {
   const headerHeight = computed(() => feedHeaderHeightForWidth(options.windowWidth.value))
   const contentTopOffset = computed(() => feedContentTopOffset(headerHeight.value))
+  const topChromeProgress = computed(() => clampProgress(options.topChromeProgress.value))
+  const pullProgress = computed(() => clampProgress(options.pullProgress.value))
   const headerProgress = computed(() => {
     if (!options.isFeedRoute.value) {
-      return options.topChromeProgress.value
+      return topChromeProgress.value
     }
 
     if (options.feedPullActive.value) {
-      return Math.max(options.topChromeProgress.value, options.pullProgress.value)
+      return Math.max(topChromeProgress.value, pullProgress.value)
     }
 
-    return options.topChromeProgress.value
+    return topChromeProgress.value
   })
   const contentSpace = computed(() => {
-    const collapsedRestoreSpace = headerHeight.value * options.topChromeProgress.value
-    const pullRestoreSpace = headerHeight.value * Math.max(
-      options.topChromeProgress.value,
-      options.pullProgress.value,
-    )
+    const collapsedRestoreSpace = headerHeight.value * topChromeProgress.value
+    const pullRestoreSpace = headerHeight.value * Math.max(topChromeProgress.value, pullProgress.value)
     const feedAtTop = options.isFeedRoute.value && options.feedScrollTop.value <= contentTopOffset.value
     const feedTopChromeVisible = headerProgress.value > 0.04 || !options.feedContentCollapsed.value
 
@@ -65,7 +64,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     () => options.feedTopPullStartedWithChrome.value || options.refreshStartedWithChrome.value,
   )
   const topChromeIsVisiblyOpen = computed(
-    () => !options.feedContentCollapsed.value || options.topChromeProgress.value > 0.04,
+    () => !options.feedContentCollapsed.value || topChromeProgress.value > 0.04,
   )
   const headerReturnProgress = computed(() =>
     options.isFeedRoute.value ? options.detailFeedHeaderReturnProgress.value : 0,
