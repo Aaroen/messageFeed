@@ -1194,14 +1194,6 @@ body[arco-theme='dark'] .reader-overlay {
   pointer-events: none;
 }
 
-.reader-overlay--returning-feed {
-  pointer-events: none;
-}
-
-.reader-overlay--returning-feed::before {
-  opacity: 0;
-}
-
 .detail-source-morph {
   position: fixed;
   z-index: 145;

@@ -25,14 +25,15 @@ function stretchTransformOrigin(stretch: number, anchor: StretchAnchor) {
 export function useReaderDetailSurfaceMotion(options: ReaderDetailSurfaceMotionOptions) {
   const readerStyle = computed(() => {
     const committedListReturn = options.committedListReturn()
+    const returningToFeed = options.returningToFeed.value
     const stretch = options.stretch.value
     return {
       transform: `translate3d(0, 0, 0) scaleX(${(1 + Math.abs(stretch)).toFixed(4)})`,
       transition: options.dragging.value ? 'none' : 'transform var(--motion-quick) var(--ease-standard)',
       transformOrigin: stretchTransformOrigin(stretch, options.stretchAnchor.value),
-      pointerEvents: committedListReturn ? ('none' as const) : ('auto' as const),
+      pointerEvents: committedListReturn || returningToFeed ? ('none' as const) : ('auto' as const),
       '--detail-overlay-opacity':
-        options.blockedBackSwipeActive.value || committedListReturn || options.returningToFeed.value
+        options.blockedBackSwipeActive.value || committedListReturn || returningToFeed
           ? '0'
           : options.surfaceProgress.value.toFixed(3),
     }

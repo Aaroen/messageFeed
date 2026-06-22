@@ -1221,7 +1221,6 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   detailItem,
   readerMorph: readerMorphVisibilityState,
   detailReaderOpen,
-  detailReturningToFeed,
   detailReaderStyle,
   sourceNotice,
   topChromePhase,

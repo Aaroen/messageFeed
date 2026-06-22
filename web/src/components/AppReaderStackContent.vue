@@ -28,7 +28,6 @@ withDefaults(
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
-    detailReturningFeed?: boolean
     detailStyle?: StyleValue
     sourceNotice?: SourceNotice | null
     topChromePhase?: ChromePhase
@@ -89,7 +88,6 @@ withDefaults(
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,
-    detailReturningFeed: false,
     detailStyle: undefined,
     sourceNotice: null,
     topChromePhase: 'visible',
@@ -173,7 +171,6 @@ const emit = defineEmits<{
     :source-name-morph-style="sourceNameMorphStyle"
     :source-name-morph-text="sourceNameMorphText"
     :detail-open="detailOpen"
-    :detail-returning-feed="detailReturningFeed"
     :detail-style="detailStyle"
   >
     <template #source>

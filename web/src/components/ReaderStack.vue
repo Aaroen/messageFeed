@@ -16,7 +16,6 @@ withDefaults(
     sourceNameMorphStyle?: StyleValue
     sourceNameMorphText?: string
     detailOpen?: boolean
-    detailReturningFeed?: boolean
     detailStyle?: StyleValue
   }>(),
   {
@@ -33,7 +32,6 @@ withDefaults(
     sourceNameMorphStyle: undefined,
     sourceNameMorphText: '',
     detailOpen: false,
-    detailReturningFeed: false,
     detailStyle: undefined,
   },
 )
@@ -72,9 +70,6 @@ withDefaults(
   <section
     v-if="detailOpen"
     class="reader-overlay reader-overlay--detail"
-    :class="{
-      'reader-overlay--returning-feed': detailReturningFeed,
-    }"
     :style="detailStyle"
   >
     <slot name="detail" />
