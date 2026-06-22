@@ -464,6 +464,8 @@ const feedChromeState = useAppFeedChromeState({
     feedRefreshSettling,
     feedChromeSettling,
     readerBackDragging,
+    detailReaderOpen,
+    detailReturningToFeed,
   },
   visibility: {
     isFeedRoute,
@@ -528,8 +530,6 @@ const chromeVisualState = useAppChromeVisualState({
     feedChromeHidden,
     feedPullActive,
     pagePullActive,
-    detailReaderOpen,
-    detailReturningToFeed,
     detailChromeVisible,
   },
 })

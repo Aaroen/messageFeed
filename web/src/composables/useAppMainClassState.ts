@@ -9,8 +9,6 @@ type AppMainClassStateOptions = {
   feedChromeHidden: ReadableRef<boolean>
   feedPullActive: ReadableRef<boolean>
   pagePullActive: ReadableRef<boolean>
-  detailReaderOpen: ReadableRef<boolean>
-  detailReturningToFeed: ReadableRef<boolean>
   detailChromeVisible: ReadableRef<boolean>
 }
 
@@ -20,7 +18,6 @@ export function useAppMainClassState(options: AppMainClassStateOptions) {
     'app-main--page': !options.isFeedRoute.value,
     'app-main--tabs-hidden': options.feedChromeHidden.value,
     'app-main--refreshing': options.feedPullActive.value || options.pagePullActive.value,
-    'app-main--detail-reader': options.detailReaderOpen.value && !options.detailReturningToFeed.value,
     'app-main--detail-chrome': options.detailChromeVisible.value,
   }))
 

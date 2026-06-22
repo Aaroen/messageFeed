@@ -8,6 +8,8 @@ type AppShellMotionOptions = {
   feedRefreshSettling: Ref<boolean>
   feedChromeSettling: Ref<boolean>
   readerBackDragging: Ref<boolean>
+  detailReaderOpen: Ref<boolean>
+  detailReturningToFeed: Ref<boolean>
 }
 
 function cssNumber(value: number, precision = 2) {
@@ -20,6 +22,9 @@ function cssPx(value: number) {
 
 export function useAppShellMotion(options: AppShellMotionOptions) {
   const style = computed(() => {
+    const detailUnderlayActive = options.detailReaderOpen.value && !options.detailReturningToFeed.value
+    const underlayBlur = detailUnderlayActive ? options.detailSurfaceProgress.value * 7 : 0
+    const underlayOpacity = detailUnderlayActive ? 1 - options.detailSurfaceProgress.value * 0.08 : 1
     const feedContentSpace = options.freezeFeedBodyDuringTopRefresh.value
       ? options.feedHeaderHeight.value
       : options.feedContentSpace.value
@@ -28,20 +33,28 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
       (options.feedRefreshSettling.value || options.feedChromeSettling.value) &&
       !options.readerBackDragging.value
     const pageContentSettling = options.feedChromeSettling.value && !options.readerBackDragging.value
+    const underlayTransition =
+      'opacity var(--motion-fast) var(--ease-linear), filter var(--motion-fast) var(--ease-linear)'
 
     return {
       '--feed-header-height': `${options.feedHeaderHeight.value}px`,
       '--feed-header-space': cssPx(options.feedContentSpace.value),
       '--feed-content-padding-space': cssPx(feedContentSpace),
       '--page-content-padding-space': cssPx(options.feedContentSpace.value),
-      '--feed-content-padding-transition': feedContentSettling
-        ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
-        : 'none',
-      '--page-content-padding-transition': pageContentSettling
-        ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
-        : 'none',
-      '--detail-underlay-blur': `${(options.detailSurfaceProgress.value * 7).toFixed(2)}px`,
-      '--detail-underlay-opacity': (1 - options.detailSurfaceProgress.value * 0.08).toFixed(3),
+      '--feed-content-transition': [
+        feedContentSettling
+          ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
+          : 'padding-top 0ms var(--ease-standard)',
+        underlayTransition,
+      ].join(', '),
+      '--page-content-transition': [
+        pageContentSettling
+          ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
+          : 'padding-top 0ms var(--ease-standard)',
+        underlayTransition,
+      ].join(', '),
+      '--app-content-underlay-blur': `${underlayBlur.toFixed(2)}px`,
+      '--app-content-underlay-opacity': underlayOpacity.toFixed(3),
     }
   })
 
