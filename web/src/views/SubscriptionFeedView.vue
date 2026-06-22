@@ -5,6 +5,7 @@ import { formatAPIError } from '@/api/client'
 import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
 import { clampProgress } from '@/composables/feedChromeMetrics'
 import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRefreshCompletionAction'
+import { useGestureDirection } from '@/composables/useGestureDirection'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { usePullRefresh } from '@/composables/usePullRefresh'
 import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
@@ -92,9 +93,9 @@ const refreshing = pullRefresh.refreshing
 const pullStartedWithVisibleChrome = pullRefresh.startedWithVisibleChrome
 const trackingPullCandidate = pullRefresh.gestureCandidate
 const trackingPull = pullRefresh.gestureTracking
+const topPullGestureDirection = useGestureDirection({ viewDragThreshold: 8 })
 const pageSize = 10
 const cacheTTLMS = 60 * 1000
-const verticalLockRatio = 1.18
 const noticeRevealDelay = motionTimings.noticeRevealDelay
 const feedNoticeRuntime = useTimedNotice<FeedNoticeType>({
   duration: motionTimings.noticeDuration,
@@ -787,12 +788,12 @@ function handleTouchMove(event: TouchEvent) {
   const { deltaX, deltaY } = pullRefresh.gestureDelta(touch.clientX, touch.clientY)
 
   if (!trackingPull.value) {
-    if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY) * verticalLockRatio) {
+    if (topPullGestureDirection.shouldCancelTopPull(deltaX, deltaY)) {
       cancelPullGesture()
       return
     }
 
-    if (deltaY < 2 || Math.abs(deltaY) <= Math.abs(deltaX) * verticalLockRatio) {
+    if (topPullGestureDirection.shouldWaitForTopPull(deltaX, deltaY)) {
       return
     }
 
