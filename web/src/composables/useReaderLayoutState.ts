@@ -15,11 +15,13 @@ type ReaderLayoutStateOptions = {
 }
 
 export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
-  const sourceHeaderSpace = computed(() =>
-    options.feedContentCollapsed.value && options.topChromeProgress.value <= 0.01
-      ? 0
-      : options.feedHeaderHeight.value,
-  )
+  const sourceHeaderSpace = computed(() => {
+    if (!options.feedContentCollapsed.value) {
+      return options.feedHeaderHeight.value
+    }
+
+    return options.feedHeaderHeight.value * Math.min(Math.max(options.topChromeProgress.value, 0), 1)
+  })
   const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
     const side = options.windowWidth.value <= 720 ? 24 : 46
     const top = options.feedHeaderHeight.value + 24
