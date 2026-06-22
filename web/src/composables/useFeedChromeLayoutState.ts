@@ -35,12 +35,8 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       return headerHeight.value
     }
 
-    if (options.feedTopPulling.value) {
-      return headerHeight.value * (options.feedPullActive.value ? options.pullProgress.value : options.topChromeProgress.value)
-    }
-
-    if (options.feedPullActive.value) {
-      return headerHeight.value * Math.max(options.topChromeProgress.value, options.pullProgress.value)
+    if (options.feedTopPulling.value || options.feedPullActive.value) {
+      return options.feedContentCollapsed.value ? 0 : headerHeight.value
     }
 
     if (options.feedContentCollapsed.value) {
