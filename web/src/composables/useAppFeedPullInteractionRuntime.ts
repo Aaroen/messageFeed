@@ -1,18 +1,14 @@
 import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
 
+import { useTopPullState } from '@/composables/useTopPullState'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 
-type ReadableRef<T> = {
-  readonly value: T
-}
-
-type AppFeedPullInteractionRuntimeOptions = {
-  feedTopPulling: ReadableRef<boolean>
-}
-
-export function useAppFeedPullInteractionRuntime(options: AppFeedPullInteractionRuntimeOptions) {
+export function useAppFeedPullInteractionRuntime() {
   const feedInteraction = useFeedInteractionStore()
+  const topPull = useTopPullState()
+  const topPulling = topPull.pulling
+  const topPullStartedWithChrome = topPull.startedWithChrome
   const {
     pullViewKey,
     pullActive,
@@ -22,10 +18,13 @@ export function useAppFeedPullInteractionRuntime(options: AppFeedPullInteraction
     statusMeta: pullStatusMeta,
   } = storeToRefs(feedInteraction)
   const feedPullBusy = computed(
-    () => pullActive.value || pullRefreshing.value || pullOffset.value > 1 || options.feedTopPulling.value,
+    () => pullActive.value || pullRefreshing.value || pullOffset.value > 1 || topPulling.value,
   )
 
   return {
+    topPull,
+    topPulling,
+    topPullStartedWithChrome,
     pullViewKey,
     pullActive,
     pullOffset,
@@ -37,5 +36,6 @@ export function useAppFeedPullInteractionRuntime(options: AppFeedPullInteraction
     getPullActive: () => pullActive.value,
     getPullOffset: () => pullOffset.value,
     getPullRefreshing: () => pullRefreshing.value,
+    finishTopPull: topPull.finish,
   }
 }

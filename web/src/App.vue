@@ -13,7 +13,6 @@ import {
   type ReaderSource,
 } from '@/composables/useReaderSession'
 import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
-import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
 import { useThemeState } from '@/composables/useThemeState'
 import { useFeedScrollState } from '@/composables/useFeedScrollState'
@@ -216,12 +215,11 @@ const navigationScrimStyle = navigationDrawer.scrimStyle
 const themeState = useThemeState()
 const darkTheme = themeState.dark
 const toggleTheme = themeState.toggle
-const feedTopPull = useTopPullState()
-const feedTopPulling = feedTopPull.pulling
-const feedTopPullStartedWithChrome = feedTopPull.startedWithChrome
-const feedPullInteraction = useAppFeedPullInteractionRuntime({
-  feedTopPulling,
-})
+const feedPullInteraction = useAppFeedPullInteractionRuntime()
+const feedTopPull = feedPullInteraction.topPull
+const feedTopPulling = feedPullInteraction.topPulling
+const feedTopPullStartedWithChrome = feedPullInteraction.topPullStartedWithChrome
+const finishFeedTopPull = feedPullInteraction.finishTopPull
 const homeBackGuard = useDoubleBackGuard(motionTimings.homeExitDoubleBackTimeout)
 const {
   bindReaderRouteSync,
@@ -631,7 +629,7 @@ const readerNavigationRuntime = useAppReaderNavigationRuntime({
       loadFeedItem: getFeedItem,
       finishOpenItemReaderLoad,
       setChromeStableVisible: chromeState.setStableVisible,
-      finishFeedTopPull: feedTopPull.finish,
+      finishFeedTopPull,
       rememberDetailScrollTop,
       scrollDetailContentElementTo,
       scheduleReaderSessionSave,
@@ -1042,9 +1040,7 @@ const pagePullInteractions = routePageRuntime.installPagePullInteractions({
   shouldCancelTopPull,
   shouldWaitForTopPull,
   setTopChromeVisible,
-  finishFeedTopPull: () => {
-    feedTopPull.finish()
-  },
+  finishFeedTopPull,
   settlePullOffset: settlePagePullOffset,
   collapseTopChrome,
 })
@@ -1149,7 +1145,7 @@ routeRuntime.installRouteSessionWatchers({
   resetGestureTracking,
   resetBackSwipeOffset,
   resetPageTopPullTracking,
-  finishFeedTopPull: feedTopPull.finish,
+  finishFeedTopPull,
   resetRefreshCompletion: feedRefreshCompletionRuntime.resetRefreshCompletion,
   resetPagePullMotion: () => {
     invalidatePagePullRefreshCompletion()
