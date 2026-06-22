@@ -749,6 +749,11 @@ function resetPullGesture(force = false) {
   clearPullState(force)
 }
 
+function cancelPullGesture(force = false) {
+  resetPullGesture(force)
+  emit('top-pull-end', false)
+}
+
 function resetTransientLoadState(
   options: { clearList?: boolean; clearNotice?: boolean; pullOwnerViewKey?: string } = {},
 ) {
@@ -790,10 +795,19 @@ function handleTouchStart(event: TouchEvent) {
 }
 
 function handleTouchMove(event: TouchEvent) {
-  if (
-    !props.active ||
-    ((!trackingPullCandidate.value && !trackingPull.value) || props.scrollTop > 0 || event.touches.length !== 1)
-  ) {
+  if (!props.active || event.touches.length !== 1) {
+    if (trackingPullCandidate.value || trackingPull.value) {
+      cancelPullGesture()
+    }
+    return
+  }
+
+  if (!trackingPullCandidate.value && !trackingPull.value) {
+    return
+  }
+
+  if (props.scrollTop > 0) {
+    cancelPullGesture()
     return
   }
 
@@ -802,7 +816,7 @@ function handleTouchMove(event: TouchEvent) {
 
   if (!trackingPull.value) {
     if (deltaY <= 0 || Math.abs(deltaX) > Math.abs(deltaY) * verticalLockRatio) {
-      resetPullGesture()
+      cancelPullGesture()
       return
     }
 
@@ -828,8 +842,11 @@ function handleTouchMove(event: TouchEvent) {
 
 function handleTouchEnd() {
   if (!trackingPull.value) {
+    const shouldNotifyTopPullEnd = trackingPullCandidate.value
     resetPullGesture()
-    emit('top-pull-end', false)
+    if (shouldNotifyTopPullEnd) {
+      emit('top-pull-end', false)
+    }
     return
   }
 
@@ -848,8 +865,11 @@ function handleTouchEnd() {
 }
 
 function handleTouchCancel() {
+  const shouldNotifyTopPullEnd = trackingPullCandidate.value || trackingPull.value
   resetPullGesture()
-  emit('top-pull-end', false)
+  if (shouldNotifyTopPullEnd) {
+    emit('top-pull-end', false)
+  }
 }
 
 onMounted(() => {
