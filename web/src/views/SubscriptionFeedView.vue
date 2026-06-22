@@ -176,17 +176,22 @@ const pageClass = computed(() => ({
 const freezeBodyForTopChromePull = computed(
   () => props.freezeBodyDuringTopRefresh || pullStartedWithVisibleChrome.value,
 )
+const feedBodyPullFeedbackActive = computed(
+  () => pullDragging.value && !refreshing.value && !freezeBodyForTopChromePull.value,
+)
 const feedBodyShift = computed(() => {
+  if (!feedBodyPullFeedbackActive.value) {
+    return 0
+  }
+
   const shiftRatio = hasItems.value ? 0.34 : 0.2
   const maxShift = hasItems.value ? 38 : 18
   return Math.min(pullOffset.value * shiftRatio, maxShift)
 })
 const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: feedBodyRef })
 const feedBodyStyle = computed(() => ({
-  transform: freezeBodyForTopChromePull.value
-    ? 'translate3d(0, 0, 0)'
-    : `translate3d(0, ${cssPx(feedBodyShift.value)}, 0)`,
-  transition: pullDragging.value ? 'none' : 'transform var(--motion-chrome) var(--ease-emphasized)',
+  transform: `translate3d(0, ${cssPx(feedBodyShift.value)}, 0)`,
+  transition: feedBodyPullFeedbackActive.value ? 'none' : 'transform var(--motion-fast) var(--ease-standard)',
   ...refreshLayoutFreeze.style.value,
 }))
 const safeMorphingPreviewProgress = computed(() => clampProgress(props.morphingPreviewProgress))
