@@ -28,6 +28,25 @@ type FeedRefreshCompletionWatcherOptions = {
 }
 
 export function useFeedRefreshCompletionWatcher(options: FeedRefreshCompletionWatcherOptions) {
+  function finishRefreshCompletionIfInactive(active: boolean) {
+    if (active) {
+      return
+    }
+
+    if (options.refreshCompletion.wasActive.value) {
+      const refreshResult = options.refreshCompletion.finish(options.settleDelayMS())
+      if (refreshResult.wasSource) {
+        options.settleSourceContentAfterRefresh()
+      }
+      options.topPull.resetStartedWithChrome()
+      options.collapseTopChrome()
+      return
+    }
+
+    options.refreshCompletion.resetInactive()
+    options.topPull.resetStartedWithChrome()
+  }
+
   watch(
     () => options.pullRefreshing(),
     (refreshing) => {
@@ -36,26 +55,17 @@ export function useFeedRefreshCompletionWatcher(options: FeedRefreshCompletionWa
           viewKey: options.pullViewKey(),
           startedWithVisibleChrome: options.topPull.startedWithChrome.value,
         })
+        return
       }
+
+      finishRefreshCompletionIfInactive(options.feedOrSourcePullActive.value)
     },
   )
 
   watch(
-    options.feedOrSourcePullActive,
+    () => options.feedOrSourcePullActive.value,
     (active) => {
-      if (!active && options.refreshCompletion.wasActive.value) {
-        const refreshResult = options.refreshCompletion.finish(options.settleDelayMS())
-        if (refreshResult.wasSource) {
-          options.settleSourceContentAfterRefresh()
-        }
-        options.topPull.resetStartedWithChrome()
-        options.collapseTopChrome()
-      }
-
-      if (!active && !options.refreshCompletion.wasActive.value) {
-        options.refreshCompletion.resetInactive()
-        options.topPull.resetStartedWithChrome()
-      }
+      finishRefreshCompletionIfInactive(active)
     },
   )
 }
