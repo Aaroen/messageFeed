@@ -56,7 +56,7 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
 <template>
   <div class="feed-stage">
     <div class="feed-track" :style="feedTrackStyle">
-      <section class="feed-pane">
+      <section class="feed-pane" :aria-hidden="!subscriptionsActive" :inert="!subscriptionsActive">
         <SubscriptionFeedView
           mode="subscriptions"
           :active="subscriptionsActive"
@@ -74,7 +74,7 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
           @open-item="handleOpenItem"
         />
       </section>
-      <section class="feed-pane">
+      <section class="feed-pane" :aria-hidden="!recommendationsActive" :inert="!recommendationsActive">
         <SubscriptionFeedView
           mode="recommendations"
           :active="recommendationsActive"
