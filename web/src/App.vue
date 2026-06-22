@@ -32,7 +32,6 @@ import { useAppNavigationRuntime } from '@/composables/useAppNavigationRuntime'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
 import { useAppChromeRuntime } from '@/composables/useAppChromeRuntime'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
-import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
 import { useAppShellRuntime } from '@/composables/useAppShellRuntime'
 import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
@@ -41,10 +40,6 @@ import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStack
 import { useAppMainOutletBindings } from '@/composables/useAppMainOutletBindings'
 import { useAppPagePullInteractions } from '@/composables/useAppPagePullInteractions'
 import { useAppReaderBackSwipeInteractions } from '@/composables/useAppReaderBackSwipeInteractions'
-import { useAppReaderSourceCloseInteractions } from '@/composables/useAppReaderSourceCloseInteractions'
-import { useAppReaderOpenInteractions } from '@/composables/useAppReaderOpenInteractions'
-import { useAppReaderCloseInteractions } from '@/composables/useAppReaderCloseInteractions'
-import { useAppReaderTransitionRects } from '@/composables/useAppReaderTransitionRects'
 import { useAppReaderDetailInteractions } from '@/composables/useAppReaderDetailInteractions'
 import { useAppReaderRouteSyncBinding } from '@/composables/useAppReaderRouteSyncBinding'
 import { useAppPointerGestureInteractions } from '@/composables/useAppPointerGestureInteractions'
@@ -57,6 +52,7 @@ import { useAppTopChromeOutletState } from '@/composables/useAppTopChromeOutletS
 import { useAppVirtualBackGuard } from '@/composables/useAppVirtualBackGuard'
 import { useAppFeedRefreshCompletionRuntime } from '@/composables/useAppFeedRefreshCompletionRuntime'
 import { useAppFeedChromeScrollRuntime } from '@/composables/useAppFeedChromeScrollRuntime'
+import { useAppReaderNavigationRuntime } from '@/composables/useAppReaderNavigationRuntime'
 
 type SwipeSurface =
   | 'feed:subscriptions'
@@ -599,79 +595,127 @@ const {
   setDetailFrameElement: setDetailFrameElementState,
 })
 
-const readerTransitionRects = useAppReaderTransitionRects({
-  sourceReaderContentRef,
-  detailInlineSourceRef,
-  detailItem,
-  detailFeedOriginLocked,
-  detailTransitionRectsLocked,
-  retryDelay: readerRectRetryDelay,
-  activeFeedIndex,
-  findFeedItemElement: feedContent.findItemElement,
-  applyDetailFeedOriginRectState,
-  applyDetailSourceTransitionRectsState,
-  applyVisibleSourceReturnTargetState,
-})
-const refreshDetailFeedOriginRect = readerTransitionRects.refreshDetailFeedOriginRect
-const captureDetailSourceTransitionRects = readerTransitionRects.captureDetailSourceTransitionRects
-const captureVisibleSourceReturnTarget = readerTransitionRects.captureVisibleSourceReturnTarget
-const clearDetailSourceTransitionRectCapture =
-  readerTransitionRects.clearDetailSourceTransitionRectCapture
-
-const {
-  restoreMorphingItemContent,
-  scheduleHiddenSourceReaderCleanup,
-  restorePreviousParkedDetail,
-} = useAppReaderStackActions({
-  quickDuration: motionQuickDuration,
-  restoreMorphingItemContentWithDelay,
-  scheduleHiddenSourceReaderCleanupWithDelay,
-  restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
-  rememberDetailScrollTop,
-})
-
-const readerOpenInteractions = useAppReaderOpenInteractions({
-  sourceOpen: {
-    openSourceReaderState,
-    getReaderSource: () => readerSource.value,
-    clearHiddenSourceCleanupTimer,
-    setTopChromeVisible,
-    captureDetailSourceTransitionRects,
-    loadSourceReaderSubscription,
-    resetSourceSubscriptionState,
-    rememberSourceScrollTop,
-    scrollSourceReaderContentElementTo,
-  },
-  sourceReveal: {
+const readerNavigationRuntime = useAppReaderNavigationRuntime({
+  transitionRects: {
+    sourceReaderContentRef,
+    detailInlineSourceRef,
     detailItem,
-    detailSourceKind,
-    readerSource,
-    setTopChromeVisible,
-    revealSourceReaderUnderDetailState,
-    captureDetailSourceTransitionRects,
+    detailFeedOriginLocked,
+    detailTransitionRectsLocked,
+    retryDelay: readerRectRetryDelay,
+    activeFeedIndex,
+    findFeedItemElement: feedContent.findItemElement,
+    applyDetailFeedOriginRectState,
+    applyDetailSourceTransitionRectsState,
+    applyVisibleSourceReturnTargetState,
   },
-  itemOpen: {
-    detailItem,
-    detailSourceKind,
-    sourceReaderOpen,
-    readerSource,
-    headerSwapDuration: motionHeaderSwapDuration,
-    detailEntryDuration: readerMorphDuration,
-    resolveDelay: motionDelay,
-    openItemReaderWithTransition,
-    loadFeedItem: getFeedItem,
-    finishOpenItemReaderLoad,
-    setChromeStableVisible: chromeState.setStableVisible,
-    finishFeedTopPull: feedTopPull.finish,
+  stackActions: {
+    quickDuration: motionQuickDuration,
+    restoreMorphingItemContentWithDelay,
+    scheduleHiddenSourceReaderCleanupWithDelay,
+    restorePreviousParkedDetail: restoreReaderStackPreviousParkedDetail,
     rememberDetailScrollTop,
-    captureDetailSourceTransitionRects,
-    scrollDetailContentElementTo,
-    scheduleReaderSessionSave,
+  },
+  open: {
+    sourceOpen: {
+      openSourceReaderState,
+      getReaderSource: () => readerSource.value,
+      clearHiddenSourceCleanupTimer,
+      setTopChromeVisible,
+      loadSourceReaderSubscription,
+      resetSourceSubscriptionState,
+      rememberSourceScrollTop,
+      scrollSourceReaderContentElementTo,
+    },
+    sourceReveal: {
+      detailItem,
+      detailSourceKind,
+      readerSource,
+      setTopChromeVisible,
+      revealSourceReaderUnderDetailState,
+    },
+    itemOpen: {
+      detailItem,
+      detailSourceKind,
+      sourceReaderOpen,
+      readerSource,
+      headerSwapDuration: motionHeaderSwapDuration,
+      detailEntryDuration: readerMorphDuration,
+      resolveDelay: motionDelay,
+      openItemReaderWithTransition,
+      loadFeedItem: getFeedItem,
+      finishOpenItemReaderLoad,
+      setChromeStableVisible: chromeState.setStableVisible,
+      finishFeedTopPull: feedTopPull.finish,
+      rememberDetailScrollTop,
+      scrollDetailContentElementTo,
+      scheduleReaderSessionSave,
+    },
+  },
+  sourceClose: {
+    parkedRestore: {
+      detailReaderOpen,
+      readerDuration: motionReaderDuration,
+      resolveDelay: motionDelay,
+      suppressFollowingClick,
+      restoreDetailFromParkedSourceWithDelay,
+      clearMorphingHeightUnlockTimer,
+      setTopChromeVisible,
+    },
+    sourceClose: {
+      sourceReaderOpen,
+      detailReaderOpen,
+      isFeedRoute,
+      sourceReaderCloseCleanupDelay,
+      sourceReaderShouldReturnToDetail,
+      hasDetailParkedBehindSource,
+      restorePreviousParkedDetailIfReaderClosed,
+      restoreSourceReaderBackTargetState,
+      closeVisibleSourceReaderState,
+      clearSourceReaderState,
+      resetSourceSubscriptionState,
+      rememberDetailScrollTop,
+      setTopChromeVisible,
+    },
+  },
+  close: {
+    backSwipeReset: {
+      readerBackDragging,
+      stretchAnchorClearDuration: motionStretchAnchorClearDuration,
+      resetReaderBackSwipeDragState,
+      resetPageSideMotion: pagePullState.resetSideMotion,
+      clearReaderStretchAnchorsIfIdle,
+      clearPageStretchAnchorIfIdle: pagePullState.clearStretchAnchorIfIdle,
+    },
+    itemClose: {
+      detailReaderOpen,
+      isFeedRoute,
+      readerDuration: motionReaderDuration,
+      resolveDelay: motionDelay,
+      detailCommittedListReturn,
+      hasDetailParkedBehindSource,
+      clearDetailEntryTimer,
+      closeItemReaderWithTransition,
+      collapseItemReaderWithDelay,
+      setTopChromeVisible,
+      suppressFollowingClick,
+      scheduleReaderURLAndHistorySync,
+    },
+    restoreActions: {
+      normalDuration: motionNormalDuration,
+      readerDuration: motionReaderDuration,
+      resolveDelay: motionDelay,
+      restoreParkedSourceReaderWithDelay,
+      restoreItemReaderExpansionWithDelay,
+      restoreDetailFromSourceSwipeWithDelay,
+      completeDetailToSourceReaderWithDelay,
+      setTopChromeVisible,
+    },
   },
 })
-const openSourceReader = readerOpenInteractions.openSourceReader
-const showSourceReaderUnderDetail = readerOpenInteractions.showSourceReaderUnderDetail
-const openItemReader = readerOpenInteractions.openItemReader
+const openSourceReader = readerNavigationRuntime.openSourceReader
+const showSourceReaderUnderDetail = readerNavigationRuntime.showSourceReaderUnderDetail
+const openItemReader = readerNavigationRuntime.openItemReader
 
 const readerRouteQueryRestore = useReaderRouteQueryRestore({
   route,
@@ -681,88 +725,23 @@ const readerRouteQueryRestore = useReaderRouteQueryRestore({
 })
 const restoreReaderStateOnLoad = readerRouteQueryRestore.restoreReaderStateOnLoad
 
-const readerSourceCloseInteractions = useAppReaderSourceCloseInteractions({
-  parkedRestore: {
-    detailReaderOpen,
-    readerDuration: motionReaderDuration,
-    resolveDelay: motionDelay,
-    suppressFollowingClick,
-    restoreDetailFromParkedSourceWithDelay,
-    clearMorphingHeightUnlockTimer,
-    captureVisibleSourceReturnTarget,
-    setTopChromeVisible,
-    restoreMorphingItemContent,
-    scheduleHiddenSourceReaderCleanup,
-  },
-  sourceClose: {
-    sourceReaderOpen,
-    detailReaderOpen,
-    isFeedRoute,
-    sourceReaderCloseCleanupDelay,
-    sourceReaderShouldReturnToDetail,
-    hasDetailParkedBehindSource,
-    restorePreviousParkedDetailIfReaderClosed,
-    restoreSourceReaderBackTargetState,
-    closeVisibleSourceReaderState,
-    clearSourceReaderState,
-    resetSourceSubscriptionState,
-    rememberDetailScrollTop,
-    setTopChromeVisible,
-    scheduleHiddenSourceReaderCleanup,
-  },
-})
-const restoreDetailFromParkedSource = readerSourceCloseInteractions.restoreDetailFromParkedSource
-const restoreSourceReaderBackTarget = readerSourceCloseInteractions.restoreSourceReaderBackTarget
-const closeSourceReader = readerSourceCloseInteractions.closeSourceReader
-
-const readerCloseInteractions = useAppReaderCloseInteractions({
-  backSwipeReset: {
-    readerBackDragging,
-    stretchAnchorClearDuration: motionStretchAnchorClearDuration,
-    resetReaderBackSwipeDragState,
-    resetPageSideMotion: pagePullState.resetSideMotion,
-    clearReaderStretchAnchorsIfIdle,
-    clearPageStretchAnchorIfIdle: pagePullState.clearStretchAnchorIfIdle,
-  },
-  itemClose: {
-    detailReaderOpen,
-    isFeedRoute,
-    readerDuration: motionReaderDuration,
-    resolveDelay: motionDelay,
-    detailCommittedListReturn,
-    hasDetailParkedBehindSource,
-    clearDetailEntryTimer,
-    closeItemReaderWithTransition,
-    collapseItemReaderWithDelay,
-    setTopChromeVisible,
-    scheduleHiddenSourceReaderCleanup,
-    suppressFollowingClick,
-    refreshDetailFeedOriginRect,
-    restorePreviousParkedDetail,
-    scheduleReaderURLAndHistorySync,
-  },
-  restoreActions: {
-    normalDuration: motionNormalDuration,
-    readerDuration: motionReaderDuration,
-    resolveDelay: motionDelay,
-    restoreParkedSourceReaderWithDelay,
-    restoreItemReaderExpansionWithDelay,
-    restoreDetailFromSourceSwipeWithDelay,
-    completeDetailToSourceReaderWithDelay,
-    setTopChromeVisible,
-    captureDetailSourceTransitionRects,
-    restoreMorphingItemContent,
-  },
-})
-const finishCommittedListReturnForGesture = readerCloseInteractions.finishCommittedListReturnForGesture
-const closeItemReader = readerCloseInteractions.closeItemReader
-const collapseItemReader = readerCloseInteractions.collapseItemReader
-const resetBackSwipeOffset = readerCloseInteractions.resetBackSwipeOffset
-const clearBackSwipeStretchAnchorTimer = readerCloseInteractions.clearBackSwipeStretchAnchorTimer
-const restoreParkedSourceReader = readerCloseInteractions.restoreParkedSourceReader
-const restoreItemReaderExpansion = readerCloseInteractions.restoreItemReaderExpansion
-const restoreDetailFromSourceSwipe = readerCloseInteractions.restoreDetailFromSourceSwipe
-const completeDetailToSourceReader = readerCloseInteractions.completeDetailToSourceReader
+const restoreDetailFromParkedSource = readerNavigationRuntime.restoreDetailFromParkedSource
+const restoreSourceReaderBackTarget = readerNavigationRuntime.restoreSourceReaderBackTarget
+const closeSourceReader = readerNavigationRuntime.closeSourceReader
+const finishCommittedListReturnForGesture = readerNavigationRuntime.finishCommittedListReturnForGesture
+const closeItemReader = readerNavigationRuntime.closeItemReader
+const collapseItemReader = readerNavigationRuntime.collapseItemReader
+const resetBackSwipeOffset = readerNavigationRuntime.resetBackSwipeOffset
+const clearBackSwipeStretchAnchorTimer = readerNavigationRuntime.clearBackSwipeStretchAnchorTimer
+const restoreParkedSourceReader = readerNavigationRuntime.restoreParkedSourceReader
+const restoreItemReaderExpansion = readerNavigationRuntime.restoreItemReaderExpansion
+const restoreDetailFromSourceSwipe = readerNavigationRuntime.restoreDetailFromSourceSwipe
+const completeDetailToSourceReader = readerNavigationRuntime.completeDetailToSourceReader
+const refreshDetailFeedOriginRect = readerNavigationRuntime.refreshDetailFeedOriginRect
+const captureDetailSourceTransitionRects = readerNavigationRuntime.captureDetailSourceTransitionRects
+const captureVisibleSourceReturnTarget = readerNavigationRuntime.captureVisibleSourceReturnTarget
+const clearDetailSourceTransitionRectCapture =
+  readerNavigationRuntime.clearDetailSourceTransitionRectCapture
 
 const feedViewSwipeInteractions = useAppFeedViewSwipeInteractions({
   topChromeProgress,
