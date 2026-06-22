@@ -1,3 +1,5 @@
+import { watch } from 'vue'
+
 import { useAppReaderSourceSubscription } from '@/composables/useAppReaderSourceSubscription'
 import { useReaderStackState } from '@/composables/useReaderStackState'
 
@@ -16,6 +18,15 @@ export function useAppReaderStackRuntime() {
     canShowNotice: () =>
       readerStackState.sourceReaderVisible.value && !readerStackState.sourceReaderUnderDetail.value,
   })
+
+  watch(
+    () => readerStackState.sourceReaderVisible.value && !readerStackState.sourceReaderUnderDetail.value,
+    (sourceInteractive) => {
+      if (!sourceInteractive) {
+        readerStackState.setSourceNoticeState(null)
+      }
+    },
+  )
 
   return {
     ...readerStackState,
