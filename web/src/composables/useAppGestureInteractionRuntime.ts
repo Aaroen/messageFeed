@@ -29,22 +29,37 @@ type FeedPointerInjectedHandlers =
   | 'syncViewSwipeTransition'
   | 'finishViewSwipe'
 
+type AppGestureDistanceOptions = {
+  navigationOpenDistance?: number
+  viewSwitchDistance?: number
+}
+
+const defaultNavigationOpenDistance = 72
+const defaultViewSwitchDistance = 62
+
 type AppGestureInteractionRuntimeOptions<
   TSwipeSurface extends string,
   TFeedSurface extends TSwipeSurface,
 > = {
+  distances?: AppGestureDistanceOptions
   feedView: FeedViewSwipeOptions<TSwipeSurface>
   readerBackSwipe: Omit<ReaderBackSwipeOptions<TSwipeSurface, TFeedSurface>, 'completion'> & {
     completion: Omit<
       ReaderBackSwipeOptions<TSwipeSurface, TFeedSurface>['completion'],
-      'scheduleTransitionReset'
+      'scheduleTransitionReset' | 'switchDistance'
     >
     transitionResetDuration: number
   }
   pointer: {
-    touch: Omit<PointerGestureOptions['touch'], TouchInjectedHandlers>
-    navigationPointer: PointerGestureOptions['navigationPointer']
-    feedPointer: Omit<PointerGestureOptions['feedPointer'], FeedPointerInjectedHandlers>
+    touch: Omit<
+      PointerGestureOptions['touch'],
+      TouchInjectedHandlers | 'navigationOpenDistance' | 'viewSwitchDistance'
+    >
+    navigationPointer: Omit<PointerGestureOptions['navigationPointer'], 'navigationOpenDistance'>
+    feedPointer: Omit<
+      PointerGestureOptions['feedPointer'],
+      FeedPointerInjectedHandlers | 'viewSwitchDistance'
+    >
   }
 }
 
@@ -52,6 +67,9 @@ export function useAppGestureInteractionRuntime<
   TSwipeSurface extends string,
   TFeedSurface extends TSwipeSurface,
 >(options: AppGestureInteractionRuntimeOptions<TSwipeSurface, TFeedSurface>) {
+  const navigationOpenDistance =
+    options.distances?.navigationOpenDistance ?? defaultNavigationOpenDistance
+  const viewSwitchDistance = options.distances?.viewSwitchDistance ?? defaultViewSwitchDistance
   const feedViewSwipe = useAppFeedViewSwipeInteractions<TSwipeSurface>(options.feedView)
   const readerBackSwipe = useAppReaderBackSwipeInteractions<TSwipeSurface, TFeedSurface>({
     pagePull: options.readerBackSwipe.pagePull,
@@ -59,6 +77,7 @@ export function useAppGestureInteractionRuntime<
     drag: options.readerBackSwipe.drag,
     completion: {
       ...options.readerBackSwipe.completion,
+      switchDistance: viewSwitchDistance,
       scheduleTransitionReset: () => {
         feedViewSwipe.scheduleSwipeTransitionReset(options.readerBackSwipe.transitionResetDuration)
       },
@@ -75,14 +94,20 @@ export function useAppGestureInteractionRuntime<
       beginViewSwipeTransition: feedViewSwipe.beginViewSwipeTransition,
       syncViewSwipeTransition: feedViewSwipe.syncViewSwipeTransition,
       finishViewSwipe: feedViewSwipe.finishViewSwipe,
+      navigationOpenDistance,
+      viewSwitchDistance,
     },
-    navigationPointer: options.pointer.navigationPointer,
+    navigationPointer: {
+      ...options.pointer.navigationPointer,
+      navigationOpenDistance,
+    },
     feedPointer: {
       ...options.pointer.feedPointer,
       showTopChromeForViewSwipe: feedViewSwipe.showTopChromeForViewSwipe,
       beginViewSwipeTransition: feedViewSwipe.beginViewSwipeTransition,
       syncViewSwipeTransition: feedViewSwipe.syncViewSwipeTransition,
       finishViewSwipe: feedViewSwipe.finishViewSwipe,
+      viewSwitchDistance,
     },
   })
 

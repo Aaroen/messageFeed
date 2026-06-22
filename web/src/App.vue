@@ -546,9 +546,6 @@ const {
   motionNormalDuration,
 })
 
-const navigationOpenDistance = 72
-const viewSwitchDistance = 62
-
 const {
   handleClickCapture,
   suppressFollowingClick,
@@ -789,7 +786,6 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
       showSourceReaderUnderDetail,
     },
     completion: {
-      switchDistance: viewSwitchDistance,
       finishResult: readerBackSwipeFinishResult,
       cancelResult: readerBackSwipeCancelResult,
       settleTransition: settleSwipeTransition,
@@ -818,8 +814,6 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
       viewDragOffset,
       readerBackSwipeCandidateActive,
       readerBackSwipeTrackingActive,
-      navigationOpenDistance,
-      viewSwitchDistance,
       gestureOrigin,
       navigationGesture,
       navigationDrawer,
@@ -841,7 +835,6 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
       navigationOpen,
       navigationProgress,
       viewSwipeActive,
-      navigationOpenDistance,
       gestureOrigin,
       navigationGesture,
       navigationDrawer,
@@ -861,7 +854,6 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
       viewSwipeCandidateActive,
       viewSwipeActive,
       viewDragOffset,
-      viewSwitchDistance,
       gestureOrigin,
       navigationGesture,
       feedPagerTransition,
