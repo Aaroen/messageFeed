@@ -28,7 +28,7 @@ import { useGestureOriginState } from '@/composables/useGestureOriginState'
 import { useNavigationGestureState } from '@/composables/useNavigationGestureState'
 import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { useMotionTimings } from '@/composables/useMotionTimings'
-import { useAppRouteState } from '@/composables/useAppRouteState'
+import { useAppRoutePageRuntime } from '@/composables/useAppRoutePageRuntime'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useAppNavigationRuntime } from '@/composables/useAppNavigationRuntime'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
@@ -41,7 +41,6 @@ import { useAppRuntimeEffects } from '@/composables/useAppRuntimeEffects'
 import { useAppReaderSessionRuntime } from '@/composables/useAppReaderSessionRuntime'
 import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStackOutletBindings'
 import { useAppMainOutletBindings } from '@/composables/useAppMainOutletBindings'
-import { useAppPagePullState } from '@/composables/useAppPagePullState'
 import { useAppPagePullInteractions } from '@/composables/useAppPagePullInteractions'
 import { useAppReaderBackSwipeInteractions } from '@/composables/useAppReaderBackSwipeInteractions'
 import { useAppReaderSourceCloseInteractions } from '@/composables/useAppReaderSourceCloseInteractions'
@@ -321,18 +320,19 @@ const {
   canSaveReaderSession: routeRuntime.canSaveReaderSession,
 })
 
-const appRouteState = useAppRouteState(route)
-const selectedKeys = appRouteState.selectedKeys
-const pageTitle = appRouteState.pageTitle
-const isFeedRoute = appRouteState.isFeedRoute
-const cornerButtonLabel = appRouteState.cornerButtonLabel
-const pagePullState = useAppPagePullState({ pageTitle })
-const pagePullOffset = pagePullState.offset
-const pagePullRefreshing = pagePullState.refreshing
-const pagePullProgress = pagePullState.progress
-const pageContentInnerStyle = pagePullState.contentStyle
-const pagePullStatusText = pagePullState.statusText
-const pagePullStatusMeta = pagePullState.statusMeta
+const {
+  selectedKeys,
+  pageTitle,
+  isFeedRoute,
+  cornerButtonLabel,
+  pagePullState,
+  pagePullOffset,
+  pagePullRefreshing,
+  pagePullProgress,
+  pageContentInnerStyle,
+  pagePullStatusText,
+  pagePullStatusMeta,
+} = useAppRoutePageRuntime(route)
 const virtualBackGuard = useAppVirtualBackGuard({
   route,
   router,
