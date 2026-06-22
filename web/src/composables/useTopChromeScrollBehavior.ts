@@ -67,6 +67,10 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
       if (options.isFeedRoute.value && !options.detailReaderOpen.value) {
         const revealDistance = Math.max(options.feedHeaderHeight.value * 2, 1)
         const progress = clampProgress(1 - current / revealDistance)
+        if (progress >= 0.99 && options.topChromeProgress.value < 0.99) {
+          options.showTopChromeOverlay()
+          return
+        }
         options.setTopChromeOverlayProgress(progress)
         return
       }

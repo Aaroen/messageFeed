@@ -115,6 +115,10 @@ export function useChromeState() {
         scheduleSettlingEndIfNeeded(options.settleDelayMS)
         return
       }
+      if (visible && options.preserveContentCollapsed && settling.value) {
+        scheduleSettlingEndIfNeeded(options.settleDelayMS)
+        return
+      }
       clearTimer()
       settling.value = false
       setProgress(nextProgress, visible ? 'visible' : 'hidden')
