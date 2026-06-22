@@ -364,7 +364,7 @@ const {
   sourceReaderOpen,
   isSubscriptionsRoute: () => route.name === 'subscriptions',
   detailBlocksGestures,
-  feedPullBusy: () => feedPullInteraction.feedPullBusy.value,
+  feedPullBusy: feedPullInteraction.feedPullBusy,
 })
 const chromeRuntime = useAppChromeRuntime({
   feed: {

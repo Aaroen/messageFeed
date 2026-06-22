@@ -8,7 +8,7 @@ type AppGestureStartGuardsOptions = {
   sourceReaderOpen: ReadableRef<boolean>
   isSubscriptionsRoute: () => boolean
   detailBlocksGestures: () => boolean
-  feedPullBusy: () => boolean
+  feedPullBusy: ReadableRef<boolean>
 }
 
 export function useAppGestureStartGuards(options: AppGestureStartGuardsOptions) {
@@ -17,7 +17,7 @@ export function useAppGestureStartGuards(options: AppGestureStartGuardsOptions) 
       !options.isFeedRoute.value ||
       options.navigationVisible.value ||
       options.sourceReaderOpen.value ||
-      options.feedPullBusy() ||
+      options.feedPullBusy.value ||
       options.detailBlocksGestures()
     ) {
       return false
@@ -31,7 +31,7 @@ export function useAppGestureStartGuards(options: AppGestureStartGuardsOptions) 
       options.isSubscriptionsRoute() &&
       !options.navigationVisible.value &&
       !options.sourceReaderOpen.value &&
-      !options.feedPullBusy() &&
+      !options.feedPullBusy.value &&
       !options.detailBlocksGestures()
     )
   }

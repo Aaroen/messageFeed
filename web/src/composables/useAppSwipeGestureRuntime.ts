@@ -14,7 +14,7 @@ type AppSwipeGestureRuntimeOptions = {
   sourceReaderOpen: ReadableRef<boolean>
   isSubscriptionsRoute: () => boolean
   detailBlocksGestures: () => boolean
-  feedPullBusy: () => boolean
+  feedPullBusy: ReadableRef<boolean>
 }
 
 export function useAppSwipeGestureRuntime<TSurface extends string>(
