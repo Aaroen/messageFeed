@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { formatAPIError } from '@/api/client'
 import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRefreshCompletionAction'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { usePullRefresh } from '@/composables/usePullRefresh'
@@ -159,6 +160,7 @@ const copy = computed(() => {
 })
 const pullProgress = pullRefresh.progress
 const pullActive = pullRefresh.active
+const safeTopChromeProgress = computed(() => clampProgress(props.topChromeProgress))
 const pullStatusText = computed(() => {
   if (refreshing.value) {
     return isSourceMode.value ? '抓取中' : '正在刷新'
@@ -752,9 +754,9 @@ function handleTouchStart(event: TouchEvent) {
 
   const touch = event.touches[0]
   const startedWithLayoutChrome =
-    props.freezeBodyDuringTopRefresh || (!props.topChromeContentCollapsed && props.topChromeProgress > 0.04)
+    props.freezeBodyDuringTopRefresh || (!props.topChromeContentCollapsed && safeTopChromeProgress.value > 0.04)
   topPullStartedNotified = false
-  touchStartChromeDistance = startedWithLayoutChrome ? props.headerHeight * props.topChromeProgress : 0
+  touchStartChromeDistance = startedWithLayoutChrome ? props.headerHeight * safeTopChromeProgress.value : 0
   pullRefresh.begin(startedWithLayoutChrome)
   pullRefresh.beginGestureCandidate(touch.clientX, touch.clientY)
 }

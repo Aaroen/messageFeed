@@ -1,3 +1,5 @@
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type ChromeLayerStyleOptions = {
   shift?: number
   scaleStart?: number
@@ -17,13 +19,6 @@ type HeaderStylePayload = {
   inactive?: boolean
 }
 
-function clampProgress(value: number) {
-  if (!Number.isFinite(value)) {
-    return 0
-  }
-  return Math.min(Math.max(value, 0), 1)
-}
-
 function cssNumber(value: number, precision = 2) {
   return (Number.isFinite(value) ? value : 0).toFixed(precision)
 }
@@ -40,13 +35,9 @@ function cssRotate(degrees: number) {
   return `rotate(${cssNumber(degrees)}deg)`
 }
 
-function finiteNumber(value: number) {
-  return Number.isFinite(value) ? value : 0
-}
-
 export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
   function headerStyle(payload: HeaderStylePayload) {
-    const safeProgress = finiteNumber(payload.progress)
+    const safeProgress = clampProgress(payload.progress)
     return {
       background: payload.refreshing ? 'var(--mf-header-refresh-bg)' : undefined,
       opacity: safeProgress.toFixed(3),
@@ -61,7 +52,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
   }
 
   function sourceHeaderStyle(progress: number, headerHeight: number, settling: boolean) {
-    const safeProgress = finiteNumber(progress)
+    const safeProgress = clampProgress(progress)
     return {
       opacity: safeProgress.toFixed(3),
       pointerEvents: safeProgress > 0.86 ? ('auto' as const) : ('none' as const),
@@ -77,8 +68,9 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
   }
 
   function refreshIconStyle(refreshing: boolean, progress: number) {
+    const safeProgress = clampProgress(progress)
     return {
-      transform: refreshing ? 'none' : cssRotate(progress * 300),
+      transform: refreshing ? 'none' : cssRotate(safeProgress * 300),
     }
   }
 
@@ -125,7 +117,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
   }
 
   function navOpenButtonStyle(progress: number, headerHeight: number, visible: boolean) {
-    const safeProgress = finiteNumber(visible ? progress : 0)
+    const safeProgress = clampProgress(visible ? progress : 0)
     return {
       top: cssPx((headerHeight - 44) / 2),
       opacity: safeProgress.toFixed(3),

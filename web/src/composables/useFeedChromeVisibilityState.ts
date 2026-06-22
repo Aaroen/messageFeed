@@ -1,5 +1,7 @@
 import { computed } from 'vue'
 
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type ReadableRef<T> = {
   readonly value: T
 }
@@ -16,8 +18,9 @@ type FeedChromeVisibilityStateOptions = {
 }
 
 export function useFeedChromeVisibilityState(options: FeedChromeVisibilityStateOptions) {
+  const topChromeProgress = computed(() => clampProgress(options.topChromeProgress.value))
   const detailHeaderVisible = computed(
-    () => options.detailChromeVisible.value && options.topChromeProgress.value > 0.04,
+    () => options.detailChromeVisible.value && topChromeProgress.value > 0.04,
   )
   const feedCornerHidden = computed(
     () =>

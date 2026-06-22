@@ -1,3 +1,5 @@
+import { clampProgress } from '@/composables/feedChromeMetrics'
+
 type ReadableRef<T> = {
   readonly value: T
 }
@@ -28,11 +30,11 @@ type FeedTopPullHandlersOptions = {
   setTopChromeVisible: (visible: boolean) => void
 }
 
-function clamp(value: number, min = 0, max = 1) {
-  return Math.min(max, Math.max(min, value))
-}
-
 export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
+  function topChromeProgress() {
+    return clampProgress(options.topChromeProgress.value)
+  }
+
   function handleFeedTopPullStart(startedWithVisibleChrome = false) {
     if (options.isFeedRoute.value && options.feedPullRefreshing()) {
       return
@@ -40,7 +42,7 @@ export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
 
     const chromeConsumesContentSpace = !options.feedContentCollapsed.value
     const startedWithLayoutChrome = startedWithVisibleChrome || chromeConsumesContentSpace
-    options.topPull.begin(startedWithLayoutChrome, startedWithLayoutChrome ? options.topChromeProgress.value : 0)
+    options.topPull.begin(startedWithLayoutChrome, startedWithLayoutChrome ? topChromeProgress() : 0)
     options.beginRefreshingChrome()
   }
 
@@ -63,7 +65,7 @@ export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
     }
 
     options.setRefreshingProgress(
-      clamp(options.topPull.startProgress.value - distance / options.feedHeaderHeight.value),
+      clampProgress(options.topPull.startProgress.value - distance / options.feedHeaderHeight.value),
     )
   }
 
@@ -82,7 +84,7 @@ export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
       return
     }
 
-    if (!startedWithChrome || options.topChromeProgress.value <= 0.04) {
+    if (!startedWithChrome || topChromeProgress() <= 0.04) {
       options.collapseTopChrome()
       options.topPull.resetStartedWithChrome()
       return
