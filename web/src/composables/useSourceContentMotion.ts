@@ -21,6 +21,10 @@ function cssTranslate3d(x: number, y: number, z = 0) {
 
 const sourceUnderlayTransition =
   'opacity var(--motion-quick) var(--ease-linear), filter var(--motion-quick) var(--ease-linear)'
+const sourceContentShiftTransition = [
+  'transform var(--motion-chrome) var(--ease-emphasized)',
+  sourceUnderlayTransition,
+].join(', ')
 
 export function useSourceContentMotion(options: SourceContentMotionOptions) {
   const settleOffset = ref(0)
@@ -39,14 +43,11 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
       : 1
     const contentShift = options.headerSpace.value - options.headerHeight.value
     const transition = settling.value
-      ? [
-          'transform var(--motion-chrome) var(--ease-emphasized)',
-          sourceUnderlayTransition,
-        ].join(', ')
+      ? sourceContentShiftTransition
       : settleOffset.value > 0
         ? 'none'
         : options.chromeSettling.value
-          ? sourceUnderlayTransition
+          ? sourceContentShiftTransition
           : sourceUnderlayTransition
 
     return {
