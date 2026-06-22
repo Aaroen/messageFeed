@@ -488,7 +488,13 @@ const feedChromeState = useAppFeedChromeState({
 const feedPullActive = feedChromeState.feedPullActive
 const pagePullActive = feedChromeState.pagePullActive
 const sourcePullActive = feedChromeState.sourcePullActive
-const sourcePullRefreshing = computed(() => sourcePullActive.value && feedInteraction.pullRefreshing)
+const sourceReaderInteractive = computed(
+  () => sourceReaderVisible.value && !sourceReaderUnderDetail.value,
+)
+const foregroundSourcePullActive = computed(
+  () => sourcePullActive.value && sourceReaderInteractive.value,
+)
+const sourcePullRefreshing = computed(() => foregroundSourcePullActive.value && feedInteraction.pullRefreshing)
 const feedOrSourcePullActive = feedChromeState.feedOrSourcePullActive
 const pullProgress = feedChromeState.pullProgress
 const sourcePullProgress = feedChromeState.sourcePullProgress
@@ -523,7 +529,7 @@ const chromeVisualState = useAppChromeVisualState({
     feedHeaderProgress,
     viewSwipeTargetVisible,
     viewSwipeTargetProgress,
-    sourcePullActive,
+    sourcePullActive: foregroundSourcePullActive,
     sourcePullRefreshing: () => sourcePullRefreshing.value,
     sourcePullProgress,
     topChromeProgress,
@@ -620,7 +626,7 @@ const readerMotionState = useAppReaderMotionState({
   },
   sourceTitle: {
     revealReady: sourceTitleRevealReady,
-    pullActive: sourcePullActive,
+    pullActive: foregroundSourcePullActive,
     titleProgress: sourceTitleProgress,
     revealProgress: sourceTitleRevealProgress,
     nameOriginRect: detailSourceNameOriginRect,
@@ -1205,7 +1211,7 @@ const feedChromeInteractions = useAppFeedChromeInteractions({
   scroll: {
     topChromeProgress,
     feedPullActive,
-    sourcePullActive,
+    sourcePullActive: foregroundSourcePullActive,
     feedTopPulling,
     feedChromeSettling,
     detailReaderOpen,
@@ -1253,7 +1259,7 @@ const readerStackOutletBindings = useAppReaderStackOutletBindings({
   sourceMainLayerStyle,
   sourcePullStatusStyle,
   sourcePullIconStyle,
-  sourcePullActive,
+  sourcePullActive: foregroundSourcePullActive,
   sourcePullRefreshing: () => sourcePullRefreshing.value,
   pullStatusText,
   pullStatusMeta,
