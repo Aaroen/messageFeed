@@ -12,3 +12,14 @@ export function feedHeaderHeightForWidth(windowWidth: number) {
 export function feedContentTopOffset(headerHeight: number) {
   return headerHeight <= 78 ? 8 : 10
 }
+
+export function topScrollInset(scrollTop: number, topOffset: number) {
+  if (!Number.isFinite(scrollTop)) {
+    return 0
+  }
+  return Math.min(Math.max(scrollTop, 0), Math.max(topOffset, 0))
+}
+
+export function feedTopScrollInset(scrollTop: number, headerHeight: number) {
+  return topScrollInset(scrollTop, feedContentTopOffset(headerHeight))
+}

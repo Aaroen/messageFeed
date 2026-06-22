@@ -1,6 +1,11 @@
 import { computed } from 'vue'
 
-import { clampProgress, feedContentTopOffset, feedHeaderHeightForWidth } from '@/composables/feedChromeMetrics'
+import {
+  clampProgress,
+  feedContentTopOffset,
+  feedHeaderHeightForWidth,
+  feedTopScrollInset,
+} from '@/composables/feedChromeMetrics'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -41,13 +46,17 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     const pullRestoreSpace = headerHeight.value * Math.max(topChromeProgress.value, pullProgress.value)
     const feedAtTop = options.isFeedRoute.value && options.feedScrollTop.value <= contentTopOffset.value
     const feedTopChromeVisible = headerProgress.value > 0.04 || !options.feedContentCollapsed.value
+    const feedTopInset = options.isFeedRoute.value
+      ? feedTopScrollInset(options.feedScrollTop.value, headerHeight.value)
+      : 0
+    const visibleTopSpace = headerHeight.value + feedTopInset
 
     if (options.feedTopPullStartedWithChrome.value || options.refreshStartedWithChrome.value) {
       return headerHeight.value
     }
 
     if (!options.feedTopPulling.value && !options.feedPullActive.value && feedAtTop && feedTopChromeVisible) {
-      return headerHeight.value
+      return visibleTopSpace
     }
 
     if (options.feedTopPulling.value || options.feedPullActive.value) {

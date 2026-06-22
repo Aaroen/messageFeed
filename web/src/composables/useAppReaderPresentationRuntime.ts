@@ -40,6 +40,7 @@ export function useAppReaderPresentationRuntime(options: AppReaderPresentationRu
       windowWidth: options.viewport.windowWidth,
       windowHeight: options.viewport.windowHeight,
       feedHeaderHeight: options.chrome.feedHeaderHeight,
+      sourceReaderScrollTop: readerStack.sourceReaderScrollTop,
       topChromeProgress: options.chrome.topChromeProgress,
       feedContentCollapsed: options.chrome.feedContentCollapsed,
     },
