@@ -8,11 +8,13 @@ type TopChromeScrollBehaviorOptions = {
   sourcePullActive: ReadableRef<boolean>
   feedTopPulling: ReadableRef<boolean>
   feedChromeSettling: ReadableRef<boolean>
+  feedContentCollapsed: ReadableRef<boolean>
   detailReaderOpen: ReadableRef<boolean>
   detailScrollMax: ReadableRef<number>
   feedHeaderHeight: ReadableRef<number>
   isFeedRoute: ReadableRef<boolean>
   setTopChromeVisible: (visible: boolean) => void
+  hideTopChromeForScroll: () => void
   showTopChromeOverlay: () => void
   setTopChromeOverlayProgress: (progress: number) => void
 }
@@ -59,15 +61,23 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
         ? 8
         : options.feedHeaderHeight.value
     if (delta > 0 && current >= hideThreshold && options.topChromeProgress.value > 0.01) {
-      options.setTopChromeVisible(false)
+      options.hideTopChromeForScroll()
       return
     }
 
     if (delta < 0 && options.topChromeProgress.value < 0.99) {
       if (options.isFeedRoute.value && !options.detailReaderOpen.value) {
         const revealDistance = Math.max(options.feedHeaderHeight.value * 2, 1)
+        const revealSettleDistance = Math.max(options.feedHeaderHeight.value * 0.1, 8)
         const progress = clampProgress(1 - current / revealDistance)
-        if (progress >= 0.99 && options.topChromeProgress.value < 0.99) {
+        if (
+          (progress >= 0.95 || current <= revealSettleDistance) &&
+          options.topChromeProgress.value < 0.99
+        ) {
+          if (options.feedContentCollapsed.value) {
+            options.setTopChromeVisible(true)
+            return
+          }
           options.showTopChromeOverlay()
           return
         }

@@ -141,7 +141,6 @@ export function useChromeState() {
   function setOverlayProgress(nextProgress: number) {
     clearTimer()
     settling.value = false
-    setContentCollapsed(true)
     setProgress(nextProgress)
   }
 
