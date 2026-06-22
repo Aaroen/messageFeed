@@ -15,7 +15,6 @@ import {
   type ReaderSource,
 } from '@/composables/useReaderSession'
 import { useNavigationDrawer } from '@/composables/useNavigationDrawer'
-import { useClickSuppression } from '@/composables/useClickSuppression'
 import { useRefreshCompletionState } from '@/composables/useRefreshCompletionState'
 import { useTopPullState } from '@/composables/useTopPullState'
 import { useViewportSize } from '@/composables/useViewportSize'
@@ -43,7 +42,7 @@ import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions
 import { useAppWindowEventListeners } from '@/composables/useAppWindowEventListeners'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
 import { useAppLifecycle } from '@/composables/useAppLifecycle'
-import { useAppShellEventActions } from '@/composables/useAppShellEventActions'
+import { useAppShellRuntime } from '@/composables/useAppShellRuntime'
 import { useAppReaderScrollMemoryActions } from '@/composables/useAppReaderScrollMemoryActions'
 import { useAppReaderRouteSyncAction } from '@/composables/useAppReaderRouteSyncAction'
 import { useAppReaderStackOutletBindings } from '@/composables/useAppReaderStackOutletBindings'
@@ -268,7 +267,6 @@ const readerScrollRestoreSettledDelay = motionTimings.readerScrollRestoreSettled
 const readerMorphDuration = motionTimings.readerMorphDuration
 const readerRectRetryDelay = motionTimings.readerRectRetryDelay
 const motionDelay = motionTimings.delay
-const clickSuppression = useClickSuppression(clickSuppressionDuration)
 const navigationDrawer = useNavigationDrawer({
   windowWidth,
   resolveDelay: motionDelay,
@@ -776,16 +774,17 @@ const settlePagePullOffset = appTopChromeActions.settlePagePullOffset
 const appInteractionTargetGuards = useAppInteractionTargetGuards()
 const isPageTopPullControlTarget = appInteractionTargetGuards.isPageTopPullControlTarget
 
-const appShellEventActions = useAppShellEventActions({
-  consumeClick: (event) => clickSuppression.consume(event),
-  suppressNextClick: () => clickSuppression.suppressNext(),
+const {
+  handleClickCapture,
+  suppressFollowingClick,
+  handleKeydown,
+  handleResize,
+  clearClickSuppressionTimer,
+} = useAppShellRuntime({
+  clickSuppressionDuration,
   closeNavigation,
   syncViewportSize: () => viewportSize.sync(),
 })
-const handleClickCapture = appShellEventActions.handleClickCapture
-const suppressFollowingClick = appShellEventActions.suppressFollowingClick
-const handleKeydown = appShellEventActions.handleKeydown
-const handleResize = appShellEventActions.handleResize
 
 const {
   setSourceReaderContentElement,
@@ -1524,7 +1523,7 @@ useAppLifecycle({
     clearDetailSourceTransitionRectCapture,
     () => invalidatePagePullRefreshCompletion(),
     () => pagePullState.clearTimers(),
-    () => clickSuppression.clearTimer(),
+    clearClickSuppressionTimer,
     clearSourceSubscriptionRuntime,
     clearReaderDetailFrames,
     clearReaderSessionScrollRestoreTimers,
