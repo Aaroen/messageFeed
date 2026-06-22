@@ -364,7 +364,9 @@ export function useReaderStackState() {
   const detailReaderOpen = computed(
     () => detailItem.value !== null || detailLoading.value || detailError.value !== '',
   )
-  const sourceReaderUnderDetail = computed(() => detailReaderOpen.value && sourceReaderVisible.value)
+  const sourceReaderUnderDetail = computed(
+    () => detailReaderOpen.value && sourceReaderVisible.value && !hasDetailParkedBehindSource(),
+  )
   const sourceReaderRevealProgress = computed(() =>
     clampProgress(Math.max(detailSourceExitProgress.value, detailOpenedFromSourceReader.value ? detailBackExitProgress.value : 0)),
   )

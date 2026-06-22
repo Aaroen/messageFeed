@@ -87,10 +87,11 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
     const detailItem = options.detailItem.value
     const sourceName = readerSource?.name || ''
     const readerMorph = options.readerMorph
+    const sourceInteractive = options.sourceReaderVisible.value && !options.sourceReaderUnderDetail.value
 
     return {
       sourceMounted: options.sourceReaderMounted.value && Boolean(readerSource),
-      sourceInteractive: options.sourceReaderVisible.value && !options.sourceReaderUnderDetail.value,
+      sourceInteractive,
       sourceUnderDetail: options.sourceReaderUnderDetail.value,
       sourceStyle: options.sourceReaderStyle.value,
       sourceTitleRevealMounted: readerMorph.sourceTitleRevealMounted.value,
@@ -128,7 +129,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       morphingHeightLockItemId: options.morphingHeightLockItemId.value,
       morphingItemHeight: options.morphingItemHeight.value,
       feedItemPreviewProgress: options.feedItemPreviewProgress.value,
-      sourceBackgroundRefresh: !options.sourceReaderVisible.value,
+      sourceBackgroundRefresh: !sourceInteractive,
       detailTransitionStyle: options.detailTransitionSurfaceStyle.value,
       detailItem,
       detailMorphVisible: readerMorph.detailMorphVisible.value,
