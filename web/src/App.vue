@@ -32,15 +32,13 @@ import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useAppRouteState } from '@/composables/useAppRouteState'
 import { useAppScrollHandlers } from '@/composables/useAppScrollHandlers'
 import { useFeedRefreshCompletionWatcher } from '@/composables/useFeedRefreshCompletionWatcher'
-import { useAppNavigationActions } from '@/composables/useAppNavigationActions'
-import { useAppNavigationConfig } from '@/composables/useAppNavigationConfig'
+import { useAppNavigationRuntime } from '@/composables/useAppNavigationRuntime'
 import { useAppReaderSessionSnapshots } from '@/composables/useAppReaderSessionSnapshots'
 import { useAppRouteSessionWatchers } from '@/composables/useAppRouteSessionWatchers'
 import { useAppTopChromeActions } from '@/composables/useAppTopChromeActions'
 import { useAppReaderSessionPersistence } from '@/composables/useAppReaderSessionPersistence'
 import { useAppFeedChromeState } from '@/composables/useAppFeedChromeState'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
-import { useAppGestureResetAction } from '@/composables/useAppGestureResetAction'
 import { useAppReaderStackActions } from '@/composables/useAppReaderStackActions'
 import { useAppWindowEventListeners } from '@/composables/useAppWindowEventListeners'
 import { useAppInteractionTargetGuards } from '@/composables/useAppInteractionTargetGuards'
@@ -726,34 +724,32 @@ const readerDetailHeaderState = useAppReaderDetailHeaderState({
   currentTextStyle: detailHeaderCurrentTextStyle,
 })
 
-const { resetGestureTracking } = useAppGestureResetAction({
-  resetNavigationGesture: navigationGesture.reset,
-  resetFeedViewSwipeTracking: appSwipeNavigationState.resetFeedViewSwipeTracking,
-  clearFeedViewStartedWithHiddenChrome: appSwipeNavigationState.clearFeedViewStartedWithHiddenChrome,
-  resetReaderBackSwipeCandidate: resetReaderBackSwipeCandidateState,
-})
-
-const { managementItems, feedTabs } = useAppNavigationConfig()
-const appNavigation = useAppNavigationActions({
+const {
+  managementItems,
+  feedTabs,
+  resetGestureTracking,
+  pushRoute,
+  replaceRoute,
+  settleNavigation,
+  openNavigation,
+  closeNavigation,
+  handleMenuClick,
+  goHome,
+  handleCornerButtonClick,
+  navigateTo,
+} = useAppNavigationRuntime({
   router,
   routeRuntime,
   navigationDrawer,
   feedPagerTransition,
-  managementItems,
-  resetGestureTracking,
+  resetNavigationGesture: navigationGesture.reset,
+  resetFeedViewSwipeTracking: appSwipeNavigationState.resetFeedViewSwipeTracking,
+  clearFeedViewStartedWithHiddenChrome: appSwipeNavigationState.clearFeedViewStartedWithHiddenChrome,
+  resetReaderBackSwipeCandidate: resetReaderBackSwipeCandidateState,
   setChromeStableVisible: chromeState.setStableVisible,
   motionDelay,
   motionNormalDuration,
 })
-const pushRoute = appNavigation.pushRoute
-const replaceRoute = appNavigation.replaceRoute
-const settleNavigation = appNavigation.settleNavigation
-const openNavigation = appNavigation.openNavigation
-const closeNavigation = appNavigation.closeNavigation
-const handleMenuClick = appNavigation.handleMenuClick
-const goHome = appNavigation.goHome
-const handleCornerButtonClick = appNavigation.handleCornerButtonClick
-const navigateTo = appNavigation.navigateTo
 
 const navigationOpenDistance = 72
 const viewSwitchDistance = 62
