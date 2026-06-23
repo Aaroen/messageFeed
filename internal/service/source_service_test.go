@@ -6,6 +6,7 @@ import (
 	"messagefeed/internal/domain"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestCreateSourceNormalizesURLAndDefaults(t *testing.T) {
@@ -215,6 +216,53 @@ func TestTriggerFetchMarksSourceFailed(t *testing.T) {
 	}
 	if updated.LastFetchError == "" {
 		t.Fatal("LastFetchError is empty")
+	}
+}
+
+func TestTriggerFetchSanitizesInvalidUTF8FailureMessage(t *testing.T) {
+	sourceRepository := newFakeSourceRepository()
+	invalidSuffix := string([]byte{0xe6, 0xb5})
+	service := NewSourceService(
+		sourceRepository,
+		WithItemRepository(&fakeItemRepository{}),
+		WithFeedFetcher(&fakeFeedFetcher{err: errors.New("repository: " + invalidSuffix + " failed")}),
+	)
+
+	source, err := service.CreateSource(context.Background(), CreateSourceInput{
+		UserID: 1,
+		URL:    "https://example.com/feed.xml",
+	})
+	if err != nil {
+		t.Fatalf("CreateSource returned error: %v", err)
+	}
+
+	_, err = service.TriggerFetch(context.Background(), FetchSourceInput{
+		UserID: 1,
+		ID:     source.ID,
+	})
+	if err == nil {
+		t.Fatal("TriggerFetch returned nil error")
+	}
+
+	updated, err := sourceRepository.GetByID(context.Background(), 1, source.ID)
+	if err != nil {
+		t.Fatalf("GetByID returned error: %v", err)
+	}
+	if !utf8.ValidString(updated.LastFetchError) {
+		t.Fatalf("LastFetchError contains invalid UTF-8: %q", updated.LastFetchError)
+	}
+	if updated.LastFetchError != "repository:  failed" {
+		t.Fatalf("LastFetchError = %q, want sanitized message", updated.LastFetchError)
+	}
+}
+
+func TestTruncateErrorPreservesUTF8Boundary(t *testing.T) {
+	got := truncateError("刷新失败：消息流异常", len("刷新失败：消")-1)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncateError returned invalid UTF-8: %q", got)
+	}
+	if len(got) > len("刷新失败：消")-1 {
+		t.Fatalf("truncateError length = %d, want <= %d", len(got), len("刷新失败：消")-1)
 	}
 }
 
