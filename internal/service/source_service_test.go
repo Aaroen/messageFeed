@@ -304,6 +304,58 @@ func TestImportURLSourcesRecordsImportJob(t *testing.T) {
 	}
 }
 
+func TestImportCatalogSourcesRecordsImportJob(t *testing.T) {
+	importJobRepository := &fakeSourceImportJobRepository{}
+	service := NewSourceService(
+		newFakeSourceRepository(),
+		WithSourceCatalogRepository(&fakeSourceCatalogRepository{
+			entries: []domain.SourceCatalogEntry{
+				{
+					ID:      1,
+					Name:    "Example",
+					Type:    domain.SourceTypeRSS,
+					FeedURL: "https://example.com/feed.xml",
+					Tags:    []string{"example"},
+				},
+			},
+		}),
+		WithSourceImportJobRepository(importJobRepository),
+	)
+
+	result, err := service.ImportCatalogSources(context.Background(), ImportCatalogSourcesInput{
+		UserID:     1,
+		CatalogIDs: []int64{1, 2},
+	})
+	if err != nil {
+		t.Fatalf("ImportCatalogSources returned error: %v", err)
+	}
+
+	if result.RequestedCount != 2 {
+		t.Fatalf("RequestedCount = %d, want 2", result.RequestedCount)
+	}
+	if result.SuccessCount != 1 {
+		t.Fatalf("SuccessCount = %d, want 1", result.SuccessCount)
+	}
+	if result.FailureCount != 1 {
+		t.Fatalf("FailureCount = %d, want 1", result.FailureCount)
+	}
+	if result.ImportJob == nil {
+		t.Fatal("ImportJob is nil")
+	}
+	if result.ImportJob.ImportType != domain.SourceImportTypeCatalog {
+		t.Fatalf("ImportType = %q, want %q", result.ImportJob.ImportType, domain.SourceImportTypeCatalog)
+	}
+	if result.ImportJob.Status != domain.SourceImportStatusPartial {
+		t.Fatalf("Status = %q, want %q", result.ImportJob.Status, domain.SourceImportStatusPartial)
+	}
+	if got, want := len(importJobRepository.jobs), 1; got != want {
+		t.Fatalf("recorded jobs length = %d, want %d", got, want)
+	}
+	if importJobRepository.jobs[0].ErrorDetails[0].Reference != "2" {
+		t.Fatalf("ErrorDetails[0].Reference = %q, want 2", importJobRepository.jobs[0].ErrorDetails[0].Reference)
+	}
+}
+
 func TestListSourceImportJobsNormalizesPagination(t *testing.T) {
 	importJobRepository := &fakeSourceImportJobRepository{
 		jobs: []domain.SourceImportJob{
@@ -467,6 +519,33 @@ func (r *fakeSourceImportJobRepository) ListByUser(_ context.Context, options do
 		Limit:  options.Limit,
 		Offset: options.Offset,
 	}, nil
+}
+
+type fakeSourceCatalogRepository struct {
+	entries []domain.SourceCatalogEntry
+}
+
+func (r *fakeSourceCatalogRepository) List(_ context.Context, options domain.SourceCatalogListOptions) (domain.SourceCatalogListResult, error) {
+	return domain.SourceCatalogListResult{
+		Entries: append([]domain.SourceCatalogEntry(nil), r.entries...),
+		Total:   int64(len(r.entries)),
+		Limit:   options.Limit,
+		Offset:  options.Offset,
+	}, nil
+}
+
+func (r *fakeSourceCatalogRepository) GetByIDs(_ context.Context, ids []int64) ([]domain.SourceCatalogEntry, error) {
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		seen[id] = struct{}{}
+	}
+	entries := make([]domain.SourceCatalogEntry, 0, len(r.entries))
+	for _, entry := range r.entries {
+		if _, ok := seen[entry.ID]; ok {
+			entries = append(entries, entry)
+		}
+	}
+	return entries, nil
 }
 
 type fakeFeedFetcher struct {
