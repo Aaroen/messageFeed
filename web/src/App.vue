@@ -803,6 +803,8 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
   feedView: {
     topChromeProgress,
     feedContentCollapsed,
+    feedScrollTop,
+    feedHeaderHeight,
     motionNormalDuration,
     resolveDelay: motionDelay,
     beginSwipeTransition,
