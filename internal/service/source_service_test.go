@@ -304,6 +304,35 @@ func TestImportURLSourcesRecordsImportJob(t *testing.T) {
 	}
 }
 
+func TestImportURLSourcesRejectsUnsupportedTypeBeforeCreatingSources(t *testing.T) {
+	sourceRepository := newFakeSourceRepository()
+	importJobRepository := &fakeSourceImportJobRepository{}
+	service := NewSourceService(
+		sourceRepository,
+		WithSourceImportJobRepository(importJobRepository),
+	)
+
+	_, err := service.ImportURLSources(context.Background(), ImportURLSourcesInput{
+		UserID:     1,
+		URLs:       []string{"https://example.com/feed.xml"},
+		ImportType: domain.SourceImportType("invalid"),
+	})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("error = %v, want ErrInvalidInput", err)
+	}
+
+	sources, err := sourceRepository.ListByUser(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ListByUser returned error: %v", err)
+	}
+	if got, want := len(sources), 0; got != want {
+		t.Fatalf("sources length = %d, want %d", got, want)
+	}
+	if got, want := len(importJobRepository.jobs), 0; got != want {
+		t.Fatalf("recorded jobs length = %d, want %d", got, want)
+	}
+}
+
 func TestImportCatalogSourcesRecordsImportJob(t *testing.T) {
 	importJobRepository := &fakeSourceImportJobRepository{}
 	service := NewSourceService(

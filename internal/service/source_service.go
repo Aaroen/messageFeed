@@ -504,6 +504,14 @@ func (s *SourceService) ImportURLSources(ctx context.Context, input ImportURLSou
 		opErr = fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
 		return ImportSourceResult{}, opErr
 	}
+	importType := input.ImportType
+	if importType == "" {
+		importType = domain.SourceImportTypeURLs
+	}
+	if !importType.Valid() {
+		opErr = fmt.Errorf("%w: unsupported import type", domain.ErrInvalidInput)
+		return ImportSourceResult{}, opErr
+	}
 	urls := uniqueNonEmptyStrings(input.URLs)
 	if len(urls) == 0 {
 		opErr = fmt.Errorf("%w: urls must not be empty", domain.ErrInvalidInput)
@@ -523,14 +531,6 @@ func (s *SourceService) ImportURLSources(ctx context.Context, input ImportURLSou
 		}
 		result.Sources = append(result.Sources, source)
 		result.SuccessCount++
-	}
-	importType := input.ImportType
-	if importType == "" {
-		importType = domain.SourceImportTypeURLs
-	}
-	if !importType.Valid() {
-		opErr = fmt.Errorf("%w: unsupported import type", domain.ErrInvalidInput)
-		return ImportSourceResult{}, opErr
 	}
 	if err := s.recordImportJob(ctx, input.UserID, importType, &result); err != nil {
 		opErr = err
