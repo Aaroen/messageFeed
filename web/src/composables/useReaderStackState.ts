@@ -870,6 +870,7 @@ export function useReaderStackState() {
     readerSource.value = null
     sourceCatalogEntry.value = null
     sourceSubscription.value = null
+    sourceSubscriptionLoading.value = false
     sourceNotice.value = null
     clearDetailSourceTransitionTargetState()
     return true
@@ -961,6 +962,10 @@ export function useReaderStackState() {
     sourceReaderBackDetail.value = null
     sourceReaderOffset.value = 0
     sourceReaderStretch.value = 0
+    sourceCatalogEntry.value = null
+    sourceSubscription.value = null
+    sourceSubscriptionLoading.value = false
+    sourceNotice.value = null
     parkedDetailStack.value = []
     clearDetailSourceTransitionTargetState()
   }
