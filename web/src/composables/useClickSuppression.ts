@@ -13,6 +13,11 @@ export function useClickSuppression(durationMS: number) {
     timer = 0
   }
 
+  function reset() {
+    clearTimer()
+    suppressNextClick.value = false
+  }
+
   function suppressNext() {
     suppressNextClick.value = true
     clearTimer()
@@ -42,5 +47,6 @@ export function useClickSuppression(durationMS: number) {
     suppressNext,
     consume,
     clearTimer,
+    reset,
   }
 }

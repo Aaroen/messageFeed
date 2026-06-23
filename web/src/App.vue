@@ -545,7 +545,7 @@ const {
   suppressFollowingClick,
   handleKeydown,
   handleResize,
-  clearClickSuppressionTimer,
+  resetClickSuppression,
 } = useAppShellRuntime({
   clickSuppressionDuration,
   closeNavigation,
@@ -1192,7 +1192,7 @@ const runtimeCleanup = useAppRuntimeCleanup({
     reset: pagePullState.reset,
   },
   shell: {
-    clearClickSuppressionTimer,
+    resetClickSuppression,
   },
   sourceSubscription: {
     clearRuntime: clearSourceSubscriptionRuntime,

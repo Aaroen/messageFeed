@@ -18,6 +18,6 @@ export function useAppShellRuntime(options: AppShellRuntimeOptions) {
 
   return {
     ...shellEventActions,
-    clearClickSuppressionTimer: clickSuppression.clearTimer,
+    resetClickSuppression: clickSuppression.reset,
   }
 }
