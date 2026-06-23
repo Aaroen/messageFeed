@@ -52,7 +52,7 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	}
 
 	router := gin.New()
-	router.Use(RequestID(), otelgin.Middleware(options.ServiceName), CORS(), Recovery(options.Logger), AccessLog(options.Logger))
+	router.Use(RequestID(), otelgin.Middleware(options.ServiceName), UserContext(), CORS(), Recovery(options.Logger), AccessLog(options.Logger))
 
 	router.GET("/", rootHandler)
 	router.GET("/healthz", healthzHandler)

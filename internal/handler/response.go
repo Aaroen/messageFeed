@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
+	"messagefeed/internal/domain"
 	"messagefeed/internal/observability"
 
 	"github.com/gin-gonic/gin"
@@ -54,6 +56,58 @@ func Error(c *gin.Context, statusCode int, code int, message string) {
 		RequestID: requestID(c),
 		TraceID:   observability.TraceID(c.Request.Context()),
 	})
+}
+
+func RenderError(c *gin.Context, err error, fallbackMessage string) {
+	statusCode, code, message := mapError(err, fallbackMessage)
+	Error(c, statusCode, code, message)
+}
+
+func mapError(err error, fallbackMessage string) (int, int, string) {
+	if fallbackMessage == "" {
+		fallbackMessage = "operation failed"
+	}
+
+	var appErr *domain.AppError
+	if errors.As(err, &appErr) {
+		message := appErr.Message
+		if message == "" {
+			message = fallbackMessage
+		}
+		return statusCodeForKind(appErr.Kind), codeForKind(appErr.Kind), message
+	}
+
+	switch domain.ClassifyError(err) {
+	case domain.ErrorKindInvalidInput:
+		return http.StatusBadRequest, http.StatusBadRequest, fallbackMessage
+	case domain.ErrorKindNotFound:
+		return http.StatusNotFound, http.StatusNotFound, fallbackMessage
+	case domain.ErrorKindConflict:
+		return http.StatusConflict, http.StatusConflict, fallbackMessage
+	case domain.ErrorKindUnavailable:
+		return http.StatusServiceUnavailable, http.StatusServiceUnavailable, fallbackMessage
+	default:
+		return http.StatusInternalServerError, http.StatusInternalServerError, fallbackMessage
+	}
+}
+
+func statusCodeForKind(kind domain.ErrorKind) int {
+	switch kind {
+	case domain.ErrorKindInvalidInput:
+		return http.StatusBadRequest
+	case domain.ErrorKindNotFound:
+		return http.StatusNotFound
+	case domain.ErrorKindConflict:
+		return http.StatusConflict
+	case domain.ErrorKindUnavailable:
+		return http.StatusServiceUnavailable
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func codeForKind(kind domain.ErrorKind) int {
+	return statusCodeForKind(kind)
 }
 
 func requestID(c *gin.Context) string {

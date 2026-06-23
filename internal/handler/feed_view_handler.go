@@ -44,7 +44,7 @@ func (h feedViewHandler) getPreference(c *gin.Context) {
 		return
 	}
 	preference, err := h.service.GetPreference(c.Request.Context(), service.GetFeedViewPreferenceInput{
-		UserID: defaultUserID,
+		UserID: currentUserID(c),
 	})
 	if err != nil {
 		writeFeedViewError(c, err)
@@ -66,7 +66,7 @@ func (h feedViewHandler) savePreference(c *gin.Context) {
 	}
 
 	preference, err := h.service.SavePreference(c.Request.Context(), service.SaveFeedViewPreferenceInput{
-		UserID:   defaultUserID,
+		UserID:   currentUserID(c),
 		ViewMode: request.ViewMode,
 	})
 	if err != nil {
@@ -79,9 +79,9 @@ func (h feedViewHandler) savePreference(c *gin.Context) {
 func writeFeedViewError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidInput):
-		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid feed view preference")
+		RenderError(c, err, "invalid feed view preference")
 	default:
-		Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "feed view operation failed")
+		RenderError(c, err, "feed view operation failed")
 	}
 }
 

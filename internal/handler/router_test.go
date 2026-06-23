@@ -197,6 +197,9 @@ func TestSourceRoutes(t *testing.T) {
 		sources: []domain.Source{
 			testSource(1, "Existing", "https://example.com/feed.xml"),
 		},
+		importJobs: []domain.SourceImportJob{
+			testSourceImportJob(1, domain.SourceImportTypeURLs, domain.SourceImportStatusCompleted),
+		},
 	}
 	router := newTestRouter(t, RouterOptions{SourceService: fakeService})
 
@@ -309,6 +312,34 @@ func TestSourceRoutes(t *testing.T) {
 	}
 	if fetchActiveResponse.Data.Sources[0].ID != 2 {
 		t.Fatalf("fetch active source id = %d, want 2", fetchActiveResponse.Data.Sources[0].ID)
+	}
+
+	importJobsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/sources/import-jobs?limit=1&offset=0", nil)
+	importJobsRecorder := httptest.NewRecorder()
+	router.ServeHTTP(importJobsRecorder, importJobsRequest)
+
+	if importJobsRecorder.Code != http.StatusOK {
+		t.Fatalf("import jobs status code = %d, want %d", importJobsRecorder.Code, http.StatusOK)
+	}
+
+	var importJobsResponse struct {
+		Code int                         `json:"code"`
+		Data sourceImportJobListResponse `json:"data"`
+	}
+	if err := json.NewDecoder(importJobsRecorder.Body).Decode(&importJobsResponse); err != nil {
+		t.Fatalf("decode import jobs response: %v", err)
+	}
+	if importJobsResponse.Data.Total != 1 {
+		t.Fatalf("import jobs total = %d, want 1", importJobsResponse.Data.Total)
+	}
+	if got, want := len(importJobsResponse.Data.Jobs), 1; got != want {
+		t.Fatalf("import jobs length = %d, want %d", got, want)
+	}
+	if importJobsResponse.Data.Jobs[0].ImportType != string(domain.SourceImportTypeURLs) {
+		t.Fatalf("import job type = %q, want %q", importJobsResponse.Data.Jobs[0].ImportType, domain.SourceImportTypeURLs)
+	}
+	if fakeService.listImportJobsInput.UserID != defaultSingleUserID {
+		t.Fatalf("import jobs user id = %d, want %d", fakeService.listImportJobsInput.UserID, defaultSingleUserID)
 	}
 }
 
@@ -494,8 +525,10 @@ func newTestRouter(t *testing.T, options RouterOptions) *gin.Engine {
 }
 
 type fakeSourceService struct {
-	nextID  int64
-	sources []domain.Source
+	nextID              int64
+	sources             []domain.Source
+	importJobs          []domain.SourceImportJob
+	listImportJobsInput service.ListSourceImportJobsInput
 }
 
 func (s *fakeSourceService) CreateSource(_ context.Context, input service.CreateSourceInput) (domain.Source, error) {
@@ -549,6 +582,21 @@ func (s *fakeSourceService) TriggerFetch(_ context.Context, input service.FetchS
 	return service.FetchSourceResult{}, domain.ErrNotFound
 }
 
+func (s *fakeSourceService) FetchActiveSources(_ context.Context, _ service.FetchActiveSourcesInput) (service.FetchSourcesResult, error) {
+	activeSources := make([]domain.Source, 0, len(s.sources))
+	for _, source := range s.sources {
+		if source.Status == domain.SourceStatusActive {
+			activeSources = append(activeSources, source)
+		}
+	}
+	result := service.FetchSourcesResult{
+		RequestedCount: len(activeSources),
+		SuccessCount:   len(activeSources),
+		Sources:        activeSources,
+	}
+	return result, nil
+}
+
 func (s *fakeSourceService) ListSourceCatalog(_ context.Context, input service.ListSourceCatalogInput) (service.ListSourceCatalogResult, error) {
 	return service.ListSourceCatalogResult{
 		Entries: nil,
@@ -566,11 +614,21 @@ func (s *fakeSourceService) ImportURLSources(_ context.Context, _ service.Import
 	return service.ImportSourceResult{}, nil
 }
 
+func (s *fakeSourceService) ListSourceImportJobs(_ context.Context, input service.ListSourceImportJobsInput) (service.ListSourceImportJobsResult, error) {
+	s.listImportJobsInput = input
+	return service.ListSourceImportJobsResult{
+		Jobs:   append([]domain.SourceImportJob(nil), s.importJobs...),
+		Total:  int64(len(s.importJobs)),
+		Limit:  input.Limit,
+		Offset: input.Offset,
+	}, nil
+}
+
 func testSource(id int64, name string, rawURL string) domain.Source {
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
 	return domain.Source{
 		ID:                   id,
-		UserID:               defaultUserID,
+		UserID:               defaultSingleUserID,
 		Name:                 name,
 		Type:                 domain.SourceTypeRSS,
 		URL:                  rawURL,
@@ -579,6 +637,21 @@ func testSource(id int64, name string, rawURL string) domain.Source {
 		FetchIntervalSeconds: service.DefaultSourceFetchIntervalSeconds,
 		CreatedAt:            now,
 		UpdatedAt:            now,
+	}
+}
+
+func testSourceImportJob(id int64, importType domain.SourceImportType, status domain.SourceImportStatus) domain.SourceImportJob {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	return domain.SourceImportJob{
+		ID:             id,
+		UserID:         defaultSingleUserID,
+		ImportType:     importType,
+		Status:         status,
+		RequestedCount: 1,
+		SuccessCount:   1,
+		ErrorDetails:   []domain.SourceImportJobError{},
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 }
 
@@ -650,7 +723,7 @@ func testUserItemState(itemID int64, isRead bool, isFavorite bool, isHidden bool
 	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
 	state := domain.UserItemState{
 		ID:         1,
-		UserID:     defaultUserID,
+		UserID:     defaultSingleUserID,
 		ItemID:     itemID,
 		IsRead:     isRead,
 		IsFavorite: isFavorite,

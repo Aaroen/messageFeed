@@ -2,11 +2,276 @@ openapi: 3.0.3
 info:
   title: messageFeed API
   version: 0.2.0
-  description: Minimal frontend contract for the phase two feed reading workflow.
+  description: Phase two and early phase four API contract for the feed reading workflow.
 servers:
   - url: http://localhost:60001
     description: Local API server
 paths:
+  /api/v1/sources:
+    get:
+      summary: List subscription sources
+      responses:
+        '200':
+          description: Subscription sources
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Source'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      summary: Create subscription source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSourceRequest'
+      responses:
+        '201':
+          description: Created source
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Source'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/sources/{id}:
+    patch:
+      summary: Update subscription source
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSourceRequest'
+      responses:
+        '200':
+          description: Updated source
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Source'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/sources/{id}/fetch:
+    post:
+      summary: Fetch one source immediately
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: Fetch result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FetchSourceResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/source-fetches:
+    post:
+      summary: Fetch all active sources
+      responses:
+        '200':
+          description: Batch fetch result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FetchSourcesResult'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/source-catalogs:
+    get:
+      summary: List source catalog entries
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Source catalog entries
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SourceCatalogList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/source-catalogs/search:
+    get:
+      summary: Search source catalog entries
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Source catalog entries
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SourceCatalogList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/sources/import/catalog:
+    post:
+      summary: Import sources from catalog entries
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - catalog_ids
+              properties:
+                catalog_ids:
+                  type: array
+                  items:
+                    type: integer
+                    format: int64
+                    minimum: 1
+      responses:
+        '200':
+          $ref: '#/components/responses/ImportSourceResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/sources/import/urls:
+    post:
+      summary: Import sources from feed URLs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - urls
+              properties:
+                urls:
+                  type: array
+                  items:
+                    type: string
+                    format: uri
+      responses:
+        '200':
+          $ref: '#/components/responses/ImportSourceResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/sources/import/opml:
+    post:
+      summary: Import sources from OPML file
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          $ref: '#/components/responses/ImportSourceResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/sources/import-jobs:
+    get:
+      summary: List source import jobs
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Source import jobs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SourceImportJobList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/items:
     get:
       summary: List feed items
@@ -38,18 +303,16 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
       responses:
         '200':
-          description: Feed items
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/APIResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/ItemList'
+          $ref: '#/components/responses/ItemListResult'
         '400':
           $ref: '#/components/responses/BadRequest'
         '503':
@@ -77,23 +340,147 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/sources:
-    get:
-      summary: List subscription sources
+  /api/v1/items/{id}/read:
+    post:
+      summary: Set item read state
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_read:
+                  type: boolean
+                  default: true
       responses:
         '200':
-          description: Subscription sources
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/APIResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: array
-                        items:
-                          $ref: '#/components/schemas/Source'
+          $ref: '#/components/responses/UserItemStateResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/items/{id}/favorite:
+    post:
+      summary: Set item favorite state
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_favorite:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          $ref: '#/components/responses/UserItemStateResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/items/{id}/hide:
+    post:
+      summary: Set item hidden state
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_hidden:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          $ref: '#/components/responses/UserItemStateResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/feed/timeline:
+    get:
+      summary: List subscribed-source timeline items
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: source_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: is_read
+          in: query
+          schema:
+            type: boolean
+        - name: is_favorite
+          in: query
+          schema:
+            type: boolean
+        - name: is_hidden
+          in: query
+          schema:
+            type: boolean
+        - name: include_hidden
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+      responses:
+        '200':
+          $ref: '#/components/responses/ItemListResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/feed/recommendations:
+    get:
+      summary: List recommendation feed prototype items
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: source_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: refresh
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+      responses:
+        '200':
+          $ref: '#/components/responses/ItemListResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/feed/view-mode:
@@ -174,6 +561,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIResponse'
+    Conflict:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIResponse'
     NotFound:
       description: Resource not found
       content:
@@ -186,6 +579,39 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIResponse'
+    ItemListResult:
+      description: Feed items
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/APIResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ItemList'
+    UserItemStateResult:
+      description: Item state
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/APIResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UserItemState'
+    ImportSourceResult:
+      description: Import source result
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/APIResponse'
+              - type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ImportSourceResult'
   schemas:
     APIResponse:
       type: object
@@ -207,6 +633,375 @@ components:
           description: OpenTelemetry trace id for correlating API responses with logs and traces.
         data:
           nullable: true
+    CreateSourceRequest:
+      type: object
+      required:
+        - url
+      properties:
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/SourceType'
+        url:
+          type: string
+          format: uri
+        fetch_interval_seconds:
+          type: integer
+          minimum: 0
+        tags:
+          type: array
+          items:
+            type: string
+        weight:
+          type: integer
+    UpdateSourceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/SourceType'
+        url:
+          type: string
+          format: uri
+        status:
+          $ref: '#/components/schemas/SourceStatus'
+        fetch_interval_seconds:
+          type: integer
+          minimum: 0
+        tags:
+          type: array
+          items:
+            type: string
+        weight:
+          type: integer
+    Source:
+      type: object
+      required:
+        - id
+        - user_id
+        - name
+        - type
+        - url
+        - normalized_url
+        - status
+        - fetch_interval_seconds
+        - tags
+        - weight
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/SourceType'
+        url:
+          type: string
+          format: uri
+        normalized_url:
+          type: string
+          format: uri
+        status:
+          $ref: '#/components/schemas/SourceStatus'
+        fetch_interval_seconds:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        weight:
+          type: integer
+        last_fetched_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_fetch_status:
+          type: string
+          enum:
+            - success
+            - failed
+        last_fetch_error:
+          type: string
+        last_fetch_duration_ms:
+          type: integer
+          nullable: true
+        last_fetch_item_count:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SourceType:
+      type: string
+      enum:
+        - rss
+        - atom
+        - json_feed
+    SourceStatus:
+      type: string
+      enum:
+        - active
+        - inactive
+    FetchSourceResult:
+      type: object
+      required:
+        - source
+        - item_count
+        - created_count
+        - updated_count
+      properties:
+        source:
+          $ref: '#/components/schemas/Source'
+        item_count:
+          type: integer
+        created_count:
+          type: integer
+        updated_count:
+          type: integer
+    FetchSourcesResult:
+      type: object
+      required:
+        - requested_count
+        - success_count
+        - failure_count
+        - sources
+        - errors
+      properties:
+        requested_count:
+          type: integer
+        success_count:
+          type: integer
+        failure_count:
+          type: integer
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FetchSourceError'
+    FetchSourceError:
+      type: object
+      required:
+        - source_id
+        - source_name
+        - message
+      properties:
+        source_id:
+          type: integer
+          format: int64
+        source_name:
+          type: string
+        message:
+          type: string
+    SourceCatalogList:
+      type: object
+      required:
+        - entries
+        - total
+        - limit
+        - offset
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceCatalogEntry'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+        offset:
+          type: integer
+    SourceCatalogEntry:
+      type: object
+      required:
+        - id
+        - source_key
+        - name
+        - feed_url
+        - normalized_url
+        - type
+        - category
+        - tags
+        - language
+        - official
+        - source_origin
+        - health_status
+        - subscribed
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        source_key:
+          type: string
+        name:
+          type: string
+        site_url:
+          type: string
+          format: uri
+        feed_url:
+          type: string
+          format: uri
+        normalized_url:
+          type: string
+          format: uri
+        type:
+          $ref: '#/components/schemas/SourceType'
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        language:
+          type: string
+        country:
+          type: string
+        official:
+          type: boolean
+        source_origin:
+          type: string
+        health_status:
+          type: string
+          enum:
+            - healthy
+            - degraded
+            - unreachable
+            - unknown
+        last_checked_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_check_error:
+          type: string
+        subscribed:
+          type: boolean
+        source_id:
+          type: integer
+          format: int64
+        source_status:
+          $ref: '#/components/schemas/SourceStatus'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ImportSourceResult:
+      type: object
+      required:
+        - requested_count
+        - success_count
+        - failure_count
+        - sources
+        - errors
+      properties:
+        requested_count:
+          type: integer
+        success_count:
+          type: integer
+        failure_count:
+          type: integer
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportSourceError'
+        import_job:
+          $ref: '#/components/schemas/SourceImportJob'
+    ImportSourceError:
+      type: object
+      required:
+        - reference
+        - message
+      properties:
+        reference:
+          type: string
+        message:
+          type: string
+    SourceImportJob:
+      type: object
+      required:
+        - id
+        - user_id
+        - import_type
+        - status
+        - requested_count
+        - success_count
+        - failure_count
+        - error_details
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        import_type:
+          type: string
+          enum:
+            - catalog
+            - urls
+            - opml
+        status:
+          type: string
+          enum:
+            - completed
+            - partial
+            - failed
+        requested_count:
+          type: integer
+        success_count:
+          type: integer
+        failure_count:
+          type: integer
+        error_details:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportSourceError'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SourceImportJobList:
+      type: object
+      required:
+        - jobs
+        - total
+        - limit
+        - offset
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceImportJob'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+        offset:
+          type: integer
     ItemList:
       type: object
       required:
@@ -269,6 +1064,9 @@ components:
         content_text:
           type: string
           description: Plain text derived from content_snippet for safe default display.
+        content_html:
+          type: string
+          description: Current raw HTML payload for iframe/srcdoc rendering; sanitize before inline rendering.
         author:
           type: string
         published_at:
@@ -302,19 +1100,15 @@ components:
         updated_at:
           type: string
           format: date-time
-    Source:
+    UserItemState:
       type: object
       required:
         - id
         - user_id
-        - name
-        - type
-        - url
-        - normalized_url
-        - status
-        - fetch_interval_seconds
-        - tags
-        - weight
+        - item_id
+        - is_read
+        - is_favorite
+        - is_hidden
         - created_at
         - updated_at
       properties:
@@ -324,49 +1118,26 @@ components:
         user_id:
           type: integer
           format: int64
-        name:
-          type: string
-        type:
-          type: string
-          enum:
-            - rss
-            - atom
-            - json_feed
-        url:
-          type: string
-          format: uri
-        normalized_url:
-          type: string
-          format: uri
-        status:
-          type: string
-          enum:
-            - active
-            - inactive
-        fetch_interval_seconds:
+        item_id:
           type: integer
-        tags:
-          type: array
-          items:
-            type: string
-        weight:
-          type: integer
-        last_fetched_at:
+          format: int64
+        is_read:
+          type: boolean
+        read_at:
           type: string
           format: date-time
           nullable: true
-        last_fetch_status:
+        is_favorite:
+          type: boolean
+        favorited_at:
           type: string
-          enum:
-            - success
-            - failed
-        last_fetch_error:
-          type: string
-        last_fetch_duration_ms:
-          type: integer
+          format: date-time
           nullable: true
-        last_fetch_item_count:
-          type: integer
+        is_hidden:
+          type: boolean
+        hidden_at:
+          type: string
+          format: date-time
           nullable: true
         created_at:
           type: string

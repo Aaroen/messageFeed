@@ -97,6 +97,7 @@ func main() {
 
 		sourceRepository := repository.NewSourceRepository(database)
 		sourceCatalogRepository := repository.NewSourceCatalogRepository(database)
+		sourceImportJobRepository := repository.NewSourceImportJobRepository(database)
 		itemRepository := repository.NewItemRepository(database)
 		userItemStateRepository := repository.NewUserItemStateRepository(database)
 		feedViewPreferenceRepository := repository.NewFeedViewPreferenceRepository(database)
@@ -104,6 +105,7 @@ func main() {
 		sourceService = service.NewSourceService(
 			sourceRepository,
 			service.WithSourceCatalogRepository(sourceCatalogRepository),
+			service.WithSourceImportJobRepository(sourceImportJobRepository),
 			service.WithItemRepository(itemRepository),
 			service.WithFeedFetcher(feedFetcher),
 		)

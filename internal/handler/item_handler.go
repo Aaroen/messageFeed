@@ -151,7 +151,7 @@ func (h itemHandler) listItems(c *gin.Context) {
 	}
 
 	result, err := h.timelineService.ListItems(c.Request.Context(), service.ListItemsInput{
-		UserID:        defaultUserID,
+		UserID:        currentUserID(c),
 		SourceID:      sourceID,
 		IsRead:        isRead,
 		IsFavorite:    isFavorite,
@@ -206,7 +206,7 @@ func (h itemHandler) listRecommendations(c *gin.Context) {
 	}
 
 	result, err := h.recommendationService.ListRecommendations(c.Request.Context(), service.ListRecommendationsInput{
-		UserID:   defaultUserID,
+		UserID:   currentUserID(c),
 		SourceID: sourceID,
 		Limit:    limit,
 		Offset:   offset,
@@ -241,7 +241,7 @@ func (h itemHandler) getItem(c *gin.Context) {
 	}
 
 	item, err := h.timelineService.GetItem(c.Request.Context(), service.GetItemInput{
-		UserID: defaultUserID,
+		UserID: currentUserID(c),
 		ItemID: itemID,
 	})
 	if err != nil {
@@ -306,7 +306,7 @@ func (h itemHandler) updateItemState(
 	update func(context.Context, service.UpdateItemStateInput) (domain.UserItemState, error),
 ) {
 	state, err := update(c.Request.Context(), service.UpdateItemStateInput{
-		UserID: defaultUserID,
+		UserID: currentUserID(c),
 		ItemID: itemID,
 		Value:  value,
 	})
@@ -385,11 +385,11 @@ func optionalBoolQuery(c *gin.Context, key string) (*bool, error) {
 func writeItemError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidInput):
-		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid item query")
+		RenderError(c, err, "invalid item query")
 	case errors.Is(err, domain.ErrNotFound):
-		Error(c, http.StatusNotFound, http.StatusNotFound, "item not found")
+		RenderError(c, err, "item not found")
 	default:
-		Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "item operation failed")
+		RenderError(c, err, "item operation failed")
 	}
 }
 

@@ -10,14 +10,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
-
-const defaultUserID int64 = 1
-const fetchActiveSourcesConcurrency = 4
 
 type sourceService interface {
 	CreateSource(ctx context.Context, input service.CreateSourceInput) (domain.Source, error)
@@ -25,8 +21,10 @@ type sourceService interface {
 	ListSourceCatalog(ctx context.Context, input service.ListSourceCatalogInput) (service.ListSourceCatalogResult, error)
 	ImportCatalogSources(ctx context.Context, input service.ImportCatalogSourcesInput) (service.ImportSourceResult, error)
 	ImportURLSources(ctx context.Context, input service.ImportURLSourcesInput) (service.ImportSourceResult, error)
+	ListSourceImportJobs(ctx context.Context, input service.ListSourceImportJobsInput) (service.ListSourceImportJobsResult, error)
 	UpdateSource(ctx context.Context, input service.UpdateSourceInput) (domain.Source, error)
 	TriggerFetch(ctx context.Context, input service.FetchSourceInput) (service.FetchSourceResult, error)
+	FetchActiveSources(ctx context.Context, input service.FetchActiveSourcesInput) (service.FetchSourcesResult, error)
 }
 
 type sourceHandler struct {
@@ -45,6 +43,7 @@ func registerSourceRoutes(router *gin.RouterGroup, service sourceService) {
 	router.POST("/sources/import/catalog", handler.importCatalogSources)
 	router.POST("/sources/import/urls", handler.importURLSources)
 	router.POST("/sources/import/opml", handler.importOPMLSources)
+	router.GET("/sources/import-jobs", handler.listSourceImportJobs)
 }
 
 type createSourceRequest struct {
@@ -94,23 +93,17 @@ type fetchSourceResponse struct {
 }
 
 type fetchSourcesResponse struct {
-	RequestedCount int                `json:"requested_count"`
-	SuccessCount   int                `json:"success_count"`
-	FailureCount   int                `json:"failure_count"`
-	Sources        []sourceResponse   `json:"sources"`
-	Errors         []fetchSourceError `json:"errors"`
+	RequestedCount int                        `json:"requested_count"`
+	SuccessCount   int                        `json:"success_count"`
+	FailureCount   int                        `json:"failure_count"`
+	Sources        []sourceResponse           `json:"sources"`
+	Errors         []fetchSourceErrorResponse `json:"errors"`
 }
 
-type fetchSourceError struct {
+type fetchSourceErrorResponse struct {
 	SourceID   int64  `json:"source_id"`
 	SourceName string `json:"source_name"`
 	Message    string `json:"message"`
-}
-
-type fetchSourceAttempt struct {
-	source domain.Source
-	result service.FetchSourceResult
-	err    error
 }
 
 type sourceCatalogListResponse struct {
@@ -175,6 +168,27 @@ type importSourceResponse struct {
 	FailureCount   int                         `json:"failure_count"`
 	Sources        []sourceResponse            `json:"sources"`
 	Errors         []importSourceErrorResponse `json:"errors"`
+	ImportJob      *sourceImportJobResponse    `json:"import_job,omitempty"`
+}
+
+type sourceImportJobResponse struct {
+	ID             int64                       `json:"id"`
+	UserID         int64                       `json:"user_id"`
+	ImportType     string                      `json:"import_type"`
+	Status         string                      `json:"status"`
+	RequestedCount int                         `json:"requested_count"`
+	SuccessCount   int                         `json:"success_count"`
+	FailureCount   int                         `json:"failure_count"`
+	ErrorDetails   []importSourceErrorResponse `json:"error_details"`
+	CreatedAt      time.Time                   `json:"created_at"`
+	UpdatedAt      time.Time                   `json:"updated_at"`
+}
+
+type sourceImportJobListResponse struct {
+	Jobs   []sourceImportJobResponse `json:"jobs"`
+	Total  int64                     `json:"total"`
+	Limit  int                       `json:"limit"`
+	Offset int                       `json:"offset"`
 }
 
 func (h sourceHandler) createSource(c *gin.Context) {
@@ -190,7 +204,7 @@ func (h sourceHandler) createSource(c *gin.Context) {
 	}
 
 	source, err := h.service.CreateSource(c.Request.Context(), service.CreateSourceInput{
-		UserID:               defaultUserID,
+		UserID:               currentUserID(c),
 		Name:                 request.Name,
 		Type:                 domain.SourceType(request.Type),
 		URL:                  request.URL,
@@ -212,7 +226,7 @@ func (h sourceHandler) listSources(c *gin.Context) {
 		return
 	}
 
-	sources, err := h.service.ListSources(c.Request.Context(), defaultUserID)
+	sources, err := h.service.ListSources(c.Request.Context(), currentUserID(c))
 	if err != nil {
 		writeSourceError(c, err)
 		return
@@ -256,7 +270,7 @@ func (h sourceHandler) updateSource(c *gin.Context) {
 	}
 
 	source, err := h.service.UpdateSource(c.Request.Context(), service.UpdateSourceInput{
-		UserID:               defaultUserID,
+		UserID:               currentUserID(c),
 		ID:                   id,
 		Name:                 request.Name,
 		Type:                 sourceType,
@@ -287,7 +301,7 @@ func (h sourceHandler) fetchSource(c *gin.Context) {
 	}
 
 	result, err := h.service.TriggerFetch(c.Request.Context(), service.FetchSourceInput{
-		UserID: defaultUserID,
+		UserID: currentUserID(c),
 		ID:     id,
 	})
 	if err != nil {
@@ -309,77 +323,32 @@ func (h sourceHandler) fetchActiveSources(c *gin.Context) {
 		return
 	}
 
-	sources, err := h.service.ListSources(c.Request.Context(), defaultUserID)
+	result, err := h.service.FetchActiveSources(c.Request.Context(), service.FetchActiveSourcesInput{
+		UserID: currentUserID(c),
+	})
 	if err != nil {
 		writeSourceError(c, err)
 		return
 	}
-
-	activeSources := make([]domain.Source, 0, len(sources))
-	for _, source := range sources {
-		if source.Status == domain.SourceStatusActive {
-			activeSources = append(activeSources, source)
-		}
-	}
-
-	attempts := fetchSources(c.Request.Context(), h.service, activeSources)
 	response := fetchSourcesResponse{
-		RequestedCount: len(activeSources),
-		Sources:        make([]sourceResponse, 0, len(attempts)),
-		Errors:         make([]fetchSourceError, 0),
+		RequestedCount: result.RequestedCount,
+		SuccessCount:   result.SuccessCount,
+		FailureCount:   result.FailureCount,
+		Sources:        make([]sourceResponse, 0, len(result.Sources)),
+		Errors:         make([]fetchSourceErrorResponse, 0, len(result.Errors)),
 	}
-	for _, attempt := range attempts {
-		if attempt.err != nil {
-			response.FailureCount++
-			response.Errors = append(response.Errors, fetchSourceError{
-				SourceID:   attempt.source.ID,
-				SourceName: attempt.source.Name,
-				Message:    attempt.err.Error(),
-			})
-			continue
-		}
-		response.SuccessCount++
-		response.Sources = append(response.Sources, sourceResponseFromDomain(attempt.result.Source))
+	for _, source := range result.Sources {
+		response.Sources = append(response.Sources, sourceResponseFromDomain(source))
+	}
+	for _, item := range result.Errors {
+		response.Errors = append(response.Errors, fetchSourceErrorResponse{
+			SourceID:   item.SourceID,
+			SourceName: item.SourceName,
+			Message:    item.Message,
+		})
 	}
 
 	Success(c, response)
-}
-
-func fetchSources(ctx context.Context, sourceServiceClient sourceService, sources []domain.Source) []fetchSourceAttempt {
-	if len(sources) == 0 {
-		return nil
-	}
-
-	sem := make(chan struct{}, fetchActiveSourcesConcurrency)
-	results := make(chan fetchSourceAttempt, len(sources))
-	var wg sync.WaitGroup
-	for _, source := range sources {
-		wg.Add(1)
-		go func(source domain.Source) {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				results <- fetchSourceAttempt{source: source, err: ctx.Err()}
-				return
-			}
-
-			result, err := sourceServiceClient.TriggerFetch(ctx, service.FetchSourceInput{
-				UserID: defaultUserID,
-				ID:     source.ID,
-			})
-			results <- fetchSourceAttempt{source: source, result: result, err: err}
-		}(source)
-	}
-	wg.Wait()
-	close(results)
-
-	attempts := make([]fetchSourceAttempt, 0, len(sources))
-	for result := range results {
-		attempts = append(attempts, result)
-	}
-	return attempts
 }
 
 func (h sourceHandler) listSourceCatalog(c *gin.Context) {
@@ -408,7 +377,7 @@ func (h sourceHandler) listSourceCatalogWithQuery(c *gin.Context, query string) 
 	}
 
 	result, err := h.service.ListSourceCatalog(c.Request.Context(), service.ListSourceCatalogInput{
-		UserID:   defaultUserID,
+		UserID:   currentUserID(c),
 		Category: c.Query("category"),
 		Query:    query,
 		Limit:    limit,
@@ -443,7 +412,7 @@ func (h sourceHandler) importCatalogSources(c *gin.Context) {
 	}
 
 	result, err := h.service.ImportCatalogSources(c.Request.Context(), service.ImportCatalogSourcesInput{
-		UserID:     defaultUserID,
+		UserID:     currentUserID(c),
 		CatalogIDs: request.CatalogIDs,
 	})
 	if err != nil {
@@ -464,8 +433,9 @@ func (h sourceHandler) importURLSources(c *gin.Context) {
 		return
 	}
 	result, err := h.service.ImportURLSources(c.Request.Context(), service.ImportURLSourcesInput{
-		UserID: defaultUserID,
-		URLs:   request.URLs,
+		UserID:     currentUserID(c),
+		URLs:       request.URLs,
+		ImportType: domain.SourceImportTypeURLs,
 	})
 	if err != nil {
 		writeSourceError(c, err)
@@ -499,8 +469,9 @@ func (h sourceHandler) importOPMLSources(c *gin.Context) {
 		return
 	}
 	result, err := h.service.ImportURLSources(c.Request.Context(), service.ImportURLSourcesInput{
-		UserID: defaultUserID,
-		URLs:   urls,
+		UserID:     currentUserID(c),
+		URLs:       urls,
+		ImportType: domain.SourceImportTypeOPML,
 	})
 	if err != nil {
 		writeSourceError(c, err)
@@ -509,16 +480,55 @@ func (h sourceHandler) importOPMLSources(c *gin.Context) {
 	Success(c, importSourceResponseFromDomain(result))
 }
 
+func (h sourceHandler) listSourceImportJobs(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "source service unavailable")
+		return
+	}
+
+	limit, err := optionalIntQuery(c, "limit")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid limit")
+		return
+	}
+	offset, err := optionalIntQuery(c, "offset")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid offset")
+		return
+	}
+
+	result, err := h.service.ListSourceImportJobs(c.Request.Context(), service.ListSourceImportJobsInput{
+		UserID: currentUserID(c),
+		Limit:  limit,
+		Offset: offset,
+	})
+	if err != nil {
+		writeSourceError(c, err)
+		return
+	}
+
+	jobs := make([]sourceImportJobResponse, 0, len(result.Jobs))
+	for _, job := range result.Jobs {
+		jobs = append(jobs, sourceImportJobResponseValueFromDomain(job))
+	}
+	Success(c, sourceImportJobListResponse{
+		Jobs:   jobs,
+		Total:  result.Total,
+		Limit:  result.Limit,
+		Offset: result.Offset,
+	})
+}
+
 func writeSourceError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidInput):
-		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid source input")
+		RenderError(c, err, "invalid source input")
 	case errors.Is(err, domain.ErrNotFound):
-		Error(c, http.StatusNotFound, http.StatusNotFound, "source not found")
+		RenderError(c, err, "source not found")
 	case errors.Is(err, domain.ErrConflict):
-		Error(c, http.StatusConflict, http.StatusConflict, "source already exists")
+		RenderError(c, err, "source already exists")
 	default:
-		Error(c, http.StatusInternalServerError, http.StatusInternalServerError, "source operation failed")
+		RenderError(c, err, "source operation failed")
 	}
 }
 
@@ -579,12 +589,40 @@ func importSourceResponseFromDomain(result service.ImportSourceResult) importSou
 	for _, item := range result.Errors {
 		errors = append(errors, importSourceErrorResponse{Reference: item.Reference, Message: item.Message})
 	}
-	return importSourceResponse{
+	response := importSourceResponse{
 		RequestedCount: result.RequestedCount,
 		SuccessCount:   result.SuccessCount,
 		FailureCount:   result.FailureCount,
 		Sources:        sources,
 		Errors:         errors,
+	}
+	if result.ImportJob != nil {
+		response.ImportJob = sourceImportJobResponseFromDomain(*result.ImportJob)
+	}
+	return response
+}
+
+func sourceImportJobResponseFromDomain(job domain.SourceImportJob) *sourceImportJobResponse {
+	response := sourceImportJobResponseValueFromDomain(job)
+	return &response
+}
+
+func sourceImportJobResponseValueFromDomain(job domain.SourceImportJob) sourceImportJobResponse {
+	errors := make([]importSourceErrorResponse, 0, len(job.ErrorDetails))
+	for _, item := range job.ErrorDetails {
+		errors = append(errors, importSourceErrorResponse{Reference: item.Reference, Message: item.Message})
+	}
+	return sourceImportJobResponse{
+		ID:             job.ID,
+		UserID:         job.UserID,
+		ImportType:     string(job.ImportType),
+		Status:         string(job.Status),
+		RequestedCount: job.RequestedCount,
+		SuccessCount:   job.SuccessCount,
+		FailureCount:   job.FailureCount,
+		ErrorDetails:   errors,
+		CreatedAt:      job.CreatedAt,
+		UpdatedAt:      job.UpdatedAt,
 	}
 }
 

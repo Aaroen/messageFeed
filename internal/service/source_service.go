@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -19,6 +20,7 @@ import (
 
 const (
 	DefaultSourceFetchIntervalSeconds = 3600
+	fetchActiveSourcesConcurrency     = 4
 )
 
 type SourceRepository interface {
@@ -38,6 +40,11 @@ type ItemRepository interface {
 	UpsertMany(ctx context.Context, items []domain.Item) (domain.ItemUpsertResult, error)
 }
 
+type SourceImportJobRepository interface {
+	Create(ctx context.Context, job domain.SourceImportJob) (domain.SourceImportJob, error)
+	ListByUser(ctx context.Context, options domain.SourceImportJobListOptions) (domain.SourceImportJobListResult, error)
+}
+
 type FeedFetcher interface {
 	Fetch(ctx context.Context, source domain.Source) (domain.FeedFetchResult, error)
 }
@@ -45,6 +52,7 @@ type FeedFetcher interface {
 type SourceService struct {
 	repository        SourceRepository
 	catalogRepository SourceCatalogRepository
+	importJobRepo     SourceImportJobRepository
 	itemRepository    ItemRepository
 	feedFetcher       FeedFetcher
 	now               func() time.Time
@@ -61,6 +69,12 @@ func WithItemRepository(repository ItemRepository) SourceServiceOption {
 func WithSourceCatalogRepository(repository SourceCatalogRepository) SourceServiceOption {
 	return func(service *SourceService) {
 		service.catalogRepository = repository
+	}
+}
+
+func WithSourceImportJobRepository(repository SourceImportJobRepository) SourceServiceOption {
+	return func(service *SourceService) {
+		service.importJobRepo = repository
 	}
 }
 
@@ -116,6 +130,10 @@ type FetchSourceInput struct {
 	ID     int64
 }
 
+type FetchActiveSourcesInput struct {
+	UserID int64
+}
+
 type ListSourceCatalogInput struct {
 	UserID   int64
 	Category string
@@ -137,8 +155,15 @@ type ImportCatalogSourcesInput struct {
 }
 
 type ImportURLSourcesInput struct {
+	UserID     int64
+	URLs       []string
+	ImportType domain.SourceImportType
+}
+
+type ListSourceImportJobsInput struct {
 	UserID int64
-	URLs   []string
+	Limit  int
+	Offset int
 }
 
 type ImportSourceResult struct {
@@ -147,6 +172,7 @@ type ImportSourceResult struct {
 	FailureCount   int
 	Sources        []domain.Source
 	Errors         []ImportSourceError
+	ImportJob      *domain.SourceImportJob
 }
 
 type ImportSourceError struct {
@@ -159,6 +185,33 @@ type FetchSourceResult struct {
 	ItemCount    int
 	CreatedCount int
 	UpdatedCount int
+}
+
+type FetchSourceError struct {
+	SourceID   int64
+	SourceName string
+	Message    string
+}
+
+type FetchSourcesResult struct {
+	RequestedCount int
+	SuccessCount   int
+	FailureCount   int
+	Sources        []domain.Source
+	Errors         []FetchSourceError
+}
+
+type ListSourceImportJobsResult struct {
+	Jobs   []domain.SourceImportJob
+	Total  int64
+	Limit  int
+	Offset int
+}
+
+type fetchSourceAttempt struct {
+	source domain.Source
+	result FetchSourceResult
+	err    error
 }
 
 func (s *SourceService) CreateSource(ctx context.Context, input CreateSourceInput) (domain.Source, error) {
@@ -246,6 +299,95 @@ func (s *SourceService) ListSources(ctx context.Context, userID int64) ([]domain
 	}
 	span.SetAttributes(attribute.Int("source.count", len(sources)))
 	return sources, nil
+}
+
+func (s *SourceService) FetchActiveSources(ctx context.Context, input FetchActiveSourcesInput) (FetchSourcesResult, error) {
+	ctx, span := observability.StartSpan(ctx, "service.source.fetch_active",
+		attribute.Int64("user.id", input.UserID),
+	)
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	if input.UserID < 1 {
+		opErr = fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
+		return FetchSourcesResult{}, opErr
+	}
+
+	sources, err := s.ListSources(ctx, input.UserID)
+	if err != nil {
+		opErr = err
+		return FetchSourcesResult{}, opErr
+	}
+
+	activeSources := make([]domain.Source, 0, len(sources))
+	for _, source := range sources {
+		if source.Status == domain.SourceStatusActive {
+			activeSources = append(activeSources, source)
+		}
+	}
+
+	attempts := s.fetchSources(ctx, input.UserID, activeSources)
+	result := FetchSourcesResult{
+		RequestedCount: len(activeSources),
+		Sources:        make([]domain.Source, 0, len(attempts)),
+		Errors:         make([]FetchSourceError, 0),
+	}
+	for _, attempt := range attempts {
+		if attempt.err != nil {
+			result.FailureCount++
+			result.Errors = append(result.Errors, FetchSourceError{
+				SourceID:   attempt.source.ID,
+				SourceName: attempt.source.Name,
+				Message:    sourceImportErrorMessage(attempt.err),
+			})
+			continue
+		}
+		result.SuccessCount++
+		result.Sources = append(result.Sources, attempt.result.Source)
+	}
+	span.SetAttributes(
+		attribute.Int("source.fetch_requested", result.RequestedCount),
+		attribute.Int("source.fetch_success", result.SuccessCount),
+		attribute.Int("source.fetch_failed", result.FailureCount),
+	)
+	return result, nil
+}
+
+func (s *SourceService) fetchSources(ctx context.Context, userID int64, sources []domain.Source) []fetchSourceAttempt {
+	if len(sources) == 0 {
+		return nil
+	}
+
+	sem := make(chan struct{}, fetchActiveSourcesConcurrency)
+	results := make(chan fetchSourceAttempt, len(sources))
+	var wg sync.WaitGroup
+	for _, source := range sources {
+		wg.Add(1)
+		go func(source domain.Source) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				results <- fetchSourceAttempt{source: source, err: ctx.Err()}
+				return
+			}
+
+			result, err := s.TriggerFetch(ctx, FetchSourceInput{
+				UserID: userID,
+				ID:     source.ID,
+			})
+			results <- fetchSourceAttempt{source: source, result: result, err: err}
+		}(source)
+	}
+	wg.Wait()
+	close(results)
+
+	attempts := make([]fetchSourceAttempt, 0, len(sources))
+	for result := range results {
+		attempts = append(attempts, result)
+	}
+	return attempts
 }
 
 func (s *SourceService) ListSourceCatalog(ctx context.Context, input ListSourceCatalogInput) (ListSourceCatalogResult, error) {
@@ -342,6 +484,10 @@ func (s *SourceService) ImportCatalogSources(ctx context.Context, input ImportCa
 		result.Sources = append(result.Sources, source)
 		result.SuccessCount++
 	}
+	if err := s.recordImportJob(ctx, input.UserID, domain.SourceImportTypeCatalog, &result); err != nil {
+		opErr = err
+		return ImportSourceResult{}, opErr
+	}
 	span.SetAttributes(attribute.Int("source.imported", result.SuccessCount), attribute.Int("source.failed", result.FailureCount))
 	return result, nil
 }
@@ -378,8 +524,119 @@ func (s *SourceService) ImportURLSources(ctx context.Context, input ImportURLSou
 		result.Sources = append(result.Sources, source)
 		result.SuccessCount++
 	}
+	importType := input.ImportType
+	if importType == "" {
+		importType = domain.SourceImportTypeURLs
+	}
+	if !importType.Valid() {
+		opErr = fmt.Errorf("%w: unsupported import type", domain.ErrInvalidInput)
+		return ImportSourceResult{}, opErr
+	}
+	if err := s.recordImportJob(ctx, input.UserID, importType, &result); err != nil {
+		opErr = err
+		return ImportSourceResult{}, opErr
+	}
 	span.SetAttributes(attribute.Int("source.imported", result.SuccessCount), attribute.Int("source.failed", result.FailureCount))
 	return result, nil
+}
+
+func (s *SourceService) ListSourceImportJobs(ctx context.Context, input ListSourceImportJobsInput) (ListSourceImportJobsResult, error) {
+	ctx, span := observability.StartSpan(ctx, "service.source_import_job.list",
+		attribute.Int64("user.id", input.UserID),
+		attribute.Int("limit", input.Limit),
+		attribute.Int("offset", input.Offset),
+	)
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	if s == nil || s.importJobRepo == nil {
+		opErr = fmt.Errorf("source import job service is not configured")
+		return ListSourceImportJobsResult{}, opErr
+	}
+	options, err := normalizeSourceImportJobListOptions(input)
+	if err != nil {
+		opErr = err
+		return ListSourceImportJobsResult{}, opErr
+	}
+
+	result, err := s.importJobRepo.ListByUser(ctx, options)
+	if err != nil {
+		opErr = err
+		return ListSourceImportJobsResult{}, opErr
+	}
+	span.SetAttributes(
+		attribute.Int("source_import_job.count", len(result.Jobs)),
+		attribute.Int64("source_import_job.total", result.Total),
+		attribute.Int("limit.normalized", result.Limit),
+		attribute.Int("offset.normalized", result.Offset),
+	)
+	return ListSourceImportJobsResult{
+		Jobs:   result.Jobs,
+		Total:  result.Total,
+		Limit:  result.Limit,
+		Offset: result.Offset,
+	}, nil
+}
+
+func normalizeSourceImportJobListOptions(input ListSourceImportJobsInput) (domain.SourceImportJobListOptions, error) {
+	if input.UserID < 1 {
+		return domain.SourceImportJobListOptions{}, fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
+	}
+	if input.Offset < 0 {
+		return domain.SourceImportJobListOptions{}, fmt.Errorf("%w: offset must be non-negative", domain.ErrInvalidInput)
+	}
+
+	limit := input.Limit
+	if limit == 0 {
+		limit = domain.DefaultSourceImportJobListLimit
+	}
+	if limit < 0 {
+		return domain.SourceImportJobListOptions{}, fmt.Errorf("%w: limit must be non-negative", domain.ErrInvalidInput)
+	}
+	if limit > domain.MaxSourceImportJobListLimit {
+		limit = domain.MaxSourceImportJobListLimit
+	}
+
+	return domain.SourceImportJobListOptions{
+		UserID: input.UserID,
+		Limit:  limit,
+		Offset: input.Offset,
+	}, nil
+}
+
+func (s *SourceService) recordImportJob(ctx context.Context, userID int64, importType domain.SourceImportType, result *ImportSourceResult) error {
+	if s == nil || s.importJobRepo == nil || result == nil {
+		return nil
+	}
+	status := domain.SourceImportStatusCompleted
+	if result.FailureCount > 0 && result.SuccessCount > 0 {
+		status = domain.SourceImportStatusPartial
+	}
+	if result.FailureCount > 0 && result.SuccessCount == 0 {
+		status = domain.SourceImportStatusFailed
+	}
+
+	errorDetails := make([]domain.SourceImportJobError, 0, len(result.Errors))
+	for _, item := range result.Errors {
+		errorDetails = append(errorDetails, domain.SourceImportJobError{
+			Reference: item.Reference,
+			Message:   item.Message,
+		})
+	}
+	job, err := s.importJobRepo.Create(ctx, domain.SourceImportJob{
+		UserID:         userID,
+		ImportType:     importType,
+		Status:         status,
+		RequestedCount: result.RequestedCount,
+		SuccessCount:   result.SuccessCount,
+		FailureCount:   result.FailureCount,
+		ErrorDetails:   errorDetails,
+	})
+	if err != nil {
+		return fmt.Errorf("record source import job: %w", err)
+	}
+	result.ImportJob = &job
+	return nil
 }
 
 func (s *SourceService) UpdateSource(ctx context.Context, input UpdateSourceInput) (domain.Source, error) {
