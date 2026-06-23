@@ -853,7 +853,7 @@ onMounted(() => {
 onUnmounted(() => {
   disposed = true
   invalidateLoadRequests()
-  pullRefresh.clearTimers()
+  pullRefresh.reset()
   refreshLayoutFreeze.release()
   clearLoadMoreSyncTimer()
   feedNoticeRuntime.dispose()
