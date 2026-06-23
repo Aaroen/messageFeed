@@ -189,12 +189,28 @@ func TestLoadRejectsPartialLLMConfig(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsUnsupportedLLMProvider(t *testing.T) {
-	t.Setenv("LLM_PROVIDER", "unknown")
+func TestLoadAcceptsCustomLLMProvider(t *testing.T) {
+	t.Setenv("LLM_PROVIDER", "hyb")
 	t.Setenv("LLM_API_KEY", "llm-key")
+	t.Setenv("LLM_BASE_URL", "https://llm.example/v1")
+	t.Setenv("LLM_MODEL", "custom-model")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.LLM.Provider != "hyb" {
+		t.Fatalf("LLM.Provider = %q", cfg.LLM.Provider)
+	}
+}
+
+func TestLoadRejectsInvalidLLMProviderName(t *testing.T) {
+	t.Setenv("LLM_PROVIDER", "unknown/provider")
+	t.Setenv("LLM_API_KEY", "llm-key")
+	t.Setenv("LLM_BASE_URL", "https://llm.example/v1")
 	t.Setenv("LLM_MODEL", "custom-model")
 
 	if _, err := Load(); err == nil {
-		t.Fatal("Load() error = nil, want unsupported LLM provider error")
+		t.Fatal("Load() error = nil, want invalid LLM provider error")
 	}
 }

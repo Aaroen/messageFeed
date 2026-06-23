@@ -344,10 +344,8 @@ func validateLLMConfig(cfg LLMConfig) error {
 	if strings.TrimSpace(cfg.Provider) == "" {
 		return fmt.Errorf("LLM_PROVIDER must not be empty when LLM is configured")
 	}
-	switch cfg.Provider {
-	case "openai", "openai_compatible":
-	default:
-		return fmt.Errorf("unsupported LLM_PROVIDER %q", cfg.Provider)
+	if !isValidLLMProviderName(cfg.Provider) {
+		return fmt.Errorf("invalid LLM_PROVIDER %q", cfg.Provider)
 	}
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return fmt.Errorf("LLM_API_KEY must not be empty when LLM is configured")
@@ -355,8 +353,8 @@ func validateLLMConfig(cfg LLMConfig) error {
 	if strings.TrimSpace(cfg.Model) == "" {
 		return fmt.Errorf("LLM_MODEL must not be empty when LLM is configured")
 	}
-	if cfg.Provider == "openai_compatible" && strings.TrimSpace(cfg.BaseURL) == "" {
-		return fmt.Errorf("LLM_BASE_URL must not be empty when LLM_PROVIDER=openai_compatible")
+	if cfg.Provider != "openai" && strings.TrimSpace(cfg.BaseURL) == "" {
+		return fmt.Errorf("LLM_BASE_URL must not be empty when LLM_PROVIDER is not openai")
 	}
 	if strings.TrimSpace(cfg.BaseURL) != "" {
 		parsed, err := url.Parse(cfg.BaseURL)
@@ -368,6 +366,24 @@ func validateLLMConfig(cfg LLMConfig) error {
 		}
 	}
 	return nil
+}
+
+func isValidLLMProviderName(provider string) bool {
+	for _, r := range provider {
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		switch r {
+		case '-', '_', '.':
+			continue
+		default:
+			return false
+		}
+	}
+	return provider != ""
 }
 
 // SlogLevel 将配置中的日志级别转换为 slog 可识别的级别。
