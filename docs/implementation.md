@@ -278,6 +278,7 @@ adapter modules -> domain
 | 阶段二 | 订阅源与 Feed 闭环 | [查看细节](#phase-2) |
 | 阶段三 | 日志、错误追踪与链路观测 | [查看细节](#phase-3) |
 | 阶段四 | 源目录与导入 | [查看细节](#phase-4) |
+| 阶段四点五 | 后端治理与后台刷新解耦 | [查看细节](#phase-4-5) |
 | 阶段五 | Agent 基础设施与 AI 源 | [查看细节](#phase-5) |
 | 阶段六 | 主动采集与内容理解 Agent | [查看细节](#phase-6) |
 | 阶段七 | 推荐、摘要与通知 Agent | [查看细节](#phase-7) |
@@ -766,7 +767,7 @@ API 与安全约束：
 
 ### <a id="phase-4"></a>阶段四：源目录与导入
 
-**状态**：进行中 | **完成度**：55%
+**状态**：进行中 | **完成度**：75%
 
 实施范围：
 
@@ -782,10 +783,10 @@ API 与安全约束：
 - [x] `internal/handler/source_handler.go` 已注册 `/api/v1/source-catalogs`、`/api/v1/sources/import/catalog`、`/api/v1/sources/import/urls` 和 `/api/v1/sources/import/opml`。
 - [x] OPML 导入已支持 2 MiB 文件大小限制、递归读取 outline 中的 `xmlUrl`，并复用 URL 批量导入流程。
 - [x] `web/src/views/SubscriptionSourcesView.vue` 已接入源目录搜索、目录启停、URL 导入、OPML 导入和启用后抓取。
-- [ ] `source_import_jobs` 目前主要是 schema 预留，尚未由 service/repository 持久化每次导入任务及错误明细。
+- [x] `source_import_jobs` 已由 domain、repository、service 和 handler 持久化每次导入任务及错误明细，并支持历史查询。
+- [x] `api/openapi.yaml` 已覆盖源目录、目录导入、URL 导入、OPML 导入和导入任务查询接口。
 - [ ] 源目录仍缺少自动健康检查、许可状态治理、热度字段和最近校验时间更新流程。
 - [ ] 源目录 API 目前以关键词和分类过滤为主，语言、国家、健康状态等过滤维度仍需补齐。
-- [ ] `api/openapi.yaml` 尚未覆盖源目录、目录导入、URL 导入和 OPML 导入接口。
 
 实施步骤：
 
@@ -794,7 +795,7 @@ API 与安全约束：
 3. [x] 实现目录查询、关键词搜索、分类过滤和从目录批量订阅。
 4. [x] 实现 OPML 解析，输出成功和失败明细。
 5. [x] 实现 URL 批量导入，每个 URL 独立校验，单个失败不影响整体任务。
-6. [ ] 建立导入任务持久化流程，保留原始错误摘要，便于用户修正源地址。
+6. [x] 建立导入任务持久化流程，保留错误摘要，便于用户修正源地址。
 7. [ ] 补齐许可状态、热度、语言过滤、健康状态过滤和源健康检查任务。
 
 验收标准：
@@ -803,13 +804,73 @@ API 与安全约束：
 - [x] 可以导入 OPML，并返回成功与失败明细。
 - [x] 可以从推荐源目录批量创建订阅。
 - [x] 失败源不会阻断其他源导入。
-- [ ] 可以查询导入任务状态和历史错误明细。
+- [x] 可以查询导入任务状态和历史错误明细。
 - [ ] 推荐源具备可追踪的许可状态、健康状态和最近校验记录。
 
 风险控制：
 
 - 不直接复制第三方源数据为正式内置数据，先作为候选来源并核查许可。
 - 目录源需要定期健康检查，避免大量不可用源影响用户体验。
+
+### <a id="phase-4-5"></a>阶段四点五：后端治理与后台刷新解耦
+
+**状态**：准备实施 | **完成度**：0%
+
+阶段四点五用于在进入 Agent、通知和金融能力前，先解决首页刷新性能、后台同步解耦和后端服务边界问题。该阶段的基本原则是：后台同步负责获取事实，确定性规则负责预筛选，Agent 只处理候选内容并生成解释，策略引擎负责最终裁决，通知系统负责可审计发送。
+
+实施范围：
+
+- 建立后台抓取任务、抓取尝试和调度字段，避免首页刷新承担批量抓取压力。
+- 建立 `item.created` 等 outbox 事件，使抓取、规则筛选、Agent 分析和通知发送解耦。
+- 保持 `SourceService` 不再继续膨胀，新增后台同步能力时优先建立 `SourceSyncService` 或 `FetchJobService`。
+- 建立最小提醒规则和确定性预筛选基础，暂不让 AI 扫描所有条目。
+- 后续接入 Agent 时，Agent 不直接写数据库、不直接发送通知，只输出结构化分析结果。
+- 通知发送必须经过策略引擎，并记录规则、条目、AI 判断、request id、trace id、结果和失败原因。
+
+当前实现状态：
+
+- [x] 手动抓取、条目去重入库和最近抓取状态已经存在。
+- [x] request id、trace id、repository/service/fetcher span 和基础指标已经存在。
+- [x] `SourceService` 已承担来源 CRUD、抓取、源目录和导入职责，后续不应继续追加后台任务与提醒逻辑。
+- [ ] `sources` 尚未持久化 `next_fetch_at`、`etag`、`last_modified` 和抓取优先级等调度字段。
+- [ ] 尚未建立 `source_fetch_jobs`、`source_fetch_attempts`、`item_events` 或通用 outbox 表。
+- [ ] `ItemRepository.UpsertMany` 尚未向调用方返回新建条目 ID，无法稳定只为新条目生成事件。
+- [ ] 尚未建立后台 worker、任务锁、失败重试和抓取任务历史查询。
+- [ ] 尚未建立提醒规则、确定性预筛选、AI 分析任务、策略引擎和通知审计。
+
+实施步骤：
+
+1. 新增后台抓取和 outbox 迁移：`source_fetch_jobs`、`source_fetch_attempts`、`item_events`，并为 `sources` 增加 `next_fetch_at`、`etag`、`last_modified` 和可选优先级字段。
+2. 新增对应 domain、repository 和测试，仓储层必须支持按状态领取任务、记录 attempt、写入事件和标记事件处理状态。
+3. 新建 `SourceSyncService` 或 `FetchJobService`，负责扫描 `next_fetch_at <= now` 的来源、创建抓取任务和执行单个抓取任务。
+4. 调整条目 upsert 返回结构，使服务可以识别新建条目并只为新条目产生 `item.created` 事件。
+5. 明确事务边界：条目入库和 outbox 事件生成必须处于同一事务，或建立可审计的补偿机制。
+6. 保留现有手动抓取接口，但内部逐步迁移到抓取任务执行路径，避免重复维护两套抓取状态逻辑。
+7. 新增最小 `alert_rules`，初期只支持来源、关键词、分类、冷却时间和启停状态。
+8. 实现确定性规则预筛选，worker 消费 `item.created` 事件生成候选提醒；该步骤暂不接 AI。
+9. 新增 `ai_analysis_jobs`，Agent 只分析候选条目并保存结构化结果，字段包含 `should_notify`、`importance`、`matched_reasons`、`summary`、`risk_level` 和 `confidence`。
+10. 新增策略引擎，统一处理规则命中、重要性阈值、置信度阈值、冷却、去重和是否需要用户确认。
+11. 新增 `notification_jobs` 和 `notification_deliveries`，支持企业微信和 `ntfy` 的可审计发送。
+12. 将重要分析写入 `messageFeed AI` 内部源，包括今日摘要、重要提醒解释、来源健康报告和 Agent 操作报告。
+
+验收标准：
+
+- 首页刷新不触发批量外部抓取，抓取由后台任务或显式单来源操作承担。
+- 到期来源可以被后台扫描并生成抓取任务。
+- 每次抓取 attempt 记录开始时间、结束时间、耗时、状态、错误、创建条目数和更新条目数。
+- 只有新建条目产生 `item.created` 事件，重复抓取不会重复触发分析。
+- 抓取、规则筛选、AI 分析和通知发送之间通过持久化任务或事件解耦。
+- 任一通知都能追溯到来源条目、规则、策略裁决、AI 分析、发送通道、request id 和 trace id。
+- `go test ./...`、`go vet ./...` 和迁移文件检查在每个提交单元内通过。
+
+风险控制：
+
+- 抓取不等待 AI，AI 不直接写数据库，AI 不直接发送通知。
+- 所有状态变更通过 service 执行，不允许 Agent、worker 或 notifier 绕过业务校验直接写业务表。
+- 规则预筛选必须先于 AI 分析，避免成本不可控和误报不可审计。
+- 金融类分析必须区分事实和推断，不输出确定性投资建议。
+- 任务、事件和通知表必须具备幂等键或唯一约束，避免重试导致重复发送。
+- 后台任务指标不得使用 URL、标题、错误全文或 request id 作为 Prometheus label。
 
 ### <a id="phase-5"></a>阶段五：Agent 基础设施与 AI 源
 
