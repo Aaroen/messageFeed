@@ -13,13 +13,16 @@ export function useAppPagePullState(options: AppPagePullStateOptions) {
   const pullRefresh = usePullRefresh({ threshold: options.threshold ?? 52 })
   const completionRefreshing = ref(false)
   const statusRefreshing = computed(() => pullRefresh.refreshing.value || completionRefreshing.value)
+  const statusProgress = computed(() =>
+    statusRefreshing.value ? Math.max(pullRefresh.distanceProgress.value, 1) : pullRefresh.distanceProgress.value,
+  )
   const contentMotion = usePageContentMotion({
     pullOffset: pullRefresh.offset,
     settling: pullRefresh.settling,
   })
   const status = usePagePullStatus({
     refreshing: statusRefreshing,
-    progress: pullRefresh.distanceProgress,
+    progress: statusProgress,
     pageTitle: options.pageTitle,
   })
 
@@ -43,8 +46,8 @@ export function useAppPagePullState(options: AppPagePullStateOptions) {
     contentMotion,
     offset: pullRefresh.offset,
     settling: pullRefresh.settling,
-    refreshing: pullRefresh.refreshing,
-    progress: pullRefresh.distanceProgress,
+    refreshing: statusRefreshing,
+    progress: statusProgress,
     sideStretch: contentMotion.sideStretch,
     contentStyle: contentMotion.contentStyle,
     statusText: status.text,
