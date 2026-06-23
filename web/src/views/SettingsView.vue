@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import {
   changePassword,
@@ -38,6 +39,8 @@ import {
   updateSourceTimelinePreloadSetting,
 } from '@/composables/useReaderSettingsSync'
 
+const route = useRoute()
+const router = useRouter()
 const sourceTimelinePreload = ref(true)
 const authStatus = ref<CurrentAuth | null>(null)
 const authLoading = ref(false)
@@ -102,7 +105,10 @@ const wechatWorkTestError = ref('')
 let inviteCopyTimer: number | undefined
 
 const isOwner = computed(() => authStatus.value?.user?.role === 'owner')
-const activeSettingsSection = ref('account')
+const activeSettingsSection = computed(() => {
+  const section = route.meta.settingsSection
+  return typeof section === 'string' ? section : 'account'
+})
 
 const settingsSections = computed(() => {
   const sections = [
@@ -135,13 +141,9 @@ function isSettingsSectionActive(id: string) {
   return activeSettingsSection.value === id
 }
 
-function selectSettingsSection(id: string) {
-  activeSettingsSection.value = id
-}
-
 function ensureActiveSettingsSection() {
   if (!settingsSections.value.some((section) => section.id === activeSettingsSection.value)) {
-    activeSettingsSection.value = 'account'
+    void router.replace('/settings/account')
   }
 }
 
@@ -547,21 +549,6 @@ defineExpose({ refreshPage })
 
 <template>
   <section class="settings-page">
-    <div class="settings-layout">
-      <aside class="settings-sidebar" aria-label="设置分类">
-        <button
-          v-for="section in settingsSections"
-          :key="section.id"
-          class="settings-sidebar__item"
-          :class="{ 'settings-sidebar__item--active': isSettingsSectionActive(section.id) }"
-          type="button"
-          @click="selectSettingsSection(section.id)"
-        >
-          <span class="settings-sidebar__title">{{ section.title }}</span>
-          <span class="settings-sidebar__meta">{{ section.meta }}</span>
-        </button>
-      </aside>
-
       <main class="settings-content">
         <header class="settings-content__header">
           <div>
@@ -1115,6 +1102,5 @@ defineExpose({ refreshPage })
           <textarea class="settings-textarea" rows="5" :value="userContext.prompt.plain_text" readonly />
         </section>
       </main>
-    </div>
   </section>
 </template>

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { getCurrentAuth } from '@/api/auth'
 import { getFeedItem } from '@/api/feed'
 import AppMainOutlet from '@/components/AppMainOutlet.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
@@ -54,6 +55,7 @@ type SwipeSurface =
 
 const route = useRoute()
 const router = useRouter()
+const currentUserRole = ref('')
 const feedContent = useFeedContentState()
 const pageOutlet = usePageOutletState()
 const scrollHistory = useScrollHistory()
@@ -664,6 +666,30 @@ const {
   motionDelay,
   motionNormalDuration,
 })
+
+const visibleManagementItems = computed(() =>
+  managementItems.filter((item) => !item.ownerOnly || currentUserRole.value === 'owner'),
+)
+
+async function refreshNavigationAuth() {
+  try {
+    const auth = await getCurrentAuth()
+    currentUserRole.value = auth.authenticated ? auth.user?.role || '' : ''
+  } catch {
+    currentUserRole.value = ''
+  }
+}
+
+onMounted(() => {
+  void refreshNavigationAuth()
+})
+
+watch(
+  () => route.fullPath,
+  () => {
+    void refreshNavigationAuth()
+  },
+)
 
 const {
   handleClickCapture,
@@ -1386,16 +1412,16 @@ useAppRuntimeEffects({
       :corner-button-label="cornerButtonLabel"
       :navigation-scrim-style="navigationScrimStyle"
       :navigation-panel-style="navigationPanelStyle"
-      :management-items="managementItems"
+      :management-items="visibleManagementItems"
       :selected-keys="selectedKeys"
       :dark-theme="darkTheme"
-      :settings-active="route.name === 'settings'"
+      :settings-active="route.meta.section === 'settings'"
       @corner-click="handleCornerButtonClick"
       @close-navigation="closeNavigation"
       @go-home="goHome({ closePanel: true })"
       @menu-click="handleMenuClick"
       @toggle-theme="toggleTheme"
-      @open-settings="pushRoute('/settings'); closeNavigation()"
+      @open-settings="pushRoute('/settings/account'); closeNavigation()"
     />
 
     <AppMainOutlet v-bind="mainOutletProps" v-on="mainOutletListeners" />

@@ -9,6 +9,20 @@ const SettingsView = () => import('@/views/SettingsView.vue')
 const SubscriptionFeedView = () => import('@/views/SubscriptionFeedView.vue')
 const SubscriptionSourcesView = () => import('@/views/SubscriptionSourcesView.vue')
 
+const settingsRoutes = [
+  { path: 'account', name: 'settings-account', title: '账户', section: 'account' },
+  { path: 'profile', name: 'settings-profile', title: '资料', section: 'profile' },
+  { path: 'security', name: 'settings-security', title: '安全', section: 'security' },
+  { path: 'wechat', name: 'settings-wechat', title: '企业微信', section: 'wechat' },
+  { path: 'preferences', name: 'settings-preferences', title: '偏好', section: 'preferences' },
+  { path: 'overview', name: 'settings-overview', title: '系统概览', section: 'overview', ownerOnly: true },
+  { path: 'invites', name: 'settings-invites', title: '邀请码', section: 'invites', ownerOnly: true },
+  { path: 'users', name: 'settings-users', title: '用户管理', section: 'users', ownerOnly: true },
+  { path: 'runtime', name: 'settings-runtime', title: '运行配置', section: 'runtime', ownerOnly: true },
+  { path: 'tests', name: 'settings-tests', title: '连通性测试', section: 'tests', ownerOnly: true },
+  { path: 'context', name: 'settings-context', title: '上下文', section: 'context', ownerOnly: true },
+]
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
@@ -30,7 +44,7 @@ const router = createRouter({
     },
     {
       path: '/auth/bindings',
-      redirect: '/settings',
+      redirect: '/settings/wechat',
     },
     {
       path: '/agent/approvals/:token',
@@ -62,9 +76,22 @@ const router = createRouter({
     },
     {
       path: '/settings',
-      name: 'settings',
+      redirect: '/settings/account',
+    },
+    ...settingsRoutes.map((route) => ({
+      path: `/settings/${route.path}`,
+      name: route.name,
       component: SettingsView,
-      meta: { title: '设置', section: 'settings' },
+      meta: {
+        title: route.title,
+        section: 'settings',
+        settingsSection: route.section,
+        ownerOnly: route.ownerOnly ?? false,
+      },
+    })),
+    {
+      path: '/settings/:pathMatch(.*)*',
+      redirect: '/settings/account',
     },
   ],
 })
@@ -76,6 +103,9 @@ router.beforeEach(async (to) => {
   try {
     const auth = await getCurrentAuth()
     if (auth.authenticated) {
+      if (to.meta.ownerOnly && auth.user?.role !== 'owner') {
+        return { name: 'settings-account' }
+      }
       return true
     }
   } catch {

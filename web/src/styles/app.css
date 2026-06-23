@@ -1510,59 +1510,6 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   gap: 12px;
 }
 
-.settings-layout {
-  display: grid;
-  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
-  align-items: start;
-  gap: 12px;
-}
-
-.settings-sidebar {
-  position: sticky;
-  top: calc(var(--feed-header-height, 86px) + var(--app-content-top-offset, 10px));
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  padding: 8px;
-  border: 1px solid var(--mf-border);
-  border-radius: 8px;
-  background: var(--mf-surface-raised);
-  box-shadow: 0 12px 34px rgba(31, 45, 61, 0.07);
-}
-
-.settings-sidebar__item {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-  padding: 10px 11px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--mf-text-muted);
-  cursor: pointer;
-  text-align: left;
-}
-
-.settings-sidebar__item--active {
-  border-color: rgba(37, 99, 235, 0.24);
-  background: rgba(37, 99, 235, 0.1);
-  color: var(--mf-primary-strong);
-}
-
-.settings-sidebar__title {
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  font-weight: 780;
-  line-height: 1.35;
-}
-
-.settings-sidebar__meta {
-  overflow-wrap: anywhere;
-  font-size: 12px;
-  font-weight: 660;
-  line-height: 1.35;
-}
-
 .settings-content {
   display: grid;
   min-width: 0;
@@ -2465,29 +2412,6 @@ body[arco-theme='dark'] .empty-surface {
 
   .sources-layout {
     grid-template-columns: 1fr;
-  }
-
-  .settings-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .settings-sidebar {
-    position: static;
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 8px;
-    scrollbar-width: none;
-  }
-
-  .settings-sidebar::-webkit-scrollbar {
-    display: none;
-  }
-
-  .settings-sidebar__item {
-    flex: 0 0 auto;
-    min-width: 112px;
-    max-width: 148px;
   }
 
   .settings-content__header {
