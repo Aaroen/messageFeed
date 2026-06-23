@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"messagefeed/internal/domain"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -212,6 +213,7 @@ func applyItemStateFilters(query *gorm.DB, options domain.ItemListOptions) *gorm
 }
 
 func upsertItem(ctx context.Context, db *gorm.DB, item domain.Item) (bool, error) {
+	item = sanitizeItemText(item)
 	model := itemModelFromDomain(item)
 
 	existing, found, err := findExistingItem(ctx, db, item)
@@ -264,6 +266,7 @@ func findExistingItem(ctx context.Context, db *gorm.DB, item domain.Item) (itemM
 }
 
 func itemModelFromDomain(item domain.Item) itemModel {
+	item = sanitizeItemText(item)
 	return itemModel{
 		ID:             item.ID,
 		SourceID:       item.SourceID,
@@ -280,6 +283,18 @@ func itemModelFromDomain(item domain.Item) itemModel {
 		CreatedAt:      item.CreatedAt,
 		UpdatedAt:      item.UpdatedAt,
 	}
+}
+
+func sanitizeItemText(item domain.Item) domain.Item {
+	item.Title = strings.ToValidUTF8(item.Title, "")
+	item.URL = strings.ToValidUTF8(item.URL, "")
+	item.NormalizedURL = strings.ToValidUTF8(item.NormalizedURL, "")
+	item.RawGUID = strings.ToValidUTF8(item.RawGUID, "")
+	item.ContentHash = strings.ToValidUTF8(item.ContentHash, "")
+	item.Summary = strings.ToValidUTF8(item.Summary, "")
+	item.ContentSnippet = strings.ToValidUTF8(item.ContentSnippet, "")
+	item.Author = strings.ToValidUTF8(item.Author, "")
+	return item
 }
 
 func itemModelToDomain(model itemModel) domain.Item {

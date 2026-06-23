@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestItemModelRoundTrip(t *testing.T) {
@@ -43,6 +44,45 @@ func TestItemModelRoundTrip(t *testing.T) {
 	}
 	if converted.PublishedAt == nil || !converted.PublishedAt.Equal(now) {
 		t.Fatalf("PublishedAt = %#v, want %s", converted.PublishedAt, now)
+	}
+}
+
+func TestItemModelFromDomainSanitizesInvalidUTF8(t *testing.T) {
+	invalidSuffix := string([]byte{0xe6, 0xb5})
+	item := domain.Item{
+		SourceID:       2,
+		Title:          "标题" + invalidSuffix,
+		URL:            "https://example.com/item" + invalidSuffix,
+		NormalizedURL:  "https://example.com/item" + invalidSuffix,
+		RawGUID:        "guid" + invalidSuffix,
+		ContentHash:    "hash" + invalidSuffix,
+		Summary:        "summary" + invalidSuffix,
+		ContentSnippet: "snippet" + invalidSuffix,
+		Author:         "author" + invalidSuffix,
+		FetchedAt:      time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC),
+	}
+
+	model := itemModelFromDomain(item)
+	values := map[string]string{
+		"title":           model.Title,
+		"url":             model.URL,
+		"normalized_url":  model.NormalizedURL,
+		"raw_guid":        model.RawGUID,
+		"content_hash":    model.ContentHash,
+		"summary":         model.Summary,
+		"content_snippet": model.ContentSnippet,
+		"author":          model.Author,
+	}
+	for name, value := range values {
+		if !utf8.ValidString(value) {
+			t.Fatalf("%s contains invalid UTF-8: %q", name, value)
+		}
+	}
+	if model.Title != "标题" {
+		t.Fatalf("Title = %q, want sanitized title", model.Title)
+	}
+	if model.RawGUID != "guid" {
+		t.Fatalf("RawGUID = %q, want sanitized guid", model.RawGUID)
 	}
 }
 
