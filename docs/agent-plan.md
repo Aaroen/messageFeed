@@ -1,6 +1,6 @@
 # messageFeed AI Agent 阶段重组计划
 
-**最后更新**：2026-06-20
+**最后更新**：2026-06-23
 
 ## 1. 背景与目标
 
@@ -10,32 +10,264 @@
 
 该 Agent 的能力边界是“项目内受控智能操作”，不是通用无限工具执行平台。模型不得直接写数据库，不得绕过权限、确认、幂等和审计流程。所有执行动作必须通过已注册能力和既有 service 接口完成。
 
-## 2. 参考项目启发与本项目取舍
+## 2. 参考项目技术路线与本项目取舍
 
-本项目参考 `Eino`、`LangChainGo`、`Hermes Agent`、`OpenClaw` 和 `ai_agent_scaffold_go` 等成熟 Agent 项目，但不直接照搬通用 Agent 平台形态。原因是 `messageFeed` 的核心目标是个人信息聚合、订阅管理、摘要推荐、主动采集、通知推送和金融分析，具备明确业务边界、稳定数据模型和可审计执行要求。
+本项目参考 `Eino`、`LangChainGo`、`ai_agent_scaffold_go`、`Hermes Agent`、`OpenClaw`、`Claude Code` 和 `OpenAI Codex`。这些项目分别代表了三类路线：
 
-可吸收的成熟设计如下：
+1. Go Agent 框架路线：以 Eino、LangChainGo、ai_agent_scaffold_go 为代表，重点是组件抽象、Runner、Tool、Memory、workflow 和 HTTP 运行时。
+2. 产品级 Agent 运行时路线：以 Hermes Agent、OpenClaw 为代表，重点是会话持久化、多通道入口、工具治理、记忆、压缩、调度和安全边界。
+3. 代码型 Agent 运行时路线：以 Claude Code、OpenAI Codex 为代表，重点是 session/turn、thread store、权限策略、工具延迟加载、上下文压缩和执行审计。
 
-- `Eino`：吸收 runner、checkpoint、interrupt/resume、workflow graph 和 callback 思路，用于计划暂停、用户确认、恢复执行和事件流输出。
-- `LangChainGo`：吸收 `Agent -> Executor -> Tool -> Observation` 的执行循环和 `Memory` 接口思想，但不采用无限 ReAct 工具循环作为默认模式。
-- `Hermes Agent`：吸收工具注册、审批机制、持久记忆、冻结记忆快照、上下文压缩和多通道消息网关设计。
-- `OpenClaw`：吸收 `transformContext`、`beforeToolCall`、`afterToolCall`、事件流、active memory、memory search、memory get、gateway 和插件式工具治理思想。
-- `ai_agent_scaffold_go`：吸收配置驱动装配、Runner、Registry、Armory 装配链和 HTTP 运行时接口思想，但本项目的能力注册应优先来自数据库和 service 层能力，而不是以 YAML 编排为主。
-- `Claude Code`：吸收核心工具常驻、延迟工具搜索、代理执行、工具 schema 校验、权限委托、记忆召回预算和不可信内容包装思想。
-- `OpenAI Codex`：吸收 `Session / Turn` 运行时、工具路由、可见工具与真实注册表分离、上下文窗口压缩、线程持久化和 `allow / prompt / forbidden` 执行策略思想。
+`messageFeed` 不应直接照搬任何一种路线。其核心目标是个人信息聚合、订阅管理、推荐摘要、主动采集、通知推送和金融分析，具备明确业务边界、稳定数据库模型和可审计执行要求。因此最终路线应是“领域受控 Agent Runtime”：吸收成熟项目的运行时结构、上下文治理和能力治理方法，但执行面收敛到本项目已有 Go service、PostgreSQL 主存储和 Web 产品边界内。
 
-不建议直接 fork 或裁剪 `OpenAI Codex` 来实现本项目 Agent。Codex 的主要价值在于架构模式，而不是代码复用本身；其代码主要服务于代码执行型 CLI Agent，包含 TUI、终端执行、沙箱、apply_patch、多平台权限、代码 diff、云任务、插件和 MCP 等大量本项目当前不需要的能力。`messageFeed` 应采用“架构级借鉴，Go 后端内精简重写”的路线：保留 Go 技术栈、PostgreSQL 主存储和既有 service 边界，只实现信息聚合、订阅管理、推荐摘要、主动采集、通知和金融分析所需的轻量 Agent Runtime。
+### 2.1 Eino：组件化 Agent 与图编排路线
 
-本项目的架构取舍：
+Eino 的技术路线是 Go 原生 LLM 应用框架。其核心抽象包括 `ChatModel`、`Tool`、`Retriever`、`ChatTemplate`、ADK Agent、Runner、compose graph、workflow、callback、checkpoint 和 interrupt/resume。它支持 `ChatModelAgent` 自动处理工具调用循环，也支持 `DeepAgent` 将复杂任务拆解给子 Agent，并通过 compose graph 将确定性流程包装为工具。
 
-1. 采用“领域受控 Agent”，不采用“通用无限工具 Agent”。
-2. 模型负责意图理解、计划生成、文本解释和参数摘要；Go 后端负责权限、状态、执行、幂等、审计和回滚。
-3. Agent 工具在产品语义上命名为 `Capability`，每个能力都必须绑定既有 service 或明确适配层。
-4. 默认执行模式为 `plan_once`，复杂研究任务才进入有限步数的 `research_loop`。
-5. 用户画像是底层长期记忆，但原始阅读事件、执行审计、网页快照和 AI 源内容必须保留为独立事实与证据层。
-6. 上下文管理不追求把全部历史放入 prompt，而是通过活动上下文、压缩摘要、结构化记忆、检索回忆和原文归档组合实现长期连续性。
-7. 能力暴露采用“核心能力常驻 + 延迟能力检索 + 受控执行”的方式，避免所有能力 schema 长期占用模型上下文。
-8. 权限决策最终落到 `allow`、`prompt`、`forbidden`，风险等级只作为策略输入，不直接等同于执行结果。
+可吸收设计：
+
+- 组件接口要稳定。`messageFeed` 应定义 `LLMClient`、`AgentCapability`、`MemoryProvider`、`RecallTool`、`Planner`、`Executor` 等小接口，而不是让业务层直接依赖某个模型 SDK。
+- 确定性业务流程可以包装为 capability。例如“搜索候选源 -> 校验健康状态 -> 生成订阅建议”应作为后端流程，由 Agent 决定是否调用，而不是让模型逐步拼 SQL 或直接改库。
+- callback 思路可用于观测。在 Agent 的开始、计划生成、策略判定、工具执行、召回、压缩和结束位置写入 trace、指标和审计。
+- interrupt/resume 思路适合用户确认。中高风险计划进入暂停状态，用户确认后从 plan checkpoint 恢复。
+
+不直接采用项：
+
+- 不以通用 `DeepAgent` 多子 Agent 自主协作作为早期默认模式。原因是本项目早期更需要稳定、可审计和可测试的领域动作。
+- 不让图编排成为业务主模型。业务流程仍优先由 service 实现，Agent 只是智能编排入口。
+
+映射到本项目：
+
+```text
+Eino Runner          -> AgentTurnRunner
+Eino Tool            -> AgentCapability
+Eino GraphTool       -> 受控业务流程 capability
+Eino Callback        -> AgentAuditLogger + OpenTelemetry span
+Eino checkpoint      -> agent_plans / agent_plan_steps / agent_turns
+Eino interrupt       -> PolicyEngine(prompt) + 用户确认恢复
+```
+
+### 2.2 LangChainGo：Agent / Executor / Tool / Memory 路线
+
+LangChainGo 的技术路线是将 Agent 决策、工具、执行器和 Memory 拆成相对清晰的接口。其 `Executor` 循环会调用 `Agent.Plan`，得到 action 或 finish，再按工具名执行工具并追加 observation；同时通过 `MaxIterations` 限制循环，避免 Agent 无限运行。Memory 提供 buffer、window、summary 等不同会话记忆形态。
+
+可吸收设计：
+
+- Agent 执行必须有最大步数。`messageFeed` 的 `research_loop` 应设置明确的最大轮次、最大工具调用数、最大外部请求数和最大成本。
+- 工具执行结果应进入结构化 observation。每次 capability 调用都应保存输入摘要、输出摘要、状态差异、错误和 trace id。
+- Memory 需要按用途分层。短期窗口、摘要记忆、用户画像、内容事实、任务审计不能混为一个聊天历史数组。
+- `context.Context` 应贯穿所有 Agent、service、repository 和外部 provider 调用，支持取消、超时和 trace 传播。
+
+不直接采用项：
+
+- 不采用字符串 ReAct 解析作为核心协议。本项目应优先使用结构化 JSON schema、显式 plan/step/capability 表和后端校验。
+- 不把 Memory 只理解为 chat history。用户画像、阅读行为、网页快照、AI 源报告和金融行情都是更关键的长期记忆。
+
+映射到本项目：
+
+```text
+Agent.Plan           -> AgentInterpreter + AgentPlanner
+Executor             -> AgentTurnRunner + AgentExecutor
+Tool                 -> AgentCapability
+Observation          -> agent_plan_steps.result_summary / agent_audit_logs
+MaxIterations        -> execution_budget.max_steps / max_tool_calls
+Memory               -> MemoryProvider 聚合层
+```
+
+### 2.3 ai_agent_scaffold_go：DDD、端口适配器与配置装配路线
+
+`ai_agent_scaffold_go` 的技术路线是 Go 后端 Agent 脚手架。它使用 Gin、配置驱动 Agent、Armory 装配链、Runner、Registry、SessionStore、MCP SSE 工具调用、OpenAI-compatible adapter 和 DDD 分层。其启动链路由配置表加载 Agent，再按 `Root -> AiAPI -> ChatModel -> Agent -> Workflow -> Runner` 装配运行时对象，并通过 HTTP API 暴露会话和聊天接口。
+
+可吸收设计：
+
+- 使用端口与适配器隔离外部依赖。模型、搜索、网页抓取、通知、行情 provider 和向量检索都应通过接口注入。
+- 使用 Registry 管理可运行对象。`AgentCapabilityRegistry`、`AgentSessionManager` 和 `AgentEvalRegistry` 应有清晰入口。
+- HTTP 层只处理入参和出参，Agent 的计划、权限、执行和审计不能写在 handler 中。
+- OpenAI-compatible adapter 可以作为第一版模型协议，后续再扩展 Ollama 或其他 provider。
+
+不直接采用项：
+
+- 不以 YAML 配置作为本项目 capability 的主事实来源。原因是本项目能力与用户、权限、风险、service binding 和审计高度相关，主数据应进入 PostgreSQL。
+- 不引入 MySQL/Redis 作为早期 Agent 主依赖。本项目仍以 PostgreSQL 为主存储，Redis 仅作为后续可选缓存、队列、限流或分布式锁。
+
+映射到本项目：
+
+```text
+Armory 装配链        -> AgentBootstrap / CapabilityBootstrap
+Runner Registry      -> AgentSessionManager + CapabilityRegistry
+SessionStore         -> agent_sessions / agent_turns / transcript 表
+OpenAI adapter       -> internal/llm OpenAI-compatible provider
+MCP ToolRouter       -> 后置可选，不作为阶段五必要能力
+```
+
+### 2.4 Hermes Agent：多通道入口、持久记忆与审批路线
+
+Hermes Agent 的技术路线是产品级个人 Agent。它提供 CLI/TUI、多消息网关、工具网关、持久记忆、技能系统、上下文压缩、会话搜索、定时任务、审批机制、终端后端和子 Agent 并行。其重要启发不是“让本项目也成为通用桌面 Agent”，而是其闭环设计：Agent 能从多个入口接收任务，跨会话保留用户模型，在合适时机调度任务，并对高风险操作进行审批。
+
+可吸收设计：
+
+- 多通道入口应抽象为消息入口，而不是绑定某个通知实现。本项目先支持 Web、企业微信、ntfy，后续可扩展公众号或其他渠道。
+- 记忆需要主动沉淀。用户画像、通知偏好、长期主题、减少推荐主题应从行为证据中提升，但必须保留证据和用户可编辑能力。
+- 审批应是一等流程。新增订阅、批量停用、创建提醒、提高通知频率、创建金融告警等必须有 plan、影响摘要、确认状态和审计记录。
+- 定时任务应与 Agent 会话隔离。日报、网页监控、金融告警等系统触发任务需要独立 session/turn，不应污染用户当前会话。
+
+不直接采用项：
+
+- 不引入终端执行、云 VM、Docker/SSH/Singularity 等代码执行后端。
+- 不把 skill 自学习作为早期能力。早期应优先稳定 subscription、summary、notification、acquisition 和 financial capability。
+
+映射到本项目：
+
+```text
+Messaging Gateway    -> notifier + inbound_channel 抽象
+Persistent memory    -> user_interest_profiles / tags / evidence
+Command approval     -> PolicyEngine(prompt) + agent_approvals
+Cron scheduling      -> scheduler + isolated agent_turns
+Session search       -> archive.search / ai_source.search / item.search
+```
+
+### 2.5 OpenClaw：Gateway、session、transcript 与 compaction 路线
+
+OpenClaw 的技术路线是 Gateway 拥有运行时事实来源。它将 session store 与 transcript 分层：session store 维护小而可变的会话元数据，transcript JSONL 保存追加式对话、工具调用和压缩摘要。它还设计了 sessionKey、sessionId、写锁、维护清理、自动 compaction、overflow recovery、reserveTokens、keepRecentTokens、工具调用与工具结果成对分块、pre-compaction memory flush 和 silent housekeeping。
+
+可吸收设计：
+
+- session 元数据与 transcript 原文应分层。`agent_sessions` 保存可查询状态，`agent_transcript_entries` 保存可重建上下文的追加式历史。
+- 上下文压缩必须保护工具调用对。assistant tool call 与 tool result 不能拆开归档，否则后续上下文会出现不可解释的工具状态。
+- compaction 不应只在溢出后触发。应有阈值维护、溢出恢复和手动压缩三种入口。
+- 压缩前可以进行记忆提升。达到软阈值时，将重要偏好、计划和事实写入长期记忆候选，避免压缩摘要丢失关键状态。
+- session 清理必须有保留策略。长期运行后，transcript、归档、评测结果和 AI 源内容都需要保留边界或归档策略。
+
+不直接采用项：
+
+- 不使用本地 JSONL 文件作为本项目主事实来源。`messageFeed` 已经以 PostgreSQL 为主存储，session、turn、transcript、archive 和 recall event 都应入库。
+- 不采用 OpenClaw 的通用插件 runtime 作为早期目标。阶段五应先实现内置 capability。
+
+映射到本项目：
+
+```text
+sessions.json        -> agent_sessions
+transcript JSONL     -> agent_transcript_entries
+compaction entry     -> agent_context_windows / agent_context_segments
+pre-compaction flush -> agent_memory_promotions
+memory search        -> archive.search / profile.explain / ai_source.search
+session cleanup      -> retention policy + archive compaction
+```
+
+### 2.6 Claude Code：延迟工具发现与上下文折叠路线
+
+Claude Code 参考项目中最值得吸收的是 ToolSearch 与 Context Collapse。ToolSearch 将工具分为 core tools 与 deferred tools。core tools 常驻模型上下文，deferred tools 不直接进入 tools 数组，而是通过搜索工具发现，再通过代理执行工具调用，从而保持工具数组稳定、降低 token 常量开销并减少 prompt cache 失效。Context Collapse 则把上下文接近上限或出现请求过大错误时的消息折叠作为恢复机制，并保留历史摘要与投影视图。
+
+可吸收设计：
+
+- capability 暴露必须分层。少量低风险、高频能力进入 `core`；大多数能力进入 `deferred`；敏感能力进入 `hidden`。
+- capability schema 应保持稳定。已发现的 deferred capability 不应动态注入完整工具数组，而应通过 `capability.execute` 代理执行。
+- 搜索能力需要多模式。支持按 capability_key 精确选择、按关键词发现、按目标类型过滤、按风险等级过滤。
+- 上下文折叠要区分普通维护和溢出恢复。普通维护按阈值触发；溢出恢复是错误恢复路径，必须写入审计。
+
+不直接采用项：
+
+- 不依赖私有模型 API 的 tool reference 或 provider 专有特性。应使用本项目自建 capability search 和普通结构化工具调用。
+- 不把 deferred capability 设计为任意外部工具。它必须绑定 service 或受控 adapter。
+
+映射到本项目：
+
+```text
+Core Tools           -> core capability
+Deferred Tools       -> deferred capability
+SearchExtraTools     -> capability.search
+ExecuteExtraTool     -> capability.execute
+Context Collapse     -> AgentContextManager.Compact
+Overflow recovery    -> context_overflow_recovery turn event
+```
+
+### 2.7 OpenAI Codex：ThreadStore、Session/Turn 与权限策略路线
+
+OpenAI Codex 的技术路线是将线程历史、元数据、会话运行和执行策略拆出清晰边界。`ThreadStore` 负责追加 canonical history 和更新 metadata，`LiveThread` 负责 active session 的持久化协调，`core/session` 创建或恢复线程，不关心底层存储是本地文件还是其他实现。Codex 还将 session source、sub-agent source、turn、multi-agent mode、工具路由和 compact prompt 分层处理。
+
+可吸收设计：
+
+- history append 与 metadata update 必须分开。追加 transcript 不应隐式推断和修改会话元数据，元数据变化应由上层显式写入。
+- session 与 turn 是运行时基本单位。用户输入、系统触发、定时任务、通知回调都应形成 turn，并关联状态、模型、成本、错误和审计。
+- 权限策略应落到可执行决策。最终不是 `low/medium/high`，而是 `allow`、`prompt`、`forbidden`。
+- compact prompt 应以交接摘要为目标，保留当前进展、关键决策、约束、剩余步骤和引用，而不是泛化总结。
+
+不直接采用项：
+
+- 不 fork Codex，也不迁移其 Rust 运行时。Codex 服务代码执行型 CLI Agent，其 TUI、shell、sandbox、patch、diff、云任务、插件和 MCP 体系与本项目信息聚合主线不匹配。
+- 不把代码执行权限模型完整迁入本项目。`messageFeed` 的高风险主要是订阅变更、通知发送、画像写入、主动采集和金融告警。
+
+映射到本项目：
+
+```text
+ThreadStore          -> AgentTranscriptStore
+LiveThread           -> ActiveAgentSession
+append_items         -> AppendTranscriptEntries
+update_metadata      -> UpdateSessionMetadata
+Session / Turn       -> agent_sessions / agent_turns
+allow/prompt/forbidden -> PolicyEngine decision
+compact prompt       -> context handoff summary template
+```
+
+### 2.8 最终推导：messageFeed 自有 Agent Runtime 方案
+
+综合上述项目，本项目最终不做“框架优先”的通用 Agent，也不做“代码执行优先”的 CLI Agent，而是做“业务对象优先”的个人信息 Agent。核心设计如下：
+
+```text
+用户输入 / 系统事件 / 定时任务
+  -> AgentSessionManager 创建或恢复 session
+  -> AgentTurnRunner 创建 turn，并加载冻结 MemorySnapshot
+  -> AgentInterpreter 解析意图
+  -> AgentCapabilitySearch 检索必要 capability
+  -> AgentPlanner 生成结构化 plan 和 step
+  -> PolicyEngine 输出 allow / prompt / forbidden
+  -> 用户确认或系统策略确认
+  -> AgentExecutor 调用 service-bound capability
+  -> 业务 service 写入 sources/items/profile/notifications/market 等表
+  -> AgentContextManager 记录 transcript、压缩、归档和召回
+  -> AI 源写入报告或执行结果
+  -> AgentAuditLogger 记录审计、trace、成本和状态差异
+```
+
+自有方案的五个平面：
+
+| 平面 | 模块 | 设计依据 | 本项目取舍 |
+| --- | --- | --- | --- |
+| 运行时平面 | `AgentSessionManager`、`AgentTurnRunner`、`AgentTranscriptStore` | Codex、OpenClaw | PostgreSQL 作为 session/turn/transcript 主事实来源 |
+| 能力平面 | `AgentCapabilityRegistry`、`CapabilitySearch`、`CapabilityExecutor` | Claude Code、Eino、LangChainGo | `core/deferred/hidden` 分层，能力必须绑定 service |
+| 记忆平面 | `MemoryProvider`、`ProfileMemoryProvider`、`ArchiveStore`、`RecallTool` | Hermes、OpenClaw、LangChainGo | 用户画像是长期记忆底座，但保留原始证据和事实层 |
+| 策略平面 | `PolicyEngine`、`ApprovalService`、`RiskClassifier` | Codex、Hermes、Claude Code | 风险等级只参与判定，最终决策为 `allow/prompt/forbidden` |
+| 评估平面 | `AgentEvalHarness`、trace、状态断言、人工复核 | OpenClaw QA、LangSmith 类方法 | 先实现项目内评测表和命令行评测，再考虑外部平台 |
+
+自有方案的执行模式：
+
+1. `plan_once`：默认模式。适用于订阅管理、通知设置、偏好修改、日报任务创建等可明确建模的操作。
+2. `research_loop`：有限循环模式。适用于主动网络研究、热点事件分析和金融异动解释，必须限制轮次、外部请求数、token、成本和召回预算。
+3. `scheduled_turn`：定时任务模式。适用于日报、周报、网页监控、行情监控和通知冷却检查，与用户当前对话隔离。
+4. `review_only`：只生成建议不执行。适用于不确定来源、批量订阅建议、金融解释和高风险画像变更。
+
+自有方案的关键约束：
+
+- 模型只能生成意图、计划、参数摘要、解释文本和候选证据，不能直接写数据库。
+- 所有状态变更必须通过 capability 调用既有 service 完成。
+- 所有 capability 都必须有输入 schema、输出 schema、风险等级、确认策略、幂等键和审计事件。
+- 长期画像写入必须有证据链、置信度、来源和可编辑能力。
+- 主动网络采集必须保留 URL、时间、hash、抽取方法和可信度，搜索结果不能直接作为事实。
+- 金融分析必须区分事实数据、模型推断和风险提示，且不输出确定性投资建议。
+
+### 2.9 阶段五内部落地顺序
+
+阶段五不应一次性实现完整 Agent，而应按可验收闭环推进：
+
+1. 建立 `agent_sessions`、`agent_turns`、`agent_transcript_entries`、`agent_capabilities`、`agent_plans`、`agent_plan_steps` 和 `agent_audit_logs`。
+2. 实现 `AgentSessionManager`、`AgentTurnRunner` 和 transcript append，保证同一 session 内 active turn 串行。
+3. 实现最小 `CapabilityRegistry`，先注册只读查询、AI 源写入和订阅建议能力。
+4. 实现 `PolicyEngine`，使低风险只读为 `allow`，订阅变更和通知类为 `prompt`，未注册和越权为 `forbidden`。
+5. 实现 `messageFeed AI` 内部源，允许 Agent 写入一条执行报告。
+6. 实现 `MemoryProvider` 第一版，只读取显式偏好、近期阅读摘要、当前计划和 capability 边界。
+7. 实现 `archive.search`、`archive.preview`、`archive.get` 的最小接口与预算记录。
+8. 实现一个端到端用例：“根据自然语言生成订阅建议 -> 用户确认 -> 新增订阅 -> 写入 AI 源操作报告 -> 记录审计”。
+9. 为该用例增加 eval case，断言 intent、policy、tool call、数据库状态变更和审计记录。
 
 ## 3. 重组后阶段定义
 

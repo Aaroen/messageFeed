@@ -438,11 +438,20 @@ ControlCapabilityRegistry
 
 ## 7. 外部参考边界
 
-- `OpenClaw`：参考插件化通道、WeCom/Weixin 通道目录和 Agent 工具生态，不直接移植其运行时。
-- `Hermes Agent`：参考 WeCom、Weixin、home channel、定时任务和消息网关抽象。
-- `Eino`、`OpenAI Go`：参考模型编排、结构化输出和工具调用接口；本项目只允许模型产生受控变更计划，不直接执行任意工具。
-- `OpenAI Codex`：参考 `Session / Turn`、工具路由、上下文窗口压缩、线程持久化和执行策略；不 fork、不迁移 Rust 代码、不引入代码执行型 CLI 能力。
-- `Claude Code`：参考核心工具常驻、延迟工具搜索、代理执行、记忆召回预算和不可信内容包装；不复制其通用代码工具链。
+Agent 相关参考项目只作为架构来源，不作为代码迁移来源。详细分析见 `docs/agent-plan.md`，架构层保留以下边界：
+
+| 参考项目 | 技术路线 | 本项目吸收点 | 本项目边界 |
+| --- | --- | --- | --- |
+| `Eino` | Go 组件化 Agent、ADK、Runner、Tool、workflow graph、callback、checkpoint | 将确定性业务流程包装为 capability，Agent 通过 Runner 执行，关键节点接入 trace 和审计 | 不以通用 DeepAgent 自主协作为早期默认模式 |
+| `LangChainGo` | `Agent -> Executor -> Tool -> Observation`，Memory buffer/window/summary | 执行循环必须有最大步数，工具结果进入结构化 observation，Memory 分层管理 | 不采用字符串 ReAct 解析作为核心协议 |
+| `ai_agent_scaffold_go` | DDD、端口适配器、配置驱动装配、HTTP Agent 运行时 | 使用 Registry、SessionStore、OpenAI-compatible adapter 和清晰端口边界 | capability 主事实来源进入 PostgreSQL，不以 YAML 为主 |
+| `Hermes Agent` | 多通道个人 Agent、工具网关、持久记忆、审批、调度 | 抽象 Web、企业微信、ntfy 等入口；建立审批、持久用户画像和定时任务隔离 | 不引入终端执行、云 VM 和技能自学习作为早期能力 |
+| `OpenClaw` | Gateway 运行时、session store、transcript、compaction、pre-compaction memory flush | session 元数据和 transcript 分层，压缩时保护工具调用对，建立归档与召回 | 不使用本地 JSONL 作为主事实来源 |
+| `Claude Code` | ToolSearch、Context Collapse、核心工具和延迟工具分层 | capability 分为 `core/deferred/hidden`，通过 `capability.search` 和 `capability.execute` 降低上下文成本 | 不依赖 provider 私有 tool reference |
+| `OpenAI Codex` | ThreadStore、LiveThread、Session/Turn、权限策略、compact handoff | history append 与 metadata update 分离，turn 作为运行单元，权限决策落到 `allow/prompt/forbidden` | 不 fork、不迁移 Rust 代码、不引入代码执行型 CLI 能力 |
+
+由以上参考推导出的本项目 Agent 架构是“领域受控 Agent Runtime”：运行时、能力、记忆、策略和评估五个平面都在 Go 后端内实现，PostgreSQL 是 session、turn、transcript、capability、plan、audit、profile 和 eval 的主存储；模型只生成意图、计划、参数摘要和解释文本，所有实际变更必须通过已注册 capability 调用既有 service。
+
 - `Folo`：参考源发现、源分类、onboarding feed、订阅组织和 AI 阅读体验。
 - `Miniflux`：参考 RSS 抓取、阅读状态和订阅管理。
 - `RSSHub`：作为非标准来源桥接，不作为 MVP 的硬依赖。
