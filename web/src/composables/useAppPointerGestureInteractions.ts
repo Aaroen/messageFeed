@@ -14,7 +14,7 @@ export function useAppPointerGestureInteractions(options: AppPointerGestureInter
   const feedPointerHandlers = useFeedPointerSwipeHandlers(options.feedPointer)
 
   function cancelStaleReaderBackSwipe(event: PointerEvent) {
-    if (event.pointerType === 'mouse' || event.pointerType === 'touch' || event.isPrimary === false) {
+    if (event.isPrimary === false) {
       return
     }
     if (options.touch.readerBackSwipeTrackingActive.value) {
