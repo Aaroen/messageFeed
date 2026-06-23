@@ -26,7 +26,7 @@ export function chromePhaseConsumesCollapsedLayout(phase: string) {
 }
 
 export function chromePhaseNeedsVisibleTopClearance(phase: string) {
-  return phase === 'visible' || phase === 'revealing'
+  return phase === 'visible' || phase === 'revealing' || phase === 'gesture-returning'
 }
 
 export function chromeNeedsVisibleTopClearance(phase: string, progress: number) {
@@ -49,5 +49,5 @@ export function topScrollInset(scrollTop: number, topOffset: number) {
 }
 
 export function feedTopScrollInset(scrollTop: number, headerHeight: number) {
-  return topScrollInset(scrollTop, feedContentTopOffset(headerHeight))
+  return topScrollInset(scrollTop, feedVisibleContentTopOffset(headerHeight))
 }
