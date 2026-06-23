@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { getCurrentAuth, login } from '@/api/auth'
@@ -12,6 +12,7 @@ const password = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const loginEnabled = ref(true)
+let viewActive = true
 
 const redirectPath = computed(() => {
   const value = route.query.redirect
@@ -47,16 +48,30 @@ async function submitLogin() {
   }
 }
 
+async function goRegister() {
+  await router.push({ name: 'register', query: { redirect: redirectPath.value } })
+}
+
 onMounted(async () => {
   try {
     const auth = await getCurrentAuth()
+    if (!viewActive) {
+      return
+    }
     loginEnabled.value = auth.login_enabled
     if (auth.authenticated) {
       await router.replace(redirectPath.value)
     }
   } catch (error) {
+    if (!viewActive) {
+      return
+    }
     errorMessage.value = formatAPIError(error)
   }
+})
+
+onBeforeUnmount(() => {
+  viewActive = false
 })
 </script>
 
@@ -95,7 +110,7 @@ onMounted(async () => {
         {{ loading ? '登录中' : '登录' }}
       </button>
 
-      <button class="settings-link-button" type="button" @click="router.replace({ name: 'register', query: { redirect: redirectPath } })">
+      <button class="settings-link-button" type="button" @click="goRegister">
         注册
       </button>
     </form>

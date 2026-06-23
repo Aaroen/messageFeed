@@ -20,6 +20,13 @@ export function useAppVirtualBackGuard(options: AppVirtualBackGuardOptions) {
     router: options.router,
     getRouteFullPath: options.getRouteFullPath,
     getState: () => {
+      if (options.route.meta.public) {
+        return {
+          shouldGuard: false,
+          needsVirtualLayer: false,
+          needsHomeGuard: false,
+        }
+      }
       const needsVirtualLayer = backActions.hasVirtualBackTarget()
       return {
         shouldGuard: needsVirtualLayer || options.isFeedRoute.value,
