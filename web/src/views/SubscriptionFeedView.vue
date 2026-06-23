@@ -713,6 +713,15 @@ function cancelPullGesture(force = false) {
   }
 }
 
+function notifyTopPullEndIfStarted() {
+  if (!topPullStartedNotified) {
+    return
+  }
+
+  topPullStartedNotified = false
+  emit('top-pull-end', false)
+}
+
 function notifyTopPullStart() {
   if (topPullStartedNotified) {
     return
@@ -724,6 +733,7 @@ function notifyTopPullStart() {
 function resetTransientLoadState(
   options: { clearList?: boolean; clearNotice?: boolean; pullOwnerViewKey?: string } = {},
 ) {
+  notifyTopPullEndIfStarted()
   invalidateLoadRequests()
   loading.value = false
   loadingMore.value = false
@@ -852,6 +862,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   disposed = true
+  notifyTopPullEndIfStarted()
   invalidateLoadRequests()
   pullRefresh.reset()
   refreshLayoutFreeze.release()
