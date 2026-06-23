@@ -89,6 +89,7 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
     options.finishCommittedListReturnForGesture()
     if (options.readerBackSwipeTrackingActive.value) {
       options.cancelBackSwipe()
+      options.resetGestureTracking()
     }
 
     const touch = event.touches[0]
