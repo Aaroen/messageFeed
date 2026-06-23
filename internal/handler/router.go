@@ -36,6 +36,7 @@ type RouterOptions struct {
 	WeChatWorkAppCallback wechatWorkAppCallback
 	WeChatWorkReceiver    wechatWorkInboundReceiver
 	AdminConfigService    adminConfigService
+	AgentApprovalService  agentApprovalService
 	ServiceName           string
 }
 
@@ -73,6 +74,7 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	registerFeedViewRoutes(protectedAPI, options.FeedViewService)
 	registerWeChatWorkRoutes(apiV1, options.WeChatWorkAppCallback, options.WeChatWorkReceiver)
 	registerAdminConfigRoutes(protectedAPI, options.AdminConfigService)
+	registerAgentApprovalRoutes(protectedAPI, options.AgentApprovalService)
 
 	router.NoRoute(func(c *gin.Context) {
 		Error(c, http.StatusNotFound, http.StatusNotFound, "not found")

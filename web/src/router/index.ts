@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { getCurrentAuth } from '@/api/auth'
 
 const LoginView = () => import('@/views/LoginView.vue')
+const AgentApprovalView = () => import('@/views/AgentApprovalView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const SubscriptionFeedView = () => import('@/views/SubscriptionFeedView.vue')
 const SubscriptionSourcesView = () => import('@/views/SubscriptionSourcesView.vue')
@@ -23,6 +24,12 @@ const router = createRouter({
     {
       path: '/auth/bindings',
       redirect: '/settings',
+    },
+    {
+      path: '/agent/approvals/:token',
+      name: 'agent-approval',
+      component: AgentApprovalView,
+      meta: { title: '操作确认', section: 'agent' },
     },
     {
       path: '/timeline',

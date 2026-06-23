@@ -757,6 +757,81 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/agent/approvals/{token}:
+    get:
+      summary: Get an Agent approval by one-time token
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent approval detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AgentApprovalDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/agent/approvals/{token}/approve:
+    post:
+      summary: Approve a pending Agent approval
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated Agent approval
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AgentApprovalDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/agent/approvals/{token}/reject:
+    post:
+      summary: Reject a pending Agent approval
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated Agent approval
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AgentApprovalDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/channels/wechat-work/app/callback:
     get:
       summary: Verify WeChat Work app callback URL
@@ -1162,6 +1237,39 @@ components:
         checked_at:
           type: string
           format: date-time
+    AgentApprovalDetail:
+      type: object
+      required:
+        - id
+        - status
+        - channel
+        - expires_at
+        - metadata
+      properties:
+        id:
+          type: integer
+          format: int64
+        plan_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum:
+            - pending
+            - approved
+            - rejected
+            - expired
+        channel:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
     CreateSourceRequest:
       type: object
       required:
