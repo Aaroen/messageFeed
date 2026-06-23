@@ -1287,6 +1287,8 @@ export function useReaderStackState() {
     resetDetailEntryAnimationState()
     resetDetailHeaderTitleSwapState()
     resetMorphingItemContentState()
+    resetReaderBackSwipeDragState()
+    clearReaderStretchAnchorsIfIdle()
     clearHiddenSourceCleanupTimer()
   }
 
