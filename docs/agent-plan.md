@@ -334,6 +334,110 @@ P0 capability 最小集合：
 
 P1 之后再开放可改变状态的 capability，例如 `source.subscribe`、`source.disable`、`source.update_fetch_interval`、`alert_rule.create`、`notification.configure` 和 `market_alert.create`。这些能力必须具备输入 schema、风险等级、幂等键、回滚说明、审计事件和确认策略。
 
+### 2.12 前端授权界面、用户系统与授权对象校验
+
+前端授权界面用于“绑定身份”和“确认高风险计划”，不用于替代企业微信聊天消息回调。用户系统的目标不是第一阶段实现完整多租户，而是让企业微信用户、Web 登录用户、Agent session、计划和审批都落到同一个可审计 `user_id`，避免模型或前端把操作执行到错误对象上。
+
+用户系统最小模型：
+
+```text
+users
+- id
+- display_name
+- role: owner/member
+- status: active/disabled
+- created_at
+- updated_at
+
+user_sessions
+- id
+- user_id
+- session_token_hash
+- user_agent
+- ip_hash
+- expires_at
+- revoked_at
+
+auth_oauth_states
+- id
+- state_hash
+- purpose: bind/confirm/login
+- user_id
+- redirect_path
+- expires_at
+- consumed_at
+
+external_accounts
+- provider: wechat_work_app
+- corp_id
+- agent_id
+- external_user_id
+- user_id
+- binding_status: pending/active/disabled
+- verified_at
+- last_seen_at
+
+agent_approvals
+- id
+- plan_id
+- user_id
+- requested_by_session_id
+- requested_by_external_account_id
+- approval_channel: web/wechat_work
+- approval_token_hash
+- status: pending/approved/rejected/expired
+- expires_at
+- decided_at
+```
+
+授权对象校验规则：
+
+1. 前端不得提交任意 `user_id` 来决定操作归属。Web API 的 `user_id` 来自后端 session，企业微信消息的 `user_id` 来自 `external_accounts`。
+2. `external_accounts` 绑定必须同时校验 `provider`、`corp_id`、`agent_id` 和 `external_user_id`，避免不同企业或不同应用下的同名用户混淆。
+3. `agent_plans.user_id`、`agent_approvals.user_id`、目标资源的 `user_id` 必须一致，否则 `PolicyEngine` 判定为 `forbidden`。
+4. 审批链接必须绑定 `approval_id`、`plan_id`、`user_id`、过期时间和一次性 token；前端只能展示计划摘要，是否允许批准由后端重新校验。
+5. 企业微信确认流程必须要求 `external_accounts.user_id = agent_approvals.user_id`；Web 确认流程必须要求 `user_sessions.user_id = agent_approvals.user_id`。
+6. 单用户过渡期可以通过配置指定默认 owner，但该默认 owner 只能在认证服务或账号映射服务中使用，不能写入 `channel/wechatwork` 协议适配层。
+
+前端授权界面联动：
+
+```text
+企业微信消息触发需确认计划
+  -> Agent 创建 agent_plans 和 agent_approvals
+  -> message/send 返回确认链接
+  -> 用户打开 /agent/approvals/:id
+  -> 前端调用 /api/v1/auth/me
+  -> 未登录或未绑定时跳转企业微信网页授权
+  -> 后端用 OAuth code 换取企业微信 UserID
+  -> external_accounts 校验并创建 Web session
+  -> 前端展示计划、风险、影响范围和拒绝选项
+  -> 用户批准或拒绝
+  -> 后端二次校验 user_id、plan_id、approval token 和计划状态
+  -> AgentExecutor 调用 service 执行或记录拒绝
+```
+
+前端页面建议：
+
+1. `/auth/login`：开发期 owner 登录或后续正式登录入口。
+2. `/auth/bindings`：查看企业微信绑定状态、最近验证时间和禁用绑定。
+3. `/auth/wechat-work/callback`：企业微信网页授权回跳页，只处理 code/state 交换，不展示业务操作。
+4. `/agent/approvals/:id`：展示待确认计划、影响范围、风险等级、执行对象、过期时间、批准和拒绝按钮。
+5. `/agent/approvals/:id/result`：展示执行结果、失败原因、审计引用和可回滚状态。
+
+后端 API 建议：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/v1/auth/me` | 返回当前 Web 会话用户、绑定状态和权限范围 |
+| `POST` | `/api/v1/auth/logout` | 注销当前 Web 会话 |
+| `GET` | `/api/v1/auth/wechat-work/oauth-url` | 生成带 state 的企业微信网页授权 URL |
+| `GET` | `/api/v1/auth/wechat-work/callback` | 接收 OAuth code，换取企业微信 UserID 并建立或绑定会话 |
+| `GET` | `/api/v1/auth/bindings` | 查询当前用户外部账号绑定 |
+| `PATCH` | `/api/v1/auth/bindings/{id}` | 禁用或恢复绑定，不做物理删除 |
+| `GET` | `/api/v1/agent/approvals/{id}` | 查询待确认计划详情 |
+| `POST` | `/api/v1/agent/approvals/{id}/approve` | 批准并触发执行 |
+| `POST` | `/api/v1/agent/approvals/{id}/reject` | 拒绝计划并记录原因 |
+
 ## 3. 重组后阶段定义
 
 | 新阶段 | 名称 | 目标 | 原阶段映射 |

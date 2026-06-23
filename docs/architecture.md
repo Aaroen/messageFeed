@@ -113,6 +113,7 @@ messageFeed/
 ├── internal/repository/
 ├── internal/service/
 ├── internal/handler/
+├── internal/auth/
 ├── internal/channel/
 ├── internal/catalog/
 ├── internal/importer/
@@ -154,6 +155,7 @@ messageFeed/
 | `repository` | 封装 PostgreSQL 访问和事务 |
 | `service` | 编排订阅、抓取、导入、摘要、通知等用例 |
 | `handler` | Gin 路由、中间件、参数绑定、响应渲染和错误映射 |
+| `auth` | 管理用户、Web 会话、企业微信网页授权、外部账号绑定、授权 state 和审批身份校验 |
 | `channel` | 管理企业微信自建应用接收消息、Web、后续智能机器人或移动端等入站消息协议适配、验签解密和消息标准化 |
 | `catalog` | 管理推荐源目录、源分类、源健康状态和源搜索 |
 | `importer` | 处理 OPML、URL 批量导入和目录批量订阅 |
@@ -193,6 +195,9 @@ internal/agent/
 
 | 表 | 说明 |
 | --- | --- |
+| `users` | 系统用户，记录显示名、角色、状态和创建时间；第一阶段可只有 owner 用户，但所有业务表仍使用 `user_id` |
+| `user_sessions` | Web 会话，记录用户、session token hash、过期时间、撤销时间和基础客户端指纹 |
+| `auth_oauth_states` | OAuth 或绑定流程的一次性 state，记录场景、用户、跳转目标、过期时间和使用状态 |
 | `sources` | 用户订阅源，包含名称、类型、URL、抓取周期、状态、标签、权重、`user_id` |
 | `source_catalog_entries` | 内置候选源，包含名称、URL、站点、分类、热度、语言、来源出处、健康状态 |
 | `source_import_jobs` | 导入任务，记录导入类型、状态、成功数量、失败数量和错误明细 |
@@ -213,12 +218,13 @@ internal/agent/
 | `notification_channels` | 通知通道，包含通道类型、启用状态和配置引用 |
 | `notification_recipients` | 通知接收目标，包含微信 openid、企业微信 user_id、群机器人目标或 ntfy topic |
 | `notifications` | 通知记录，包含触发原因、通道、接收目标、状态和失败原因 |
-| `external_accounts` | 外部账号映射，包含企业微信自建应用或后续智能机器人的外部用户 ID、provider、系统用户 ID 和绑定状态 |
+| `external_accounts` | 外部账号映射，包含 provider、corp_id、agent_id、企业微信外部用户 ID、系统用户 ID 和绑定状态 |
 | `agent_inbound_messages` | Agent 入站消息，记录企业微信 `MsgId` 或回调签名幂等键、外部用户、会话类型、原始 payload、处理状态、request id 和 trace id |
 | `agent_commands` | Agent 自然语言命令和系统事件入口，记录原始输入、解析状态、模型版本和用户上下文 |
 | `agent_capabilities` | Agent 可调用能力清单，记录目标类型、允许动作、风险等级、确认策略和 service 绑定 |
 | `agent_plans` | Agent 结构化计划，记录计划状态、风险等级、影响摘要、确认策略、幂等键和回滚摘要 |
 | `agent_plan_steps` | Agent 计划步骤，记录目标对象、操作类型、参数摘要、执行状态和错误 |
+| `agent_approvals` | Agent 计划审批记录，绑定计划、用户、审批通道、一次性 token、状态、过期时间和决策时间 |
 | `agent_audit_logs` | Agent 审计日志，记录用户确认、执行结果、模型输出、操作者、request id 和 trace id |
 | `agent_sessions` | Agent 会话，记录用户、模型、上下文窗口、状态、开始时间和结束时间 |
 | `agent_turns` | Agent 执行轮次，记录 session 内一次用户输入或系统触发的状态、模型、开始结束时间和错误 |
@@ -254,9 +260,12 @@ internal/agent/
 - `feed_recommendations(user_id, item_id, recommendation_batch)`
 - `source_catalog_entries(source_origin, source_key)`
 - `user_interest_tags(user_id, tag, category)`
-- `external_accounts(provider, external_user_id)`
+- `user_sessions(session_token_hash)`
+- `auth_oauth_states(state_hash)`
+- `external_accounts(provider, corp_id, agent_id, external_user_id)`
 - `agent_inbound_messages(provider, provider_message_id)`
 - `agent_plans(user_id, dedupe_key)`
+- `agent_approvals(plan_id, status)`，用于限制同一计划的有效待审批记录
 - `agent_plan_steps(plan_id, step_order)`
 - `agent_turns(session_id, started_at)`
 - `agent_context_windows(session_id, window_number)`
@@ -414,10 +423,19 @@ ControlCapabilityRegistry
 | `GET` | `/readyz` | 依赖就绪检查 |
 | `GET` | `/metrics` | Prometheus 指标 |
 | `GET` | `/api/runtime/node` | 查询当前节点标识、部署模式和公开访问基址 |
+| `GET` | `/api/v1/auth/me` | 查询当前 Web 会话用户、角色、绑定状态和权限范围 |
+| `POST` | `/api/v1/auth/logout` | 注销当前 Web 会话 |
+| `GET` | `/api/v1/auth/wechat-work/oauth-url` | 生成带 state 的企业微信网页授权 URL，用于绑定或确认页登录 |
+| `GET` | `/api/v1/auth/wechat-work/callback` | 接收企业微信 OAuth code，换取 UserID 并建立或绑定 Web 会话 |
+| `GET` | `/api/v1/auth/bindings` | 查询当前用户外部账号绑定 |
+| `PATCH` | `/api/v1/auth/bindings/{id}` | 禁用或恢复外部账号绑定，不执行物理删除 |
 | `GET` | `/api/v1/channels/wechat-work/app/callback` | 企业微信自建应用接收消息 URL 验证 |
 | `POST` | `/api/v1/channels/wechat-work/app/callback` | 企业微信自建应用接收消息回调 |
 | `POST` | `/api/v1/agent/commands` | 提交项目级 Agent 自然语言命令并生成计划 |
 | `GET` | `/api/v1/agent/plans/{id}` | 查询 Agent 计划 |
+| `GET` | `/api/v1/agent/approvals/{id}` | 查询待确认计划详情、风险、影响范围和可执行状态 |
+| `POST` | `/api/v1/agent/approvals/{id}/approve` | 批准待确认计划，后端二次校验授权对象后执行 |
+| `POST` | `/api/v1/agent/approvals/{id}/reject` | 拒绝待确认计划并记录原因 |
 | `POST` | `/api/v1/agent/plans/{id}/approve` | 确认并执行 Agent 计划 |
 | `POST` | `/api/v1/agent/plans/{id}/reject` | 拒绝 Agent 计划 |
 | `POST` | `/api/v1/agent/plans/{id}/rollback` | 回滚可回滚的 Agent 计划 |
@@ -601,6 +619,8 @@ AI Agent 采用“Web 命令、企业微信入站消息或系统事件 -> sessio
 
 任务执行按风险分层。只读查询和摘要类 capability 可由 `PolicyEngine` 判定为 `allow` 后直接执行；新增订阅、停用来源、调整抓取周期、创建提醒规则、配置通知和创建金融告警必须判定为 `prompt` 并等待确认；泄露密钥、绕过访问限制、未授权通知目标、默认永久删除和未注册能力必须判定为 `forbidden`。网页授权及 JS-SDK 可信域名只用于账号绑定、设置页和高风险确认页，不替代企业微信聊天消息回调。
 
+授权对象正确性由后端统一保证。Web 请求的操作者来自 `user_sessions.user_id`，企业微信消息的操作者来自 `external_accounts.user_id`，Agent 计划的归属来自 `agent_plans.user_id`，目标资源的归属来自对应业务表 `user_id`。执行前必须校验这四类 `user_id` 一致，且审批记录未过期、未使用、未被拒绝。前端仅提交用户意图、审批动作和一次性 token，不提交可决定归属的 `user_id`。
+
 ### 10.2 主动网络采集链路
 
 主动网络采集采用“任务定义 -> 搜索或抓取 -> 快照保存 -> 正文抽取 -> 去重评估 -> 条目或 AI 源报告”的链路：
@@ -741,7 +761,9 @@ Caddy or nginx (统一入口)
 
 - 开发环境：浏览器访问 `https://localhost:8443` 或 `https://aroen.eu.cc`，Caddy 将 `/api`、`/healthz`、`/readyz`、`/metrics` 转发到 Go API，将页面请求转发到 Vite dev server。
 - 生产环境：Caddy 或 Nginx 反向代理统一入口，同域部署，无跨域问题
-- 认证：JWT Token 存储在 `localStorage`
-- 请求头：`Authorization: Bearer <token>`
+- Web 认证：优先使用同域 `HttpOnly`、`Secure`、`SameSite=Lax` session cookie，服务端只保存 session token hash；前端不读取明文 token。
+- 企业微信网页授权：确认页或绑定页需要身份时，由后端生成一次性 state 并跳转企业微信 OAuth；回调后后端换取企业微信 UserID，校验 `external_accounts` 后建立 Web session。
+- API 授权：业务请求的 `user_id` 由后端 session 或企业微信外部账号映射推导，前端不得通过请求体或 query 参数指定操作归属用户。
+- 后续如引入 JWT，只能作为受控 API 客户端能力；浏览器端不应将长期 token 存入 `localStorage`。
 
 ## 12. 运维与监控
