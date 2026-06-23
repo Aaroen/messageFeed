@@ -19,6 +19,7 @@ export function useAppPointerGestureInteractions(options: AppPointerGestureInter
     }
     if (options.touch.readerBackSwipeTrackingActive.value) {
       options.touch.cancelBackSwipe()
+      options.touch.resetGestureTracking()
     }
   }
 
