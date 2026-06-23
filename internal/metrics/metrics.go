@@ -157,23 +157,99 @@ var NotificationsTotal = promauto.NewCounterVec(
 	[]string{"channel", "status"},
 )
 
-// LLMRequestsTotal 记录大模型请求总数，按模型和操作分类。
+// NotificationDuration 记录通知发送耗时，按通道和状态分类。
+var NotificationDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_notification_duration_seconds",
+		Help:    "通知发送耗时分布（秒），按通道和状态分类",
+		Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0},
+	},
+	[]string{"channel", "status"},
+)
+
+// WeChatWorkCallbacksTotal 记录企业微信回调处理数，按操作和状态分类。
+var WeChatWorkCallbacksTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_wechat_work_callbacks_total",
+		Help: "企业微信回调处理总数，按操作和状态分类",
+	},
+	[]string{"operation", "status"},
+)
+
+// WeChatWorkCallbackDuration 记录企业微信回调处理耗时。
+var WeChatWorkCallbackDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_wechat_work_callback_duration_seconds",
+		Help:    "企业微信回调处理耗时分布（秒），按操作和状态分类",
+		Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0},
+	},
+	[]string{"operation", "status"},
+)
+
+// AgentInboundMessagesTotal 记录 Agent 入站消息数，按 provider、消息类型和处理状态分类。
+var AgentInboundMessagesTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_inbound_messages_total",
+		Help: "Agent 入站消息总数，按 provider、消息类型和处理状态分类",
+	},
+	[]string{"provider", "msg_type", "status"},
+)
+
+// AgentTurnsTotal 记录 Agent turn 处理结果数，按 provider 和状态分类。
+var AgentTurnsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_turns_total",
+		Help: "Agent turn 处理总数，按 provider 和状态分类",
+	},
+	[]string{"provider", "status"},
+)
+
+// AgentTurnDuration 记录 Agent turn 总耗时。
+var AgentTurnDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_turn_duration_seconds",
+		Help:    "Agent turn 总耗时分布（秒），按 provider 和状态分类",
+		Buckets: []float64{0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0},
+	},
+	[]string{"provider", "status"},
+)
+
+// AgentReplyChunksTotal 记录 Agent 回复发送分片数。
+var AgentReplyChunksTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_reply_chunks_total",
+		Help: "Agent 回复发送分片总数，按 provider 和状态分类",
+	},
+	[]string{"provider", "status"},
+)
+
+// AgentReplyBytes 记录 Agent 回复内容大小。
+var AgentReplyBytes = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_reply_bytes",
+		Help:    "Agent 回复内容字节数分布，按 provider 和状态分类",
+		Buckets: []float64{100, 250, 500, 1000, 1500, 2048, 4096, 8192, 16384},
+	},
+	[]string{"provider", "status"},
+)
+
+// LLMRequestsTotal 记录大模型请求总数，按模型、操作和状态分类。
 var LLMRequestsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "messagefeed_llm_requests_total",
-		Help: "大模型请求总数，按模型和操作分类",
+		Help: "大模型请求总数，按模型、操作和状态分类",
 	},
-	[]string{"provider", "model", "operation"},
+	[]string{"provider", "model", "operation", "status"},
 )
 
-// LLMRequestDuration 记录大模型请求耗时分布（秒）。
+// LLMRequestDuration 记录大模型请求耗时分布（秒），按模型、操作和状态分类。
 var LLMRequestDuration = promauto.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    "messagefeed_llm_request_duration_seconds",
-		Help:    "大模型请求耗时分布（秒）",
+		Help:    "大模型请求耗时分布（秒），按模型、操作和状态分类",
 		Buckets: []float64{0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0},
 	},
-	[]string{"provider", "model", "operation"},
+	[]string{"provider", "model", "operation", "status"},
 )
 
 // LLMTokensTotal 记录大模型 token 消耗总数，按模型和类型（input、output）分类。

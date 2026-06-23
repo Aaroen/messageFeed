@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
+	"messagefeed/internal/metrics"
 	"messagefeed/internal/notifier"
+	"messagefeed/internal/observability"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -112,11 +116,32 @@ type ReceiveWeChatWorkAppMessageResult struct {
 }
 
 func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Context, input ReceiveWeChatWorkAppMessageInput) (ReceiveWeChatWorkAppMessageResult, error) {
+	startedAt := time.Now()
 	if s == nil || s.repository == nil {
+		metrics.AgentTurnsTotal.WithLabelValues(domain.AgentProviderWeChatWorkApp, "failed").Inc()
+		metrics.AgentTurnDuration.WithLabelValues(domain.AgentProviderWeChatWorkApp, "failed").Observe(time.Since(startedAt).Seconds())
 		return ReceiveWeChatWorkAppMessageResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_conversation_unavailable", "agent conversation service is unavailable", "service.agent.receive_wechat_work", true, nil)
 	}
 	input = normalizeReceiveWeChatWorkInput(input)
+	status := "succeeded"
+	ctx, span := observability.StartSpan(ctx, "service.agent.receive_wechat_work",
+		attribute.String("agent.provider", input.Provider),
+		attribute.String("message.type", input.MsgType),
+		attribute.String("message.chat_type", input.ChatType),
+		attribute.Int("message.text_chars", len([]rune(input.TextContent))),
+	)
+	var opErr error
+	defer func() {
+		span.SetAttributes(attribute.String("agent.turn.status", status))
+		metrics.AgentTurnsTotal.WithLabelValues(input.Provider, status).Inc()
+		metrics.AgentTurnDuration.WithLabelValues(input.Provider, status).Observe(time.Since(startedAt).Seconds())
+		observability.EndSpan(span, opErr)
+	}()
+
 	if err := validateReceiveWeChatWorkInput(input); err != nil {
+		status = "failed"
+		opErr = err
+		metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "failed").Inc()
 		return ReceiveWeChatWorkAppMessageResult{}, err
 	}
 
@@ -132,10 +157,16 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		LastSeenAt:     &now,
 	})
 	if err != nil {
+		status = "failed"
+		opErr = err
+		metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "failed").Inc()
 		return ReceiveWeChatWorkAppMessageResult{}, err
 	}
 	if account.BindingStatus == domain.ExternalAccountBindingStatusDisabled {
-		return ReceiveWeChatWorkAppMessageResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_external_account_disabled", "external account binding is disabled", "service.agent.receive_wechat_work", false, nil)
+		status = "failed"
+		opErr = domain.NewAppError(domain.ErrorKindUnavailable, "agent_external_account_disabled", "external account binding is disabled", "service.agent.receive_wechat_work", false, nil)
+		metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "failed").Inc()
+		return ReceiveWeChatWorkAppMessageResult{}, opErr
 	}
 
 	inbound, created, err := s.repository.CreateInboundMessage(ctx, domain.AgentInboundMessage{
@@ -160,15 +191,21 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		Status:    domain.AgentInboundMessageStatusReceived,
 	})
 	if err != nil {
+		status = "failed"
+		opErr = err
+		metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "failed").Inc()
 		return ReceiveWeChatWorkAppMessageResult{}, err
 	}
 	if !created {
+		status = "duplicate"
+		metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "duplicate").Inc()
 		return ReceiveWeChatWorkAppMessageResult{
 			ExternalAccount: account,
 			InboundMessage:  inbound,
 			Duplicate:       true,
 		}, nil
 	}
+	metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "received").Inc()
 
 	session, err := s.repository.GetOrCreateSession(ctx, domain.AgentSession{
 		UserID:            account.UserID,
@@ -181,8 +218,11 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		LastActiveAt:      now,
 	})
 	if err != nil {
+		status = "failed"
+		opErr = err
 		return ReceiveWeChatWorkAppMessageResult{}, err
 	}
+	span.SetAttributes(attribute.Int64("agent.session_id", session.ID))
 
 	turn, err := s.repository.CreateTurn(ctx, domain.AgentTurn{
 		SessionID:        session.ID,
@@ -193,8 +233,11 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		StartedAt:        now,
 	})
 	if err != nil {
+		status = "failed"
+		opErr = err
 		return ReceiveWeChatWorkAppMessageResult{}, err
 	}
+	span.SetAttributes(attribute.Int64("agent.turn_id", turn.ID))
 
 	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
 		SessionID: session.ID,
@@ -208,8 +251,15 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 
 	reply, modelProvider, model, err := s.generateReply(ctx, input)
 	if err != nil {
+		status = "failed"
+		opErr = err
 		return s.failTurn(ctx, account.UserID, session.ID, turn, input, err)
 	}
+	span.SetAttributes(
+		attribute.String("llm.provider", modelProvider),
+		attribute.String("llm.model", model),
+		attribute.Int("agent.reply_bytes", len([]byte(reply))),
+	)
 
 	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
 		SessionID: session.ID,
@@ -229,9 +279,15 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	if s.sender != nil {
 		sendResult, sendCount, err = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
 		if err != nil {
+			status = "failed"
+			opErr = err
+			metrics.AgentReplyBytes.WithLabelValues(input.Provider, "failed").Observe(float64(len([]byte(reply))))
+			metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "failed").Add(float64(sendCount))
 			return s.failTurn(ctx, account.UserID, session.ID, turn, input, err)
 		}
 	}
+	metrics.AgentReplyBytes.WithLabelValues(input.Provider, "succeeded").Observe(float64(len([]byte(reply))))
+	metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "succeeded").Add(float64(sendCount))
 
 	finishedAt := s.now().UTC()
 	turn.Status = domain.AgentTurnStatusSucceeded
@@ -241,6 +297,8 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	turn.FinishedAt = &finishedAt
 	turn, err = s.repository.UpdateTurn(ctx, turn)
 	if err != nil {
+		status = "failed"
+		opErr = err
 		return ReceiveWeChatWorkAppMessageResult{}, err
 	}
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
@@ -272,6 +330,20 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 }
 
 func (s *AgentConversationService) generateReply(ctx context.Context, input ReceiveWeChatWorkAppMessageInput) (string, string, string, error) {
+	ctx, span := observability.StartSpan(ctx, "service.agent.generate_reply",
+		attribute.String("agent.provider", input.Provider),
+		attribute.String("message.type", input.MsgType),
+	)
+	var replyErr error
+	defer func() {
+		status := "success"
+		if replyErr != nil {
+			status = "failed"
+		}
+		span.SetAttributes(attribute.String("agent.reply_generation.status", status))
+		observability.EndSpan(span, replyErr)
+	}()
+
 	if input.MsgType != "text" {
 		return "当前仅支持文本消息。", "", "", nil
 	}
@@ -287,21 +359,43 @@ func (s *AgentConversationService) generateReply(ctx context.Context, input Rece
 		MaxTokens:   agentReplyMaxTokens,
 	})
 	if err != nil {
+		replyErr = err
 		return "", "", "", err
 	}
+	span.SetAttributes(
+		attribute.String("llm.provider", response.Provider),
+		attribute.String("llm.model", response.Model),
+		attribute.Int("agent.reply_bytes", len([]byte(response.Content))),
+	)
 	return response.Content, response.Provider, response.Model, nil
 }
 
 func (s *AgentConversationService) sendWeChatWorkReply(ctx context.Context, toUser string, reply string) (notifier.WeChatWorkSendResult, int, error) {
 	chunks := splitUTF8Bytes(reply, notifier.WeChatWorkTextByteLimit)
+	ctx, span := observability.StartSpan(ctx, "service.agent.send_wechat_work_reply",
+		attribute.Int("agent.reply_chunks", len(chunks)),
+		attribute.Int("agent.reply_bytes", len([]byte(reply))),
+	)
+	var sendErr error
+	defer func() {
+		status := "success"
+		if sendErr != nil {
+			status = "failed"
+		}
+		span.SetAttributes(attribute.String("agent.reply_send.status", status))
+		observability.EndSpan(span, sendErr)
+	}()
+
 	var result notifier.WeChatWorkSendResult
 	for i, chunk := range chunks {
 		var err error
+		span.SetAttributes(attribute.Int("agent.reply_chunk_index", i+1))
 		result, err = s.sender.SendText(ctx, notifier.WeChatWorkTextMessage{
 			ToUser:  toUser,
 			Content: chunk,
 		})
 		if err != nil {
+			sendErr = err
 			return result, i, err
 		}
 	}

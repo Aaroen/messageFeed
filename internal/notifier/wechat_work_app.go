@@ -8,16 +8,25 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
+	"messagefeed/internal/observability"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
 	defaultWeChatWorkAPIBaseURL = "https://qyapi.weixin.qq.com"
 	WeChatWorkTextByteLimit     = 2048
+	weChatWorkAppChannel        = "wechat_work_app"
+	weChatWorkMessageSendOp     = "wechat_work_message_send"
+	weChatWorkGetTokenOp        = "wechat_work_gettoken"
 )
 
 type WeChatWorkAppConfig struct {
@@ -107,7 +116,10 @@ func NewWeChatWorkAppClient(config WeChatWorkAppConfig) (*WeChatWorkAppClient, e
 	}
 	httpClient := config.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: otelhttp.NewTransport(http.DefaultTransport),
+		}
 	}
 	now := config.Now
 	if now == nil {
@@ -124,23 +136,51 @@ func NewWeChatWorkAppClient(config WeChatWorkAppConfig) (*WeChatWorkAppClient, e
 }
 
 func (c *WeChatWorkAppClient) SendText(ctx context.Context, message WeChatWorkTextMessage) (WeChatWorkSendResult, error) {
+	startedAt := time.Now()
+	agentID := ""
+	if c != nil {
+		agentID = c.agentID
+	}
+	ctx, span := observability.StartSpan(ctx, "notifier.wechat_work.send_text",
+		attribute.String("notification.channel", weChatWorkAppChannel),
+		attribute.String("wechat_work.agent_id", agentID),
+	)
+	status := "failed"
+	var sendErr error
+	defer func() {
+		span.SetAttributes(attribute.String("notification.status", status))
+		metrics.NotificationsTotal.WithLabelValues(weChatWorkAppChannel, status).Inc()
+		metrics.NotificationDuration.WithLabelValues(weChatWorkAppChannel, status).Observe(time.Since(startedAt).Seconds())
+		observability.EndSpan(span, sendErr)
+	}()
+
 	if c == nil || c.httpClient == nil {
-		return WeChatWorkSendResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_unavailable", "wechat work app client is unavailable", "notifier.wechat_work.send_text", true, nil)
+		sendErr = domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_unavailable", "wechat work app client is unavailable", "notifier.wechat_work.send_text", true, nil)
+		return WeChatWorkSendResult{}, sendErr
 	}
 	message.ToUser = strings.TrimSpace(message.ToUser)
 	message.ToParty = strings.TrimSpace(message.ToParty)
 	message.ToTag = strings.TrimSpace(message.ToTag)
 	message.Content = truncateUTF8Bytes(strings.TrimSpace(message.Content), WeChatWorkTextByteLimit)
+	span.SetAttributes(
+		attribute.Bool("wechat_work.has_touser", message.ToUser != ""),
+		attribute.Bool("wechat_work.has_toparty", message.ToParty != ""),
+		attribute.Bool("wechat_work.has_totag", message.ToTag != ""),
+		attribute.Int("notification.content_bytes", len([]byte(message.Content))),
+	)
 	if message.ToUser == "" && message.ToParty == "" && message.ToTag == "" {
-		return WeChatWorkSendResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "wechat_work_missing_recipient", "wechat work recipient is required", "notifier.wechat_work.send_text", false, nil)
+		sendErr = domain.NewAppError(domain.ErrorKindInvalidInput, "wechat_work_missing_recipient", "wechat work recipient is required", "notifier.wechat_work.send_text", false, nil)
+		return WeChatWorkSendResult{}, sendErr
 	}
 	if message.Content == "" {
-		return WeChatWorkSendResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "wechat_work_empty_content", "wechat work content is required", "notifier.wechat_work.send_text", false, nil)
+		sendErr = domain.NewAppError(domain.ErrorKindInvalidInput, "wechat_work_empty_content", "wechat work content is required", "notifier.wechat_work.send_text", false, nil)
+		return WeChatWorkSendResult{}, sendErr
 	}
 
 	accessToken, err := c.getAccessToken(ctx)
 	if err != nil {
-		return WeChatWorkSendResult{}, err
+		sendErr = err
+		return WeChatWorkSendResult{}, sendErr
 	}
 
 	requestBody := sendTextRequest{
@@ -153,28 +193,38 @@ func (c *WeChatWorkAppClient) SendText(ctx context.Context, message WeChatWorkTe
 	requestBody.Text.Content = message.Content
 	body, err := json.Marshal(requestBody)
 	if err != nil {
-		return WeChatWorkSendResult{}, err
+		sendErr = err
+		return WeChatWorkSendResult{}, sendErr
 	}
 
 	endpoint := c.apiBaseURL + "/cgi-bin/message/send?access_token=" + url.QueryEscape(accessToken)
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return WeChatWorkSendResult{}, err
+		sendErr = err
+		return WeChatWorkSendResult{}, sendErr
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
+	httpStartedAt := time.Now()
 	httpResponse, err := c.httpClient.Do(httpRequest)
 	if err != nil {
-		return WeChatWorkSendResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_send_failed", "wechat work send request failed", "notifier.wechat_work.send_text", true, err)
+		recordWeChatWorkExternalHTTPRequest(weChatWorkMessageSendOp, c.apiBaseURL, "error", time.Since(httpStartedAt))
+		sendErr = domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_send_failed", "wechat work send request failed", "notifier.wechat_work.send_text", true, err)
+		return WeChatWorkSendResult{}, sendErr
 	}
 	defer httpResponse.Body.Close()
+	httpStatus := strconv.Itoa(httpResponse.StatusCode)
+	recordWeChatWorkExternalHTTPRequest(weChatWorkMessageSendOp, c.apiBaseURL, httpStatus, time.Since(httpStartedAt))
+	span.SetAttributes(attribute.Int("http.response.status_code", httpResponse.StatusCode))
 
 	responseBody, err := io.ReadAll(io.LimitReader(httpResponse.Body, 1<<20))
 	if err != nil {
-		return WeChatWorkSendResult{}, err
+		sendErr = err
+		return WeChatWorkSendResult{}, sendErr
 	}
 	var decoded sendTextResponse
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
-		return WeChatWorkSendResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_invalid_response", "wechat work send response is invalid", "notifier.wechat_work.send_text", true, err)
+		sendErr = domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_invalid_response", "wechat work send response is invalid", "notifier.wechat_work.send_text", true, err)
+		return WeChatWorkSendResult{}, sendErr
 	}
 	result := WeChatWorkSendResult{
 		ErrCode:        decoded.ErrCode,
@@ -186,21 +236,41 @@ func (c *WeChatWorkAppClient) SendText(ctx context.Context, message WeChatWorkTe
 		MessageID:      decoded.MessageID,
 		ResponseBody:   string(responseBody),
 	}
+	span.SetAttributes(attribute.Int("wechat_work.errcode", decoded.ErrCode))
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices || decoded.ErrCode != 0 {
 		message := strings.TrimSpace(decoded.ErrMsg)
 		if message == "" {
 			message = http.StatusText(httpResponse.StatusCode)
 		}
-		return result, domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_provider_error", message, "notifier.wechat_work.send_text", true, nil)
+		sendErr = domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_provider_error", message, "notifier.wechat_work.send_text", true, nil)
+		return result, sendErr
 	}
+	status = "success"
 	return result, nil
 }
 
 func (c *WeChatWorkAppClient) getAccessToken(ctx context.Context) (string, error) {
+	ctx, span := observability.StartSpan(ctx, "notifier.wechat_work.get_token",
+		attribute.String("notification.channel", weChatWorkAppChannel),
+		attribute.String("http.request.host", apiHost(c.apiBaseURL)),
+	)
+	cacheHit := false
+	var tokenErr error
+	defer func() {
+		span.SetAttributes(attribute.Bool("wechat_work.token_cache_hit", cacheHit))
+		if tokenErr == nil {
+			span.SetAttributes(attribute.String("wechat_work.token.status", "success"))
+		} else {
+			span.SetAttributes(attribute.String("wechat_work.token.status", "failed"))
+		}
+		observability.EndSpan(span, tokenErr)
+	}()
+
 	c.mu.Lock()
 	if c.accessToken != "" && c.now().Before(c.expiresAt) {
 		token := c.accessToken
 		c.mu.Unlock()
+		cacheHit = true
 		return token, nil
 	}
 	c.mu.Unlock()
@@ -208,28 +278,39 @@ func (c *WeChatWorkAppClient) getAccessToken(ctx context.Context) (string, error
 	endpoint := c.apiBaseURL + "/cgi-bin/gettoken?corpid=" + url.QueryEscape(c.corpID) + "&corpsecret=" + url.QueryEscape(c.secret)
 	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return "", err
+		tokenErr = err
+		return "", tokenErr
 	}
+	httpStartedAt := time.Now()
 	httpResponse, err := c.httpClient.Do(httpRequest)
 	if err != nil {
-		return "", domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_token_failed", "wechat work token request failed", "notifier.wechat_work.token", true, err)
+		recordWeChatWorkExternalHTTPRequest(weChatWorkGetTokenOp, c.apiBaseURL, "error", time.Since(httpStartedAt))
+		tokenErr = domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_token_failed", "wechat work token request failed", "notifier.wechat_work.token", true, err)
+		return "", tokenErr
 	}
 	defer httpResponse.Body.Close()
+	httpStatus := strconv.Itoa(httpResponse.StatusCode)
+	recordWeChatWorkExternalHTTPRequest(weChatWorkGetTokenOp, c.apiBaseURL, httpStatus, time.Since(httpStartedAt))
+	span.SetAttributes(attribute.Int("http.response.status_code", httpResponse.StatusCode))
 
 	responseBody, err := io.ReadAll(io.LimitReader(httpResponse.Body, 1<<20))
 	if err != nil {
-		return "", err
+		tokenErr = err
+		return "", tokenErr
 	}
 	var decoded tokenResponse
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
-		return "", domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_token_invalid_response", "wechat work token response is invalid", "notifier.wechat_work.token", true, err)
+		tokenErr = domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_token_invalid_response", "wechat work token response is invalid", "notifier.wechat_work.token", true, err)
+		return "", tokenErr
 	}
+	span.SetAttributes(attribute.Int("wechat_work.errcode", decoded.ErrCode))
 	if httpResponse.StatusCode < http.StatusOK || httpResponse.StatusCode >= http.StatusMultipleChoices || decoded.ErrCode != 0 || decoded.AccessToken == "" {
 		message := strings.TrimSpace(decoded.ErrMsg)
 		if message == "" {
 			message = http.StatusText(httpResponse.StatusCode)
 		}
-		return "", domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_token_provider_error", message, "notifier.wechat_work.token", true, nil)
+		tokenErr = domain.NewAppError(domain.ErrorKindUnavailable, "wechat_work_token_provider_error", message, "notifier.wechat_work.token", true, nil)
+		return "", tokenErr
 	}
 	expiresIn := time.Duration(decoded.ExpiresIn) * time.Second
 	if expiresIn <= 0 {
@@ -245,6 +326,22 @@ func (c *WeChatWorkAppClient) getAccessToken(ctx context.Context) (string, error
 	c.expiresAt = expiresAt
 	c.mu.Unlock()
 	return decoded.AccessToken, nil
+}
+
+func recordWeChatWorkExternalHTTPRequest(operation string, apiBaseURL string, status string, duration time.Duration) {
+	if status == "" {
+		status = "unknown"
+	}
+	metrics.ExternalHTTPRequestsTotal.WithLabelValues(operation, apiHost(apiBaseURL), status).Inc()
+	metrics.ExternalHTTPRequestDuration.WithLabelValues(operation, apiHost(apiBaseURL)).Observe(duration.Seconds())
+}
+
+func apiHost(apiBaseURL string) string {
+	parsed, err := url.Parse(apiBaseURL)
+	if err != nil || parsed.Host == "" {
+		return "unknown"
+	}
+	return parsed.Host
 }
 
 func truncateUTF8Bytes(value string, limit int) string {
