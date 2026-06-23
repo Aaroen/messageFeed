@@ -5,6 +5,7 @@ import {
   chromeNeedsVisibleTopClearance,
   clampProgress,
   sourceContentTopOffset,
+  sourceVisibleContentTopOffset,
   topScrollInset,
 } from '@/composables/feedChromeMetrics'
 import type { ChromePhase } from '@/composables/useChromeState'
@@ -30,6 +31,10 @@ export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
     chromePhaseConsumesCollapsedLayout(options.topChromePhase.value) ? topChromeProgress.value : 0,
   )
   const sourceTopOffset = sourceContentTopOffset()
+  const sourceVisibleTopOffset = computed(() => sourceVisibleContentTopOffset(options.feedHeaderHeight.value))
+  const sourceVisibleTopClearance = computed(() =>
+    Math.max(0, sourceVisibleTopOffset.value - sourceTopOffset),
+  )
   const sourceTopInset = computed(() => topScrollInset(options.sourceReaderScrollTop.value, sourceTopOffset))
   const visibleChromeNeedsSourceTopClearance = computed(() => {
     if (!options.feedContentCollapsed.value) {
@@ -43,12 +48,15 @@ export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
     return chromeNeedsVisibleTopClearance(options.topChromePhase.value, topChromeProgress.value)
   })
   const sourceHeaderSpace = computed(() => {
+    const visibleSourceHeaderSpace =
+      options.feedHeaderHeight.value + sourceTopInset.value + sourceVisibleTopClearance.value
+
     if (!options.feedContentCollapsed.value) {
-      return options.feedHeaderHeight.value + sourceTopInset.value
+      return visibleSourceHeaderSpace
     }
 
     if (visibleChromeNeedsSourceTopClearance.value) {
-      return options.feedHeaderHeight.value + sourceTopInset.value
+      return visibleSourceHeaderSpace
     }
 
     const collapsedSpace = options.feedHeaderHeight.value * collapsedLayoutProgress.value

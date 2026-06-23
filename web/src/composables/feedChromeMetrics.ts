@@ -13,8 +13,12 @@ export function feedContentTopOffset(headerHeight: number) {
   return headerHeight <= 78 ? 8 : 10
 }
 
+export function visibleContentTopOffset(headerHeight: number) {
+  return headerHeight <= 78 ? 44 : 48
+}
+
 export function feedVisibleContentTopOffset(headerHeight: number) {
-  return feedContentTopOffset(headerHeight) + (headerHeight <= 78 ? 20 : 24)
+  return visibleContentTopOffset(headerHeight)
 }
 
 export function chromePhaseConsumesCollapsedLayout(phase: string) {
@@ -31,6 +35,10 @@ export function chromeNeedsVisibleTopClearance(phase: string, progress: number) 
 
 export function sourceContentTopOffset() {
   return 14
+}
+
+export function sourceVisibleContentTopOffset(headerHeight: number) {
+  return visibleContentTopOffset(headerHeight)
 }
 
 export function topScrollInset(scrollTop: number, topOffset: number) {
