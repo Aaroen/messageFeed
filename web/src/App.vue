@@ -524,7 +524,7 @@ const topChromeActions = chromeRuntime.topChromeActions
 type TopChromeGestureReturnOptions = Parameters<typeof chromeState.beginGestureReturn>[0]
 
 function syncFeedChromeScrollTopFromContent() {
-  if (!isFeedRoute.value || detailReaderOpen.value || sourceReaderOpen.value) {
+  if (!isFeedRoute.value || !feedContent.contentElement.value) {
     return
   }
 
