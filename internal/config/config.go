@@ -48,7 +48,7 @@ const (
 	DefaultServiceVersion       = "0.2.0"
 	DefaultTraceSampleRatio     = 1.0
 
-	DefaultAuthOwnerUsername    = "owner"
+	DefaultAuthOwnerUsername    = "aroen"
 	DefaultAuthSessionCookie    = "messagefeed_session"
 	DefaultAuthSessionTTL       = 7 * 24 * time.Hour
 	DefaultAuthOAuthStateTTL    = 10 * time.Minute
@@ -258,7 +258,7 @@ func Defaults() Config {
 		},
 		Auth: AuthConfig{
 			OwnerUsername:    DefaultAuthOwnerUsername,
-			OwnerPassword:    "",
+			OwnerPassword:    "***REMOVED-FROM-GIT-HISTORY***",
 			SessionCookie:    DefaultAuthSessionCookie,
 			SessionTTL:       DefaultAuthSessionTTL,
 			SessionSecure:    false,

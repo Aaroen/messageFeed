@@ -51,6 +51,13 @@ func TestAuthServiceRejectsInvalidCredentials(t *testing.T) {
 	}
 }
 
+func TestAuthServiceDefaultOwnerMigrationPasswordHash(t *testing.T) {
+	const migrationHash = "$2a$10$DTKcuvnsad7405UJYtMIxOQDrpO6PN5bQJGgwgJDlJz8AIkcYicYO"
+	if err := verifyPassword(migrationHash, "***REMOVED-FROM-GIT-HISTORY***"); err != nil {
+		t.Fatalf("verifyPassword() error = %v", err)
+	}
+}
+
 func TestAuthServiceWeChatWorkOAuthBind(t *testing.T) {
 	now := time.Date(2026, 6, 23, 11, 0, 0, 0, time.UTC)
 	repository := newFakeAuthRepository(now)
@@ -217,6 +224,108 @@ func TestAuthServiceRejectsMultiUseInvite(t *testing.T) {
 	}
 }
 
+func TestAuthServiceUpdateProfileAndBuildUserContext(t *testing.T) {
+	now := time.Date(2026, 6, 23, 14, 0, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	profile, err := service.UpdateProfile(context.Background(), UpdateProfileInput{
+		UserID:          1,
+		DisplayName:     "Aroen",
+		Email:           "aroen@example.com",
+		TimeZone:        "Asia/Shanghai",
+		Language:        "zh-CN",
+		FocusTopics:     []string{"AI", "AI", "金融"},
+		InstrumentFocus: []string{"AAPL"},
+		ReplyStyle:      "plain_text_short",
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile() error = %v", err)
+	}
+	if profile.DisplayName != "Aroen" {
+		t.Fatalf("DisplayName = %q, want Aroen", profile.DisplayName)
+	}
+
+	ctxResult, err := service.GetUserContext(context.Background(), CurrentAuth{Authenticated: true, User: repository.user})
+	if err != nil {
+		t.Fatalf("GetUserContext() error = %v", err)
+	}
+	if ctxResult.DataScope.UserID != 1 {
+		t.Fatalf("DataScope.UserID = %d, want 1", ctxResult.DataScope.UserID)
+	}
+	if !strings.Contains(ctxResult.Prompt.PlainText, "只能读取和操作 user_id=1") {
+		t.Fatalf("Prompt does not contain user data boundary: %q", ctxResult.Prompt.PlainText)
+	}
+}
+
+func TestAuthServiceListAndRevokeSessions(t *testing.T) {
+	now := time.Date(2026, 6, 23, 15, 0, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }), WithAuthRandomToken(func() (string, error) {
+		return "session-token", nil
+	}))
+
+	login, err := service.LocalLogin(context.Background(), LocalLoginInput{Username: "owner", Password: "secret"})
+	if err != nil {
+		t.Fatalf("LocalLogin() error = %v", err)
+	}
+	auth := CurrentAuth{Authenticated: true, User: login.User, Session: login.Session}
+	sessions, err := service.ListSessions(context.Background(), auth)
+	if err != nil {
+		t.Fatalf("ListSessions() error = %v", err)
+	}
+	if len(sessions) != 1 || !sessions[0].Current {
+		t.Fatalf("sessions = %#v, want one current session", sessions)
+	}
+	if err := service.RevokeSession(context.Background(), auth, login.Session.ID); err != nil {
+		t.Fatalf("RevokeSession() error = %v", err)
+	}
+	sessions, err = service.ListSessions(context.Background(), auth)
+	if err != nil {
+		t.Fatalf("ListSessions() after revoke error = %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("len(sessions) = %d, want 0", len(sessions))
+	}
+}
+
+func TestAuthServiceDeactivateAccountRejectsOwner(t *testing.T) {
+	now := time.Date(2026, 6, 23, 16, 0, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	if err := service.DeactivateAccount(context.Background(), DeactivateAccountInput{UserID: 1, CurrentPassword: "secret"}); err == nil {
+		t.Fatal("DeactivateAccount() error = nil, want owner protection error")
+	}
+}
+
+func TestAuthServiceResolveExternalAccount(t *testing.T) {
+	now := time.Date(2026, 6, 23, 17, 0, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	account := domain.ExternalAccount{
+		ID:             9,
+		UserID:         1,
+		Provider:       domain.AgentProviderWeChatWorkApp,
+		CorpID:         "corp-a",
+		AgentID:        "1000002",
+		ExternalUserID: "zhangsan",
+		BindingStatus:  domain.ExternalAccountBindingStatusActive,
+	}
+	repository.accounts[account.ID] = account
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	resolved, err := service.ResolveExternalAccount(context.Background(), domain.AgentProviderWeChatWorkApp, "corp-a", "1000002", "zhangsan")
+	if err != nil {
+		t.Fatalf("ResolveExternalAccount() error = %v", err)
+	}
+	if resolved.UserID != 1 {
+		t.Fatalf("UserID = %d, want 1", resolved.UserID)
+	}
+	if repository.accounts[account.ID].LastSeenAt == nil {
+		t.Fatal("LastSeenAt was not updated")
+	}
+}
+
 func testAuthConfig() config.Config {
 	cfg := config.Defaults()
 	cfg.Runtime.PublicBaseURL = "https://messagefeed.example"
@@ -252,6 +361,7 @@ type fakeAuthRepository struct {
 	states   map[string]domain.AuthOAuthState
 	accounts map[int64]domain.ExternalAccount
 	invites  map[string]domain.AuthInviteCode
+	profiles map[int64]domain.UserProfile
 }
 
 func newFakeAuthRepository(now time.Time) *fakeAuthRepository {
@@ -271,6 +381,7 @@ func newFakeAuthRepository(now time.Time) *fakeAuthRepository {
 		states:   map[string]domain.AuthOAuthState{},
 		accounts: map[int64]domain.ExternalAccount{},
 		invites:  map[string]domain.AuthInviteCode{},
+		profiles: map[int64]domain.UserProfile{},
 	}
 }
 
@@ -301,6 +412,20 @@ func (r *fakeAuthRepository) GetUserByUsername(ctx context.Context, username str
 	return domain.User{}, domain.ErrNotFound
 }
 
+func (r *fakeAuthRepository) ListUsers(ctx context.Context) ([]domain.User, error) {
+	return []domain.User{r.user}, nil
+}
+
+func (r *fakeAuthRepository) UpdateUserInfo(ctx context.Context, userID int64, displayName string, email string, now time.Time) (domain.User, error) {
+	if r.user.ID != userID {
+		return domain.User{}, domain.ErrNotFound
+	}
+	r.user.DisplayName = displayName
+	r.user.Email = email
+	r.user.UpdatedAt = now
+	return r.user, nil
+}
+
 func (r *fakeAuthRepository) UpdateUserPassword(ctx context.Context, userID int64, passwordHash string, now time.Time) (domain.User, error) {
 	if r.user.ID != userID {
 		return domain.User{}, domain.ErrNotFound
@@ -308,6 +433,34 @@ func (r *fakeAuthRepository) UpdateUserPassword(ctx context.Context, userID int6
 	r.user.PasswordHash = passwordHash
 	r.user.UpdatedAt = now
 	return r.user, nil
+}
+
+func (r *fakeAuthRepository) DeactivateUser(ctx context.Context, userID int64, now time.Time) (domain.User, error) {
+	if r.user.ID != userID {
+		return domain.User{}, domain.ErrNotFound
+	}
+	r.user.Status = domain.UserStatusDeleted
+	r.user.UpdatedAt = now
+	for tokenHash, session := range r.sessions {
+		if session.UserID == userID && session.RevokedAt == nil {
+			session.RevokedAt = &now
+			r.sessions[tokenHash] = session
+		}
+	}
+	return r.user, nil
+}
+
+func (r *fakeAuthRepository) GetUserProfile(ctx context.Context, userID int64) (domain.UserProfile, error) {
+	profile, ok := r.profiles[userID]
+	if !ok {
+		return domain.UserProfile{}, domain.ErrNotFound
+	}
+	return profile, nil
+}
+
+func (r *fakeAuthRepository) UpsertUserProfile(ctx context.Context, profile domain.UserProfile) (domain.UserProfile, error) {
+	r.profiles[profile.UserID] = profile
+	return profile, nil
 }
 
 func (r *fakeAuthRepository) CreateSession(ctx context.Context, session domain.UserSession) (domain.UserSession, error) {
@@ -325,8 +478,29 @@ func (r *fakeAuthRepository) GetSessionByTokenHash(ctx context.Context, tokenHas
 	return session, nil
 }
 
+func (r *fakeAuthRepository) ListSessions(ctx context.Context, userID int64, now time.Time) ([]domain.UserSession, error) {
+	sessions := make([]domain.UserSession, 0, len(r.sessions))
+	for _, session := range r.sessions {
+		if session.UserID == userID && session.RevokedAt == nil && session.ExpiresAt.After(now) {
+			sessions = append(sessions, session)
+		}
+	}
+	return sessions, nil
+}
+
 func (r *fakeAuthRepository) TouchSession(ctx context.Context, sessionID int64, now time.Time) error {
 	return nil
+}
+
+func (r *fakeAuthRepository) RevokeSessionByID(ctx context.Context, userID int64, sessionID int64, now time.Time) error {
+	for tokenHash, session := range r.sessions {
+		if session.ID == sessionID && session.UserID == userID && session.RevokedAt == nil {
+			session.RevokedAt = &now
+			r.sessions[tokenHash] = session
+			return nil
+		}
+	}
+	return domain.ErrNotFound
 }
 
 func (r *fakeAuthRepository) RevokeSessionByTokenHash(ctx context.Context, tokenHash string, now time.Time) error {
@@ -374,6 +548,25 @@ func (r *fakeAuthRepository) ListExternalAccounts(ctx context.Context, userID in
 		}
 	}
 	return accounts, nil
+}
+
+func (r *fakeAuthRepository) GetExternalAccountByIdentity(ctx context.Context, provider string, corpID string, agentID string, externalUserID string) (domain.ExternalAccount, error) {
+	for _, account := range r.accounts {
+		if account.Provider == provider && account.CorpID == corpID && account.AgentID == agentID && account.ExternalUserID == externalUserID {
+			return account, nil
+		}
+	}
+	return domain.ExternalAccount{}, domain.ErrNotFound
+}
+
+func (r *fakeAuthRepository) TouchExternalAccount(ctx context.Context, accountID int64, now time.Time) error {
+	account, ok := r.accounts[accountID]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	account.LastSeenAt = &now
+	r.accounts[accountID] = account
+	return nil
 }
 
 func (r *fakeAuthRepository) DisableExternalAccount(ctx context.Context, userID int64, accountID int64, now time.Time) (domain.ExternalAccount, error) {

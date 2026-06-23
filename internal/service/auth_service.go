@@ -32,15 +32,24 @@ type AuthRepository interface {
 	EnsureOwner(ctx context.Context, username string) (domain.User, error)
 	GetUserByID(ctx context.Context, userID int64) (domain.User, error)
 	GetUserByUsername(ctx context.Context, username string) (domain.User, error)
+	ListUsers(ctx context.Context) ([]domain.User, error)
+	UpdateUserInfo(ctx context.Context, userID int64, displayName string, email string, now time.Time) (domain.User, error)
 	UpdateUserPassword(ctx context.Context, userID int64, passwordHash string, now time.Time) (domain.User, error)
+	DeactivateUser(ctx context.Context, userID int64, now time.Time) (domain.User, error)
+	GetUserProfile(ctx context.Context, userID int64) (domain.UserProfile, error)
+	UpsertUserProfile(ctx context.Context, profile domain.UserProfile) (domain.UserProfile, error)
 	CreateSession(ctx context.Context, session domain.UserSession) (domain.UserSession, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string, now time.Time) (domain.UserSession, error)
+	ListSessions(ctx context.Context, userID int64, now time.Time) ([]domain.UserSession, error)
 	TouchSession(ctx context.Context, sessionID int64, now time.Time) error
+	RevokeSessionByID(ctx context.Context, userID int64, sessionID int64, now time.Time) error
 	RevokeSessionByTokenHash(ctx context.Context, tokenHash string, now time.Time) error
 	CreateOAuthState(ctx context.Context, state domain.AuthOAuthState) (domain.AuthOAuthState, error)
 	ConsumeOAuthState(ctx context.Context, stateHash string, now time.Time) (domain.AuthOAuthState, error)
 	BindExternalAccount(ctx context.Context, account domain.ExternalAccount) (domain.ExternalAccount, error)
 	ListExternalAccounts(ctx context.Context, userID int64) ([]domain.ExternalAccount, error)
+	GetExternalAccountByIdentity(ctx context.Context, provider string, corpID string, agentID string, externalUserID string) (domain.ExternalAccount, error)
+	TouchExternalAccount(ctx context.Context, accountID int64, now time.Time) error
 	DisableExternalAccount(ctx context.Context, userID int64, accountID int64, now time.Time) (domain.ExternalAccount, error)
 	CreateInviteCode(ctx context.Context, invite domain.AuthInviteCode) (domain.AuthInviteCode, error)
 	ListInviteCodes(ctx context.Context, createdByUserID int64) ([]domain.AuthInviteCode, error)
@@ -120,6 +129,29 @@ type ChangePasswordInput struct {
 	NewPassword     string
 }
 
+type UpdateProfileInput struct {
+	UserID                 int64
+	DisplayName            string
+	Email                  string
+	TimeZone               string
+	Language               string
+	Region                 string
+	Bio                    string
+	FocusTopics            []string
+	BlockedTopics          []string
+	MarketFocus            []string
+	InstrumentFocus        []string
+	RiskPreference         string
+	NotificationQuietHours string
+	AgentNotes             string
+	ReplyStyle             string
+}
+
+type DeactivateAccountInput struct {
+	UserID          int64
+	CurrentPassword string
+}
+
 type AuthSessionResult struct {
 	User      domain.User
 	Session   domain.UserSession
@@ -139,6 +171,7 @@ type AuthMeResult struct {
 	RegistrationEnabled    bool                  `json:"registration_enabled"`
 	WeChatWorkOAuthEnabled bool                  `json:"wechat_work_oauth_enabled"`
 	User                   *AuthUserResponse     `json:"user,omitempty"`
+	Profile                *UserProfileResponse  `json:"profile,omitempty"`
 	Bindings               []AuthBindingResponse `json:"bindings"`
 }
 
@@ -161,6 +194,65 @@ type AuthBindingResponse struct {
 	BindingStatus  string `json:"binding_status"`
 	VerifiedAt     string `json:"verified_at,omitempty"`
 	LastSeenAt     string `json:"last_seen_at,omitempty"`
+}
+
+type UserProfileResponse struct {
+	DisplayName            string   `json:"display_name"`
+	Email                  string   `json:"email"`
+	TimeZone               string   `json:"timezone"`
+	Language               string   `json:"language"`
+	Region                 string   `json:"region"`
+	Bio                    string   `json:"bio"`
+	FocusTopics            []string `json:"focus_topics"`
+	BlockedTopics          []string `json:"blocked_topics"`
+	MarketFocus            []string `json:"market_focus"`
+	InstrumentFocus        []string `json:"instrument_focus"`
+	RiskPreference         string   `json:"risk_preference"`
+	NotificationQuietHours string   `json:"notification_quiet_hours"`
+	AgentNotes             string   `json:"agent_notes"`
+	ReplyStyle             string   `json:"reply_style"`
+	UpdatedAt              string   `json:"updated_at,omitempty"`
+}
+
+type UserSessionResponse struct {
+	ID         int64  `json:"id"`
+	ExpiresAt  string `json:"expires_at"`
+	IPAddress  string `json:"ip_address"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+	LastSeenAt string `json:"last_seen_at"`
+	Current    bool   `json:"current"`
+}
+
+type UserContextResult struct {
+	User      AuthUserResponse      `json:"user"`
+	Profile   UserProfileResponse   `json:"profile"`
+	Bindings  []AuthBindingResponse `json:"bindings"`
+	DataScope UserDataScopeResponse `json:"data_scope"`
+	Prompt    UserPromptContext     `json:"prompt"`
+}
+
+type UserDataScopeResponse struct {
+	UserID           int64    `json:"user_id"`
+	ReadableDomains  []string `json:"readable_domains"`
+	WritableDomains  []string `json:"writable_domains"`
+	ExternalProvider []string `json:"external_providers"`
+}
+
+type UserPromptContext struct {
+	PlainText string `json:"plain_text"`
+}
+
+type AdminUserResponse struct {
+	ID                 int64  `json:"id"`
+	Username           string `json:"username"`
+	DisplayName        string `json:"display_name"`
+	Email              string `json:"email"`
+	Role               string `json:"role"`
+	Status             string `json:"status"`
+	PasswordConfigured bool   `json:"password_configured"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
 type WeChatWorkOAuthURLInput struct {
@@ -218,10 +310,6 @@ func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (Au
 	var opErr error
 	defer func() { observability.EndSpan(span, opErr) }()
 
-	if !s.cfg.Auth.LocalLoginEnabled() {
-		opErr = domain.NewAppError(domain.ErrorKindUnavailable, "auth_local_login_disabled", "local login is not configured", "service.auth.login", false, nil)
-		return AuthSessionResult{}, opErr
-	}
 	username := strings.TrimSpace(input.Username)
 	password := strings.TrimSpace(input.Password)
 	if username == "" || password == "" {
@@ -249,6 +337,10 @@ func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (Au
 		}
 	}
 
+	if !s.cfg.Auth.LocalLoginEnabled() {
+		opErr = domain.NewAppError(domain.ErrorKindUnavailable, "auth_local_login_disabled", "local login is not configured", "service.auth.login", false, nil)
+		return AuthSessionResult{}, opErr
+	}
 	if subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.Auth.OwnerUsername)) != 1 ||
 		subtle.ConstantTimeCompare([]byte(password), []byte(s.cfg.Auth.OwnerPassword)) != 1 {
 		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invalid_credentials", "invalid username or password", "service.auth.login", false, nil)
@@ -375,6 +467,117 @@ func (s *AuthService) ChangePassword(ctx context.Context, input ChangePasswordIn
 	return *userResponse(user), nil
 }
 
+func (s *AuthService) UpdateProfile(ctx context.Context, input UpdateProfileInput) (UserProfileResponse, error) {
+	if s == nil || s.repository == nil {
+		return UserProfileResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.update_profile", false, nil)
+	}
+	if input.UserID < 1 {
+		return UserProfileResponse{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	ctx, span := observability.StartSpan(ctx, "service.auth.update_profile")
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	user, err := s.repository.GetUserByID(ctx, input.UserID)
+	if err != nil {
+		opErr = err
+		return UserProfileResponse{}, err
+	}
+	displayName := normalizeDisplayName(input.DisplayName, user.Username)
+	now := s.now().UTC()
+	user, err = s.repository.UpdateUserInfo(ctx, user.ID, displayName, strings.TrimSpace(input.Email), now)
+	if err != nil {
+		opErr = err
+		return UserProfileResponse{}, err
+	}
+	profile, err := s.repository.UpsertUserProfile(ctx, domain.UserProfile{
+		UserID:                 user.ID,
+		TimeZone:               input.TimeZone,
+		Language:               input.Language,
+		Region:                 input.Region,
+		Bio:                    input.Bio,
+		FocusTopics:            input.FocusTopics,
+		BlockedTopics:          input.BlockedTopics,
+		MarketFocus:            input.MarketFocus,
+		InstrumentFocus:        input.InstrumentFocus,
+		RiskPreference:         input.RiskPreference,
+		NotificationQuietHours: input.NotificationQuietHours,
+		AgentNotes:             input.AgentNotes,
+		ReplyStyle:             input.ReplyStyle,
+		CreatedAt:              now,
+		UpdatedAt:              now,
+	})
+	if err != nil {
+		opErr = err
+		return UserProfileResponse{}, err
+	}
+	return profileResponse(user, profile), nil
+}
+
+func (s *AuthService) ListSessions(ctx context.Context, auth CurrentAuth) ([]UserSessionResponse, error) {
+	if s == nil || s.repository == nil {
+		return nil, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.sessions", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return nil, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	sessions, err := s.repository.ListSessions(ctx, auth.User.ID, s.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	responses := make([]UserSessionResponse, 0, len(sessions))
+	for _, session := range sessions {
+		responses = append(responses, sessionResponse(session, session.ID == auth.Session.ID))
+	}
+	return responses, nil
+}
+
+func (s *AuthService) RevokeSession(ctx context.Context, auth CurrentAuth, sessionID int64) error {
+	if s == nil || s.repository == nil {
+		return domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.revoke_session", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	if sessionID < 1 {
+		return fmt.Errorf("%w: session id is required", domain.ErrInvalidInput)
+	}
+	return s.repository.RevokeSessionByID(ctx, auth.User.ID, sessionID, s.now().UTC())
+}
+
+func (s *AuthService) DeactivateAccount(ctx context.Context, input DeactivateAccountInput) error {
+	if s == nil || s.repository == nil {
+		return domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.deactivate", false, nil)
+	}
+	if input.UserID < 1 {
+		return fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	ctx, span := observability.StartSpan(ctx, "service.auth.deactivate")
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	user, err := s.repository.GetUserByID(ctx, input.UserID)
+	if err != nil {
+		opErr = err
+		return err
+	}
+	if user.Role == domain.UserRoleOwner {
+		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_deactivate_denied", "owner account cannot be deleted from this endpoint", "service.auth.deactivate", false, nil)
+		return opErr
+	}
+	if strings.TrimSpace(user.PasswordHash) != "" {
+		if err := verifyPassword(user.PasswordHash, input.CurrentPassword); err != nil {
+			opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invalid_current_password", "current password is invalid", "service.auth.deactivate", false, nil)
+			return opErr
+		}
+	}
+	if _, err := s.repository.DeactivateUser(ctx, user.ID, s.now().UTC()); err != nil {
+		opErr = err
+		return err
+	}
+	return nil
+}
+
 func (s *AuthService) AuthenticateSession(ctx context.Context, rawToken string) (CurrentAuth, error) {
 	if s == nil || s.repository == nil {
 		return CurrentAuth{}, nil
@@ -423,7 +626,7 @@ func (s *AuthService) Logout(ctx context.Context, rawToken string) error {
 func (s *AuthService) Me(ctx context.Context, auth CurrentAuth) (AuthMeResult, error) {
 	result := AuthMeResult{
 		Authenticated:          auth.Authenticated,
-		LoginEnabled:           s != nil && s.cfg.Auth.LocalLoginEnabled(),
+		LoginEnabled:           s != nil && (s.repository != nil || s.cfg.Auth.LocalLoginEnabled()),
 		RegistrationEnabled:    s != nil && s.repository != nil,
 		WeChatWorkOAuthEnabled: s != nil && s.cfg.WeChatWork.Enabled() && s.wechatOAuth != nil,
 		Bindings:               []AuthBindingResponse{},
@@ -432,12 +635,104 @@ func (s *AuthService) Me(ctx context.Context, auth CurrentAuth) (AuthMeResult, e
 		return result, nil
 	}
 	result.User = userResponse(auth.User)
+	profile, err := s.getOrCreateUserProfile(ctx, auth.User)
+	if err != nil {
+		return AuthMeResult{}, err
+	}
+	response := profileResponse(auth.User, profile)
+	result.Profile = &response
 	accounts, err := s.repository.ListExternalAccounts(ctx, auth.User.ID)
 	if err != nil {
 		return AuthMeResult{}, err
 	}
 	result.Bindings = bindingResponses(accounts)
 	return result, nil
+}
+
+func (s *AuthService) GetUserContext(ctx context.Context, auth CurrentAuth) (UserContextResult, error) {
+	if s == nil || s.repository == nil {
+		return UserContextResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.user_context", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return UserContextResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	return s.buildUserContext(ctx, auth.User)
+}
+
+func (s *AuthService) BuildAgentUserContext(ctx context.Context, userID int64) (UserContextResult, error) {
+	if s == nil || s.repository == nil {
+		return UserContextResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.agent_user_context", false, nil)
+	}
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return UserContextResult{}, err
+	}
+	if user.Status != domain.UserStatusActive {
+		return UserContextResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_user_disabled", "user is disabled", "service.auth.agent_user_context", false, nil)
+	}
+	return s.buildUserContext(ctx, user)
+}
+
+func (s *AuthService) ListUsers(ctx context.Context, auth CurrentAuth) ([]AdminUserResponse, error) {
+	if s == nil || s.repository == nil {
+		return nil, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.list_users", false, nil)
+	}
+	if !auth.Authenticated || auth.User.Role != domain.UserRoleOwner {
+		return nil, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_required", "owner role is required", "service.auth.list_users", false, nil)
+	}
+	users, err := s.repository.ListUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	responses := make([]AdminUserResponse, 0, len(users))
+	for _, user := range users {
+		responses = append(responses, adminUserResponse(user))
+	}
+	return responses, nil
+}
+
+func (s *AuthService) DeactivateUser(ctx context.Context, auth CurrentAuth, userID int64) (AdminUserResponse, error) {
+	if s == nil || s.repository == nil {
+		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.deactivate_user", false, nil)
+	}
+	if !auth.Authenticated || auth.User.Role != domain.UserRoleOwner {
+		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_required", "owner role is required", "service.auth.deactivate_user", false, nil)
+	}
+	if userID < 1 {
+		return AdminUserResponse{}, fmt.Errorf("%w: user id is required", domain.ErrInvalidInput)
+	}
+	if userID == auth.User.ID {
+		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_deactivate_denied", "owner account cannot be deleted from this endpoint", "service.auth.deactivate_user", false, nil)
+	}
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return AdminUserResponse{}, err
+	}
+	if user.Role == domain.UserRoleOwner {
+		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_deactivate_denied", "owner account cannot be deleted from this endpoint", "service.auth.deactivate_user", false, nil)
+	}
+	user, err = s.repository.DeactivateUser(ctx, userID, s.now().UTC())
+	if err != nil {
+		return AdminUserResponse{}, err
+	}
+	return adminUserResponse(user), nil
+}
+
+func (s *AuthService) ResolveExternalAccount(ctx context.Context, provider string, corpID string, agentID string, externalUserID string) (domain.ExternalAccount, error) {
+	if s == nil || s.repository == nil {
+		return domain.ExternalAccount{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.resolve_external_account", false, nil)
+	}
+	account, err := s.repository.GetExternalAccountByIdentity(ctx, provider, corpID, agentID, externalUserID)
+	if err != nil {
+		return domain.ExternalAccount{}, err
+	}
+	if account.BindingStatus != domain.ExternalAccountBindingStatusActive {
+		return domain.ExternalAccount{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_external_account_disabled", "external account binding is disabled", "service.auth.resolve_external_account", false, nil)
+	}
+	if err := s.repository.TouchExternalAccount(ctx, account.ID, s.now().UTC()); err != nil && domain.ClassifyError(err) != domain.ErrorKindNotFound {
+		return domain.ExternalAccount{}, err
+	}
+	return account, nil
 }
 
 func (s *AuthService) BuildWeChatWorkOAuthURL(ctx context.Context, input WeChatWorkOAuthURLInput) (WeChatWorkOAuthURLResult, error) {
@@ -726,6 +1021,64 @@ func sanitizeRedirectPath(path string) string {
 	return path
 }
 
+func (s *AuthService) buildUserContext(ctx context.Context, user domain.User) (UserContextResult, error) {
+	profile, err := s.getOrCreateUserProfile(ctx, user)
+	if err != nil {
+		return UserContextResult{}, err
+	}
+	accounts, err := s.repository.ListExternalAccounts(ctx, user.ID)
+	if err != nil {
+		return UserContextResult{}, err
+	}
+	bindings := bindingResponses(accounts)
+	dataScope := UserDataScopeResponse{
+		UserID: user.ID,
+		ReadableDomains: []string{
+			"sources",
+			"feed_items",
+			"user_item_states",
+			"feed_view_preferences",
+			"agent_conversations",
+			"notifications",
+		},
+		WritableDomains: []string{
+			"user_profile",
+			"feed_view_preferences",
+			"user_item_states",
+			"external_account_bindings",
+		},
+		ExternalProvider: externalProviders(accounts),
+	}
+	profileResp := profileResponse(user, profile)
+	result := UserContextResult{
+		User:      *userResponse(user),
+		Profile:   profileResp,
+		Bindings:  bindings,
+		DataScope: dataScope,
+	}
+	result.Prompt = UserPromptContext{PlainText: buildUserPromptContext(result)}
+	return result, nil
+}
+
+func (s *AuthService) getOrCreateUserProfile(ctx context.Context, user domain.User) (domain.UserProfile, error) {
+	profile, err := s.repository.GetUserProfile(ctx, user.ID)
+	if err == nil {
+		return profile, nil
+	}
+	if domain.ClassifyError(err) != domain.ErrorKindNotFound {
+		return domain.UserProfile{}, err
+	}
+	now := s.now().UTC()
+	return s.repository.UpsertUserProfile(ctx, domain.UserProfile{
+		UserID:     user.ID,
+		TimeZone:   "Asia/Shanghai",
+		Language:   "zh-CN",
+		ReplyStyle: "plain_text_short",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	})
+}
+
 func userResponse(user domain.User) *AuthUserResponse {
 	return &AuthUserResponse{
 		ID:                 user.ID,
@@ -735,6 +1088,105 @@ func userResponse(user domain.User) *AuthUserResponse {
 		Status:             string(user.Status),
 		PasswordConfigured: strings.TrimSpace(user.PasswordHash) != "",
 	}
+}
+
+func adminUserResponse(user domain.User) AdminUserResponse {
+	return AdminUserResponse{
+		ID:                 user.ID,
+		Username:           user.Username,
+		DisplayName:        user.DisplayName,
+		Email:              user.Email,
+		Role:               string(user.Role),
+		Status:             string(user.Status),
+		PasswordConfigured: strings.TrimSpace(user.PasswordHash) != "",
+		CreatedAt:          user.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:          user.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func profileResponse(user domain.User, profile domain.UserProfile) UserProfileResponse {
+	response := UserProfileResponse{
+		DisplayName:            user.DisplayName,
+		Email:                  user.Email,
+		TimeZone:               profile.TimeZone,
+		Language:               profile.Language,
+		Region:                 profile.Region,
+		Bio:                    profile.Bio,
+		FocusTopics:            append([]string(nil), profile.FocusTopics...),
+		BlockedTopics:          append([]string(nil), profile.BlockedTopics...),
+		MarketFocus:            append([]string(nil), profile.MarketFocus...),
+		InstrumentFocus:        append([]string(nil), profile.InstrumentFocus...),
+		RiskPreference:         profile.RiskPreference,
+		NotificationQuietHours: profile.NotificationQuietHours,
+		AgentNotes:             profile.AgentNotes,
+		ReplyStyle:             profile.ReplyStyle,
+	}
+	if !profile.UpdatedAt.IsZero() {
+		response.UpdatedAt = profile.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	return response
+}
+
+func sessionResponse(session domain.UserSession, current bool) UserSessionResponse {
+	return UserSessionResponse{
+		ID:         session.ID,
+		ExpiresAt:  session.ExpiresAt.UTC().Format(time.RFC3339),
+		IPAddress:  session.IPAddress,
+		CreatedAt:  session.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:  session.UpdatedAt.UTC().Format(time.RFC3339),
+		LastSeenAt: session.LastSeenAt.UTC().Format(time.RFC3339),
+		Current:    current,
+	}
+}
+
+func externalProviders(accounts []domain.ExternalAccount) []string {
+	seen := map[string]struct{}{}
+	providers := make([]string, 0, len(accounts))
+	for _, account := range accounts {
+		if account.BindingStatus != domain.ExternalAccountBindingStatusActive {
+			continue
+		}
+		if _, ok := seen[account.Provider]; ok {
+			continue
+		}
+		seen[account.Provider] = struct{}{}
+		providers = append(providers, account.Provider)
+	}
+	return providers
+}
+
+func buildUserPromptContext(ctx UserContextResult) string {
+	lines := []string{
+		"当前用户：" + ctx.User.DisplayName + "（账号 " + ctx.User.Username + "，user_id " + fmt.Sprint(ctx.User.ID) + "）",
+		"语言：" + ctx.Profile.Language + "；时区：" + ctx.Profile.TimeZone,
+		"回复风格：" + ctx.Profile.ReplyStyle,
+	}
+	if ctx.Profile.Region != "" {
+		lines = append(lines, "地区："+ctx.Profile.Region)
+	}
+	if len(ctx.Profile.FocusTopics) > 0 {
+		lines = append(lines, "关注主题："+strings.Join(ctx.Profile.FocusTopics, "、"))
+	}
+	if len(ctx.Profile.BlockedTopics) > 0 {
+		lines = append(lines, "屏蔽主题："+strings.Join(ctx.Profile.BlockedTopics, "、"))
+	}
+	if len(ctx.Profile.MarketFocus) > 0 {
+		lines = append(lines, "关注市场："+strings.Join(ctx.Profile.MarketFocus, "、"))
+	}
+	if len(ctx.Profile.InstrumentFocus) > 0 {
+		lines = append(lines, "关注标的："+strings.Join(ctx.Profile.InstrumentFocus, "、"))
+	}
+	if ctx.Profile.RiskPreference != "" {
+		lines = append(lines, "风险偏好："+ctx.Profile.RiskPreference)
+	}
+	if ctx.Profile.NotificationQuietHours != "" {
+		lines = append(lines, "免打扰时间："+ctx.Profile.NotificationQuietHours)
+	}
+	if ctx.Profile.AgentNotes != "" {
+		lines = append(lines, "用户备注："+ctx.Profile.AgentNotes)
+	}
+	lines = append(lines, "数据边界：只能读取和操作 user_id="+fmt.Sprint(ctx.DataScope.UserID)+" 的数据。")
+	return strings.Join(lines, "\n")
 }
 
 func inviteResponse(invite domain.AuthInviteCode) InviteCodeResponse {

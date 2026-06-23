@@ -4,14 +4,25 @@ import { computed, onMounted, ref } from 'vue'
 import {
   changePassword,
   createInvite,
+  deactivateAccount,
+  deactivateUser,
   deleteInvite,
   disableAuthBinding,
   getCurrentAuth,
+  getUserContext,
   getWeChatWorkOAuthURL,
   listInvites,
+  listSessions,
+  listUsers,
   logout,
+  revokeSession,
+  updateUserProfile,
+  type AdminUser,
   type CurrentAuth,
   type InviteCode,
+  type UserContext,
+  type UserProfile,
+  type UserSession,
 } from '@/api/auth'
 import {
   getAdminConfigStatus,
@@ -37,6 +48,38 @@ const currentPassword = ref('')
 const newPassword = ref('')
 const passwordChanging = ref(false)
 const passwordChangeResult = ref('')
+const profileSaving = ref(false)
+const profileSaveResult = ref('')
+const profileForm = ref<UserProfile>({
+  display_name: '',
+  email: '',
+  timezone: 'Asia/Shanghai',
+  language: 'zh-CN',
+  region: '',
+  bio: '',
+  focus_topics: [],
+  blocked_topics: [],
+  market_focus: [],
+  instrument_focus: [],
+  risk_preference: '',
+  notification_quiet_hours: '',
+  agent_notes: '',
+  reply_style: 'plain_text_short',
+})
+const focusTopicsText = ref('')
+const blockedTopicsText = ref('')
+const marketFocusText = ref('')
+const instrumentFocusText = ref('')
+const sessions = ref<UserSession[]>([])
+const sessionsLoading = ref(false)
+const sessionRevokingID = ref<number | null>(null)
+const deletePassword = ref('')
+const accountDeleting = ref(false)
+const accountDeleteResult = ref('')
+const userContext = ref<UserContext | null>(null)
+const users = ref<AdminUser[]>([])
+const usersLoading = ref(false)
+const userDeletingID = ref<number | null>(null)
 const invites = ref<InviteCode[]>([])
 const invitesLoading = ref(false)
 const inviteCreating = ref(false)
@@ -114,8 +157,12 @@ async function loadAuthStatus() {
   authError.value = ''
   try {
     authStatus.value = await getCurrentAuth()
+    if (authStatus.value.profile) {
+      applyProfile(authStatus.value.profile)
+    }
+    await Promise.all([loadSessions(), loadUserContext()])
     if (authStatus.value.user?.role === 'owner') {
-      await loadInvites()
+      await Promise.all([loadInvites(), loadUsers()])
     }
   } catch (error) {
     authError.value = formatAPIError(error)
@@ -135,6 +182,36 @@ async function loadInvites() {
   }
 }
 
+async function loadSessions() {
+  sessionsLoading.value = true
+  try {
+    sessions.value = await listSessions()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    sessionsLoading.value = false
+  }
+}
+
+async function loadUsers() {
+  usersLoading.value = true
+  try {
+    users.value = await listUsers()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    usersLoading.value = false
+  }
+}
+
+async function loadUserContext() {
+  try {
+    userContext.value = await getUserContext()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  }
+}
+
 async function refreshPage() {
   loadSettings()
   await Promise.all([loadAuthStatus(), loadAdminConfig()])
@@ -142,6 +219,59 @@ async function refreshPage() {
 
 function updateSourceTimelinePreload() {
   updateSourceTimelinePreloadSetting(sourceTimelinePreload.value)
+}
+
+function applyProfile(profile: UserProfile) {
+  profileForm.value = {
+    display_name: profile.display_name || '',
+    email: profile.email || '',
+    timezone: profile.timezone || 'Asia/Shanghai',
+    language: profile.language || 'zh-CN',
+    region: profile.region || '',
+    bio: profile.bio || '',
+    focus_topics: profile.focus_topics || [],
+    blocked_topics: profile.blocked_topics || [],
+    market_focus: profile.market_focus || [],
+    instrument_focus: profile.instrument_focus || [],
+    risk_preference: profile.risk_preference || '',
+    notification_quiet_hours: profile.notification_quiet_hours || '',
+    agent_notes: profile.agent_notes || '',
+    reply_style: profile.reply_style || 'plain_text_short',
+    updated_at: profile.updated_at,
+  }
+  focusTopicsText.value = profileForm.value.focus_topics.join('、')
+  blockedTopicsText.value = profileForm.value.blocked_topics.join('、')
+  marketFocusText.value = profileForm.value.market_focus.join('、')
+  instrumentFocusText.value = profileForm.value.instrument_focus.join('、')
+}
+
+function parseList(value: string) {
+  return value
+    .split(/[,\n，、]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+async function saveProfile() {
+  profileSaving.value = true
+  authError.value = ''
+  profileSaveResult.value = ''
+  try {
+    const saved = await updateUserProfile({
+      ...profileForm.value,
+      focus_topics: parseList(focusTopicsText.value),
+      blocked_topics: parseList(blockedTopicsText.value),
+      market_focus: parseList(marketFocusText.value),
+      instrument_focus: parseList(instrumentFocusText.value),
+    })
+    applyProfile(saved)
+    profileSaveResult.value = '资料已更新'
+    await Promise.all([loadAuthStatus(), loadUserContext()])
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    profileSaving.value = false
+  }
 }
 
 async function runLLMTest() {
@@ -231,6 +361,51 @@ async function changeCurrentPassword() {
     authError.value = formatAPIError(error)
   } finally {
     passwordChanging.value = false
+  }
+}
+
+async function revokeUserSession(id: number, current: boolean) {
+  sessionRevokingID.value = id
+  authError.value = ''
+  try {
+    await revokeSession(id)
+    if (current) {
+      window.location.assign('/auth/login')
+      return
+    }
+    await loadSessions()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    sessionRevokingID.value = null
+  }
+}
+
+async function deleteCurrentAccount() {
+  accountDeleting.value = true
+  authError.value = ''
+  accountDeleteResult.value = ''
+  try {
+    await deactivateAccount({ current_password: deletePassword.value })
+    accountDeleteResult.value = '账号已注销'
+    window.location.assign('/auth/login')
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    accountDeleting.value = false
+  }
+}
+
+async function deleteUser(id: number) {
+  userDeletingID.value = id
+  authError.value = ''
+  try {
+    await deactivateUser(id)
+    await loadUsers()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    userDeletingID.value = null
   }
 }
 
@@ -361,6 +536,81 @@ defineExpose({ refreshPage })
       <section class="settings-panel">
         <div class="settings-panel__header">
           <div>
+            <div class="settings-panel__title">用户资料</div>
+            <div class="settings-panel__meta">供通知和后续 Agent 上下文使用</div>
+          </div>
+          <button class="settings-action-button" type="button" :disabled="profileSaving" @click="saveProfile">
+            {{ profileSaving ? '保存中' : '保存' }}
+          </button>
+        </div>
+        <div class="settings-form-grid">
+          <label class="settings-field">
+            <span>显示名</span>
+            <input v-model="profileForm.display_name" class="settings-input" type="text" autocomplete="name" />
+          </label>
+          <label class="settings-field">
+            <span>邮箱</span>
+            <input v-model="profileForm.email" class="settings-input" type="email" autocomplete="email" />
+          </label>
+          <label class="settings-field">
+            <span>时区</span>
+            <input v-model="profileForm.timezone" class="settings-input" type="text" autocomplete="off" />
+          </label>
+          <label class="settings-field">
+            <span>语言</span>
+            <input v-model="profileForm.language" class="settings-input" type="text" autocomplete="off" />
+          </label>
+          <label class="settings-field">
+            <span>地区</span>
+            <input v-model="profileForm.region" class="settings-input" type="text" autocomplete="off" />
+          </label>
+          <label class="settings-field">
+            <span>回复风格</span>
+            <input v-model="profileForm.reply_style" class="settings-input" type="text" autocomplete="off" />
+          </label>
+        </div>
+        <label class="settings-field">
+          <span>个人画像</span>
+          <textarea v-model="profileForm.bio" class="settings-textarea" rows="3" />
+        </label>
+        <div class="settings-form-grid">
+          <label class="settings-field">
+            <span>关注主题</span>
+            <textarea v-model="focusTopicsText" class="settings-textarea" rows="2" />
+          </label>
+          <label class="settings-field">
+            <span>屏蔽主题</span>
+            <textarea v-model="blockedTopicsText" class="settings-textarea" rows="2" />
+          </label>
+          <label class="settings-field">
+            <span>关注市场</span>
+            <textarea v-model="marketFocusText" class="settings-textarea" rows="2" />
+          </label>
+          <label class="settings-field">
+            <span>关注标的</span>
+            <textarea v-model="instrumentFocusText" class="settings-textarea" rows="2" />
+          </label>
+          <label class="settings-field">
+            <span>风险偏好</span>
+            <input v-model="profileForm.risk_preference" class="settings-input" type="text" autocomplete="off" />
+          </label>
+          <label class="settings-field">
+            <span>免打扰时间</span>
+            <input v-model="profileForm.notification_quiet_hours" class="settings-input" type="text" autocomplete="off" />
+          </label>
+        </div>
+        <label class="settings-field">
+          <span>Agent 备注</span>
+          <textarea v-model="profileForm.agent_notes" class="settings-textarea" rows="3" />
+        </label>
+        <div v-if="profileSaveResult" class="settings-inline-alert settings-inline-alert--success">
+          {{ profileSaveResult }}
+        </div>
+      </section>
+
+      <section class="settings-panel">
+        <div class="settings-panel__header">
+          <div>
             <div class="settings-panel__title">账号密码</div>
             <div class="settings-panel__meta">更新当前登录账号的数据库密码</div>
           </div>
@@ -385,6 +635,39 @@ defineExpose({ refreshPage })
         </div>
         <div v-if="passwordChangeResult" class="settings-inline-alert settings-inline-alert--success">
           {{ passwordChangeResult }}
+        </div>
+      </section>
+
+      <section class="settings-panel">
+        <div class="settings-panel__header">
+          <div>
+            <div class="settings-panel__title">登录会话</div>
+            <div class="settings-panel__meta">{{ sessionsLoading ? '加载中' : `${sessions.length} 个有效会话` }}</div>
+          </div>
+          <button class="settings-action-button" type="button" :disabled="sessionsLoading" @click="loadSessions">
+            刷新
+          </button>
+        </div>
+        <div class="settings-bindings">
+          <div v-for="session in sessions" :key="session.id" class="settings-binding-row">
+            <div>
+              <div class="settings-binding-row__title">
+                {{ session.current ? '当前会话' : `会话 ${session.id}` }}
+              </div>
+              <div class="settings-binding-row__meta">
+                {{ session.ip_address || '无 IP' }} / 最近 {{ formatTime(session.last_seen_at) }}
+              </div>
+            </div>
+            <button
+              class="settings-action-button"
+              type="button"
+              :disabled="sessionRevokingID === session.id"
+              @click="revokeUserSession(session.id, session.current)"
+            >
+              {{ sessionRevokingID === session.id ? '撤销中' : '撤销' }}
+            </button>
+          </div>
+          <div v-if="!sessions.length" class="settings-panel__meta">暂无有效会话</div>
         </div>
       </section>
 
@@ -424,6 +707,30 @@ defineExpose({ refreshPage })
             </button>
           </div>
           <div v-if="!authStatus?.bindings?.length" class="settings-panel__meta">暂无绑定记录</div>
+        </div>
+      </section>
+
+      <section v-if="authStatus?.user?.role !== 'owner'" class="settings-panel">
+        <div class="settings-panel__header">
+          <div>
+            <div class="settings-panel__title">账号注销</div>
+            <div class="settings-panel__meta">注销后账号会被软删除并退出所有会话</div>
+          </div>
+          <button
+            class="settings-action-button"
+            type="button"
+            :disabled="accountDeleting || !deletePassword"
+            @click="deleteCurrentAccount"
+          >
+            {{ accountDeleting ? '注销中' : '注销' }}
+          </button>
+        </div>
+        <label class="settings-field">
+          <span>当前密码</span>
+          <input v-model="deletePassword" class="settings-input" type="password" autocomplete="current-password" />
+        </label>
+        <div v-if="accountDeleteResult" class="settings-inline-alert settings-inline-alert--success">
+          {{ accountDeleteResult }}
         </div>
       </section>
 
@@ -468,6 +775,38 @@ defineExpose({ refreshPage })
           <div v-if="!invites.length" class="settings-panel__meta">
             {{ invitesLoading ? '加载中' : '暂无邀请码' }}
           </div>
+        </div>
+      </section>
+
+      <section v-if="authStatus?.user?.role === 'owner'" class="settings-panel">
+        <div class="settings-panel__header">
+          <div>
+            <div class="settings-panel__title">用户列表</div>
+            <div class="settings-panel__meta">{{ usersLoading ? '加载中' : `${users.length} 个用户` }}</div>
+          </div>
+          <button class="settings-action-button" type="button" :disabled="usersLoading" @click="loadUsers">
+            刷新
+          </button>
+        </div>
+        <div class="settings-bindings">
+          <div v-for="user in users" :key="user.id" class="settings-binding-row">
+            <div>
+              <div class="settings-binding-row__title">{{ user.username }} / {{ user.status }}</div>
+              <div class="settings-binding-row__meta">
+                {{ user.role }} / {{ user.display_name || '无显示名' }} / {{ user.email || '无邮箱' }}
+              </div>
+            </div>
+            <button
+              v-if="user.role !== 'owner' && user.status !== 'deleted'"
+              class="settings-action-button"
+              type="button"
+              :disabled="userDeletingID === user.id"
+              @click="deleteUser(user.id)"
+            >
+              {{ userDeletingID === user.id ? '删除中' : '删除' }}
+            </button>
+          </div>
+          <div v-if="!users.length" class="settings-panel__meta">暂无用户</div>
         </div>
       </section>
     </div>
@@ -629,6 +968,25 @@ defineExpose({ refreshPage })
         </dl>
       </section>
     </div>
+
+    <section v-if="userContext" class="settings-panel settings-panel--wide">
+      <div class="settings-panel__title">用户上下文</div>
+      <dl class="settings-description-list">
+        <div>
+          <dt>User ID</dt>
+          <dd>{{ userContext.data_scope.user_id }}</dd>
+        </div>
+        <div>
+          <dt>可读范围</dt>
+          <dd>{{ userContext.data_scope.readable_domains.join(' / ') }}</dd>
+        </div>
+        <div>
+          <dt>渠道</dt>
+          <dd>{{ userContext.data_scope.external_providers.join(' / ') || '暂无' }}</dd>
+        </div>
+      </dl>
+      <textarea class="settings-textarea" rows="5" :value="userContext.prompt.plain_text" readonly />
+    </section>
 
     <article class="settings-row">
       <div>

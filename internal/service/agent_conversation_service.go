@@ -21,13 +21,20 @@ const (
 )
 
 type AgentConversationRepository interface {
-	EnsureExternalAccount(ctx context.Context, account domain.ExternalAccount) (domain.ExternalAccount, error)
 	CreateInboundMessage(ctx context.Context, message domain.AgentInboundMessage) (domain.AgentInboundMessage, bool, error)
 	GetOrCreateSession(ctx context.Context, session domain.AgentSession) (domain.AgentSession, error)
 	CreateTurn(ctx context.Context, turn domain.AgentTurn) (domain.AgentTurn, error)
 	UpdateTurn(ctx context.Context, turn domain.AgentTurn) (domain.AgentTurn, error)
 	AppendTranscriptEntry(ctx context.Context, entry domain.AgentTranscriptEntry) (domain.AgentTranscriptEntry, error)
 	CreateAuditLog(ctx context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error)
+}
+
+type AgentExternalAccountResolver interface {
+	ResolveExternalAccount(ctx context.Context, provider string, corpID string, agentID string, externalUserID string) (domain.ExternalAccount, error)
+}
+
+type AgentUserContextProvider interface {
+	BuildAgentUserContext(ctx context.Context, userID int64) (UserContextResult, error)
 }
 
 type AgentConversationLLM interface {
@@ -42,6 +49,8 @@ type AgentConversationService struct {
 	repository AgentConversationRepository
 	llmClient  AgentConversationLLM
 	sender     AgentConversationSender
+	resolver   AgentExternalAccountResolver
+	userCtx    AgentUserContextProvider
 	now        func() time.Time
 	ownerID    int64
 }
@@ -57,6 +66,18 @@ func WithAgentConversationLLM(client AgentConversationLLM) AgentConversationServ
 func WithAgentConversationSender(sender AgentConversationSender) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		service.sender = sender
+	}
+}
+
+func WithAgentConversationExternalAccountResolver(resolver AgentExternalAccountResolver) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.resolver = resolver
+	}
+}
+
+func WithAgentConversationUserContextProvider(provider AgentUserContextProvider) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.userCtx = provider
 	}
 }
 
@@ -113,6 +134,7 @@ type ReceiveWeChatWorkAppMessageResult struct {
 	Reply           string
 	SendResult      notifier.WeChatWorkSendResult
 	Duplicate       bool
+	BindingRequired bool
 }
 
 func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Context, input ReceiveWeChatWorkAppMessageInput) (ReceiveWeChatWorkAppMessageResult, error) {
@@ -146,17 +168,30 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	}
 
 	now := s.now().UTC()
-	account, err := s.repository.EnsureExternalAccount(ctx, domain.ExternalAccount{
-		UserID:         s.ownerID,
-		Provider:       input.Provider,
-		CorpID:         input.CorpID,
-		AgentID:        input.AgentID,
-		ExternalUserID: input.ExternalUserID,
-		BindingStatus:  domain.ExternalAccountBindingStatusActive,
-		VerifiedAt:     &now,
-		LastSeenAt:     &now,
-	})
+	if s.resolver == nil {
+		status = "failed"
+		opErr = domain.NewAppError(domain.ErrorKindUnavailable, "agent_identity_resolver_unavailable", "external account resolver is unavailable", "service.agent.receive_wechat_work", true, nil)
+		metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "failed").Inc()
+		return ReceiveWeChatWorkAppMessageResult{}, opErr
+	}
+	account, err := s.resolver.ResolveExternalAccount(ctx, input.Provider, input.CorpID, input.AgentID, input.ExternalUserID)
 	if err != nil {
+		if domain.ClassifyError(err) == domain.ErrorKindNotFound {
+			status = "binding_required"
+			reply := "请先登录 messageFeed，在设置页完成企业微信绑定后再发送消息。"
+			sendResult := notifier.WeChatWorkSendResult{}
+			sendCount := 0
+			if s.sender != nil {
+				sendResult, sendCount, _ = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
+				metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "binding_required").Add(float64(sendCount))
+			}
+			metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "binding_required").Inc()
+			return ReceiveWeChatWorkAppMessageResult{
+				Reply:           reply,
+				SendResult:      sendResult,
+				BindingRequired: true,
+			}, nil
+		}
 		status = "failed"
 		opErr = err
 		metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "failed").Inc()
@@ -249,7 +284,7 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		CreatedAt: now,
 	})
 
-	reply, modelProvider, model, err := s.generateReply(ctx, input)
+	reply, modelProvider, model, err := s.generateReply(ctx, account.UserID, input)
 	if err != nil {
 		status = "failed"
 		opErr = err
@@ -329,10 +364,11 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	}, nil
 }
 
-func (s *AgentConversationService) generateReply(ctx context.Context, input ReceiveWeChatWorkAppMessageInput) (string, string, string, error) {
+func (s *AgentConversationService) generateReply(ctx context.Context, userID int64, input ReceiveWeChatWorkAppMessageInput) (string, string, string, error) {
 	ctx, span := observability.StartSpan(ctx, "service.agent.generate_reply",
 		attribute.String("agent.provider", input.Provider),
 		attribute.String("message.type", input.MsgType),
+		attribute.Int64("auth.user_id", userID),
 	)
 	var replyErr error
 	defer func() {
@@ -350,9 +386,20 @@ func (s *AgentConversationService) generateReply(ctx context.Context, input Rece
 	if s.llmClient == nil {
 		return "已收到：" + input.TextContent, "", "", nil
 	}
+	systemPrompt := agentSystemPrompt
+	if s.userCtx != nil {
+		userContext, err := s.userCtx.BuildAgentUserContext(ctx, userID)
+		if err != nil {
+			replyErr = err
+			return "", "", "", err
+		}
+		if strings.TrimSpace(userContext.Prompt.PlainText) != "" {
+			systemPrompt += "\n\n用户上下文：\n" + userContext.Prompt.PlainText
+		}
+	}
 	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
 		Messages: []llm.ChatMessage{
-			{Role: "system", Content: agentSystemPrompt},
+			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: input.TextContent},
 		},
 		Temperature: 0.2,

@@ -211,6 +211,8 @@ func main() {
 				agentRepository,
 				service.WithAgentConversationLLM(llmClient),
 				service.WithAgentConversationSender(weChatWorkSender),
+				service.WithAgentConversationExternalAccountResolver(authService),
+				service.WithAgentConversationUserContextProvider(authService),
 			)
 		}
 

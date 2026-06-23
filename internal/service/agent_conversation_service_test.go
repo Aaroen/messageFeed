@@ -10,9 +10,11 @@ import (
 	"time"
 )
 
-func TestAgentConversationServiceBindsReceivesAndSendsAIReply(t *testing.T) {
+func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.T) {
 	now := time.Date(2026, 6, 24, 17, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	userContext := &fakeAgentUserContextProvider{}
 	llmClient := &fakeAgentConversationLLM{
 		response: llm.ChatResponse{
 			Provider: "openai_compatible",
@@ -25,6 +27,8 @@ func TestAgentConversationServiceBindsReceivesAndSendsAIReply(t *testing.T) {
 		repository,
 		WithAgentConversationLLM(llmClient),
 		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationUserContextProvider(userContext),
 		WithAgentConversationNow(func() time.Time { return now }),
 	)
 
@@ -42,11 +46,11 @@ func TestAgentConversationServiceBindsReceivesAndSendsAIReply(t *testing.T) {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
 
-	if result.ExternalAccount.ID == 0 {
-		t.Fatal("external account was not created")
+	if result.ExternalAccount.ID != resolver.account.ID {
+		t.Fatalf("external account ID = %d, want %d", result.ExternalAccount.ID, resolver.account.ID)
 	}
-	if result.ExternalAccount.UserID != defaultAgentOwnerUserID {
-		t.Fatalf("external account UserID = %d", result.ExternalAccount.UserID)
+	if result.ExternalAccount.UserID != resolver.account.UserID {
+		t.Fatalf("external account UserID = %d, want %d", result.ExternalAccount.UserID, resolver.account.UserID)
 	}
 	if result.InboundMessage.ProviderMessageID != "msg-1" {
 		t.Fatalf("ProviderMessageID = %q", result.InboundMessage.ProviderMessageID)
@@ -82,6 +86,9 @@ func TestAgentConversationServiceBindsReceivesAndSendsAIReply(t *testing.T) {
 	if !strings.Contains(systemPrompt, "普通微信聊天文本") || !strings.Contains(systemPrompt, "不使用 Markdown") {
 		t.Fatalf("system prompt does not require plain WeChat text: %q", systemPrompt)
 	}
+	if !strings.Contains(systemPrompt, "当前用户：aroen") || !strings.Contains(systemPrompt, "只能读取和操作 user_id=1") {
+		t.Fatalf("system prompt does not contain user context: %q", systemPrompt)
+	}
 	if llmClient.lastRequest.MaxTokens != agentReplyMaxTokens {
 		t.Fatalf("MaxTokens = %d, want %d", llmClient.lastRequest.MaxTokens, agentReplyMaxTokens)
 	}
@@ -89,6 +96,7 @@ func TestAgentConversationServiceBindsReceivesAndSendsAIReply(t *testing.T) {
 
 func TestAgentConversationServiceSplitsLongWeChatWorkReply(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(time.Now().UTC())}
 	reply := strings.Repeat("你", notifier.WeChatWorkTextByteLimit)
 	llmClient := &fakeAgentConversationLLM{
 		response: llm.ChatResponse{Provider: "hyb", Model: "custom-model", Content: reply},
@@ -98,6 +106,7 @@ func TestAgentConversationServiceSplitsLongWeChatWorkReply(t *testing.T) {
 		repository,
 		WithAgentConversationLLM(llmClient),
 		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
 	)
 
 	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
@@ -132,12 +141,14 @@ func TestAgentConversationServiceSplitsLongWeChatWorkReply(t *testing.T) {
 func TestAgentConversationServiceDoesNotSendDuplicateInboundMessage(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
 	repository.forceDuplicate = true
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(time.Now().UTC())}
 	llmClient := &fakeAgentConversationLLM{}
 	sender := &fakeAgentConversationSender{}
 	service := NewAgentConversationService(
 		repository,
 		WithAgentConversationLLM(llmClient),
 		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
 	)
 
 	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
@@ -164,8 +175,9 @@ func TestAgentConversationServiceDoesNotSendDuplicateInboundMessage(t *testing.T
 
 func TestAgentConversationServiceUsesFallbackReplyWithoutLLM(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(time.Now().UTC())}
 	sender := &fakeAgentConversationSender{}
-	service := NewAgentConversationService(repository, WithAgentConversationSender(sender))
+	service := NewAgentConversationService(repository, WithAgentConversationSender(sender), WithAgentConversationExternalAccountResolver(resolver))
 
 	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
 		ProviderMessageID: "msg-2",
@@ -183,6 +195,43 @@ func TestAgentConversationServiceUsesFallbackReplyWithoutLLM(t *testing.T) {
 	}
 	if sender.sent.Content != "已收到：你好" {
 		t.Fatalf("sent Content = %q", sender.sent.Content)
+	}
+}
+
+func TestAgentConversationServiceRequiresWeChatWorkBinding(t *testing.T) {
+	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{err: domain.ErrNotFound}
+	sender := &fakeAgentConversationSender{}
+	llmClient := &fakeAgentConversationLLM{}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-unbound",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "unbound",
+		MsgType:           "text",
+		TextContent:       "你好",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if !result.BindingRequired {
+		t.Fatal("BindingRequired = false, want true")
+	}
+	if !strings.Contains(result.Reply, "完成企业微信绑定") {
+		t.Fatalf("Reply = %q", result.Reply)
+	}
+	if llmClient.calls != 0 {
+		t.Fatalf("llm calls = %d, want 0", llmClient.calls)
+	}
+	if len(repository.turns) != 0 {
+		t.Fatalf("turn count = %d, want 0", len(repository.turns))
 	}
 }
 
@@ -205,16 +254,6 @@ func (r *fakeAgentConversationRepository) id() int64 {
 	id := r.nextID
 	r.nextID++
 	return id
-}
-
-func (r *fakeAgentConversationRepository) EnsureExternalAccount(_ context.Context, account domain.ExternalAccount) (domain.ExternalAccount, error) {
-	if r.account.ID == 0 {
-		account.ID = r.id()
-		r.account = account
-		return account, nil
-	}
-	r.account.LastSeenAt = account.LastSeenAt
-	return r.account, nil
 }
 
 func (r *fakeAgentConversationRepository) CreateInboundMessage(_ context.Context, message domain.AgentInboundMessage) (domain.AgentInboundMessage, bool, error) {
@@ -263,6 +302,54 @@ func (r *fakeAgentConversationRepository) CreateAuditLog(_ context.Context, log 
 	log.ID = r.id()
 	r.audits = append(r.audits, log)
 	return log, nil
+}
+
+type fakeAgentExternalAccountResolver struct {
+	account domain.ExternalAccount
+	err     error
+}
+
+func (f *fakeAgentExternalAccountResolver) ResolveExternalAccount(_ context.Context, provider string, corpID string, agentID string, externalUserID string) (domain.ExternalAccount, error) {
+	if f.err != nil {
+		return domain.ExternalAccount{}, f.err
+	}
+	return f.account, nil
+}
+
+type fakeAgentUserContextProvider struct{}
+
+func (fakeAgentUserContextProvider) BuildAgentUserContext(_ context.Context, userID int64) (UserContextResult, error) {
+	return UserContextResult{
+		User: AuthUserResponse{
+			ID:          userID,
+			Username:    "aroen",
+			DisplayName: "aroen",
+			Role:        string(domain.UserRoleOwner),
+			Status:      string(domain.UserStatusActive),
+		},
+		Profile: UserProfileResponse{
+			DisplayName: "aroen",
+			TimeZone:    "Asia/Shanghai",
+			Language:    "zh-CN",
+			ReplyStyle:  "plain_text_short",
+		},
+		DataScope: UserDataScopeResponse{UserID: userID},
+		Prompt:    UserPromptContext{PlainText: "当前用户：aroen\n数据边界：只能读取和操作 user_id=1 的数据。"},
+	}, nil
+}
+
+func testAgentExternalAccount(now time.Time) domain.ExternalAccount {
+	return domain.ExternalAccount{
+		ID:             10,
+		UserID:         1,
+		Provider:       domain.AgentProviderWeChatWorkApp,
+		CorpID:         "corp-a",
+		AgentID:        "1000002",
+		ExternalUserID: "zhangsan",
+		BindingStatus:  domain.ExternalAccountBindingStatusActive,
+		VerifiedAt:     &now,
+		LastSeenAt:     &now,
+	}
 }
 
 type fakeAgentConversationLLM struct {

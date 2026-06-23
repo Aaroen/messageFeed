@@ -632,6 +632,119 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auth/profile:
+    get:
+      summary: Get current user profile
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    patch:
+      summary: Update current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfile'
+      responses:
+        '200':
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/sessions:
+    get:
+      summary: List current user active sessions
+      responses:
+        '200':
+          description: Active sessions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/UserSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/sessions/{id}:
+    delete:
+      summary: Revoke one current user session
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/auth/account:
+    delete:
+      summary: Soft-delete the current non-owner account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeactivateAccountRequest'
+      responses:
+        '200':
+          description: Account soft-deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/context:
+    get:
+      summary: Get current user context for Agent and data-scope aware workflows
+      responses:
+        '200':
+          description: Current user context
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/UserContext'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /api/v1/auth/logout:
     post:
       summary: Revoke the current session
@@ -881,6 +994,50 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/InviteCode'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/users:
+    get:
+      summary: List users for owner administration
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AdminUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/admin/users/{id}:
+    delete:
+      summary: Soft-delete a non-owner user as owner
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: User soft-deleted
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminUser'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1169,6 +1326,8 @@ components:
           type: boolean
         user:
           $ref: '#/components/schemas/AuthUser'
+        profile:
+          $ref: '#/components/schemas/UserProfile'
         bindings:
           type: array
           items:
@@ -1200,8 +1359,131 @@ components:
           enum:
             - active
             - disabled
+            - deleted
         password_configured:
           type: boolean
+    UserProfile:
+      type: object
+      properties:
+        display_name:
+          type: string
+        email:
+          type: string
+        timezone:
+          type: string
+        language:
+          type: string
+        region:
+          type: string
+        bio:
+          type: string
+        focus_topics:
+          type: array
+          items:
+            type: string
+        blocked_topics:
+          type: array
+          items:
+            type: string
+        market_focus:
+          type: array
+          items:
+            type: string
+        instrument_focus:
+          type: array
+          items:
+            type: string
+        risk_preference:
+          type: string
+        notification_quiet_hours:
+          type: string
+        agent_notes:
+          type: string
+        reply_style:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    UserSession:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        expires_at:
+          type: string
+          format: date-time
+        ip_address:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        current:
+          type: boolean
+    UserContext:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/AuthUser'
+        profile:
+          $ref: '#/components/schemas/UserProfile'
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthBinding'
+        data_scope:
+          type: object
+          properties:
+            user_id:
+              type: integer
+              format: int64
+            readable_domains:
+              type: array
+              items:
+                type: string
+            writable_domains:
+              type: array
+              items:
+                type: string
+            external_providers:
+              type: array
+              items:
+                type: string
+        prompt:
+          type: object
+          properties:
+            plain_text:
+              type: string
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        status:
+          type: string
+        password_configured:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     AuthBinding:
       type: object
       required:
@@ -1284,6 +1566,14 @@ components:
           type: string
           format: password
           minLength: 8
+    DeactivateAccountRequest:
+      type: object
+      required:
+        - current_password
+      properties:
+        current_password:
+          type: string
+          format: password
     LoginResult:
       type: object
       required:

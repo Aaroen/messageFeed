@@ -25,12 +25,31 @@ export interface AuthBinding {
   last_seen_at?: string
 }
 
+export interface UserProfile {
+  display_name: string
+  email: string
+  timezone: string
+  language: string
+  region: string
+  bio: string
+  focus_topics: string[]
+  blocked_topics: string[]
+  market_focus: string[]
+  instrument_focus: string[]
+  risk_preference: string
+  notification_quiet_hours: string
+  agent_notes: string
+  reply_style: string
+  updated_at?: string
+}
+
 export interface CurrentAuth {
   authenticated: boolean
   login_enabled: boolean
   registration_enabled: boolean
   wechat_work_oauth_enabled: boolean
   user?: AuthUser
+  profile?: UserProfile
   bindings: AuthBinding[]
 }
 
@@ -58,6 +77,43 @@ export interface InviteCode {
 export interface CreateInviteResult {
   invite: InviteCode
   code: string
+}
+
+export interface UserSession {
+  id: number
+  expires_at: string
+  ip_address: string
+  created_at: string
+  updated_at: string
+  last_seen_at: string
+  current: boolean
+}
+
+export interface AdminUser {
+  id: number
+  username: string
+  display_name: string
+  email: string
+  role: string
+  status: string
+  password_configured: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface UserContext {
+  user: AuthUser
+  profile: UserProfile
+  bindings: AuthBinding[]
+  data_scope: {
+    user_id: number
+    readable_domains: string[]
+    writable_domains: string[]
+    external_providers: string[]
+  }
+  prompt: {
+    plain_text: string
+  }
 }
 
 export async function getCurrentAuth() {
@@ -88,6 +144,36 @@ export async function logout() {
 
 export async function changePassword(input: { current_password: string; new_password: string }) {
   const response = await apiClient.post<APIEnvelope<AuthUser>>('/api/v1/auth/password', input)
+  return response.data.data
+}
+
+export async function getUserProfile() {
+  const response = await apiClient.get<APIEnvelope<UserProfile>>('/api/v1/auth/profile')
+  return response.data.data
+}
+
+export async function updateUserProfile(input: UserProfile) {
+  const response = await apiClient.patch<APIEnvelope<UserProfile>>('/api/v1/auth/profile', input)
+  return response.data.data
+}
+
+export async function listSessions() {
+  const response = await apiClient.get<APIEnvelope<UserSession[]>>('/api/v1/auth/sessions')
+  return response.data.data
+}
+
+export async function revokeSession(id: number) {
+  const response = await apiClient.delete<APIEnvelope<{ revoked: boolean }>>(`/api/v1/auth/sessions/${id}`)
+  return response.data.data
+}
+
+export async function deactivateAccount(input: { current_password: string }) {
+  const response = await apiClient.delete<APIEnvelope<{ deleted: boolean }>>('/api/v1/auth/account', { data: input })
+  return response.data.data
+}
+
+export async function getUserContext() {
+  const response = await apiClient.get<APIEnvelope<UserContext>>('/api/v1/auth/context')
   return response.data.data
 }
 
@@ -123,5 +209,15 @@ export async function createInvite(input: { role: string; ttl_seconds: number })
 
 export async function deleteInvite(id: number) {
   const response = await apiClient.delete<APIEnvelope<InviteCode>>(`/api/v1/admin/invites/${id}`)
+  return response.data.data
+}
+
+export async function listUsers() {
+  const response = await apiClient.get<APIEnvelope<AdminUser[]>>('/api/v1/admin/users')
+  return response.data.data
+}
+
+export async function deactivateUser(id: number) {
+  const response = await apiClient.delete<APIEnvelope<AdminUser>>(`/api/v1/admin/users/${id}`)
   return response.data.data
 }

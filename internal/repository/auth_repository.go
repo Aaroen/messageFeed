@@ -30,6 +30,24 @@ type userModel struct {
 	UpdatedAt    time.Time
 }
 
+type userProfileModel struct {
+	UserID                 int64 `gorm:"primaryKey"`
+	TimeZone               string
+	Language               string
+	Region                 string
+	Bio                    string
+	FocusTopics            []string `gorm:"serializer:json;type:jsonb;not null"`
+	BlockedTopics          []string `gorm:"serializer:json;type:jsonb;not null"`
+	MarketFocus            []string `gorm:"serializer:json;type:jsonb;not null"`
+	InstrumentFocus        []string `gorm:"serializer:json;type:jsonb;not null"`
+	RiskPreference         string
+	NotificationQuietHours string
+	AgentNotes             string
+	ReplyStyle             string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
 type userSessionModel struct {
 	ID               int64 `gorm:"primaryKey"`
 	UserID           int64 `gorm:"not null"`
@@ -81,6 +99,7 @@ type authInviteRedemptionModel struct {
 }
 
 func (userModel) TableName() string                 { return "users" }
+func (userProfileModel) TableName() string          { return "user_profiles" }
 func (userSessionModel) TableName() string          { return "user_sessions" }
 func (authOAuthStateModel) TableName() string       { return "auth_oauth_states" }
 func (authInviteCodeModel) TableName() string       { return "auth_invite_codes" }
@@ -158,6 +177,51 @@ func (r *AuthRepository) GetUserByUsername(ctx context.Context, username string)
 	return userModelToDomain(model), nil
 }
 
+func (r *AuthRepository) ListUsers(ctx context.Context) ([]domain.User, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.list", "select", "users")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var models []userModel
+	if err := r.db.WithContext(ctx).
+		Order("id ASC").
+		Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	users := make([]domain.User, 0, len(models))
+	for _, model := range models {
+		users = append(users, userModelToDomain(model))
+	}
+	return users, nil
+}
+
+func (r *AuthRepository) UpdateUserInfo(ctx context.Context, userID int64, displayName string, email string, now time.Time) (domain.User, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.update_info", "update", "users")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model userModel
+	result := r.db.WithContext(ctx).
+		Model(&model).
+		Clauses(clause.Returning{}).
+		Where("id = ?", userID).
+		Updates(map[string]any{
+			"display_name": strings.TrimSpace(displayName),
+			"email":        strings.TrimSpace(email),
+			"updated_at":   now.UTC(),
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.User{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return domain.User{}, opErr
+	}
+	return userModelToDomain(model), nil
+}
+
 func (r *AuthRepository) UpdateUserPassword(ctx context.Context, userID int64, passwordHash string, now time.Time) (domain.User, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.update_password", "update", "users")
 	var opErr error
@@ -181,6 +245,95 @@ func (r *AuthRepository) UpdateUserPassword(ctx context.Context, userID int64, p
 		return domain.User{}, opErr
 	}
 	return userModelToDomain(model), nil
+}
+
+func (r *AuthRepository) DeactivateUser(ctx context.Context, userID int64, now time.Time) (domain.User, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.deactivate", "update", "users")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model userModel
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.
+			Model(&model).
+			Clauses(clause.Returning{}).
+			Where("id = ?", userID).
+			Updates(map[string]any{
+				"status":     string(domain.UserStatusDeleted),
+				"updated_at": now.UTC(),
+			})
+		if result.Error != nil {
+			return mapRepositoryError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrNotFound
+		}
+		if err := tx.
+			Model(&userSessionModel{}).
+			Where("user_id = ? AND revoked_at IS NULL", userID).
+			Update("revoked_at", now.UTC()).Error; err != nil {
+			return mapRepositoryError(err)
+		}
+		return nil
+	})
+	if err != nil {
+		opErr = err
+		return domain.User{}, err
+	}
+	return userModelToDomain(model), nil
+}
+
+func (r *AuthRepository) GetUserProfile(ctx context.Context, userID int64) (domain.UserProfile, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user_profile.get", "select", "user_profiles")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model userProfileModel
+	if err := r.db.WithContext(ctx).Where("user_id = ?", userID).First(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.UserProfile{}, opErr
+	}
+	return userProfileModelToDomain(model), nil
+}
+
+func (r *AuthRepository) UpsertUserProfile(ctx context.Context, profile domain.UserProfile) (domain.UserProfile, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user_profile.upsert", "upsert", "user_profiles")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	profile = normalizeUserProfile(profile)
+	model := userProfileModelFromDomain(profile)
+	err := r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "user_id"}},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"timezone",
+				"language",
+				"region",
+				"bio",
+				"focus_topics",
+				"blocked_topics",
+				"market_focus",
+				"instrument_focus",
+				"risk_preference",
+				"notification_quiet_hours",
+				"agent_notes",
+				"reply_style",
+				"updated_at",
+			}),
+		}).
+		Create(&model).Error
+	if err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.UserProfile{}, opErr
+	}
+
+	var persisted userProfileModel
+	if err := r.db.WithContext(ctx).Where("user_id = ?", model.UserID).First(&persisted).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.UserProfile{}, opErr
+	}
+	return userProfileModelToDomain(persisted), nil
 }
 
 func (r *AuthRepository) CreateSession(ctx context.Context, session domain.UserSession) (domain.UserSession, error) {
@@ -211,6 +364,26 @@ func (r *AuthRepository) GetSessionByTokenHash(ctx context.Context, tokenHash st
 	return userSessionModelToDomain(model), nil
 }
 
+func (r *AuthRepository) ListSessions(ctx context.Context, userID int64, now time.Time) ([]domain.UserSession, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.session.list", "select", "user_sessions")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var models []userSessionModel
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND revoked_at IS NULL AND expires_at > ?", userID, now.UTC()).
+		Order("last_seen_at DESC, id DESC").
+		Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	sessions := make([]domain.UserSession, 0, len(models))
+	for _, model := range models {
+		sessions = append(sessions, userSessionModelToDomain(model))
+	}
+	return sessions, nil
+}
+
 func (r *AuthRepository) TouchSession(ctx context.Context, sessionID int64, now time.Time) error {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.session.touch", "update", "user_sessions")
 	var opErr error
@@ -222,6 +395,25 @@ func (r *AuthRepository) TouchSession(ctx context.Context, sessionID int64, now 
 		Update("last_seen_at", now.UTC()).Error
 	if err != nil {
 		opErr = mapRepositoryError(err)
+	}
+	return opErr
+}
+
+func (r *AuthRepository) RevokeSessionByID(ctx context.Context, userID int64, sessionID int64, now time.Time) error {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.session.revoke_by_id", "update", "user_sessions")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	result := r.db.WithContext(ctx).
+		Model(&userSessionModel{}).
+		Where("id = ? AND user_id = ? AND revoked_at IS NULL", sessionID, userID).
+		Update("revoked_at", now.UTC())
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
 	}
 	return opErr
 }
@@ -335,6 +527,49 @@ func (r *AuthRepository) ListExternalAccounts(ctx context.Context, userID int64)
 		accounts = append(accounts, externalAccountModelToDomain(model))
 	}
 	return accounts, nil
+}
+
+func (r *AuthRepository) GetExternalAccountByIdentity(ctx context.Context, provider string, corpID string, agentID string, externalUserID string) (domain.ExternalAccount, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.external_account.get_by_identity", "select", "external_accounts")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model externalAccountModel
+	if err := r.db.WithContext(ctx).
+		Where(
+			"provider = ? AND corp_id = ? AND agent_id = ? AND external_user_id = ?",
+			strings.TrimSpace(provider),
+			strings.TrimSpace(corpID),
+			strings.TrimSpace(agentID),
+			strings.TrimSpace(externalUserID),
+		).
+		First(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.ExternalAccount{}, opErr
+	}
+	return externalAccountModelToDomain(model), nil
+}
+
+func (r *AuthRepository) TouchExternalAccount(ctx context.Context, accountID int64, now time.Time) error {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.external_account.touch", "update", "external_accounts")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	result := r.db.WithContext(ctx).
+		Model(&externalAccountModel{}).
+		Where("id = ?", accountID).
+		Updates(map[string]any{
+			"last_seen_at": now.UTC(),
+			"updated_at":   now.UTC(),
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+	}
+	return opErr
 }
 
 func (r *AuthRepository) DisableExternalAccount(ctx context.Context, userID int64, accountID int64, now time.Time) (domain.ExternalAccount, error) {
@@ -528,6 +763,51 @@ func normalizeUser(user domain.User) domain.User {
 	return user
 }
 
+func normalizeUserProfile(profile domain.UserProfile) domain.UserProfile {
+	profile.TimeZone = strings.TrimSpace(profile.TimeZone)
+	if profile.TimeZone == "" {
+		profile.TimeZone = "Asia/Shanghai"
+	}
+	profile.Language = strings.TrimSpace(profile.Language)
+	if profile.Language == "" {
+		profile.Language = "zh-CN"
+	}
+	profile.Region = strings.TrimSpace(profile.Region)
+	profile.Bio = strings.TrimSpace(profile.Bio)
+	profile.FocusTopics = normalizeStringList(profile.FocusTopics)
+	profile.BlockedTopics = normalizeStringList(profile.BlockedTopics)
+	profile.MarketFocus = normalizeStringList(profile.MarketFocus)
+	profile.InstrumentFocus = normalizeStringList(profile.InstrumentFocus)
+	profile.RiskPreference = strings.TrimSpace(profile.RiskPreference)
+	profile.NotificationQuietHours = strings.TrimSpace(profile.NotificationQuietHours)
+	profile.AgentNotes = strings.TrimSpace(profile.AgentNotes)
+	profile.ReplyStyle = strings.TrimSpace(profile.ReplyStyle)
+	if profile.ReplyStyle == "" {
+		profile.ReplyStyle = "plain_text_short"
+	}
+	return profile
+}
+
+func normalizeStringList(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
 func normalizeInviteCode(invite domain.AuthInviteCode) domain.AuthInviteCode {
 	invite.CodeHash = strings.TrimSpace(invite.CodeHash)
 	if !invite.Role.Valid() {
@@ -570,6 +850,46 @@ func userModelToDomain(model userModel) domain.User {
 		Status:       domain.UserStatus(model.Status),
 		CreatedAt:    model.CreatedAt,
 		UpdatedAt:    model.UpdatedAt,
+	}
+}
+
+func userProfileModelFromDomain(profile domain.UserProfile) userProfileModel {
+	return userProfileModel{
+		UserID:                 profile.UserID,
+		TimeZone:               profile.TimeZone,
+		Language:               profile.Language,
+		Region:                 profile.Region,
+		Bio:                    profile.Bio,
+		FocusTopics:            append([]string(nil), profile.FocusTopics...),
+		BlockedTopics:          append([]string(nil), profile.BlockedTopics...),
+		MarketFocus:            append([]string(nil), profile.MarketFocus...),
+		InstrumentFocus:        append([]string(nil), profile.InstrumentFocus...),
+		RiskPreference:         profile.RiskPreference,
+		NotificationQuietHours: profile.NotificationQuietHours,
+		AgentNotes:             profile.AgentNotes,
+		ReplyStyle:             profile.ReplyStyle,
+		CreatedAt:              profile.CreatedAt,
+		UpdatedAt:              profile.UpdatedAt,
+	}
+}
+
+func userProfileModelToDomain(model userProfileModel) domain.UserProfile {
+	return domain.UserProfile{
+		UserID:                 model.UserID,
+		TimeZone:               model.TimeZone,
+		Language:               model.Language,
+		Region:                 model.Region,
+		Bio:                    model.Bio,
+		FocusTopics:            append([]string(nil), model.FocusTopics...),
+		BlockedTopics:          append([]string(nil), model.BlockedTopics...),
+		MarketFocus:            append([]string(nil), model.MarketFocus...),
+		InstrumentFocus:        append([]string(nil), model.InstrumentFocus...),
+		RiskPreference:         model.RiskPreference,
+		NotificationQuietHours: model.NotificationQuietHours,
+		AgentNotes:             model.AgentNotes,
+		ReplyStyle:             model.ReplyStyle,
+		CreatedAt:              model.CreatedAt,
+		UpdatedAt:              model.UpdatedAt,
 	}
 }
 

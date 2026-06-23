@@ -43,12 +43,32 @@ func (fakeAuthEndpointService) ChangePassword(ctx context.Context, input service
 	return service.AuthUserResponse{}, nil
 }
 
+func (fakeAuthEndpointService) UpdateProfile(ctx context.Context, input service.UpdateProfileInput) (service.UserProfileResponse, error) {
+	return service.UserProfileResponse{}, nil
+}
+
+func (fakeAuthEndpointService) ListSessions(ctx context.Context, auth service.CurrentAuth) ([]service.UserSessionResponse, error) {
+	return []service.UserSessionResponse{}, nil
+}
+
+func (fakeAuthEndpointService) RevokeSession(ctx context.Context, auth service.CurrentAuth, sessionID int64) error {
+	return nil
+}
+
+func (fakeAuthEndpointService) DeactivateAccount(ctx context.Context, input service.DeactivateAccountInput) error {
+	return nil
+}
+
 func (fakeAuthEndpointService) Logout(ctx context.Context, rawToken string) error {
 	return nil
 }
 
 func (fakeAuthEndpointService) Me(ctx context.Context, auth service.CurrentAuth) (service.AuthMeResult, error) {
 	return service.AuthMeResult{Bindings: []service.AuthBindingResponse{}}, nil
+}
+
+func (fakeAuthEndpointService) GetUserContext(ctx context.Context, auth service.CurrentAuth) (service.UserContextResult, error) {
+	return service.UserContextResult{}, nil
 }
 
 func (fakeAuthEndpointService) BuildWeChatWorkOAuthURL(ctx context.Context, input service.WeChatWorkOAuthURLInput) (service.WeChatWorkOAuthURLResult, error) {
@@ -77,6 +97,14 @@ func (fakeAuthEndpointService) ListInvites(ctx context.Context, auth service.Cur
 
 func (fakeAuthEndpointService) RevokeInvite(ctx context.Context, auth service.CurrentAuth, inviteID int64) (service.InviteCodeResponse, error) {
 	return service.InviteCodeResponse{}, nil
+}
+
+func (fakeAuthEndpointService) ListUsers(ctx context.Context, auth service.CurrentAuth) ([]service.AdminUserResponse, error) {
+	return []service.AdminUserResponse{}, nil
+}
+
+func (fakeAuthEndpointService) DeactivateUser(ctx context.Context, auth service.CurrentAuth, userID int64) (service.AdminUserResponse, error) {
+	return service.AdminUserResponse{}, nil
 }
 
 func (fakeAuthEndpointService) CookieMaxAge() int {

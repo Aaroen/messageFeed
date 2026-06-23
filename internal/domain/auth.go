@@ -7,11 +7,12 @@ type UserStatus string
 const (
 	UserStatusActive   UserStatus = "active"
 	UserStatusDisabled UserStatus = "disabled"
+	UserStatusDeleted  UserStatus = "deleted"
 )
 
 func (s UserStatus) Valid() bool {
 	switch s {
-	case UserStatusActive, UserStatusDisabled:
+	case UserStatusActive, UserStatusDisabled, UserStatusDeleted:
 		return true
 	default:
 		return false
@@ -44,6 +45,24 @@ type User struct {
 	Status       UserStatus
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+type UserProfile struct {
+	UserID                 int64
+	TimeZone               string
+	Language               string
+	Region                 string
+	Bio                    string
+	FocusTopics            []string
+	BlockedTopics          []string
+	MarketFocus            []string
+	InstrumentFocus        []string
+	RiskPreference         string
+	NotificationQuietHours string
+	AgentNotes             string
+	ReplyStyle             string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type UserSession struct {
