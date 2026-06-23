@@ -78,6 +78,10 @@ func TestAgentConversationServiceBindsReceivesAndSendsAIReply(t *testing.T) {
 	if len(llmClient.lastRequest.Messages) != 2 {
 		t.Fatalf("llm messages = %#v", llmClient.lastRequest.Messages)
 	}
+	systemPrompt := llmClient.lastRequest.Messages[0].Content
+	if !strings.Contains(systemPrompt, "普通微信聊天文本") || !strings.Contains(systemPrompt, "不使用 Markdown") {
+		t.Fatalf("system prompt does not require plain WeChat text: %q", systemPrompt)
+	}
 	if llmClient.lastRequest.MaxTokens != agentReplyMaxTokens {
 		t.Fatalf("MaxTokens = %d, want %d", llmClient.lastRequest.MaxTokens, agentReplyMaxTokens)
 	}
