@@ -8,11 +8,12 @@ const (
 	SourceTypeRSS      SourceType = "rss"
 	SourceTypeAtom     SourceType = "atom"
 	SourceTypeJSONFeed SourceType = "json_feed"
+	SourceTypeInternal SourceType = "internal"
 )
 
 func (t SourceType) Valid() bool {
 	switch t {
-	case SourceTypeRSS, SourceTypeAtom, SourceTypeJSONFeed:
+	case SourceTypeRSS, SourceTypeAtom, SourceTypeJSONFeed, SourceTypeInternal:
 		return true
 	default:
 		return false

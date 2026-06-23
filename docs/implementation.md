@@ -705,7 +705,7 @@ API 与安全约束：
 
 ### <a id="phase-3"></a>阶段三：日志、错误追踪与链路观测
 
-**状态**：进行中 | **完成度**：90%
+**状态**：已完成 | **完成度**：100%
 
 **触发条件**：阶段二完成“订阅源 -> 手动抓取 -> 去重入库 -> 时间线展示 -> 阅读状态”最小业务闭环后立即启动。该阶段完成前，不进入源目录、推荐 Feed、AI 摘要、通知或金融监控的主体开发。
 
@@ -846,7 +846,7 @@ API 与安全约束：
 - [x] 已建立 `ai_analysis_jobs` 基础表、domain、repository 与模型转换测试，Agent 分析结果以结构化 JSON 保存。
 - [x] 已建立 `AlertPolicyEngine`，统一裁决规则启停、重要性阈值、置信度阈值、冷却、去重和是否需要用户确认。
 - [x] 已建立 `notification_jobs` 和 `notification_deliveries` 基础表、domain、repository 与模型转换测试，支持企业微信、`ntfy` 和站内通道的可审计记录。
-- [ ] 尚未建立重要分析写入 `messageFeed AI` 内部源的服务边界。
+- [x] 已建立 `AIFeedService`，可确保 `messageFeed AI` 内部源存在，并将今日摘要、重要提醒解释、来源健康报告和 Agent 操作报告沉淀为普通条目。
 
 实施步骤：
 
@@ -861,7 +861,7 @@ API 与安全约束：
 9. [x] 新增 `ai_analysis_jobs`，Agent 只分析候选条目并保存结构化结果，字段包含 `should_notify`、`importance`、`matched_reasons`、`summary`、`risk_level` 和 `confidence`。
 10. [x] 新增策略引擎，统一处理规则命中、重要性阈值、置信度阈值、冷却、去重和是否需要用户确认。
 11. [x] 新增 `notification_jobs` 和 `notification_deliveries`，支持企业微信和 `ntfy` 的可审计发送。
-12. 将重要分析写入 `messageFeed AI` 内部源，包括今日摘要、重要提醒解释、来源健康报告和 Agent 操作报告。
+12. [x] 将重要分析写入 `messageFeed AI` 内部源，包括今日摘要、重要提醒解释、来源健康报告和 Agent 操作报告。
 
 验收标准：
 
