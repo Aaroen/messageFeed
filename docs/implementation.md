@@ -814,7 +814,7 @@ API 与安全约束：
 
 ### <a id="phase-4-5"></a>阶段四点五：后端治理与后台刷新解耦
 
-**状态**：进行中 | **完成度**：15%
+**状态**：进行中 | **完成度**：25%
 
 阶段四点五用于在进入 Agent、通知和金融能力前，先解决首页刷新性能、后台同步解耦和后端服务边界问题。该阶段的基本原则是：后台同步负责获取事实，确定性规则负责预筛选，Agent 只处理候选内容并生成解释，策略引擎负责最终裁决，通知系统负责可审计发送。
 
@@ -835,7 +835,7 @@ API 与安全约束：
 - [x] `migrations/000007_add_background_fetch_outbox.*.sql` 已为 `sources` 增加 `next_fetch_at`、`etag`、`last_modified` 和 `fetch_priority` 字段。
 - [x] 已建立 `source_fetch_jobs`、`source_fetch_attempts` 和 `item_events` 基础表。
 - [x] 已建立抓取任务、抓取尝试和 item event 的 domain、repository 与模型转换测试。
-- [ ] `ItemRepository.UpsertMany` 尚未向调用方返回新建条目 ID，无法稳定只为新条目生成事件。
+- [x] `ItemRepository.UpsertMany` 已向调用方返回新建和更新条目实体，为后续 `item.created` 事件生成提供依据。
 - [ ] 尚未建立后台 worker、任务锁、失败重试和抓取任务历史查询。
 - [ ] 尚未建立提醒规则、确定性预筛选、AI 分析任务、策略引擎和通知审计。
 
@@ -844,7 +844,7 @@ API 与安全约束：
 1. [x] 新增后台抓取和 outbox 迁移：`source_fetch_jobs`、`source_fetch_attempts`、`item_events`，并为 `sources` 增加 `next_fetch_at`、`etag`、`last_modified` 和可选优先级字段。
 2. [x] 新增对应 domain、repository 和测试，仓储层必须支持按状态领取任务、记录 attempt、写入事件和标记事件处理状态。
 3. 新建 `SourceSyncService` 或 `FetchJobService`，负责扫描 `next_fetch_at <= now` 的来源、创建抓取任务和执行单个抓取任务。
-4. 调整条目 upsert 返回结构，使服务可以识别新建条目并只为新条目产生 `item.created` 事件。
+4. [x] 调整条目 upsert 返回结构，使服务可以识别新建条目并只为新条目产生 `item.created` 事件。
 5. 明确事务边界：条目入库和 outbox 事件生成必须处于同一事务，或建立可审计的补偿机制。
 6. 保留现有手动抓取接口，但内部逐步迁移到抓取任务执行路径，避免重复维护两套抓取状态逻辑。
 7. 新增最小 `alert_rules`，初期只支持来源、关键词、分类、冷却时间和启停状态。

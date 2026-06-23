@@ -77,15 +77,11 @@ func (r *ItemRepository) UpsertMany(ctx context.Context, items []domain.Item) (d
 
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, item := range items {
-			created, err := upsertItem(ctx, tx, item)
+			upserted, created, err := upsertItem(ctx, tx, item)
 			if err != nil {
 				return err
 			}
-			if created {
-				result.CreatedCount++
-			} else {
-				result.UpdatedCount++
-			}
+			appendItemUpsertResult(&result, upserted, created)
 		}
 		return nil
 	})
@@ -94,6 +90,19 @@ func (r *ItemRepository) UpsertMany(ctx context.Context, items []domain.Item) (d
 		return domain.ItemUpsertResult{}, opErr
 	}
 	return result, nil
+}
+
+func appendItemUpsertResult(result *domain.ItemUpsertResult, item domain.Item, created bool) {
+	if result == nil {
+		return
+	}
+	if created {
+		result.CreatedCount++
+		result.CreatedItems = append(result.CreatedItems, item)
+		return
+	}
+	result.UpdatedCount++
+	result.UpdatedItems = append(result.UpdatedItems, item)
 }
 
 func (r *ItemRepository) ListByUser(ctx context.Context, options domain.ItemListOptions) (domain.ItemListResult, error) {
@@ -212,13 +221,13 @@ func applyItemStateFilters(query *gorm.DB, options domain.ItemListOptions) *gorm
 	return query
 }
 
-func upsertItem(ctx context.Context, db *gorm.DB, item domain.Item) (bool, error) {
+func upsertItem(ctx context.Context, db *gorm.DB, item domain.Item) (domain.Item, bool, error) {
 	item = sanitizeItemText(item)
 	model := itemModelFromDomain(item)
 
 	existing, found, err := findExistingItem(ctx, db, item)
 	if err != nil {
-		return false, err
+		return domain.Item{}, false, err
 	}
 	if found {
 		model.ID = existing.ID
@@ -228,15 +237,15 @@ func upsertItem(ctx context.Context, db *gorm.DB, item domain.Item) (bool, error
 			Where("id = ?", existing.ID).
 			Select("Title", "URL", "NormalizedURL", "RawGUID", "ContentHash", "Summary", "ContentSnippet", "Author", "PublishedAt", "FetchedAt").
 			Updates(&model).Error; err != nil {
-			return false, err
+			return domain.Item{}, false, err
 		}
-		return false, nil
+		return itemModelToDomain(model), false, nil
 	}
 
 	if err := db.WithContext(ctx).Create(&model).Error; err != nil {
-		return false, err
+		return domain.Item{}, false, err
 	}
-	return true, nil
+	return itemModelToDomain(model), true, nil
 }
 
 func findExistingItem(ctx context.Context, db *gorm.DB, item domain.Item) (itemModel, bool, error) {

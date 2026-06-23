@@ -118,6 +118,32 @@ func TestItemViewModelToDomainIncludesSourceAndState(t *testing.T) {
 	}
 }
 
+func TestAppendItemUpsertResultTracksCreatedAndUpdatedItems(t *testing.T) {
+	result := domain.ItemUpsertResult{TotalCount: 2}
+
+	appendItemUpsertResult(&result, domain.Item{ID: 1, Title: "Created"}, true)
+	appendItemUpsertResult(&result, domain.Item{ID: 2, Title: "Updated"}, false)
+
+	if result.CreatedCount != 1 {
+		t.Fatalf("CreatedCount = %d, want 1", result.CreatedCount)
+	}
+	if result.UpdatedCount != 1 {
+		t.Fatalf("UpdatedCount = %d, want 1", result.UpdatedCount)
+	}
+	if got, want := len(result.CreatedItems), 1; got != want {
+		t.Fatalf("CreatedItems length = %d, want %d", got, want)
+	}
+	if got, want := len(result.UpdatedItems), 1; got != want {
+		t.Fatalf("UpdatedItems length = %d, want %d", got, want)
+	}
+	if result.CreatedItems[0].ID != 1 {
+		t.Fatalf("CreatedItems[0].ID = %d, want 1", result.CreatedItems[0].ID)
+	}
+	if result.UpdatedItems[0].ID != 2 {
+		t.Fatalf("UpdatedItems[0].ID = %d, want 2", result.UpdatedItems[0].ID)
+	}
+}
+
 func TestItemViewBaseQueryFiltersInactiveSources(t *testing.T) {
 	if !strings.Contains(activeSourceStatusFilter, "sources.status") {
 		t.Fatalf("active source filter = %q, want sources.status predicate", activeSourceStatusFilter)

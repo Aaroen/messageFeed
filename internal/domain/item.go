@@ -37,6 +37,8 @@ type ItemUpsertResult struct {
 	CreatedCount int
 	UpdatedCount int
 	TotalCount   int
+	CreatedItems []Item
+	UpdatedItems []Item
 }
 
 type ItemListOptions struct {
