@@ -10,7 +10,6 @@ const router = useRouter()
 const username = ref('')
 const password = ref('')
 const loading = ref(false)
-const checking = ref(true)
 const errorMessage = ref('')
 const loginEnabled = ref(true)
 
@@ -36,7 +35,6 @@ async function submitLogin() {
 }
 
 onMounted(async () => {
-  checking.value = true
   try {
     const auth = await getCurrentAuth()
     loginEnabled.value = auth.login_enabled
@@ -45,8 +43,6 @@ onMounted(async () => {
     }
   } catch (error) {
     errorMessage.value = formatAPIError(error)
-  } finally {
-    checking.value = false
   }
 })
 </script>
@@ -69,7 +65,7 @@ onMounted(async () => {
 
       <label class="settings-field">
         <span>账号</span>
-        <input v-model="username" class="settings-input" type="text" autocomplete="username" :disabled="checking" />
+        <input v-model="username" class="settings-input" type="text" autocomplete="username" />
       </label>
 
       <label class="settings-field">
@@ -79,16 +75,15 @@ onMounted(async () => {
           class="settings-input"
           type="password"
           autocomplete="current-password"
-          :disabled="checking"
         />
       </label>
 
-      <button class="settings-action-button auth-submit-button" type="submit" :disabled="loading || checking || !loginEnabled">
+      <button class="settings-action-button auth-submit-button" type="submit" :disabled="loading || !loginEnabled">
         {{ loading ? '登录中' : '登录' }}
       </button>
 
       <button class="settings-link-button" type="button" @click="router.replace({ name: 'register', query: { redirect: redirectPath } })">
-        使用邀请码注册
+        注册
       </button>
     </form>
   </section>

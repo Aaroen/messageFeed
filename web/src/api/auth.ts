@@ -116,13 +116,42 @@ export interface UserContext {
   }
 }
 
-export async function getCurrentAuth() {
-  const response = await apiClient.get<APIEnvelope<CurrentAuth>>('/api/v1/auth/me')
-  return response.data.data
+const currentAuthCacheTTL = 5000
+let currentAuthCache: { value: CurrentAuth; expiresAt: number } | null = null
+let currentAuthRequest: Promise<CurrentAuth> | null = null
+
+export function invalidateCurrentAuthCache() {
+  currentAuthCache = null
+  currentAuthRequest = null
+}
+
+export async function getCurrentAuth(input: { force?: boolean } = {}) {
+  const now = Date.now()
+  if (!input.force && currentAuthCache && currentAuthCache.expiresAt > now) {
+    return currentAuthCache.value
+  }
+  if (!input.force && currentAuthRequest) {
+    return currentAuthRequest
+  }
+
+  currentAuthRequest = apiClient
+    .get<APIEnvelope<CurrentAuth>>('/api/v1/auth/me')
+    .then((nextResponse) => {
+      currentAuthCache = {
+        value: nextResponse.data.data,
+        expiresAt: Date.now() + currentAuthCacheTTL,
+      }
+      return nextResponse.data.data
+    })
+    .finally(() => {
+      currentAuthRequest = null
+    })
+  return currentAuthRequest
 }
 
 export async function login(input: { username: string; password: string }) {
   const response = await apiClient.post<APIEnvelope<LoginResult>>('/api/v1/auth/login', input)
+  invalidateCurrentAuthCache()
   return response.data.data
 }
 
@@ -134,16 +163,19 @@ export async function registerWithInvite(input: {
   email?: string
 }) {
   const response = await apiClient.post<APIEnvelope<LoginResult>>('/api/v1/auth/register', input)
+  invalidateCurrentAuthCache()
   return response.data.data
 }
 
 export async function logout() {
   const response = await apiClient.post<APIEnvelope<{ logged_out: boolean }>>('/api/v1/auth/logout')
+  invalidateCurrentAuthCache()
   return response.data.data
 }
 
 export async function changePassword(input: { current_password: string; new_password: string }) {
   const response = await apiClient.post<APIEnvelope<AuthUser>>('/api/v1/auth/password', input)
+  invalidateCurrentAuthCache()
   return response.data.data
 }
 
@@ -154,6 +186,7 @@ export async function getUserProfile() {
 
 export async function updateUserProfile(input: UserProfile) {
   const response = await apiClient.patch<APIEnvelope<UserProfile>>('/api/v1/auth/profile', input)
+  invalidateCurrentAuthCache()
   return response.data.data
 }
 
@@ -164,11 +197,13 @@ export async function listSessions() {
 
 export async function revokeSession(id: number) {
   const response = await apiClient.delete<APIEnvelope<{ revoked: boolean }>>(`/api/v1/auth/sessions/${id}`)
+  invalidateCurrentAuthCache()
   return response.data.data
 }
 
 export async function deactivateAccount(input: { current_password: string }) {
   const response = await apiClient.delete<APIEnvelope<{ deleted: boolean }>>('/api/v1/auth/account', { data: input })
+  invalidateCurrentAuthCache()
   return response.data.data
 }
 
@@ -194,6 +229,7 @@ export async function listAuthBindings() {
 
 export async function disableAuthBinding(id: number) {
   const response = await apiClient.post<APIEnvelope<AuthBinding>>(`/api/v1/auth/bindings/${id}/disable`)
+  invalidateCurrentAuthCache()
   return response.data.data
 }
 

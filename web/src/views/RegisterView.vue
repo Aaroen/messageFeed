@@ -13,7 +13,6 @@ const displayName = ref('')
 const email = ref('')
 const password = ref('')
 const loading = ref(false)
-const checking = ref(true)
 const registrationEnabled = ref(true)
 const errorMessage = ref('')
 
@@ -26,15 +25,20 @@ const redirectPath = computed(() => {
 })
 
 async function submitRegister() {
+  const invite = inviteCode.value.trim()
+  if (!invite) {
+    errorMessage.value = '邀请码为必填项'
+    return
+  }
   loading.value = true
   errorMessage.value = ''
   try {
     await registerWithInvite({
-      invite_code: inviteCode.value,
-      username: username.value,
+      invite_code: invite,
+      username: username.value.trim(),
       password: password.value,
-      display_name: displayName.value,
-      email: email.value,
+      display_name: displayName.value.trim(),
+      email: email.value.trim(),
     })
     await router.replace(redirectPath.value)
   } catch (error) {
@@ -45,17 +49,11 @@ async function submitRegister() {
 }
 
 onMounted(async () => {
-  checking.value = true
   try {
     const auth = await getCurrentAuth()
     registrationEnabled.value = auth.registration_enabled
-    if (auth.authenticated) {
-      await router.replace(redirectPath.value)
-    }
   } catch (error) {
     errorMessage.value = formatAPIError(error)
-  } finally {
-    checking.value = false
   }
 })
 </script>
@@ -77,23 +75,30 @@ onMounted(async () => {
       </div>
 
       <label class="settings-field">
-        <span>邀请码</span>
-        <input v-model="inviteCode" class="settings-input" type="text" autocomplete="one-time-code" :disabled="checking" />
+        <span>邀请码（必填）</span>
+        <input
+          v-model="inviteCode"
+          class="settings-input"
+          type="text"
+          autocomplete="one-time-code"
+          required
+          aria-required="true"
+        />
       </label>
 
       <label class="settings-field">
         <span>账号</span>
-        <input v-model="username" class="settings-input" type="text" autocomplete="username" :disabled="checking" />
+        <input v-model="username" class="settings-input" type="text" autocomplete="username" required />
       </label>
 
       <label class="settings-field">
         <span>显示名</span>
-        <input v-model="displayName" class="settings-input" type="text" autocomplete="name" :disabled="checking" />
+        <input v-model="displayName" class="settings-input" type="text" autocomplete="name" />
       </label>
 
       <label class="settings-field">
         <span>邮箱</span>
-        <input v-model="email" class="settings-input" type="email" autocomplete="email" :disabled="checking" />
+        <input v-model="email" class="settings-input" type="email" autocomplete="email" />
       </label>
 
       <label class="settings-field">
@@ -104,11 +109,11 @@ onMounted(async () => {
           type="password"
           minlength="6"
           autocomplete="new-password"
-          :disabled="checking"
+          required
         />
       </label>
 
-      <button class="settings-action-button auth-submit-button" type="submit" :disabled="loading || checking || !registrationEnabled">
+      <button class="settings-action-button auth-submit-button" type="submit" :disabled="loading || !registrationEnabled">
         {{ loading ? '注册中' : '注册' }}
       </button>
 

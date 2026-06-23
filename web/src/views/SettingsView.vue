@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -147,6 +147,10 @@ function ensureActiveSettingsSection() {
   }
 }
 
+function sectionNeedsAdminConfig(section = activeSettingsSection.value) {
+  return section === 'overview' || section === 'runtime' || section === 'tests'
+}
+
 const statusCards = computed(() => {
   const status = configStatus.value
   const auth = authStatus.value
@@ -215,11 +219,25 @@ async function loadAuthStatus() {
     if (authStatus.value.profile) {
       applyProfile(authStatus.value.profile)
     }
-    const tasks: Promise<void>[] = [loadSessions()]
+    const section = activeSettingsSection.value
+    const tasks: Promise<void>[] = []
+    if (section === 'security') {
+      tasks.push(loadSessions())
+    }
     if (authStatus.value.user?.role === 'owner') {
-      tasks.push(loadUserContext(), loadInvites(), loadUsers())
+      if (section === 'context') {
+        tasks.push(loadUserContext())
+      }
+      if (section === 'invites') {
+        tasks.push(loadInvites())
+      }
+      if (section === 'users') {
+        tasks.push(loadUsers())
+      }
     } else {
       userContext.value = null
+      invites.value = []
+      users.value = []
     }
     await Promise.all(tasks)
     ensureActiveSettingsSection()
@@ -274,12 +292,14 @@ async function loadUserContext() {
 async function refreshPage() {
   loadSettings()
   await loadAuthStatus()
-  if (isOwner.value) {
+  if (isOwner.value && sectionNeedsAdminConfig()) {
     await loadAdminConfig()
     return
   }
-  configStatus.value = null
-  configError.value = ''
+  if (!isOwner.value) {
+    configStatus.value = null
+    configError.value = ''
+  }
 }
 
 function updateSourceTimelinePreload() {
@@ -541,6 +561,10 @@ function formatTime(value: string | undefined) {
 }
 
 onMounted(() => {
+  void refreshPage().catch(() => undefined)
+})
+
+watch(activeSettingsSection, () => {
   void refreshPage().catch(() => undefined)
 })
 
