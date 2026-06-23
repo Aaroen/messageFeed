@@ -48,6 +48,17 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
 
     const token = nextRefreshRunToken()
     const afterSettledCallbacks: Array<() => void> = []
+    let callbacksReleased = false
+    function releaseAfterSettledCallbacks() {
+      if (callbacksReleased) {
+        return
+      }
+      callbacksReleased = true
+      for (const callback of afterSettledCallbacks) {
+        callback()
+      }
+    }
+
     options.clearCurrentPageNotice()
     options.beginRefreshing()
     options.holdCompletionRefreshing()
@@ -62,15 +73,14 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
     } finally {
       if (!refreshRunIsCurrent(token)) {
         options.releaseCompletionRefreshing()
+        releaseAfterSettledCallbacks()
         return
       }
       options.settleRefreshCompletion({
         afterRelease: options.collapseTopChrome,
         afterSettled: () => {
           options.releaseCompletionRefreshing()
-          for (const callback of afterSettledCallbacks) {
-            callback()
-          }
+          releaseAfterSettledCallbacks()
         },
       })
     }
