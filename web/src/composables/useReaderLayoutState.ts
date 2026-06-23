@@ -35,7 +35,9 @@ export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
   const sourceVisibleTopClearance = computed(() =>
     Math.max(0, sourceVisibleTopOffset.value - sourceTopOffset),
   )
-  const sourceTopInset = computed(() => topScrollInset(options.sourceReaderScrollTop.value, sourceTopOffset))
+  const sourceTopInset = computed(() =>
+    topScrollInset(options.sourceReaderScrollTop.value, sourceVisibleTopOffset.value),
+  )
   const visibleChromeNeedsSourceTopClearance = computed(() => {
     if (!options.feedContentCollapsed.value) {
       return false
