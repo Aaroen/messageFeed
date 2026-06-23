@@ -2051,8 +2051,12 @@ export function useReaderStackState() {
       return
     }
 
-    if (state.intent === 'blocked' && state.clearReturningToFeed) {
-      detailReturningToFeed.value = false
+    if (state.intent === 'blocked') {
+      detailRestoringFromSourceReader.value = false
+      sourceReturnTargetReady.value = false
+      if (state.clearReturningToFeed) {
+        detailReturningToFeed.value = false
+      }
     }
   }
 
@@ -2092,6 +2096,8 @@ export function useReaderStackState() {
     }
 
     if (state.target === 'source-blocked') {
+      detailRestoringFromSourceReader.value = false
+      sourceReturnTargetReady.value = false
       detailSourceExitProgress.value = hasParkedDetailSourceState() ? 1 : 0
       sourceReaderStretch.value = state.stretch
       sourceReaderOffset.value = 0
