@@ -19,11 +19,11 @@ func (s AlertPolicyDecisionStatus) Valid() bool {
 }
 
 type AlertPolicyDecision struct {
-	Status               AlertPolicyDecisionStatus
-	AutoNotify           bool
-	RequiresConfirmation bool
-	Reasons              []string
-	Channel              string
-	Importance           float64
-	Confidence           float64
+	Status               AlertPolicyDecisionStatus `json:"status"`
+	AutoNotify           bool                      `json:"auto_notify"`
+	RequiresConfirmation bool                      `json:"requires_confirmation"`
+	Reasons              []string                  `json:"reasons"`
+	Channel              string                    `json:"channel"`
+	Importance           float64                   `json:"importance"`
+	Confidence           float64                   `json:"confidence"`
 }
