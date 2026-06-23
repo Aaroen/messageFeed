@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/observability"
@@ -106,6 +107,9 @@ func (s *AlertRuleService) ProcessItemEvent(ctx context.Context, input ProcessIt
 		}
 		created, err := s.candidateStore.Create(ctx, candidate)
 		if err != nil {
+			if errors.Is(err, domain.ErrConflict) {
+				continue
+			}
 			opErr = err
 			return ProcessItemEventResult{}, opErr
 		}

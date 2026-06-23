@@ -159,10 +159,47 @@ func TestAlertRuleServiceProcessItemEventSkipsRuleInCooldown(t *testing.T) {
 	}
 }
 
+func TestAlertRuleServiceProcessItemEventIgnoresDuplicateCandidate(t *testing.T) {
+	ruleStore := &fakeAlertRuleStore{
+		rules: []domain.AlertRule{
+			{
+				ID:        13,
+				UserID:    1,
+				Name:      "Duplicate",
+				Scope:     domain.AlertRuleScopeGlobal,
+				Enabled:   true,
+				Condition: domain.AlertRuleCondition{},
+			},
+		},
+	}
+	candidateStore := &fakeAlertCandidateStore{err: domain.ErrConflict}
+	service := NewAlertRuleService(ruleStore, candidateStore)
+
+	result, err := service.ProcessItemEvent(context.Background(), ProcessItemEventInput{
+		Event: domain.ItemEvent{
+			ID:        23,
+			UserID:    1,
+			SourceID:  33,
+			ItemID:    43,
+			EventType: domain.ItemEventTypeItemCreated,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ProcessItemEvent returned error: %v", err)
+	}
+
+	if result.RuleCount != 1 || result.CandidateCount != 0 {
+		t.Fatalf("result = %#v, want one rule and zero created candidates", result)
+	}
+	if got, want := len(candidateStore.candidates), 0; got != want {
+		t.Fatalf("candidate count = %d, want %d", got, want)
+	}
+}
+
 func TestAlertRuleServiceProcessItemEventIgnoresNonItemCreatedEvent(t *testing.T) {
 	ruleStore := &fakeAlertRuleStore{
 		rules: []domain.AlertRule{
-			{ID: 13, UserID: 1, Scope: domain.AlertRuleScopeGlobal, Enabled: true},
+			{ID: 14, UserID: 1, Scope: domain.AlertRuleScopeGlobal, Enabled: true},
 		},
 	}
 	candidateStore := &fakeAlertCandidateStore{}
@@ -170,7 +207,7 @@ func TestAlertRuleServiceProcessItemEventIgnoresNonItemCreatedEvent(t *testing.T
 
 	result, err := service.ProcessItemEvent(context.Background(), ProcessItemEventInput{
 		Event: domain.ItemEvent{
-			ID:        23,
+			ID:        24,
 			UserID:    1,
 			SourceID:  33,
 			EventType: domain.ItemEventTypeSourceFetchFailed,
@@ -232,9 +269,13 @@ func (s *fakeAlertRuleStore) ListEnabledByUser(_ context.Context, userID int64) 
 
 type fakeAlertCandidateStore struct {
 	candidates []domain.AlertCandidate
+	err        error
 }
 
 func (s *fakeAlertCandidateStore) Create(_ context.Context, candidate domain.AlertCandidate) (domain.AlertCandidate, error) {
+	if s.err != nil {
+		return domain.AlertCandidate{}, s.err
+	}
 	candidate.ID = int64(len(s.candidates) + 1)
 	s.candidates = append(s.candidates, candidate)
 	return candidate, nil
