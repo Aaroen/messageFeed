@@ -33,7 +33,7 @@ type AppRouteSessionWatchersOptions = {
   finishFeedTopPull: () => void
   resetRefreshCompletion: () => void
   resetPagePullMotion: () => void
-  resetFeedViewDragOffset: () => void
+  resetFeedPagerTransition: () => void
   resetSwipeTransition: () => void
   setTopChromeVisible: (visible: boolean) => void
   currentFeedScrollTop: () => number
@@ -65,7 +65,7 @@ export function useAppRouteSessionWatchers(options: AppRouteSessionWatchersOptio
       options.finishFeedTopPull()
       options.resetRefreshCompletion()
       options.resetPagePullMotion()
-      options.resetFeedViewDragOffset()
+      options.resetFeedPagerTransition()
       options.resetSwipeTransition()
       if (nextIsFeedRoute) {
         if (!previousWasFeedRoute) {

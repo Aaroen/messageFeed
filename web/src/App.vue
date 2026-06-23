@@ -341,7 +341,6 @@ const {
   viewSwipeTargetProgress,
   resetFeedViewSwipeTracking,
   clearFeedViewStartedWithHiddenChrome,
-  resetFeedViewDragOffset,
   resetFeedPagerTransition,
   isHorizontalSwipe,
   isViewHorizontalSwipe,
@@ -1146,7 +1145,7 @@ routeRuntime.installRouteSessionWatchers({
     invalidatePagePullRefreshCompletion()
     pagePullState.reset()
   },
-  resetFeedViewDragOffset,
+  resetFeedPagerTransition,
   resetSwipeTransition,
   setTopChromeVisible,
   currentFeedScrollTop: feedContent.currentScrollTop,
