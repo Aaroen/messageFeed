@@ -15,6 +15,11 @@ type SourceRepository struct {
 	db *gorm.DB
 }
 
+const (
+	defaultDueSourceFetchLimit = 50
+	maxDueSourceFetchLimit     = 200
+)
+
 func NewSourceRepository(db *gorm.DB) *SourceRepository {
 	return &SourceRepository{db: db}
 }
@@ -96,6 +101,30 @@ func (r *SourceRepository) GetByID(ctx context.Context, userID int64, id int64) 
 	return sourceModelToDomain(model), nil
 }
 
+func (r *SourceRepository) ListDueForFetch(ctx context.Context, options domain.SourceDueFetchOptions) ([]domain.Source, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.source.list_due_for_fetch", "select", "sources")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	options = normalizeSourceDueFetchOptions(options)
+	var models []sourceModel
+	if err := r.db.WithContext(ctx).
+		Where("status = ?", string(domain.SourceStatusActive)).
+		Where("next_fetch_at IS NOT NULL AND next_fetch_at <= ?", options.Now).
+		Order("fetch_priority DESC, next_fetch_at ASC, id ASC").
+		Limit(options.Limit).
+		Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+
+	sources := make([]domain.Source, 0, len(models))
+	for _, model := range models {
+		sources = append(sources, sourceModelToDomain(model))
+	}
+	return sources, nil
+}
+
 func (r *SourceRepository) Update(ctx context.Context, source domain.Source) (domain.Source, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.source.update", "update", "sources")
 	var opErr error
@@ -148,6 +177,21 @@ func (r *SourceRepository) UpdateFetchResult(ctx context.Context, source domain.
 		return domain.Source{}, opErr
 	}
 	return updated, nil
+}
+
+func normalizeSourceDueFetchOptions(options domain.SourceDueFetchOptions) domain.SourceDueFetchOptions {
+	if options.Now.IsZero() {
+		options.Now = time.Now().UTC()
+	} else {
+		options.Now = options.Now.UTC()
+	}
+	if options.Limit <= 0 {
+		options.Limit = defaultDueSourceFetchLimit
+	}
+	if options.Limit > maxDueSourceFetchLimit {
+		options.Limit = maxDueSourceFetchLimit
+	}
+	return options
 }
 
 func sourceModelFromDomain(source domain.Source) sourceModel {

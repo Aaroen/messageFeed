@@ -136,6 +136,80 @@ func TestSourceSyncServiceExecuteFetchJobRecordsFailure(t *testing.T) {
 	}
 }
 
+func TestSourceSyncServiceEnqueueDueSourcesCreatesJobs(t *testing.T) {
+	now := time.Date(2026, 6, 23, 16, 0, 0, 0, time.UTC)
+	sourceRepository := newFakeSourceRepository()
+	dueAt := now.Add(-time.Minute)
+	futureAt := now.Add(time.Hour)
+	dueSource, err := sourceRepository.Create(context.Background(), domain.Source{
+		UserID:        1,
+		Name:          "Due",
+		Type:          domain.SourceTypeRSS,
+		URL:           "https://due.example/feed.xml",
+		NormalizedURL: "https://due.example/feed.xml",
+		Status:        domain.SourceStatusActive,
+		NextFetchAt:   &dueAt,
+		FetchPriority: 4,
+	})
+	if err != nil {
+		t.Fatalf("Create due source returned error: %v", err)
+	}
+	_, err = sourceRepository.Create(context.Background(), domain.Source{
+		UserID:        1,
+		Name:          "Future",
+		Type:          domain.SourceTypeRSS,
+		URL:           "https://future.example/feed.xml",
+		NormalizedURL: "https://future.example/feed.xml",
+		Status:        domain.SourceStatusActive,
+		NextFetchAt:   &futureAt,
+	})
+	if err != nil {
+		t.Fatalf("Create future source returned error: %v", err)
+	}
+
+	fetchJobStore := &fakeSourceFetchJobStore{}
+	service := NewSourceSyncService(
+		sourceRepository,
+		&fakeSourceSyncItemRepository{},
+		&fakeFeedFetcher{},
+		fetchJobStore,
+		&fakeItemEventStore{},
+		WithSourceSyncNow(func() time.Time { return now }),
+	)
+
+	result, err := service.EnqueueDueSources(context.Background(), EnqueueDueSourcesInput{
+		Now:         now,
+		Limit:       10,
+		MaxAttempts: 5,
+	})
+	if err != nil {
+		t.Fatalf("EnqueueDueSources returned error: %v", err)
+	}
+
+	if result.RequestedCount != 1 {
+		t.Fatalf("RequestedCount = %d, want 1", result.RequestedCount)
+	}
+	if result.CreatedCount != 1 {
+		t.Fatalf("CreatedCount = %d, want 1", result.CreatedCount)
+	}
+	if got, want := len(fetchJobStore.jobs), 1; got != want {
+		t.Fatalf("jobs length = %d, want %d", got, want)
+	}
+	job := fetchJobStore.jobs[0]
+	if job.SourceID != dueSource.ID {
+		t.Fatalf("SourceID = %d, want %d", job.SourceID, dueSource.ID)
+	}
+	if job.Status != domain.SourceFetchJobStatusQueued {
+		t.Fatalf("Status = %q, want %q", job.Status, domain.SourceFetchJobStatusQueued)
+	}
+	if job.MaxAttempts != 5 {
+		t.Fatalf("MaxAttempts = %d, want 5", job.MaxAttempts)
+	}
+	if job.Priority != dueSource.FetchPriority {
+		t.Fatalf("Priority = %d, want %d", job.Priority, dueSource.FetchPriority)
+	}
+}
+
 type fakeSourceSyncItemRepository struct {
 	nextID int64
 	items  []domain.Item
@@ -157,8 +231,19 @@ func (r *fakeSourceSyncItemRepository) UpsertMany(_ context.Context, items []dom
 }
 
 type fakeSourceFetchJobStore struct {
+	nextID   int64
 	jobs     []domain.SourceFetchJob
 	attempts []domain.SourceFetchAttempt
+}
+
+func (s *fakeSourceFetchJobStore) CreateJob(_ context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error) {
+	if s.nextID == 0 {
+		s.nextID = int64(len(s.jobs) + 1)
+	}
+	job.ID = s.nextID
+	s.nextID++
+	s.jobs = append(s.jobs, job)
+	return job, nil
 }
 
 func (s *fakeSourceFetchJobStore) UpdateJob(_ context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error) {
@@ -184,4 +269,21 @@ func (s *fakeItemEventStore) Create(_ context.Context, event domain.ItemEvent) (
 	}
 	s.events = append(s.events, event)
 	return event, nil
+}
+
+func (r *fakeSourceRepository) ListDueForFetch(_ context.Context, options domain.SourceDueFetchOptions) ([]domain.Source, error) {
+	if options.Now.IsZero() {
+		options.Now = time.Now().UTC()
+	}
+	var sources []domain.Source
+	for _, source := range r.sources {
+		if source.Status != domain.SourceStatusActive || source.NextFetchAt == nil {
+			continue
+		}
+		if source.NextFetchAt.After(options.Now) {
+			continue
+		}
+		sources = append(sources, source)
+	}
+	return sources, nil
 }

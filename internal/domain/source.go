@@ -67,3 +67,8 @@ const (
 type FeedFetchResult struct {
 	Items []Item
 }
+
+type SourceDueFetchOptions struct {
+	Now   time.Time
+	Limit int
+}

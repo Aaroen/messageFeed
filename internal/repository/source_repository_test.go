@@ -107,3 +107,26 @@ func TestMapRepositoryError(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeSourceDueFetchOptions(t *testing.T) {
+	now := time.Date(2026, 6, 23, 16, 0, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	options := normalizeSourceDueFetchOptions(domain.SourceDueFetchOptions{
+		Now:   now,
+		Limit: maxDueSourceFetchLimit + 1,
+	})
+
+	if options.Limit != maxDueSourceFetchLimit {
+		t.Fatalf("Limit = %d, want %d", options.Limit, maxDueSourceFetchLimit)
+	}
+	if options.Now.Location() != time.UTC {
+		t.Fatalf("Now location = %s, want UTC", options.Now.Location())
+	}
+
+	defaulted := normalizeSourceDueFetchOptions(domain.SourceDueFetchOptions{})
+	if defaulted.Limit != defaultDueSourceFetchLimit {
+		t.Fatalf("default Limit = %d, want %d", defaulted.Limit, defaultDueSourceFetchLimit)
+	}
+	if defaulted.Now.IsZero() {
+		t.Fatal("default Now is zero")
+	}
+}

@@ -14,8 +14,14 @@ import (
 const sourceSyncLastFetchErrorMaxLength = 2000
 
 type SourceFetchJobStore interface {
+	CreateJob(ctx context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error)
 	UpdateJob(ctx context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error)
 	CreateAttempt(ctx context.Context, attempt domain.SourceFetchAttempt) (domain.SourceFetchAttempt, error)
+}
+
+type DueSourceRepository interface {
+	SourceRepository
+	ListDueForFetch(ctx context.Context, options domain.SourceDueFetchOptions) ([]domain.Source, error)
 }
 
 type ItemEventStore interface {
@@ -23,7 +29,7 @@ type ItemEventStore interface {
 }
 
 type SourceSyncService struct {
-	sourceRepository   SourceRepository
+	sourceRepository   DueSourceRepository
 	itemRepository     ItemRepository
 	feedFetcher        FeedFetcher
 	fetchJobRepository SourceFetchJobStore
@@ -42,7 +48,7 @@ func WithSourceSyncNow(now func() time.Time) SourceSyncServiceOption {
 }
 
 func NewSourceSyncService(
-	sourceRepository SourceRepository,
+	sourceRepository DueSourceRepository,
 	itemRepository ItemRepository,
 	feedFetcher FeedFetcher,
 	fetchJobRepository SourceFetchJobStore,
@@ -67,6 +73,18 @@ type ExecuteSourceFetchJobInput struct {
 	Job domain.SourceFetchJob
 }
 
+type EnqueueDueSourcesInput struct {
+	Now         time.Time
+	Limit       int
+	MaxAttempts int
+}
+
+type EnqueueDueSourcesResult struct {
+	RequestedCount int
+	CreatedCount   int
+	Jobs           []domain.SourceFetchJob
+}
+
 type ExecuteSourceFetchJobResult struct {
 	Job          domain.SourceFetchJob
 	Attempt      domain.SourceFetchAttempt
@@ -75,6 +93,65 @@ type ExecuteSourceFetchJobResult struct {
 	CreatedCount int
 	UpdatedCount int
 	EventCount   int
+}
+
+func (s *SourceSyncService) EnqueueDueSources(ctx context.Context, input EnqueueDueSourcesInput) (EnqueueDueSourcesResult, error) {
+	ctx, span := observability.StartSpan(ctx, "service.source_sync.enqueue_due_sources",
+		attribute.Int("limit", input.Limit),
+	)
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	if s == nil || s.sourceRepository == nil || s.fetchJobRepository == nil {
+		opErr = fmt.Errorf("source sync service is not configured")
+		return EnqueueDueSourcesResult{}, opErr
+	}
+	now := input.Now
+	if now.IsZero() {
+		now = s.now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	maxAttempts := input.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+
+	sources, err := s.sourceRepository.ListDueForFetch(ctx, domain.SourceDueFetchOptions{
+		Now:   now,
+		Limit: input.Limit,
+	})
+	if err != nil {
+		opErr = err
+		return EnqueueDueSourcesResult{}, opErr
+	}
+
+	result := EnqueueDueSourcesResult{
+		RequestedCount: len(sources),
+		Jobs:           make([]domain.SourceFetchJob, 0, len(sources)),
+	}
+	for _, source := range sources {
+		job, err := s.fetchJobRepository.CreateJob(ctx, domain.SourceFetchJob{
+			UserID:      source.UserID,
+			SourceID:    source.ID,
+			Status:      domain.SourceFetchJobStatusQueued,
+			Trigger:     domain.SourceFetchTriggerScheduled,
+			ScheduledAt: now,
+			MaxAttempts: maxAttempts,
+			Priority:    source.FetchPriority,
+		})
+		if err != nil {
+			opErr = err
+			return EnqueueDueSourcesResult{}, opErr
+		}
+		result.CreatedCount++
+		result.Jobs = append(result.Jobs, job)
+	}
+	span.SetAttributes(
+		attribute.Int("source.due_count", result.RequestedCount),
+		attribute.Int("source_fetch_job.created", result.CreatedCount),
+	)
+	return result, nil
 }
 
 func (s *SourceSyncService) ExecuteFetchJob(ctx context.Context, input ExecuteSourceFetchJobInput) (ExecuteSourceFetchJobResult, error) {
