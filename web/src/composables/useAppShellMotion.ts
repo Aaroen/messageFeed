@@ -43,8 +43,8 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
     return {
       feedContentSpace,
       pageContentSpace: feedContentSpace,
-      feedContentShift: feedContentSpace - options.feedHeaderHeight.value,
-      pageContentShift: feedContentSpace - options.feedHeaderHeight.value,
+      feedContentShift: 0,
+      pageContentShift: 0,
       feedContentShiftTransition: contentShiftSettling
         ? 'transform var(--motion-chrome) var(--ease-emphasized)'
         : 'none',
@@ -59,7 +59,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
 
   const style = computed(() => ({
     '--feed-header-height': `${options.feedHeaderHeight.value}px`,
-    '--feed-header-space': cssPx(options.feedContentSpace.value),
+    '--feed-header-space': cssPx(options.feedHeaderHeight.value),
   }))
 
   const feedContentStyle = computed(() => {

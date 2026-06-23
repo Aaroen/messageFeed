@@ -22,6 +22,7 @@ type AppReaderStackOutletBindingOptions = {
   sourceReaderUnderDetail: ReadableRef<boolean>
   readerMotion: AppReaderMotionState
   readerSource: ReadableRef<ReaderSource | null>
+  sourceTimelineId: ReadableRef<number>
   sourceToggleActive: ReadableRef<boolean>
   detailItem: ReadableRef<FeedItem | null>
   readerMorph: AppReaderMorphVisibilityState
@@ -117,6 +118,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
       sourceToggleDisabled: options.sourceToggleDisabled.value,
       sourceContentStyle: readerMotion.sourceContentStyle.value,
       readerSource,
+      sourceTimelineId: options.sourceTimelineId.value,
       sourceScrollTop: options.sourceReaderScrollTop.value,
       feedHeaderHeight: options.feedHeaderHeight.value,
       morphingItemId: options.morphingItemId.value,

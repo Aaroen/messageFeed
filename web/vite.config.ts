@@ -37,6 +37,27 @@ const apiProxy = {
 
 export default defineConfig({
   plugins: [vue()],
+  build: {
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('/node_modules/')) {
+            return undefined
+          }
+          if (id.includes('/@arco-design/')) {
+            return 'vendor-arco'
+          }
+          if (id.includes('/vue') || id.includes('/pinia') || id.includes('/vue-router')) {
+            return 'vendor-vue'
+          }
+          if (id.includes('/axios/')) {
+            return 'vendor-http'
+          }
+          return 'vendor'
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': new URL('./src', import.meta.url).pathname,

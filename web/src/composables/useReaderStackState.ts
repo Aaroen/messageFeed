@@ -254,6 +254,26 @@ type ReaderStackSessionSnapshot = Pick<
   | 'parkedDetailStack'
 >
 
+export type SourceTitleProgressStateOptions = {
+  detailReaderOpen: boolean
+  sourceReaderVisible: boolean
+  detailCommittedListReturn: boolean
+  detailRestoringFromSourceReader: boolean
+  sourceNameMorphProgress: number
+}
+
+export function resolveSourceTitleProgressState(options: SourceTitleProgressStateOptions) {
+  if (!options.detailReaderOpen || !options.sourceReaderVisible || options.detailCommittedListReturn) {
+    return 1
+  }
+
+  if (options.detailRestoringFromSourceReader) {
+    return clampProgress((options.sourceNameMorphProgress - 0.74) / 0.26)
+  }
+
+  return options.sourceNameMorphProgress
+}
+
 function updateStretchAnchor(anchorRef: { value: 'left' | 'right' | null }, stretch: number) {
   if (stretch > 0) {
     anchorRef.value = 'left'
@@ -420,9 +440,13 @@ export function useReaderStackState() {
         (detailOpenedFromSourceReader.value && detailBackExitProgress.value > 0.001)),
   )
   const sourceTitleProgress = computed(() =>
-    detailReaderOpen.value && sourceReaderVisible.value && !detailCommittedListReturn()
-      ? sourceNameMorphProgress.value
-      : 1,
+    resolveSourceTitleProgressState({
+      detailReaderOpen: detailReaderOpen.value,
+      sourceReaderVisible: sourceReaderVisible.value,
+      detailCommittedListReturn: detailCommittedListReturn(),
+      detailRestoringFromSourceReader: detailRestoringFromSourceReader.value,
+      sourceNameMorphProgress: sourceNameMorphProgress.value,
+    }),
   )
   const sourceTitleRevealProgress = computed(() =>
     clampProgress((sourceTitleProgress.value - 0.64) / 0.24),
@@ -1686,7 +1710,7 @@ export function useReaderStackState() {
   }
 
   function readerBackSwipeCanReturnSourceToDetail(deltaX: number) {
-    return readerBackSwipeMatches('source') && deltaX < 0 && sourceReaderCanReturnToDetail()
+    return readerBackSwipeMatches('source') && deltaX > 0 && sourceReaderCanReturnToDetail()
   }
 
   function readerBackSwipeIntentAction(deltaX: number): ReaderBackSwipeIntentAction {
@@ -1785,7 +1809,7 @@ export function useReaderStackState() {
       }
     }
     if (intent === 'back' && target === 'source') {
-      const returnOffset = Math.max(0, -offset)
+      const returnOffset = Math.max(0, offset)
       if (returnOffset > 0 && sourceReaderCanReturnToDetail()) {
         return {
           type: 'reader',
@@ -1837,7 +1861,7 @@ export function useReaderStackState() {
       return deltaX > 0 && (detailBackExitProgress.value >= 0.42 || deltaX >= switchDistance)
     }
     if (intent === 'back' && target === 'source') {
-      return deltaX < 0 && (detailSourceExitProgress.value <= 0.58 || Math.abs(deltaX) >= switchDistance)
+      return deltaX > 0 && (detailSourceExitProgress.value <= 0.58 || deltaX >= switchDistance)
     }
     if (intent === 'source' && target === 'detail') {
       return deltaX < 0 && (detailSourceExitProgress.value >= 0.42 || Math.abs(deltaX) >= switchDistance)

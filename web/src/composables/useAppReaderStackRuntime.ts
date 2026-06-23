@@ -8,9 +8,9 @@ export function useAppReaderStackRuntime() {
   const readerStackState = useReaderStackState()
   const feedListCache = useFeedListCacheStore()
   function invalidateSubscriptionFeedCaches(sourceID: number) {
-    feedListCache.invalidate('subscriptions:subscriptions:0')
+    feedListCache.invalidate('subscriptions:subscriptions:0:0')
     if (sourceID > 0) {
-      feedListCache.invalidate(`source:subscriptions:${sourceID}`)
+      feedListCache.invalidate(`source:subscriptions:${sourceID}:0`)
     }
   }
 

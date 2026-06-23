@@ -5,6 +5,7 @@ import { apiClient, formatAPIError } from '@/api/client'
 const sourceFetchTimeoutMS = 25000
 const activeSourcesFetchTimeoutMS = 60000
 const activeSourcesFetchConcurrency = 4
+const sourceFetchStatusTimeoutMS = 10000
 
 interface APIEnvelope<T> {
   data: T
@@ -89,10 +90,35 @@ export interface ImportSourcesResult {
   errors: Array<{ reference: string; message: string }>
 }
 
+export interface FetchSourceResult {
+  source: Source
+  item_count: number
+  created_count: number
+  updated_count: number
+}
+
 export interface FetchSourcesResult {
   requested_count: number
   success_count: number
   failure_count: number
+  async?: boolean
+  queued_count?: number
+  job_ids?: number[]
+  sources: Source[]
+  errors: Array<{ source_id: number; source_name: string; message: string }>
+}
+
+export interface FetchSourcesStatus {
+  requested_count: number
+  completed_count: number
+  queued_count: number
+  running_count: number
+  success_count: number
+  failure_count: number
+  created_count: number
+  updated_count: number
+  updated_source_count: number
+  done: boolean
   sources: Source[]
   errors: Array<{ source_id: number; source_name: string; message: string }>
 }
@@ -109,7 +135,7 @@ export async function updateSourceStatus(id: number, status: Source['status']) {
 
 export async function fetchSource(id: number) {
   try {
-    const response = await apiClient.post<APIEnvelope<{ source: Source }>>(`/api/v1/sources/${id}/fetch`, undefined, {
+    const response = await apiClient.post<APIEnvelope<FetchSourceResult>>(`/api/v1/sources/${id}/fetch`, undefined, {
       timeout: sourceFetchTimeoutMS,
     })
     return response.data.data
@@ -132,12 +158,23 @@ export async function fetchActiveSources() {
   }
 }
 
+export async function getSourceFetchStatus(jobIDs: number[]) {
+  const response = await apiClient.get<APIEnvelope<FetchSourcesStatus>>('/api/v1/source-fetches/status', {
+    params: { job_ids: jobIDs.join(',') },
+    timeout: sourceFetchStatusTimeoutMS,
+  })
+  return response.data.data
+}
+
 async function fetchActiveSourcesWithSingleSourceFallback(): Promise<FetchSourcesResult> {
   const activeSources = (await listSources()).filter((source) => source.status === 'active')
   const result: FetchSourcesResult = {
     requested_count: activeSources.length,
     success_count: 0,
     failure_count: 0,
+    async: false,
+    queued_count: 0,
+    job_ids: [],
     sources: [],
     errors: [],
   }

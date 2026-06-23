@@ -14,7 +14,7 @@ export function feedContentTopOffset(headerHeight: number) {
 }
 
 export function visibleContentTopOffset(headerHeight: number) {
-  return headerHeight <= 78 ? 44 : 48
+  return feedContentTopOffset(headerHeight)
 }
 
 export function feedVisibleContentTopOffset(headerHeight: number) {

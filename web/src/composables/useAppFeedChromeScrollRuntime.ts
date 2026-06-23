@@ -67,6 +67,7 @@ export function useAppFeedChromeScrollRuntime(options: AppFeedChromeScrollRuntim
   })
 
   return {
+    syncSurfaceScroll: scrollHandlers.syncSurfaceScroll,
     handleFeedTopPullStart: feedChromeInteractions.handleFeedTopPullStart,
     handleFeedTopPullMove: feedChromeInteractions.handleFeedTopPullMove,
     handleFeedTopPullEnd: feedChromeInteractions.handleFeedTopPullEnd,

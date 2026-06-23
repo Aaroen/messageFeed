@@ -2,7 +2,14 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { formatAPIError } from '@/api/client'
-import { fetchActiveSources, fetchSource, type FeedItem, listRecommendationItems, listTimelineItems } from '@/api/feed'
+import {
+  fetchActiveSources,
+  fetchSource,
+  getSourceFetchStatus,
+  type FeedItem,
+  listRecommendationItems,
+  listTimelineItems,
+} from '@/api/feed'
 import { clampProgress } from '@/composables/feedChromeMetrics'
 import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRefreshCompletionAction'
 import { useGestureDirection } from '@/composables/useGestureDirection'
@@ -13,18 +20,23 @@ import { useRequestToken } from '@/composables/useRequestToken'
 import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
-import { subscriptionFeedFetchNotice } from '@/utils/sourceFetchMessages'
+import {
+  singleSourceFetchNotice,
+  sourceFetchStatusNotice,
+  subscriptionFeedFetchNotice,
+} from '@/utils/sourceFetchMessages'
 
 type FeedMode = 'subscriptions' | 'recommendations' | 'source'
 type SourceKind = 'subscriptions' | 'recommendations'
 type FeedNoticeType = 'success' | 'warning'
-type FeedNotice = { type: FeedNoticeType; message: string }
+type FeedNotice = { type: FeedNoticeType; message: string; deferred?: boolean; jobIDs?: number[] }
 
 const props = withDefaults(
   defineProps<{
     mode?: FeedMode
     sourceKind?: SourceKind
     sourceId?: number
+    sourceTimelineId?: number
     active?: boolean
     scrollTop?: number
     topChromeProgress?: number
@@ -41,6 +53,7 @@ const props = withDefaults(
     mode: 'subscriptions',
     sourceKind: 'subscriptions',
     sourceId: 0,
+    sourceTimelineId: 0,
     active: true,
     scrollTop: 0,
     topChromeProgress: 1,
@@ -105,13 +118,17 @@ const feedNotice = feedNoticeRuntime.notice
 let touchStartChromeDistance = 0
 let loadMoreSyncTimer = 0
 let loadMoreSyncToken = 0
+let sourceFetchStatusTimer = 0
+let sourceFetchStatusPollToken = 0
 const loadRequestToken = useRequestToken({ isActive: () => !disposed })
 const backgroundRefreshRequestToken = useRequestToken()
 let topPullStartedNotified = false
 let disposed = false
 let loadMoreObserver: IntersectionObserver | null = null
+const sourceFetchStatusPollIntervalMS = 1200
+const sourceFetchStatusPollMaxAttempts = 80
 
-const viewKey = computed(() => `${props.mode}:${props.sourceKind}:${props.sourceId}`)
+const viewKey = computed(() => `${props.mode}:${props.sourceKind}:${props.sourceId}:${props.sourceTimelineId}`)
 const cacheRevision = computed(() => feedListCache.revisions[viewKey.value] ?? 0)
 const hasItems = computed(() => items.value.length > 0)
 const canLoadMore = computed(
@@ -131,9 +148,18 @@ const usesGlobalPullState = computed(() => !props.backgroundRefresh)
 const shouldRefreshVisibleSource = computed(() => isSourceMode.value && !props.backgroundRefresh)
 const effectiveSourceKind = computed<SourceKind>(() => {
   if (isSourceMode.value) {
+    if (props.sourceKind === 'recommendations' && props.sourceTimelineId > 0) {
+      return 'subscriptions'
+    }
     return props.sourceKind
   }
   return props.mode === 'recommendations' ? 'recommendations' : 'subscriptions'
+})
+const effectiveSourceId = computed(() => {
+  if (isSourceMode.value && props.sourceKind === 'recommendations' && props.sourceTimelineId > 0) {
+    return props.sourceTimelineId
+  }
+  return props.sourceId
 })
 const copy = computed(() => {
   if (isSourceMode.value) {
@@ -347,6 +373,7 @@ function nextLoadRequestToken() {
 function invalidateLoadRequests() {
   loadRequestToken.invalidate()
   clearBackgroundRefresh()
+  clearSourceFetchStatusPolling()
 }
 
 function loadRequestIsCurrent(token: number, requestViewKey: string) {
@@ -432,6 +459,12 @@ function showFeedNotice(type: FeedNotice['type'], message: string, delayMS = 0) 
   feedNoticeRuntime.show(type, message, undefined, delayMS)
 }
 
+function clearSourceFetchStatusPolling() {
+  window.clearTimeout(sourceFetchStatusTimer)
+  sourceFetchStatusTimer = 0
+  sourceFetchStatusPollToken += 1
+}
+
 function refreshSuccessMessage() {
   if (effectiveSourceKind.value === 'recommendations') {
     return '刷新成功：已更新当前推荐来源'
@@ -442,21 +475,96 @@ function refreshSuccessMessage() {
   return '刷新成功：已更新订阅内容'
 }
 
-async function refreshSubscriptionSources() {
-  if (effectiveSourceKind.value !== 'subscriptions') {
-    return null
-  }
+async function refreshSubscriptionSources(): Promise<FeedNotice | null> {
   try {
-    if (isSourceMode.value && props.sourceId > 0) {
-      await fetchSource(props.sourceId)
-      return { type: 'success' as const, message: refreshSuccessMessage() }
+    if (isSourceMode.value) {
+      if (effectiveSourceKind.value === 'subscriptions' && effectiveSourceId.value > 0) {
+        const result = await fetchSource(effectiveSourceId.value)
+        return singleSourceFetchNotice(result, result.source.name)
+      }
+      return null
     }
 
     const result = await fetchActiveSources()
-    return subscriptionFeedFetchNotice(result, refreshSuccessMessage())
+    if (result.async && result.job_ids?.length) {
+      return { type: 'success' as const, message: '', deferred: true, jobIDs: result.job_ids }
+    }
+    return subscriptionFeedFetchNotice(result, '刷新成功：已更新订阅源内容')
   } catch (err) {
     return { type: 'warning' as const, message: `刷新失败：${formatAPIError(err)}` }
   }
+}
+
+function pollSourceFetchStatus(
+  jobIDs: number[],
+  options: { requestToken: number; requestViewKey: string; background: boolean },
+) {
+  const ids = jobIDs.filter((id) => id > 0)
+  if (!ids.length) {
+    return
+  }
+
+  clearSourceFetchStatusPolling()
+  const pollToken = sourceFetchStatusPollToken
+  let attempts = 0
+
+  const scheduleNext = () => {
+    sourceFetchStatusTimer = window.setTimeout(run, sourceFetchStatusPollIntervalMS)
+  }
+
+  const run = async () => {
+    if (
+      disposed ||
+      pollToken !== sourceFetchStatusPollToken ||
+      !loadRequestIsCurrent(options.requestToken, options.requestViewKey)
+    ) {
+      return
+    }
+
+    attempts += 1
+    try {
+      const status = await getSourceFetchStatus(ids)
+      if (
+        disposed ||
+        pollToken !== sourceFetchStatusPollToken ||
+        !loadRequestIsCurrent(options.requestToken, options.requestViewKey)
+      ) {
+        return
+      }
+
+      if (status.done) {
+        const notice = sourceFetchStatusNotice(status)
+        if (!options.background) {
+          showFeedNotice(notice.type, notice.message, noticeRevealDelay)
+        }
+        if (status.created_count > 0) {
+          void loadItems({ refresh: true, background: true, skipSourceRefresh: true })
+        }
+        return
+      }
+
+      if (attempts < sourceFetchStatusPollMaxAttempts) {
+        scheduleNext()
+      }
+    } catch (err) {
+      if (
+        disposed ||
+        pollToken !== sourceFetchStatusPollToken ||
+        !loadRequestIsCurrent(options.requestToken, options.requestViewKey)
+      ) {
+        return
+      }
+      if (attempts >= sourceFetchStatusPollMaxAttempts) {
+        if (!options.background) {
+          showFeedNotice('warning', `刷新状态获取失败：${formatAPIError(err)}`, noticeRevealDelay)
+        }
+        return
+      }
+      scheduleNext()
+    }
+  }
+
+  scheduleNext()
 }
 
 function completeBlockedForegroundRefresh() {
@@ -470,7 +578,9 @@ function completeBlockedForegroundRefresh() {
   })
 }
 
-async function loadItems(options: { refresh?: boolean; append?: boolean; background?: boolean } = {}) {
+async function loadItems(
+  options: { refresh?: boolean; append?: boolean; background?: boolean; skipSourceRefresh?: boolean } = {},
+) {
   const isRefresh = Boolean(options.refresh)
   const isAppend = Boolean(options.append)
   const isBackground = Boolean(options.background)
@@ -509,18 +619,19 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
     loading.value = true
   }
   try {
-    const refreshNotice = isRefresh ? await refreshSubscriptionSources() : null
+    const refreshNotice = isRefresh && !options.skipSourceRefresh ? await refreshSubscriptionSources() : null
     if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
       return
     }
+    const deferredRefreshJobIDs = refreshNotice?.deferred ? refreshNotice.jobIDs ?? [] : []
     const loader = effectiveSourceKind.value === 'recommendations' ? listRecommendationItems : listTimelineItems
     const requestOffset = isAppend ? nextOffset.value : 0
     const params = {
       limit: pageSize,
       offset: requestOffset,
       order: 'desc' as const,
-      ...(isRefresh && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
-      ...(isSourceMode.value && props.sourceId > 0 ? { source_id: props.sourceId } : {}),
+      ...(isRefresh && isSourceMode.value && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
+      ...(isSourceMode.value && effectiveSourceId.value > 0 ? { source_id: effectiveSourceId.value } : {}),
     }
     const result = await loader(params)
     if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
@@ -558,11 +669,18 @@ async function loadItems(options: { refresh?: boolean; append?: boolean; backgro
       (effectiveSourceKind.value !== 'recommendations' && nextOffset.value >= totalCount.value)
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     writeItemsToCache(requestViewKey)
-    if (!isBackgroundRefresh && refreshNotice) {
+    if (deferredRefreshJobIDs.length) {
+      pollSourceFetchStatus(deferredRefreshJobIDs, {
+        requestToken,
+        requestViewKey,
+        background: isBackgroundRefresh,
+      })
+    }
+    if (!isBackgroundRefresh && refreshNotice?.message) {
       showFeedNotice(refreshNotice.type, refreshNotice.message, noticeRevealDelay)
     } else if (!isBackgroundRefresh && autoFetchNotice && autoFetchNotice.type === 'warning') {
       showFeedNotice(autoFetchNotice.type, autoFetchNotice.message)
-    } else if (!isBackgroundRefresh && isRefresh) {
+    } else if (!isBackgroundRefresh && isRefresh && !refreshNotice?.deferred) {
       showFeedNotice('success', refreshSuccessMessage(), noticeRevealDelay)
     }
   } catch (err) {
@@ -870,6 +988,7 @@ onUnmounted(() => {
   refreshLayoutFreeze.release()
   clearLoadMoreSyncTimer()
   feedNoticeRuntime.dispose()
+  clearSourceFetchStatusPolling()
   stopLoadMoreObserver()
   window.removeEventListener('focus', refreshStaleCacheInBackground)
   document.removeEventListener('visibilitychange', handleVisibilityRefresh)

@@ -1,12 +1,8 @@
 import { computed } from 'vue'
 
 import {
-  chromePhaseConsumesCollapsedLayout,
-  chromeNeedsVisibleTopClearance,
   clampProgress,
-  sourceContentTopOffset,
   sourceVisibleContentTopOffset,
-  topScrollInset,
 } from '@/composables/feedChromeMetrics'
 import type { ChromePhase } from '@/composables/useChromeState'
 import type { RectSnapshot } from '@/composables/useReaderSession'
@@ -27,47 +23,8 @@ type ReaderLayoutStateOptions = {
 
 export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
   const topChromeProgress = computed(() => clampProgress(options.topChromeProgress.value))
-  const collapsedLayoutProgress = computed(() =>
-    chromePhaseConsumesCollapsedLayout(options.topChromePhase.value) ? topChromeProgress.value : 0,
-  )
-  const sourceTopOffset = sourceContentTopOffset()
   const sourceVisibleTopOffset = computed(() => sourceVisibleContentTopOffset(options.feedHeaderHeight.value))
-  const sourceVisibleTopClearance = computed(() =>
-    Math.max(0, sourceVisibleTopOffset.value - sourceTopOffset),
-  )
-  const sourceTopInset = computed(() =>
-    topScrollInset(options.sourceReaderScrollTop.value, sourceVisibleTopOffset.value),
-  )
-  const visibleChromeNeedsSourceTopClearance = computed(() => {
-    if (!options.feedContentCollapsed.value) {
-      return false
-    }
-
-    if (options.sourceReaderScrollTop.value > sourceVisibleTopOffset.value || topChromeProgress.value <= 0.04) {
-      return false
-    }
-
-    return chromeNeedsVisibleTopClearance(options.topChromePhase.value, topChromeProgress.value)
-  })
-  const sourceHeaderSpace = computed(() => {
-    const visibleSourceHeaderSpace =
-      options.feedHeaderHeight.value + sourceTopInset.value + sourceVisibleTopClearance.value
-
-    if (!options.feedContentCollapsed.value) {
-      return visibleSourceHeaderSpace
-    }
-
-    if (visibleChromeNeedsSourceTopClearance.value) {
-      return visibleSourceHeaderSpace
-    }
-
-    const collapsedSpace = options.feedHeaderHeight.value * collapsedLayoutProgress.value
-    if (collapsedLayoutProgress.value > 0.04 && options.sourceReaderScrollTop.value <= sourceTopOffset) {
-      return collapsedSpace + sourceTopInset.value
-    }
-
-    return collapsedSpace
-  })
+  const sourceHeaderSpace = computed(() => options.feedHeaderHeight.value)
   const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
     const side = options.windowWidth.value <= 720 ? 24 : 46
     const top = options.feedHeaderHeight.value + sourceVisibleTopOffset.value

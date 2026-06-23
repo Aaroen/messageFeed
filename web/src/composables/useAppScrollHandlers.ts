@@ -12,7 +12,7 @@ type AppScrollHandlersOptions = {
   updateFeedScrollTop: (scrollTop: number) => void
   updateSourceReaderScrollTop: (scrollTop: number) => void
   updateDetailScrollMetrics: (scrollTop: number, scrollHeight: number, clientHeight: number) => void
-  updateTopTabsByScroll: (current: number, previous: number) => void
+  updateTopTabsByScroll: (surface: ScrollHistorySurface, current: number, previous: number) => void
   scheduleReaderSessionSave: () => void
 }
 
@@ -21,58 +21,42 @@ function scrollEventTarget(event: Event) {
 }
 
 export function useAppScrollHandlers(options: AppScrollHandlersOptions) {
-  function handleFeedContentScroll(event: Event) {
-    const target = scrollEventTarget(event)
+  function syncSurfaceScroll(surface: ScrollHistorySurface, target: HTMLElement | null) {
     if (!target) {
       return
     }
 
     const current = target.scrollTop
-    const scrollUpdate = options.scrollHistory.update('feed', current)
-    options.updateFeedScrollTop(current)
-    options.updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
+    const scrollUpdate = options.scrollHistory.update(surface, current)
+    if (surface === 'feed') {
+      options.updateFeedScrollTop(current)
+    } else if (surface === 'source') {
+      options.updateSourceReaderScrollTop(current)
+    } else if (surface === 'detail') {
+      options.updateDetailScrollMetrics(current, target.scrollHeight, target.clientHeight)
+    }
+    options.updateTopTabsByScroll(surface, scrollUpdate.current, scrollUpdate.previous)
     options.scheduleReaderSessionSave()
+  }
+
+  function handleFeedContentScroll(event: Event) {
+    syncSurfaceScroll('feed', scrollEventTarget(event))
   }
 
   function handlePageContentScroll(event: Event) {
-    const target = scrollEventTarget(event)
-    if (!target) {
-      return
-    }
-
-    const current = target.scrollTop
-    const scrollUpdate = options.scrollHistory.update('page', current)
-    options.updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
-    options.scheduleReaderSessionSave()
+    syncSurfaceScroll('page', scrollEventTarget(event))
   }
 
   function handleSourceReaderScroll(event: Event) {
-    const target = scrollEventTarget(event)
-    if (!target) {
-      return
-    }
-
-    const current = target.scrollTop
-    const scrollUpdate = options.scrollHistory.update('source', current)
-    options.updateSourceReaderScrollTop(current)
-    options.updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
-    options.scheduleReaderSessionSave()
+    syncSurfaceScroll('source', scrollEventTarget(event))
   }
 
   function handleDetailContentScroll(event: Event) {
-    const target = scrollEventTarget(event)
-    if (!target) {
-      return
-    }
-
-    const current = target.scrollTop
-    const scrollUpdate = options.scrollHistory.update('detail', current)
-    options.updateDetailScrollMetrics(current, target.scrollHeight, target.clientHeight)
-    options.updateTopTabsByScroll(scrollUpdate.current, scrollUpdate.previous)
-    options.scheduleReaderSessionSave()
+    syncSurfaceScroll('detail', scrollEventTarget(event))
   }
 
   return {
+    syncSurfaceScroll,
     handleFeedContentScroll,
     handlePageContentScroll,
     handleSourceReaderScroll,

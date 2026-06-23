@@ -6,6 +6,7 @@ import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 withDefaults(
   defineProps<{
     readerSource?: ReaderSource | null
+    sourceTimelineId?: number
     scrollTop?: number
     topChromeProgress?: number
     topChromeContentCollapsed?: boolean
@@ -18,6 +19,7 @@ withDefaults(
   }>(),
   {
     readerSource: null,
+    sourceTimelineId: 0,
     scrollTop: 0,
     topChromeProgress: 1,
     topChromeContentCollapsed: false,
@@ -44,6 +46,7 @@ const emit = defineEmits<{
     mode="source"
     :source-kind="readerSource.kind"
     :source-id="readerSource.id"
+    :source-timeline-id="sourceTimelineId"
     :active="true"
     :scroll-top="scrollTop"
     :top-chrome-progress="topChromeProgress"

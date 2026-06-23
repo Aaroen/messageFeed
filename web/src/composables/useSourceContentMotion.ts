@@ -47,7 +47,6 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
     const underlayOpacity = options.underDetail.value
       ? underlayBaseOpacity + revealProgress * (1 - underlayBaseOpacity)
       : 1
-    const contentShift = options.headerSpace.value - options.headerHeight.value
     const transition = settlePhase.value === 'settling'
       ? sourceContentShiftTransition
       : settlePhase.value === 'holding'
@@ -57,10 +56,10 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
           : sourceUnderlayTransition
 
     return {
-      paddingTop: cssPx(options.headerHeight.value + topOffset),
+      paddingTop: cssPx(options.headerSpace.value + topOffset),
       opacity: underlayOpacity.toFixed(3),
       filter: `blur(${underlayBlur.toFixed(2)}px)`,
-      transform: cssTranslate3d(0, contentShift + settleOffset.value),
+      transform: cssTranslate3d(0, settleOffset.value),
       transition,
     }
   })

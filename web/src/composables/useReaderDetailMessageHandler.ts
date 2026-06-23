@@ -30,6 +30,7 @@ type ReaderDetailMessageHandlerOptions = {
   detailFrameId: ReadableRef<string>
   navigationVisible: ReadableRef<boolean>
   readerBackSwipeTrackingActive: ReadableRef<boolean>
+  topChromeRevealThreshold: ReadableRef<number>
   detailCommittedListReturn: () => boolean
   isCurrentDetailFrameMessageSource: (source: MessageEventSource | null) => boolean
   updateDetailFrameContentHeight: (scrollHeight: number) => void
@@ -45,11 +46,13 @@ type ReaderDetailMessageHandlerOptions = {
   finishBackSwipe: (deltaX: number, deltaY: number) => void
   cancelBackSwipe: () => void
   resetGestureTracking: () => void
+  showTopChromeForVerticalSwipe: () => void
 }
 
 export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandlerOptions) {
   let metricsFrame = 0
   let metricsFrameToken = 0
+  let verticalTopChromeRevealed = false
 
   function clearMetricsFrame() {
     metricsFrameToken += 1
@@ -101,6 +104,7 @@ export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandle
     const currentX = Number(payload.x ?? Number(payload.startX ?? 0) + deltaX) + frameOffset.left
 
     if (payload.phase === 'start') {
+      verticalTopChromeRevealed = false
       if (options.readerBackSwipeTrackingActive.value) {
         options.cancelBackSwipe()
       }
@@ -109,11 +113,22 @@ export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandle
     }
 
     if (payload.phase === 'move') {
+      if (
+        !verticalTopChromeRevealed &&
+        !options.readerBackSwipeTrackingActive.value &&
+        deltaY > 0 &&
+        deltaY >= options.topChromeRevealThreshold.value &&
+        Math.abs(deltaY) > Math.abs(deltaX) * 1.18
+      ) {
+        verticalTopChromeRevealed = true
+        options.showTopChromeForVerticalSwipe()
+      }
       options.updateBackSwipe(deltaX, deltaY, fromDetailFrame, currentX)
       return
     }
 
     if (payload.phase === 'end') {
+      verticalTopChromeRevealed = false
       if (options.readerBackSwipeTrackingActive.value) {
         options.finishBackSwipe(deltaX, deltaY)
         options.resetGestureTracking()
@@ -124,6 +139,7 @@ export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandle
     }
 
     if (payload.phase === 'cancel') {
+      verticalTopChromeRevealed = false
       if (options.readerBackSwipeTrackingActive.value) {
         options.cancelBackSwipe()
       }

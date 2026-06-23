@@ -50,6 +50,7 @@ type AppTouchGestureHandlersOptions = {
   viewSwipeCandidateActive: ReadableRef<boolean>
   viewSwipeActive: ReadableRef<boolean>
   viewDragOffset: ReadableRef<number>
+  topChromeRevealThreshold: ReadableRef<number>
   readerBackSwipeCandidateActive: ReadableRef<boolean>
   readerBackSwipeTrackingActive: ReadableRef<boolean>
   navigationOpenDistance: number
@@ -73,6 +74,7 @@ type AppTouchGestureHandlersOptions = {
   isViewHorizontalSwipe: (deltaX: number, deltaY: number) => boolean
   isNavigationDrag: (deltaX: number, deltaY: number) => boolean
   settleNavigation: (open: boolean) => void
+  showTopChromeForVerticalSwipe: () => void
   showTopChromeForViewSwipe: () => void
   beginViewSwipeTransition: (deltaX: number) => void
   syncViewSwipeTransition: (offset: number) => void
@@ -81,10 +83,32 @@ type AppTouchGestureHandlersOptions = {
 }
 
 export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptions) {
+  let verticalTopChromeRevealed = false
+
   function preventDefaultIfCancelable(event: TouchEvent) {
     if (event.cancelable) {
       event.preventDefault()
     }
+  }
+
+  function isDownwardChromeRevealSwipe(deltaX: number, deltaY: number) {
+    return deltaY > 0 && deltaY >= options.topChromeRevealThreshold.value && Math.abs(deltaY) > Math.abs(deltaX) * 1.18
+  }
+
+  function revealTopChromeFromVerticalSwipe(deltaX: number, deltaY: number) {
+    if (
+      verticalTopChromeRevealed ||
+      options.navigationGesture.hasActiveSwipe() ||
+      options.viewSwipeActive.value ||
+      options.readerBackSwipeTrackingActive.value ||
+      !isDownwardChromeRevealSwipe(deltaX, deltaY)
+    ) {
+      return false
+    }
+
+    verticalTopChromeRevealed = true
+    options.showTopChromeForVerticalSwipe()
+    return true
   }
 
   function hasTrackedTouchGesture() {
@@ -116,6 +140,7 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
   }
 
   function handleTouchStart(event: TouchEvent) {
+    verticalTopChromeRevealed = false
     if (event.touches.length !== 1) {
       if (hasTrackedTouchGesture()) {
         cancelTrackedTouchGesture()
@@ -167,6 +192,17 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
   }
 
   function handleTouchMove(event: TouchEvent) {
+    if (event.touches.length !== 1) {
+      if (hasTrackedTouchGesture()) {
+        cancelTrackedTouchGesture()
+      }
+      return
+    }
+
+    const touch = event.touches[0]
+    const { deltaX, deltaY } = options.gestureOrigin.delta(touch.clientX, touch.clientY)
+    const verticalTopChromeReveal = revealTopChromeFromVerticalSwipe(deltaX, deltaY)
+
     if (
       !options.navigationGesture.hasCandidate() &&
       !options.viewSwipeCandidateActive.value &&
@@ -175,11 +211,10 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
       !options.viewSwipeActive.value &&
       !options.readerBackSwipeTrackingActive.value
     ) {
+      void verticalTopChromeReveal
       return
     }
 
-    const touch = event.touches[0]
-    const { deltaX, deltaY } = options.gestureOrigin.delta(touch.clientX, touch.clientY)
     const horizontal = options.isHorizontalSwipe(deltaX, deltaY)
     const viewHorizontal = options.isViewHorizontalSwipe(deltaX, deltaY)
 
@@ -247,6 +282,7 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
   }
 
   function handleTouchEnd(event: TouchEvent) {
+    verticalTopChromeRevealed = false
     if (
       !options.navigationGesture.hasCandidate() &&
       !options.viewSwipeCandidateActive.value &&
@@ -302,6 +338,7 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
   }
 
   function handleTouchCancel() {
+    verticalTopChromeRevealed = false
     cancelTrackedTouchGesture()
   }
 

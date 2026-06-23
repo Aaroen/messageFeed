@@ -1,9 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-import PlaceholderView from '@/views/PlaceholderView.vue'
-import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
-import SubscriptionSourcesView from '@/views/SubscriptionSourcesView.vue'
-import SettingsView from '@/views/SettingsView.vue'
+const SettingsView = () => import('@/views/SettingsView.vue')
+const SubscriptionFeedView = () => import('@/views/SubscriptionFeedView.vue')
+const SubscriptionSourcesView = () => import('@/views/SubscriptionSourcesView.vue')
 
 const router = createRouter({
   history: createWebHistory(),

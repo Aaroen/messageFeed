@@ -119,10 +119,10 @@ function consumeRefreshNoticeDelay(delayMS?: number) {
 }
 
 function invalidateSubscriptionFeedCaches(sourceIDs: number[] = []) {
-  feedListCache.invalidate('subscriptions:subscriptions:0')
+  feedListCache.invalidate('subscriptions:subscriptions:0:0')
   for (const sourceID of sourceIDs) {
     if (sourceID > 0) {
-      feedListCache.invalidate(`source:subscriptions:${sourceID}`)
+      feedListCache.invalidate(`source:subscriptions:${sourceID}:0`)
     }
   }
 }

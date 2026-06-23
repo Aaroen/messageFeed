@@ -1,4 +1,4 @@
-import type { FetchSourcesResult } from '@/api/feed'
+import type { FetchSourceResult, FetchSourcesResult, FetchSourcesStatus } from '@/api/feed'
 
 export type SourceFetchNotice = {
   type: 'success' | 'warning'
@@ -50,6 +50,49 @@ export function subscriptionFeedFetchNotice(
   }
 
   return { type: 'success', message: successMessage }
+}
+
+export function singleSourceFetchNotice(result: FetchSourceResult, sourceName = '当前来源'): SourceFetchNotice {
+  if (result.created_count <= 0) {
+    return { type: 'success', message: '暂无更新内容' }
+  }
+  return {
+    type: 'success',
+    message: `刷新成功：已更新 ${sourceName} 的 ${result.created_count} 条内容`,
+  }
+}
+
+export function sourceFetchStatusNotice(
+  status: FetchSourcesStatus,
+): SourceFetchNotice {
+  if (status.requested_count === 0) {
+    return {
+      type: 'success',
+      message: '刷新成功：当前暂无已开启订阅源，请在订阅管理中开启或导入来源',
+    }
+  }
+
+  if (status.failure_count > 0) {
+    const prefix = status.success_count > 0 ? '刷新异常' : '刷新失败'
+    const updateText =
+      status.created_count > 0
+        ? `已更新 ${status.updated_source_count || status.sources.length || status.success_count} 个订阅源的 ${status.created_count} 条内容，`
+        : '暂无更新内容，'
+    return {
+      type: 'warning',
+      message: `${prefix}：${updateText}${status.failure_count} 个失败。失败原因：${formatSourceFetchErrors(status.errors)}`,
+    }
+  }
+
+  if (status.created_count <= 0) {
+    return { type: 'success', message: '暂无更新内容' }
+  }
+
+  const sourceCount = status.updated_source_count || status.sources.length || status.success_count
+  return {
+    type: 'success',
+    message: `刷新成功：已更新 ${sourceCount} 个订阅源的 ${status.created_count} 条内容`,
+  }
 }
 
 export function subscriptionManagementFetchNotice(result: FetchSourcesResult): SourceFetchNotice {

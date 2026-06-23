@@ -35,6 +35,7 @@ withDefaults(
     sourceToggleDisabled?: boolean
     sourceContentStyle?: StyleValue
     readerSource?: ReaderSource | null
+    sourceTimelineId?: number
     sourceScrollTop?: number
     feedHeaderHeight?: number
     morphingItemId?: number | null
@@ -66,6 +67,7 @@ withDefaults(
     sourceToggleDisabled: false,
     sourceContentStyle: undefined,
     readerSource: null,
+    sourceTimelineId: 0,
     sourceScrollTop: 0,
     feedHeaderHeight: 86,
     morphingItemId: null,
@@ -112,6 +114,7 @@ const emit = defineEmits<{
     :toggle-disabled="sourceToggleDisabled"
     :content-style="sourceContentStyle"
     :reader-source="readerSource"
+    :source-timeline-id="sourceTimelineId"
     :scroll-top="sourceScrollTop"
     :header-height="feedHeaderHeight"
     :morphing-item-id="morphingItemId"

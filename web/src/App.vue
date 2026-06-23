@@ -87,6 +87,7 @@ const {
   parkedDetailStackDepth,
   sourceReaderBackDetailItemId,
   sourceNotice,
+  sourceSubscription,
   sourceTimelinePreloadEnabled,
   detailTransitionRectsLocked,
   detailFeedOriginLocked,
@@ -176,16 +177,38 @@ const {
 } = readerStackRuntime
 const feedScroll = useFeedScrollState()
 const feedScrollTop = feedScroll.scrollTop
+const sourceTimelineId = computed(() => {
+  const source = readerSource.value
+  const subscription = sourceSubscription.value
+  if (!source || source.kind !== 'recommendations' || subscription?.status !== 'active') {
+    return 0
+  }
+  return subscription.id
+})
 
 function syncFeedScrollTop(scrollTop: number) {
   feedScroll.update(scrollTop)
   scrollHistory.set('feed', scrollTop)
 }
 
+function syncMountedSurfaceScroll(
+  surface: 'feed' | 'page' | 'source' | 'detail',
+  element: HTMLElement | null,
+) {
+  if (!element || typeof window === 'undefined') {
+    return
+  }
+
+  window.requestAnimationFrame(() => {
+    feedChromeScrollRuntime.syncSurfaceScroll(surface, element)
+  })
+}
+
 function setFeedContentElementSynced(element: HTMLElement | null) {
   feedContent.setContentElement(element)
   if (element) {
     syncFeedScrollTop(element.scrollTop)
+    syncMountedSurfaceScroll('feed', element)
   }
 }
 
@@ -198,6 +221,14 @@ function setSourceReaderContentElementSynced(element: HTMLElement | null) {
   setSourceReaderContentElementState(element)
   if (element) {
     scrollHistory.set('source', sourceReaderScrollTop.value)
+    syncMountedSurfaceScroll('source', element)
+  }
+}
+
+function setPageContentElementSynced(element: HTMLElement | null) {
+  pageOutlet.setContentElement(element)
+  if (element) {
+    syncMountedSurfaceScroll('page', element)
   }
 }
 
@@ -205,6 +236,7 @@ function setDetailContentElementSynced(element: HTMLElement | null) {
   setDetailContentElementState(element)
   if (element) {
     scrollHistory.set('detail', detailScrollTop.value)
+    syncMountedSurfaceScroll('detail', element)
   }
 }
 
@@ -557,6 +589,17 @@ function beginTopChromeGestureReturn(options?: TopChromeGestureReturnOptions) {
   chromeState.beginGestureReturn(options)
 }
 
+function showTopChromeForVerticalSwipe() {
+  if (topChromeProgress.value >= 0.99 && !feedContentCollapsed.value) {
+    return
+  }
+
+  beginTopChromeGestureReturn({
+    settleDelayMS: motionDelay(topChromeSettleDuration),
+    preserveContentCollapsed: true,
+  })
+}
+
 const collapseTopChrome = topChromeActions.collapseTopChrome
 const currentContentScrollTop = topChromeActions.currentContentScrollTop
 const settlePagePullOffset = topChromeActions.settlePagePullOffset
@@ -646,7 +689,7 @@ const {
   detailFrameRef,
   setSourceReaderContentElement: setSourceReaderContentElementSynced,
   setFeedContentElement: setFeedContentElementSynced,
-  setPageContentElement: pageOutlet.setContentElement,
+  setPageContentElement: setPageContentElementSynced,
   setPageViewInstance: pageOutlet.setViewInstance,
   setDetailContentElement: setDetailContentElementSynced,
   setDetailInlineSourceElement: setDetailInlineSourceElementState,
@@ -817,7 +860,6 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
     settleFinishedSwipe: feedPagerTransition.settleFinishedSwipe,
     markStartedWithHiddenChrome: feedPagerTransition.markStartedWithHiddenChrome,
     beginTopChromeGestureReturn,
-    setTopChromeVisible,
     hideTopChromeOverlay,
     pushRoute,
     topChromeGestureSettleDelayMS: motionDelay(topChromeSettleDuration),
@@ -890,6 +932,7 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
       viewSwipeCandidateActive,
       viewSwipeActive,
       viewDragOffset,
+      topChromeRevealThreshold: feedHeaderHeight,
       readerBackSwipeCandidateActive,
       readerBackSwipeTrackingActive,
       gestureOrigin,
@@ -907,6 +950,7 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
       isViewHorizontalSwipe,
       isNavigationDrag,
       settleNavigation,
+      showTopChromeForVerticalSwipe,
       suppressFollowingClick,
     },
     navigationPointer: {
@@ -974,6 +1018,7 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
       recordRefreshStartedWithChrome: feedRefreshCompletionRuntime.recordRefreshStartedWithChrome,
       collapseTopChrome,
       setTopChromeVisible,
+      showTopChromeOverlay,
     },
     feedPull: feedPullInteraction,
     scroll: {
@@ -986,7 +1031,6 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
       detailScrollMax,
       feedHeaderHeight,
       isFeedRoute,
-      setTopChromeVisible,
       hideTopChromeForScroll,
       showTopChromeOverlay,
       setTopChromeOverlayProgress,
@@ -1036,6 +1080,7 @@ const readerStackOutletRuntime = useAppReaderStackOutletRuntime({
       detailFrameId,
       navigationVisible,
       readerBackSwipeTrackingActive,
+      topChromeRevealThreshold: feedHeaderHeight,
       detailCommittedListReturn,
       isCurrentDetailFrameMessageSource: (source) => source === detailFrameRef.value?.contentWindow,
       updateDetailFrameContentHeight: updateDetailFrameContentHeightState,
@@ -1045,6 +1090,7 @@ const readerStackOutletRuntime = useAppReaderStackOutletRuntime({
       finishBackSwipe,
       cancelBackSwipe,
       resetGestureTracking,
+      showTopChromeForVerticalSwipe,
     },
     settings: {
       setSourceTimelinePreloadEnabled: setSourceTimelinePreloadEnabledState,
@@ -1055,6 +1101,7 @@ const readerStackOutletRuntime = useAppReaderStackOutletRuntime({
     sourceReaderUnderDetail,
     readerMotion: readerMotionState,
     readerSource,
+    sourceTimelineId,
     sourceToggleActive,
     detailItem,
     readerMorph: readerMorphVisibilityState,

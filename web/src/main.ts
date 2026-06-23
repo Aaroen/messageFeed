@@ -1,5 +1,5 @@
-import ArcoVue from '@arco-design/web-vue'
-import '@arco-design/web-vue/dist/arco.css'
+import Alert from '@arco-design/web-vue/es/alert'
+import '@arco-design/web-vue/es/alert/style/css.js'
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 
@@ -11,6 +11,6 @@ const app = createApp(App)
 
 app.use(createPinia())
 app.use(router)
-app.use(ArcoVue)
+app.use(Alert)
 
 app.mount('#app')

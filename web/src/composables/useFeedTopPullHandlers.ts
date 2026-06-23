@@ -28,11 +28,16 @@ type FeedTopPullHandlersOptions = {
   recordRefreshStartedWithChrome: (startedWithChrome: boolean) => void
   collapseTopChrome: () => void
   setTopChromeVisible: (visible: boolean) => void
+  showTopChromeOverlay: () => void
 }
 
 export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
   function topChromeProgress() {
     return clampProgress(options.topChromeProgress.value)
+  }
+
+  function topChromeGestureProgress(distance: number) {
+    return clampProgress(options.topPull.startProgress.value + distance / options.feedHeaderHeight.value)
   }
 
   function handleFeedTopPullStart(startedWithVisibleChrome = false) {
@@ -64,9 +69,7 @@ export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
       return
     }
 
-    options.setRefreshingProgress(
-      clampProgress(options.topPull.startProgress.value - distance / options.feedHeaderHeight.value),
-    )
+    options.setRefreshingProgress(topChromeGestureProgress(distance), { contentCollapsed: true })
   }
 
   function handleFeedTopPullEnd(shouldRefresh = false) {
@@ -81,6 +84,12 @@ export function useFeedTopPullHandlers(options: FeedTopPullHandlersOptions) {
     if (shouldRefresh) {
       options.recordRefreshStartedWithChrome(startedWithChrome)
       options.commitRefreshingChrome(startedWithChrome)
+      return
+    }
+
+    if (!startedWithChrome && topChromeProgress() >= 0.99) {
+      options.showTopChromeOverlay()
+      options.topPull.resetStartedWithChrome()
       return
     }
 

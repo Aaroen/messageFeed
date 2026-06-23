@@ -1,3 +1,20 @@
+const forbiddenDetailTags = new Set([
+  'base',
+  'embed',
+  'form',
+  'iframe',
+  'input',
+  'link',
+  'math',
+  'meta',
+  'noscript',
+  'object',
+  'script',
+  'style',
+  'svg',
+  'title',
+])
+
 export function escapeHTML(value: string) {
   return value
     .replace(/&/g, '&amp;')
@@ -25,29 +42,55 @@ export function plainPreviewText(...values: Array<string | undefined>) {
 export function sanitizeDetailHTML(value: string) {
   const input = value.trim()
   if (!input || typeof DOMParser === 'undefined') {
-    return input
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<\/?(?:html|head|body)[^>]*>/gi, '')
+    return fallbackSanitizeDetailHTML(input)
   }
 
   const documentFragment = new DOMParser().parseFromString(input, 'text/html')
-  documentFragment
-    .querySelectorAll('script, style, link, meta, base, title, noscript, object, embed')
-    .forEach((element) => element.remove())
   documentFragment.body.querySelectorAll('*').forEach((element) => {
+    const tagName = element.tagName.toLowerCase()
+    if (forbiddenDetailTags.has(tagName)) {
+      element.remove()
+      return
+    }
+
     for (const attribute of Array.from(element.attributes)) {
-      const name = attribute.name.toLowerCase()
-      const attributeValue = attribute.value.trim().toLowerCase()
-      if (
-        name.startsWith('on') ||
-        ((name === 'href' || name === 'src') && attributeValue.startsWith('javascript:'))
-      ) {
+      if (attributeIsUnsafe(attribute)) {
         element.removeAttribute(attribute.name)
       }
     }
   })
-  return documentFragment.body.innerHTML || input
+  return documentFragment.body.innerHTML.trim()
+}
+
+function attributeIsUnsafe(attribute: Attr) {
+  const name = attribute.name.toLowerCase()
+  const value = attribute.value.trim()
+  if (name.startsWith('on') || name === 'style' || name === 'srcset' || name.startsWith('data-')) {
+    return true
+  }
+  if (name === 'href' || name === 'src' || name === 'xlink:href') {
+    return urlValueIsUnsafe(value)
+  }
+  return false
+}
+
+function urlValueIsUnsafe(value: string) {
+  const normalized = value.replace(/[\u0000-\u001f\u007f\s]+/g, '').toLowerCase()
+  return normalized.startsWith('javascript:') || normalized.startsWith('data:') || normalized.startsWith('vbscript:')
+}
+
+function fallbackSanitizeDetailHTML(input: string) {
+  return input
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<\/?(?:html|head|body)[^>]*>/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s+(?:href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\1/gi, '')
+    .replace(/\s+(?:href|src)\s*=\s*(["'])\s*data:[\s\S]*?\1/gi, '')
+    .replace(/\s+(?:href|src)\s*=\s*(["'])\s*vbscript:[\s\S]*?\1/gi, '')
+    .replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s+srcset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s+data-[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
 }
 
 export function formatItemDate(value?: string) {

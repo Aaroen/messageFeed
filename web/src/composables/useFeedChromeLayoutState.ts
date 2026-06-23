@@ -2,7 +2,6 @@ import { computed } from 'vue'
 
 import {
   chromePhaseConsumesCollapsedLayout,
-  chromeNeedsVisibleTopClearance,
   clampProgress,
   feedContentTopOffset,
   feedHeaderHeightForWidth,
@@ -42,24 +41,6 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     chromePhaseConsumesCollapsedLayout(options.topChromePhase.value) ? topChromeProgress.value : 0,
   )
   const feedAtVisibleTop = computed(() => options.feedScrollTop.value <= visibleContentTopOffset.value)
-  const visibleChromeNeedsTopClearance = computed(() => {
-    if (
-      !options.isFeedRoute.value ||
-      options.detailReaderOpen.value ||
-      options.viewSwipeActive.value ||
-      options.feedTopPulling.value ||
-      options.feedPullActive.value ||
-      !options.feedContentCollapsed.value
-    ) {
-      return false
-    }
-
-    if (!feedAtVisibleTop.value || topChromeProgress.value <= 0.04) {
-      return false
-    }
-
-    return chromeNeedsVisibleTopClearance(options.topChromePhase.value, topChromeProgress.value)
-  })
   const headerProgress = computed(() => {
     if (!options.isFeedRoute.value) {
       return topChromeProgress.value
@@ -74,9 +55,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
   const contentSpace = computed(() => {
     const collapsedRestoreSpace = headerHeight.value * collapsedLayoutProgress.value
     const pullRestoreSpace = headerHeight.value * Math.max(topChromeProgress.value, pullProgress.value)
-    const feedLayoutChromeVisible =
-      options.isFeedRoute.value &&
-      (!options.feedContentCollapsed.value || visibleChromeNeedsTopClearance.value)
+    const feedLayoutChromeVisible = options.isFeedRoute.value && !options.feedContentCollapsed.value
     const feedTopInset = options.isFeedRoute.value
       ? feedTopScrollInset(options.feedScrollTop.value, headerHeight.value)
       : 0
@@ -88,7 +67,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       !options.viewSwipeActive.value &&
       feedAtVisibleTop.value &&
       topChromeProgress.value > 0.04 &&
-      (!options.feedContentCollapsed.value || visibleChromeNeedsTopClearance.value)
+      !options.feedContentCollapsed.value
     const preserveVisibleTopSpace = (space: number) =>
       visibleHeaderAtFeedTop ? Math.max(space, visibleTopSpace) : space
 

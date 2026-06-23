@@ -1,4 +1,4 @@
-import { clampProgress, feedVisibleContentTopOffset } from '@/composables/feedChromeMetrics'
+import { clampProgress } from '@/composables/feedChromeMetrics'
 import type { SwipeDirection } from '@/composables/useSwipeTransition'
 
 type ReadableRef<T> = {
@@ -49,7 +49,6 @@ type FeedViewSwipeControllerOptions<TSurface extends string> = {
     settleDelayMS: number
     preserveContentCollapsed?: boolean
   }) => void
-  setTopChromeVisible: (visible: boolean) => void
   hideTopChromeOverlay: () => void
   pushRoute: (path: string) => Promise<unknown> | void
   topChromeGestureSettleDelayMS: number
@@ -74,12 +73,11 @@ export function useFeedViewSwipeController<TSurface extends string>(
     const result = options.finishSwipeResult(nextPath)
     options.settleSwipeTransition(result.committed, result.settlePayload)
 
-    if (result.startedWithHiddenChrome) {
-      if (options.feedContentCollapsed.value) {
-        options.hideTopChromeOverlay()
-      } else {
-        options.setTopChromeVisible(true)
-      }
+    if (nextPath || result.startedWithHiddenChrome) {
+      options.beginTopChromeGestureReturn({
+        settleDelayMS: options.topChromeGestureSettleDelayMS,
+        preserveContentCollapsed: true,
+      })
     }
 
     if (nextPath) {
@@ -93,12 +91,10 @@ export function useFeedViewSwipeController<TSurface extends string>(
     const shouldRevealChrome =
       clampProgress(options.topChromeProgress.value) < 0.99 || options.feedContentCollapsed.value
     if (shouldRevealChrome) {
-      const feedAtVisibleTop =
-        options.feedScrollTop.value <= feedVisibleContentTopOffset(options.feedHeaderHeight.value)
       options.markStartedWithHiddenChrome()
       options.beginTopChromeGestureReturn({
         settleDelayMS: options.topChromeGestureSettleDelayMS,
-        preserveContentCollapsed: !feedAtVisibleTop,
+        preserveContentCollapsed: true,
       })
     }
   }

@@ -40,6 +40,7 @@ withDefaults(
     toggleDisabled?: boolean
     contentStyle?: StyleValue
     readerSource?: ReaderSource | null
+    sourceTimelineId?: number
     scrollTop?: number
     headerHeight?: number
     morphingItemId?: number | null
@@ -71,6 +72,7 @@ withDefaults(
     toggleDisabled: false,
     contentStyle: undefined,
     readerSource: null,
+    sourceTimelineId: 0,
     scrollTop: 0,
     headerHeight: 86,
     morphingItemId: null,
@@ -149,6 +151,7 @@ function setContentRef(value: Element | ComponentPublicInstance | null) {
   >
     <ReaderSourceFeed
       :reader-source="readerSource"
+      :source-timeline-id="sourceTimelineId"
       :scroll-top="scrollTop"
       :top-chrome-progress="topChromeProgress"
       :top-chrome-content-collapsed="topChromeContentCollapsed"
