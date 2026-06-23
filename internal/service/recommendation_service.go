@@ -31,10 +31,20 @@ const (
 type RecommendationService struct {
 	catalogRepository SourceCatalogRepository
 	feedFetcher       FeedFetcher
+	sourceRepository  RecommendationSourceRepository
+	itemRepository    RecommendationItemRepository
 	now               func() time.Time
 	cacheMu           sync.Mutex
 	cache             map[recommendationCacheKey]recommendationCacheEntry
 	refreshing        map[recommendationCacheKey]struct{}
+}
+
+type RecommendationSourceRepository interface {
+	ListByUser(ctx context.Context, userID int64) ([]domain.Source, error)
+}
+
+type RecommendationItemRepository interface {
+	ListByUser(ctx context.Context, options domain.ItemListOptions) (domain.ItemListResult, error)
 }
 
 func NewRecommendationService(catalogRepository SourceCatalogRepository, feedFetcher FeedFetcher, options ...SourceServiceOption) *RecommendationService {
@@ -53,6 +63,14 @@ func NewRecommendationService(catalogRepository SourceCatalogRepository, feedFet
 		cache:             make(map[recommendationCacheKey]recommendationCacheEntry),
 		refreshing:        make(map[recommendationCacheKey]struct{}),
 	}
+}
+
+func (s *RecommendationService) SetLocalHistoryRepositories(sourceRepository RecommendationSourceRepository, itemRepository RecommendationItemRepository) {
+	if s == nil {
+		return
+	}
+	s.sourceRepository = sourceRepository
+	s.itemRepository = itemRepository
 }
 
 type ListRecommendationsInput struct {
@@ -103,6 +121,21 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 		if err != nil {
 			opErr = err
 			return ListItemsResult{}, opErr
+		}
+		if len(entries) > 0 {
+			localResult, resolved, err := s.listSubscribedSourceHistory(ctx, input, entries[0], limit, order)
+			if err != nil {
+				opErr = err
+				return ListItemsResult{}, opErr
+			}
+			if resolved {
+				span.SetAttributes(
+					attribute.Bool("recommendation.local_history", true),
+					attribute.Int64("recommendation.catalog_source_id", input.SourceID),
+					attribute.Int("recommendation.items", len(localResult.Items)),
+				)
+				return localResult, nil
+			}
 		}
 	} else {
 		var catalog domain.SourceCatalogListResult
@@ -184,6 +217,48 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 		Limit:  limit,
 		Offset: input.Offset,
 	}, nil
+}
+
+func (s *RecommendationService) listSubscribedSourceHistory(
+	ctx context.Context,
+	input ListRecommendationsInput,
+	entry domain.SourceCatalogEntry,
+	limit int,
+	order domain.ItemSortOrder,
+) (ListItemsResult, bool, error) {
+	if s.sourceRepository == nil || s.itemRepository == nil {
+		return ListItemsResult{}, false, nil
+	}
+	if entry.NormalizedURL == "" {
+		return ListItemsResult{}, false, nil
+	}
+
+	sources, err := s.sourceRepository.ListByUser(ctx, input.UserID)
+	if err != nil {
+		return ListItemsResult{}, false, err
+	}
+	for _, source := range sources {
+		if source.UserID != input.UserID || source.NormalizedURL != entry.NormalizedURL {
+			continue
+		}
+		result, err := s.itemRepository.ListByUser(ctx, domain.ItemListOptions{
+			UserID:    input.UserID,
+			SourceID:  source.ID,
+			Limit:     limit,
+			Offset:    input.Offset,
+			SortOrder: order,
+		})
+		if err != nil {
+			return ListItemsResult{}, false, err
+		}
+		return ListItemsResult{
+			Items:  result.Items,
+			Total:  result.Total,
+			Limit:  result.Limit,
+			Offset: result.Offset,
+		}, true, nil
+	}
+	return ListItemsResult{}, false, nil
 }
 
 type recommendationSourceItems struct {

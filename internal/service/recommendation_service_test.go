@@ -198,6 +198,77 @@ func TestListRecommendationsPaginatesSourceItemsBeyondRecommendationCap(t *testi
 	}
 }
 
+func TestListRecommendationsSourceUsesSubscribedHistoryWhenAvailable(t *testing.T) {
+	now := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
+	catalogRepository := &fakeRecommendationCatalogRepository{
+		entries: []domain.SourceCatalogEntry{
+			{
+				ID:            10,
+				Name:          "Catalog source",
+				FeedURL:       "https://example.com/feed.xml",
+				NormalizedURL: "https://example.com/feed.xml",
+				Type:          domain.SourceTypeRSS,
+				Official:      true,
+				HealthStatus:  domain.SourceCatalogHealthHealthy,
+			},
+		},
+	}
+	feedFetcher := &multiItemRecommendationFetcher{itemsPerSource: 12}
+	service := NewRecommendationService(
+		catalogRepository,
+		feedFetcher,
+		WithNow(func() time.Time {
+			return now
+		}),
+	)
+	sourceRepository := &fakeRecommendationSourceRepository{
+		sources: []domain.Source{
+			{
+				ID:            200,
+				UserID:        1,
+				Name:          "Subscribed source",
+				Type:          domain.SourceTypeRSS,
+				URL:           "https://example.com/feed.xml",
+				NormalizedURL: "https://example.com/feed.xml",
+				Status:        domain.SourceStatusActive,
+			},
+		},
+	}
+	itemRepository := &fakeRecommendationItemRepository{
+		items: recommendationHistoryItems(200, 12),
+	}
+	service.SetLocalHistoryRepositories(sourceRepository, itemRepository)
+
+	result, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
+		UserID:   1,
+		SourceID: 10,
+		Limit:    10,
+		Offset:   10,
+	})
+	if err != nil {
+		t.Fatalf("ListRecommendations returned error: %v", err)
+	}
+
+	if got, want := len(result.Items), 2; got != want {
+		t.Fatalf("items length = %d, want %d", got, want)
+	}
+	if got, want := result.Total, int64(12); got != want {
+		t.Fatalf("total = %d, want %d", got, want)
+	}
+	if got, want := result.Items[0].SourceID, int64(200); got != want {
+		t.Fatalf("first item SourceID = %d, want %d", got, want)
+	}
+	if got, want := itemRepository.options.SourceID, int64(200); got != want {
+		t.Fatalf("history SourceID option = %d, want %d", got, want)
+	}
+	if got, want := itemRepository.options.Offset, 10; got != want {
+		t.Fatalf("history Offset option = %d, want %d", got, want)
+	}
+	if got, want := feedFetcher.calls, 0; got != want {
+		t.Fatalf("fetch calls = %d, want %d", got, want)
+	}
+}
+
 type fakeRecommendationCatalogRepository struct {
 	entries []domain.SourceCatalogEntry
 }
@@ -287,4 +358,67 @@ func (f *multiItemRecommendationFetcher) Fetch(_ context.Context, source domain.
 		})
 	}
 	return domain.FeedFetchResult{Items: items}, nil
+}
+
+type fakeRecommendationSourceRepository struct {
+	sources []domain.Source
+}
+
+func (r *fakeRecommendationSourceRepository) ListByUser(_ context.Context, userID int64) ([]domain.Source, error) {
+	sources := make([]domain.Source, 0, len(r.sources))
+	for _, source := range r.sources {
+		if source.UserID == userID {
+			sources = append(sources, source)
+		}
+	}
+	return sources, nil
+}
+
+type fakeRecommendationItemRepository struct {
+	items   []domain.Item
+	options domain.ItemListOptions
+}
+
+func (r *fakeRecommendationItemRepository) ListByUser(_ context.Context, options domain.ItemListOptions) (domain.ItemListResult, error) {
+	r.options = options
+	items := make([]domain.Item, 0, len(r.items))
+	for _, item := range r.items {
+		if item.SourceID == options.SourceID {
+			items = append(items, item)
+		}
+	}
+	total := int64(len(items))
+	if options.Offset > len(items) {
+		items = nil
+	} else {
+		items = items[options.Offset:]
+	}
+	if options.Limit > 0 && len(items) > options.Limit {
+		items = items[:options.Limit]
+	}
+	return domain.ItemListResult{
+		Items:  items,
+		Total:  total,
+		Limit:  options.Limit,
+		Offset: options.Offset,
+	}, nil
+}
+
+func recommendationHistoryItems(sourceID int64, count int) []domain.Item {
+	items := make([]domain.Item, 0, count)
+	for index := 0; index < count; index++ {
+		url := fmt.Sprintf("https://example.com/history/%d", index)
+		items = append(items, domain.Item{
+			ID:            int64(index + 1),
+			SourceID:      sourceID,
+			SourceName:    "Subscribed source",
+			Title:         fmt.Sprintf("History item %d", index),
+			URL:           url,
+			NormalizedURL: url,
+			FetchedAt:     time.Date(2026, 6, 20, 8, index, 0, 0, time.UTC),
+			CreatedAt:     time.Date(2026, 6, 20, 8, index, 0, 0, time.UTC),
+			UpdatedAt:     time.Date(2026, 6, 20, 8, index, 0, 0, time.UTC),
+		})
+	}
+	return items
 }

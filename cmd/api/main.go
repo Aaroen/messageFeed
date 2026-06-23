@@ -111,6 +111,7 @@ func main() {
 		)
 		timelineService = service.NewTimelineService(itemRepository)
 		recommendationService = service.NewRecommendationService(sourceCatalogRepository, feedFetcher)
+		recommendationService.SetLocalHistoryRepositories(sourceRepository, itemRepository)
 		itemService = service.NewItemService(userItemStateRepository)
 		feedViewService = service.NewFeedViewService(feedViewPreferenceRepository)
 
