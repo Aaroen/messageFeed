@@ -26,8 +26,22 @@ const redirectPath = computed(() => {
 
 async function submitRegister() {
   const invite = inviteCode.value.trim()
+  const nextUsername = username.value.trim()
+  const nextPassword = password.value
   if (!invite) {
     errorMessage.value = '邀请码为必填项'
+    return
+  }
+  if (!nextUsername) {
+    errorMessage.value = '账号为必填项'
+    return
+  }
+  if (!nextPassword) {
+    errorMessage.value = '密码为必填项'
+    return
+  }
+  if (nextPassword.length < 6) {
+    errorMessage.value = '密码至少需要 6 位'
     return
   }
   loading.value = true
@@ -35,8 +49,8 @@ async function submitRegister() {
   try {
     await registerWithInvite({
       invite_code: invite,
-      username: username.value.trim(),
-      password: password.value,
+      username: nextUsername,
+      password: nextPassword,
       display_name: displayName.value.trim(),
       email: email.value.trim(),
     })
@@ -60,7 +74,7 @@ onMounted(async () => {
 
 <template>
   <section class="auth-page">
-    <form class="settings-panel auth-panel" @submit.prevent="submitRegister">
+    <form class="settings-panel auth-panel" novalidate @submit.prevent="submitRegister">
       <div>
         <div class="settings-panel__title">注册</div>
         <div class="settings-panel__meta">使用管理员生成的邀请码创建账号</div>
@@ -81,14 +95,13 @@ onMounted(async () => {
           class="settings-input"
           type="text"
           autocomplete="one-time-code"
-          required
           aria-required="true"
         />
       </label>
 
       <label class="settings-field">
         <span>账号</span>
-        <input v-model="username" class="settings-input" type="text" autocomplete="username" required />
+        <input v-model="username" class="settings-input" type="text" autocomplete="username" aria-required="true" />
       </label>
 
       <label class="settings-field">
@@ -109,7 +122,7 @@ onMounted(async () => {
           type="password"
           minlength="6"
           autocomplete="new-password"
-          required
+          aria-required="true"
         />
       </label>
 

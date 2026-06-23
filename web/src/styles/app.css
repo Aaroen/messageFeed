@@ -1558,6 +1558,14 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
 
 .auth-panel {
   width: min(100%, 420px);
+  align-items: stretch;
+}
+
+.auth-panel .settings-field,
+.auth-panel .settings-input,
+.auth-panel .settings-action-button,
+.auth-panel .settings-link-button {
+  width: 100%;
 }
 
 .auth-submit-button {

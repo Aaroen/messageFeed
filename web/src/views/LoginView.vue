@@ -22,10 +22,23 @@ const redirectPath = computed(() => {
 })
 
 async function submitLogin() {
+  const nextUsername = username.value.trim()
+  if (!nextUsername && !password.value) {
+    errorMessage.value = '请输入账号和密码'
+    return
+  }
+  if (!nextUsername) {
+    errorMessage.value = '请输入账号'
+    return
+  }
+  if (!password.value) {
+    errorMessage.value = '请输入密码'
+    return
+  }
   loading.value = true
   errorMessage.value = ''
   try {
-    await login({ username: username.value, password: password.value })
+    await login({ username: nextUsername, password: password.value })
     await router.replace(redirectPath.value)
   } catch (error) {
     errorMessage.value = formatAPIError(error)
@@ -49,7 +62,7 @@ onMounted(async () => {
 
 <template>
   <section class="auth-page">
-    <form class="settings-panel auth-panel" @submit.prevent="submitLogin">
+    <form class="settings-panel auth-panel" novalidate @submit.prevent="submitLogin">
       <div>
         <div class="settings-panel__title">登录</div>
         <div class="settings-panel__meta">messageFeed 管理入口</div>

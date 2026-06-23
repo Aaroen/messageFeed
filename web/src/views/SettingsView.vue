@@ -905,7 +905,7 @@ defineExpose({ refreshPage })
               <button
                 class="settings-action-button"
                 type="button"
-                :disabled="inviteDeletingID === invite.id || invite.status === 'revoked'"
+                :disabled="inviteDeletingID === invite.id"
                 @click="deleteInviteCode(invite.id)"
               >
                 {{ inviteDeletingID === invite.id ? '删除中' : '删除' }}

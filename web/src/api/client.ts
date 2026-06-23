@@ -8,24 +8,41 @@ export const apiClient = axios.create({
 
 function readErrorData(data: unknown) {
   if (!data || typeof data !== 'object') {
-    return { message: '', requestID: '' }
+    return { message: '' }
   }
 
   const record = data as Record<string, unknown>
   return {
     message: typeof record.message === 'string' ? record.message : '',
-    requestID: typeof record.request_id === 'string' ? record.request_id : '',
   }
+}
+
+function friendlyErrorMessage(message: string) {
+  const cleaned = message.replace(/\s*\(request_id:[^)]+\)\s*$/i, '').trim()
+  const normalized = cleaned.toLowerCase()
+  if (normalized === 'username and password are required') {
+    return '请输入账号和密码'
+  }
+  if (normalized === 'username is required') {
+    return '请输入账号'
+  }
+  if (normalized === 'password is required') {
+    return '请输入密码'
+  }
+  if (normalized === 'invite code is required') {
+    return '请输入邀请码'
+  }
+  if (normalized === 'invalid request body') {
+    return '提交内容不完整，请检查后重试'
+  }
+  return cleaned
 }
 
 export function formatAPIError(error: unknown): string {
   if (error instanceof AxiosError) {
-    const { message, requestID } = readErrorData(error.response?.data)
-    if (message && requestID) {
-      return `${message} (request_id: ${requestID})`
-    }
+    const { message } = readErrorData(error.response?.data)
     if (message) {
-      return message
+      return friendlyErrorMessage(message)
     }
     if (error.code === 'ECONNABORTED') {
       return '请求超时'
@@ -42,10 +59,10 @@ export function formatAPIError(error: unknown): string {
     if (error.response?.status) {
       return `请求失败（HTTP ${error.response.status}）`
     }
-    return error.message
+    return friendlyErrorMessage(error.message)
   }
   if (error instanceof Error) {
-    return error.message
+    return friendlyErrorMessage(error.message)
   }
   return '未知错误'
 }

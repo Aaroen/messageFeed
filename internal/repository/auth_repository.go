@@ -618,6 +618,7 @@ func (r *AuthRepository) ListInviteCodes(ctx context.Context, createdByUserID in
 	var models []authInviteCodeModel
 	if err := r.db.WithContext(ctx).
 		Where("created_by_user_id = ?", createdByUserID).
+		Where("status <> ?", string(domain.AuthInviteCodeStatusRevoked)).
 		Order("created_at DESC, id DESC").
 		Find(&models).Error; err != nil {
 		opErr = mapRepositoryError(err)
