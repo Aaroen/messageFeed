@@ -1,4 +1,8 @@
-import { clampProgress, feedContentTopOffset } from '@/composables/feedChromeMetrics'
+import {
+  clampProgress,
+  feedContentTopOffset,
+  feedVisibleContentTopOffset,
+} from '@/composables/feedChromeMetrics'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -29,7 +33,15 @@ function safeGapFeedRevealProgress(payload: {
 }) {
   const topOffset = feedContentTopOffset(payload.headerHeight)
   if (payload.contentCollapsed) {
-    return payload.scrollTop <= topOffset ? payload.progress : 0
+    const visibleTopOffset = feedVisibleContentTopOffset(payload.headerHeight)
+    if (payload.scrollTop >= visibleTopOffset) {
+      return 0
+    }
+
+    return Math.min(
+      payload.progress,
+      clampProgress((visibleTopOffset - payload.scrollTop) / Math.max(visibleTopOffset, 1)),
+    )
   }
 
   const maxProgress = (payload.headerHeight - payload.scrollTop) / payload.headerHeight
@@ -46,12 +58,12 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
       return false
     }
 
-    if (topChromeProgress() <= 0.04) {
+    if (topChromeProgress() < 0.95) {
       return false
     }
 
-    const topOffset = feedContentTopOffset(options.feedHeaderHeight.value)
-    if (current > topOffset) {
+    const visibleTopOffset = feedVisibleContentTopOffset(options.feedHeaderHeight.value)
+    if (current > visibleTopOffset) {
       return false
     }
 
@@ -113,10 +125,10 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
           headerHeight,
           contentCollapsed: options.feedContentCollapsed.value,
         })
-        if (
-          (progress >= 0.95 || current <= revealSettleDistance) &&
-          currentTopChromeProgress < 0.99
-        ) {
+        const shouldSettleVisible =
+          progress >= 0.95 ||
+          (!options.feedContentCollapsed.value && current <= revealSettleDistance)
+        if (shouldSettleVisible && currentTopChromeProgress < 0.99) {
           if (options.feedContentCollapsed.value) {
             options.setTopChromeVisible(true)
             return

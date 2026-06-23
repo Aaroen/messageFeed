@@ -26,11 +26,11 @@ export function chromePhaseConsumesCollapsedLayout(phase: string) {
 }
 
 export function chromePhaseNeedsVisibleTopClearance(phase: string) {
-  return phase === 'visible' || phase === 'revealing' || phase === 'gesture-returning'
+  return phase === 'visible'
 }
 
 export function chromeNeedsVisibleTopClearance(phase: string, progress: number) {
-  return chromePhaseNeedsVisibleTopClearance(phase) || (!chromePhaseConsumesCollapsedLayout(phase) && progress > 0.86)
+  return chromePhaseNeedsVisibleTopClearance(phase) && progress > 0.86
 }
 
 export function sourceContentTopOffset() {
