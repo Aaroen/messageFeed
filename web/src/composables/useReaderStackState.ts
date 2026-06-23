@@ -1233,6 +1233,13 @@ export function useReaderStackState() {
     morphingHeightUnlockTimer = 0
   }
 
+  function resetMorphingItemContentState() {
+    clearMorphingHeightUnlockTimer()
+    morphingItemId.value = null
+    morphingHeightLockItemId.value = null
+    morphingItemHeight.value = null
+  }
+
   function restoreMorphingItemContentWithDelay(unlockDelay = morphingItemContentUnlockDelay) {
     beginRestoreMorphingItemContentState()
     clearMorphingHeightUnlockTimer()
@@ -1279,7 +1286,7 @@ export function useReaderStackState() {
     clearReaderMotionTimer()
     resetDetailEntryAnimationState()
     resetDetailHeaderTitleSwapState()
-    clearMorphingHeightUnlockTimer()
+    resetMorphingItemContentState()
     clearHiddenSourceCleanupTimer()
   }
 
