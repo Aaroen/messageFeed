@@ -26,12 +26,48 @@ const emit = defineEmits<{
   (event: 'open-source', source: ReaderSource): void
 }>()
 
+type ComponentRefWithExpose = ComponentPublicInstance & {
+  $?: {
+    exposeProxy?: unknown
+    exposed?: unknown
+  }
+}
+
+function hasPageViewExpose(value: unknown): value is PageViewExpose {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as PageViewExpose
+  return typeof candidate.refreshPage === 'function' || typeof candidate.clearNotice === 'function'
+}
+
+function resolvePageViewExpose(value: Element | ComponentPublicInstance | null) {
+  if (!value || value instanceof Element) {
+    return null
+  }
+
+  if (hasPageViewExpose(value)) {
+    return value
+  }
+
+  const internal = (value as ComponentRefWithExpose).$
+  if (hasPageViewExpose(internal?.exposeProxy)) {
+    return internal.exposeProxy
+  }
+  if (hasPageViewExpose(internal?.exposed)) {
+    return internal.exposed
+  }
+
+  return null
+}
+
 function setContentRef(value: Element | ComponentPublicInstance | null) {
   emit('content-ref', value instanceof HTMLElement ? value : null)
 }
 
 function setViewRef(value: Element | ComponentPublicInstance | null) {
-  emit('view-ref', (value ?? null) as PageViewExpose | null)
+  emit('view-ref', resolvePageViewExpose(value))
 }
 
 function handleOpenSource(source: ReaderSource) {
