@@ -814,7 +814,7 @@ API 与安全约束：
 
 ### <a id="phase-4-5"></a>阶段四点五：后端治理与后台刷新解耦
 
-**状态**：进行中 | **完成度**：25%
+**状态**：进行中 | **完成度**：35%
 
 阶段四点五用于在进入 Agent、通知和金融能力前，先解决首页刷新性能、后台同步解耦和后端服务边界问题。该阶段的基本原则是：后台同步负责获取事实，确定性规则负责预筛选，Agent 只处理候选内容并生成解释，策略引擎负责最终裁决，通知系统负责可审计发送。
 
@@ -836,6 +836,7 @@ API 与安全约束：
 - [x] 已建立 `source_fetch_jobs`、`source_fetch_attempts` 和 `item_events` 基础表。
 - [x] 已建立抓取任务、抓取尝试和 item event 的 domain、repository 与模型转换测试。
 - [x] `ItemRepository.UpsertMany` 已向调用方返回新建和更新条目实体，为后续 `item.created` 事件生成提供依据。
+- [x] `SourceSyncService.ExecuteFetchJob` 已支持执行单个已领取抓取任务，记录 attempt，并只为新建条目生成 `item.created` 事件。
 - [ ] 尚未建立后台 worker、任务锁、失败重试和抓取任务历史查询。
 - [ ] 尚未建立提醒规则、确定性预筛选、AI 分析任务、策略引擎和通知审计。
 
