@@ -102,6 +102,48 @@ const wechatWorkTestError = ref('')
 let inviteCopyTimer: number | undefined
 
 const isOwner = computed(() => authStatus.value?.user?.role === 'owner')
+const activeSettingsSection = ref('account')
+
+const settingsSections = computed(() => {
+  const sections = [
+    { id: 'account', title: '账户', meta: '登录状态' },
+    { id: 'profile', title: '资料', meta: isOwner.value ? '用户画像' : '基础信息' },
+    { id: 'security', title: '安全', meta: '密码与会话' },
+    { id: 'wechat', title: '企业微信', meta: '账号绑定' },
+    { id: 'preferences', title: '偏好', meta: '阅读行为' },
+  ]
+
+  if (!isOwner.value) {
+    return sections
+  }
+
+  return [
+    ...sections,
+    { id: 'overview', title: '系统概览', meta: '运行状态' },
+    { id: 'invites', title: '邀请码', meta: '注册入口' },
+    { id: 'users', title: '用户管理', meta: '账号列表' },
+    { id: 'runtime', title: '运行配置', meta: '环境与端点' },
+    { id: 'tests', title: '连通性测试', meta: 'AI 与企微' },
+    { id: 'context', title: '上下文', meta: 'Agent 边界' },
+  ]
+})
+
+const activeSectionTitle = computed(() => settingsSections.value.find((section) => section.id === activeSettingsSection.value)?.title || '设置')
+const activeSectionMeta = computed(() => settingsSections.value.find((section) => section.id === activeSettingsSection.value)?.meta || '')
+
+function isSettingsSectionActive(id: string) {
+  return activeSettingsSection.value === id
+}
+
+function selectSettingsSection(id: string) {
+  activeSettingsSection.value = id
+}
+
+function ensureActiveSettingsSection() {
+  if (!settingsSections.value.some((section) => section.id === activeSettingsSection.value)) {
+    activeSettingsSection.value = 'account'
+  }
+}
 
 const statusCards = computed(() => {
   const status = configStatus.value
@@ -178,6 +220,7 @@ async function loadAuthStatus() {
       userContext.value = null
     }
     await Promise.all(tasks)
+    ensureActiveSettingsSection()
   } catch (error) {
     authError.value = formatAPIError(error)
   } finally {
@@ -286,7 +329,7 @@ async function saveProfile() {
     })
     applyProfile(saved)
     profileSaveResult.value = '资料已更新'
-    await Promise.all([loadAuthStatus(), loadUserContext()])
+    await loadAuthStatus()
   } catch (error) {
     authError.value = formatAPIError(error)
   } finally {
@@ -504,545 +547,574 @@ defineExpose({ refreshPage })
 
 <template>
   <section class="settings-page">
-    <div v-if="isOwner" class="settings-panel settings-panel--wide">
-      <div class="settings-panel__header">
-        <div>
-          <div class="settings-panel__title">系统配置</div>
-          <div class="settings-panel__meta">
-            {{ configStatus ? `更新于 ${formatTime(configStatus.updated_at)}` : '尚未加载' }}
-          </div>
-        </div>
-        <button class="settings-action-button" type="button" :disabled="configLoading" @click="loadAdminConfig">
-          {{ configLoading ? '刷新中' : '刷新' }}
+    <div class="settings-layout">
+      <aside class="settings-sidebar" aria-label="设置分类">
+        <button
+          v-for="section in settingsSections"
+          :key="section.id"
+          class="settings-sidebar__item"
+          :class="{ 'settings-sidebar__item--active': isSettingsSectionActive(section.id) }"
+          type="button"
+          @click="selectSettingsSection(section.id)"
+        >
+          <span class="settings-sidebar__title">{{ section.title }}</span>
+          <span class="settings-sidebar__meta">{{ section.meta }}</span>
         </button>
-      </div>
+      </aside>
 
-      <div v-if="configError" class="settings-inline-alert settings-inline-alert--warning">
-        {{ configError }}
-      </div>
-
-      <div class="settings-status-grid">
-        <div v-for="card in statusCards" :key="card.title" class="settings-status-card">
-          <div class="settings-status-card__top">
-            <span>{{ card.title }}</span>
-            <span class="settings-status-pill" :class="{ 'settings-status-pill--ok': card.ready }">
-              {{ statusLabel(card.ready) }}
-            </span>
-          </div>
-          <div class="settings-status-card__value">{{ card.value }}</div>
-          <div class="settings-status-card__meta">{{ card.meta }}</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="settings-config-grid">
-      <section class="settings-panel">
-        <div class="settings-panel__header">
+      <main class="settings-content">
+        <header class="settings-content__header">
           <div>
-            <div class="settings-panel__title">用户登录</div>
-            <div class="settings-panel__meta">{{ authStatus?.authenticated ? 'session 已建立' : 'session 未建立' }}</div>
+            <h2>{{ activeSectionTitle }}</h2>
+            <p>{{ activeSectionMeta }}</p>
           </div>
-          <button class="settings-action-button" type="button" :disabled="logoutLoading" @click="logoutCurrentUser">
-            {{ logoutLoading ? '退出中' : '退出' }}
+          <button class="settings-action-button" type="button" :disabled="authLoading || configLoading" @click="refreshPage">
+            {{ authLoading || configLoading ? '刷新中' : '刷新' }}
           </button>
-        </div>
+        </header>
+
         <div v-if="authError" class="settings-inline-alert settings-inline-alert--warning">
           {{ authError }}
         </div>
-        <dl class="settings-description-list">
-          <div>
-            <dt>账号</dt>
-            <dd>{{ authStatus?.user?.username || '未登录' }}</dd>
-          </div>
-          <div>
-            <dt>角色</dt>
-            <dd>{{ authStatus?.user?.role || '未知' }}</dd>
-          </div>
-          <div>
-            <dt>密码登录</dt>
-            <dd>{{ yesNo(authStatus?.login_enabled) }}</dd>
-          </div>
-          <div>
-            <dt>数据库密码</dt>
-            <dd>{{ yesNo(authStatus?.user?.password_configured) }}</dd>
-          </div>
-          <div v-if="configStatus">
-            <dt>Cookie</dt>
-            <dd>{{ configStatus.auth.session_cookie }} / {{ configStatus.auth.session_secure ? 'Secure' : 'Non-Secure' }}</dd>
-          </div>
-        </dl>
-      </section>
 
-      <section class="settings-panel">
-        <div class="settings-panel__header">
-          <div>
-            <div class="settings-panel__title">用户资料</div>
-            <div class="settings-panel__meta">{{ isOwner ? '供通知和后续 Agent 上下文使用' : '基础账号信息' }}</div>
+        <section v-if="isSettingsSectionActive('account')" class="settings-panel">
+          <div class="settings-panel__header">
+            <div>
+              <div class="settings-panel__title">用户登录</div>
+              <div class="settings-panel__meta">{{ authStatus?.authenticated ? 'session 已建立' : 'session 未建立' }}</div>
+            </div>
+            <button class="settings-action-button" type="button" :disabled="logoutLoading" @click="logoutCurrentUser">
+              {{ logoutLoading ? '退出中' : '退出' }}
+            </button>
           </div>
-          <button class="settings-action-button" type="button" :disabled="profileSaving" @click="saveProfile">
-            {{ profileSaving ? '保存中' : '保存' }}
-          </button>
-        </div>
-        <div class="settings-form-grid">
-          <label class="settings-field">
-            <span>显示名</span>
-            <input v-model="profileForm.display_name" class="settings-input" type="text" autocomplete="name" />
-          </label>
-          <label class="settings-field">
-            <span>邮箱</span>
-            <input v-model="profileForm.email" class="settings-input" type="email" autocomplete="email" />
-          </label>
-          <label class="settings-field">
-            <span>时区</span>
-            <input v-model="profileForm.timezone" class="settings-input" type="text" autocomplete="off" />
-          </label>
-          <label class="settings-field">
-            <span>语言</span>
-            <input v-model="profileForm.language" class="settings-input" type="text" autocomplete="off" />
-          </label>
-          <label class="settings-field">
-            <span>地区</span>
-            <input v-model="profileForm.region" class="settings-input" type="text" autocomplete="off" />
-          </label>
+          <dl class="settings-description-list">
+            <div>
+              <dt>账号</dt>
+              <dd>{{ authStatus?.user?.username || '未登录' }}</dd>
+            </div>
+            <div>
+              <dt>角色</dt>
+              <dd>{{ authStatus?.user?.role || '未知' }}</dd>
+            </div>
+            <div>
+              <dt>密码登录</dt>
+              <dd>{{ yesNo(authStatus?.login_enabled) }}</dd>
+            </div>
+            <div>
+              <dt>数据库密码</dt>
+              <dd>{{ yesNo(authStatus?.user?.password_configured) }}</dd>
+            </div>
+            <div v-if="configStatus">
+              <dt>Cookie</dt>
+              <dd>{{ configStatus.auth.session_cookie }} / {{ configStatus.auth.session_secure ? 'Secure' : 'Non-Secure' }}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section v-if="isSettingsSectionActive('profile')" class="settings-panel">
+          <div class="settings-panel__header">
+            <div>
+              <div class="settings-panel__title">用户资料</div>
+              <div class="settings-panel__meta">{{ isOwner ? '供通知和后续 Agent 上下文使用' : '基础账号信息' }}</div>
+            </div>
+            <button class="settings-action-button" type="button" :disabled="profileSaving" @click="saveProfile">
+              {{ profileSaving ? '保存中' : '保存' }}
+            </button>
+          </div>
+          <div class="settings-form-grid settings-form-grid--split">
+            <label class="settings-field">
+              <span>显示名</span>
+              <input v-model="profileForm.display_name" class="settings-input" type="text" autocomplete="name" />
+            </label>
+            <label class="settings-field">
+              <span>邮箱</span>
+              <input v-model="profileForm.email" class="settings-input" type="email" autocomplete="email" />
+            </label>
+            <label class="settings-field">
+              <span>时区</span>
+              <input v-model="profileForm.timezone" class="settings-input" type="text" autocomplete="off" />
+            </label>
+            <label class="settings-field">
+              <span>语言</span>
+              <input v-model="profileForm.language" class="settings-input" type="text" autocomplete="off" />
+            </label>
+            <label class="settings-field">
+              <span>地区</span>
+              <input v-model="profileForm.region" class="settings-input" type="text" autocomplete="off" />
+            </label>
+            <label v-if="isOwner" class="settings-field">
+              <span>回复风格</span>
+              <input v-model="profileForm.reply_style" class="settings-input" type="text" autocomplete="off" />
+            </label>
+          </div>
           <label v-if="isOwner" class="settings-field">
-            <span>回复风格</span>
-            <input v-model="profileForm.reply_style" class="settings-input" type="text" autocomplete="off" />
+            <span>个人画像</span>
+            <textarea v-model="profileForm.bio" class="settings-textarea" rows="3" />
           </label>
-        </div>
-        <label v-if="isOwner" class="settings-field">
-          <span>个人画像</span>
-          <textarea v-model="profileForm.bio" class="settings-textarea" rows="3" />
-        </label>
-        <div v-if="isOwner" class="settings-form-grid">
-          <label class="settings-field">
-            <span>关注主题</span>
-            <textarea v-model="focusTopicsText" class="settings-textarea" rows="2" />
-          </label>
-          <label class="settings-field">
-            <span>屏蔽主题</span>
-            <textarea v-model="blockedTopicsText" class="settings-textarea" rows="2" />
-          </label>
-          <label class="settings-field">
-            <span>关注市场</span>
-            <textarea v-model="marketFocusText" class="settings-textarea" rows="2" />
-          </label>
-          <label class="settings-field">
-            <span>关注标的</span>
-            <textarea v-model="instrumentFocusText" class="settings-textarea" rows="2" />
-          </label>
-          <label class="settings-field">
-            <span>风险偏好</span>
-            <input v-model="profileForm.risk_preference" class="settings-input" type="text" autocomplete="off" />
-          </label>
-          <label class="settings-field">
-            <span>免打扰时间</span>
-            <input v-model="profileForm.notification_quiet_hours" class="settings-input" type="text" autocomplete="off" />
-          </label>
-        </div>
-        <label v-if="isOwner" class="settings-field">
-          <span>Agent 备注</span>
-          <textarea v-model="profileForm.agent_notes" class="settings-textarea" rows="3" />
-        </label>
-        <div v-if="profileSaveResult" class="settings-inline-alert settings-inline-alert--success">
-          {{ profileSaveResult }}
-        </div>
-      </section>
-
-      <section class="settings-panel">
-        <div class="settings-panel__header">
-          <div>
-            <div class="settings-panel__title">账号密码</div>
-            <div class="settings-panel__meta">更新当前登录账号的数据库密码</div>
+          <div v-if="isOwner" class="settings-form-grid settings-form-grid--split">
+            <label class="settings-field">
+              <span>关注主题</span>
+              <textarea v-model="focusTopicsText" class="settings-textarea" rows="2" />
+            </label>
+            <label class="settings-field">
+              <span>屏蔽主题</span>
+              <textarea v-model="blockedTopicsText" class="settings-textarea" rows="2" />
+            </label>
+            <label class="settings-field">
+              <span>关注市场</span>
+              <textarea v-model="marketFocusText" class="settings-textarea" rows="2" />
+            </label>
+            <label class="settings-field">
+              <span>关注标的</span>
+              <textarea v-model="instrumentFocusText" class="settings-textarea" rows="2" />
+            </label>
+            <label class="settings-field">
+              <span>风险偏好</span>
+              <input v-model="profileForm.risk_preference" class="settings-input" type="text" autocomplete="off" />
+            </label>
+            <label class="settings-field">
+              <span>免打扰时间</span>
+              <input v-model="profileForm.notification_quiet_hours" class="settings-input" type="text" autocomplete="off" />
+            </label>
           </div>
-          <button
-            class="settings-action-button"
-            type="button"
-            :disabled="passwordChanging || !currentPassword || !newPassword"
-            @click="changeCurrentPassword"
-          >
-            {{ passwordChanging ? '更新中' : '更新' }}
-          </button>
-        </div>
-        <div class="settings-form-grid">
-          <label class="settings-field">
-            <span>当前密码</span>
-            <input v-model="currentPassword" class="settings-input" type="password" autocomplete="current-password" />
+          <label v-if="isOwner" class="settings-field">
+            <span>Agent 备注</span>
+            <textarea v-model="profileForm.agent_notes" class="settings-textarea" rows="3" />
           </label>
-          <label class="settings-field">
-            <span>新密码</span>
-            <input v-model="newPassword" class="settings-input" type="password" minlength="6" autocomplete="new-password" />
-          </label>
-        </div>
-        <div v-if="passwordChangeResult" class="settings-inline-alert settings-inline-alert--success">
-          {{ passwordChangeResult }}
-        </div>
-      </section>
-
-      <section class="settings-panel">
-        <div class="settings-panel__header">
-          <div>
-            <div class="settings-panel__title">登录会话</div>
-            <div class="settings-panel__meta">{{ sessionsLoading ? '加载中' : `${sessions.length} 个有效会话` }}</div>
+          <div v-if="profileSaveResult" class="settings-inline-alert settings-inline-alert--success">
+            {{ profileSaveResult }}
           </div>
-          <button class="settings-action-button" type="button" :disabled="sessionsLoading" @click="loadSessions">
-            刷新
-          </button>
-        </div>
-        <div class="settings-bindings">
-          <div v-for="session in sessions" :key="session.id" class="settings-binding-row">
-            <div>
-              <div class="settings-binding-row__title">
-                {{ session.current ? '当前会话' : `会话 ${session.id}` }}
+        </section>
+
+        <div v-if="isSettingsSectionActive('security')" class="settings-section-stack">
+          <section class="settings-panel">
+            <div class="settings-panel__header">
+              <div>
+                <div class="settings-panel__title">账号密码</div>
+                <div class="settings-panel__meta">更新当前登录账号的数据库密码</div>
               </div>
-              <div class="settings-binding-row__meta">
-                {{ session.ip_address || '无 IP' }} / 最近 {{ formatTime(session.last_seen_at) }}
-              </div>
-            </div>
-            <button
-              class="settings-action-button"
-              type="button"
-              :disabled="sessionRevokingID === session.id"
-              @click="revokeUserSession(session.id, session.current)"
-            >
-              {{ sessionRevokingID === session.id ? '撤销中' : '撤销' }}
-            </button>
-          </div>
-          <div v-if="!sessions.length" class="settings-panel__meta">暂无有效会话</div>
-        </div>
-      </section>
-
-      <section class="settings-panel">
-        <div class="settings-panel__header">
-          <div>
-            <div class="settings-panel__title">企业微信绑定</div>
-            <div class="settings-panel__meta">网页授权用于身份绑定和后续确认</div>
-          </div>
-          <button
-            class="settings-action-button"
-            type="button"
-            :disabled="authLoading || !authStatus?.wechat_work_oauth_enabled"
-            @click="bindWeChatWork"
-          >
-            绑定
-          </button>
-        </div>
-        <div v-if="!authStatus?.wechat_work_oauth_enabled" class="settings-inline-alert settings-inline-alert--warning">
-          企业微信网页授权尚未就绪
-        </div>
-        <div class="settings-bindings">
-          <div v-for="binding in authStatus?.bindings || []" :key="binding.id" class="settings-binding-row">
-            <div>
-              <div class="settings-binding-row__title">{{ binding.external_user_id }}</div>
-              <div class="settings-binding-row__meta">
-                {{ binding.provider }} / {{ binding.binding_status }} / {{ binding.agent_id || '无 AgentID' }}
-              </div>
-            </div>
-            <button
-              class="settings-action-button"
-              type="button"
-              :disabled="bindingActionID === binding.id || binding.binding_status === 'disabled'"
-              @click="disableBinding(binding.id)"
-            >
-              {{ bindingActionID === binding.id ? '处理中' : '禁用' }}
-            </button>
-          </div>
-          <div v-if="!authStatus?.bindings?.length" class="settings-panel__meta">暂无绑定记录</div>
-        </div>
-      </section>
-
-      <section v-if="authStatus?.user?.role !== 'owner'" class="settings-panel">
-        <div class="settings-panel__header">
-          <div>
-            <div class="settings-panel__title">账号注销</div>
-            <div class="settings-panel__meta">注销后账号会被软删除并退出所有会话</div>
-          </div>
-          <button
-            class="settings-action-button"
-            type="button"
-            :disabled="accountDeleting || !deletePassword"
-            @click="deleteCurrentAccount"
-          >
-            {{ accountDeleting ? '注销中' : '注销' }}
-          </button>
-        </div>
-        <label class="settings-field">
-          <span>当前密码</span>
-          <input v-model="deletePassword" class="settings-input" type="password" autocomplete="current-password" />
-        </label>
-        <div v-if="accountDeleteResult" class="settings-inline-alert settings-inline-alert--success">
-          {{ accountDeleteResult }}
-        </div>
-      </section>
-
-      <section v-if="authStatus?.user?.role === 'owner'" class="settings-panel">
-        <div class="settings-panel__header">
-          <div>
-            <div class="settings-panel__title">邀请码</div>
-            <div class="settings-panel__meta">生成后只显示一次明文邀请码</div>
-          </div>
-          <button class="settings-action-button" type="button" :disabled="inviteCreating" @click="createInviteCode">
-            {{ inviteCreating ? '生成中' : '生成' }}
-          </button>
-        </div>
-        <div class="settings-form-grid">
-          <label class="settings-field">
-            <span>有效期秒数</span>
-            <input v-model.number="inviteTTLSeconds" class="settings-input" type="number" min="60" />
-          </label>
-        </div>
-        <button
-          v-if="generatedInviteCode"
-          class="settings-copy-alert"
-          type="button"
-          @click="copyGeneratedInviteCode"
-        >
-          <span class="settings-copy-alert__code">{{ generatedInviteCode }}</span>
-          <span>{{ inviteCopyResult || '点击复制' }}</span>
-        </button>
-        <div class="settings-bindings">
-          <div v-for="invite in invites" :key="invite.id" class="settings-binding-row">
-            <div>
-              <div class="settings-binding-row__title">
-                {{ invite.status }} / {{ invite.use_count }} / {{ invite.max_uses }}
-              </div>
-              <div class="settings-binding-row__meta">
-                {{ invite.role }} / 过期 {{ formatTime(invite.expires_at) }}
-              </div>
-            </div>
-            <button
-              class="settings-action-button"
-              type="button"
-              :disabled="inviteDeletingID === invite.id || invite.status === 'revoked'"
-              @click="deleteInviteCode(invite.id)"
-            >
-              {{ inviteDeletingID === invite.id ? '删除中' : '删除' }}
-            </button>
-          </div>
-          <div v-if="!invites.length" class="settings-panel__meta">
-            {{ invitesLoading ? '加载中' : '暂无邀请码' }}
-          </div>
-        </div>
-      </section>
-
-      <section v-if="authStatus?.user?.role === 'owner'" class="settings-panel">
-        <div class="settings-panel__header">
-          <div>
-            <div class="settings-panel__title">用户列表</div>
-            <div class="settings-panel__meta">{{ usersLoading ? '加载中' : `${users.length} 个用户` }}</div>
-          </div>
-          <button class="settings-action-button" type="button" :disabled="usersLoading" @click="loadUsers">
-            刷新
-          </button>
-        </div>
-        <div class="settings-bindings">
-          <div v-for="user in users" :key="user.id" class="settings-binding-row">
-            <div>
-              <div class="settings-binding-row__title">{{ user.username }} / {{ user.status }}</div>
-              <div class="settings-binding-row__meta">
-                {{ user.role }} / {{ user.display_name || '无显示名' }} / {{ user.email || '无邮箱' }}
-              </div>
-            </div>
-            <button
-              v-if="user.role !== 'owner' && user.status !== 'deleted'"
-              class="settings-action-button"
-              type="button"
-              :disabled="userDeletingID === user.id"
-              @click="deleteUser(user.id)"
-            >
-              {{ userDeletingID === user.id ? '删除中' : '删除' }}
-            </button>
-          </div>
-          <div v-if="!users.length" class="settings-panel__meta">暂无用户</div>
-        </div>
-      </section>
-    </div>
-
-    <div v-if="isOwner && configStatus" class="settings-config-grid">
-      <section class="settings-panel">
-        <div class="settings-panel__title">企业微信</div>
-        <dl class="settings-description-list">
-          <div>
-            <dt>CorpID</dt>
-            <dd>{{ configStatus.wechat_work.corp_id_masked || '未配置' }}</dd>
-          </div>
-          <div>
-            <dt>回调</dt>
-            <dd>{{ yesNo(configStatus.wechat_work.callback_configured) }}</dd>
-          </div>
-          <div>
-            <dt>发送</dt>
-            <dd>{{ yesNo(configStatus.wechat_work.sender_configured) }}</dd>
-          </div>
-          <div>
-            <dt>回调地址</dt>
-            <dd class="settings-mono">{{ configStatus.wechat_work.callback_url || '未配置' }}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section class="settings-panel">
-        <div class="settings-panel__title">AI 提供商</div>
-        <dl class="settings-description-list">
-          <div>
-            <dt>Provider</dt>
-            <dd>{{ configStatus.llm.provider || '未配置' }}</dd>
-          </div>
-          <div>
-            <dt>Model</dt>
-            <dd>{{ configStatus.llm.model || '未配置' }}</dd>
-          </div>
-          <div>
-            <dt>Base URL</dt>
-            <dd class="settings-mono">{{ configStatus.llm.base_url || '默认' }}</dd>
-          </div>
-          <div>
-            <dt>API Key</dt>
-            <dd>{{ yesNo(configStatus.llm.api_key_present) }}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section class="settings-panel">
-        <div class="settings-panel__title">运行端点</div>
-        <dl class="settings-description-list">
-          <div>
-            <dt>健康</dt>
-            <dd class="settings-mono">{{ configStatus.endpoints.health }}</dd>
-          </div>
-          <div>
-            <dt>就绪</dt>
-            <dd class="settings-mono">{{ configStatus.endpoints.readiness }}</dd>
-          </div>
-          <div>
-            <dt>指标</dt>
-            <dd class="settings-mono">{{ configStatus.endpoints.metrics }}</dd>
-          </div>
-          <div>
-            <dt>Grafana</dt>
-            <dd class="settings-mono">{{ configStatus.observability.grafana_url }}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section class="settings-panel">
-        <div class="settings-panel__title">环境项</div>
-        <div class="settings-requirements">
-          <div v-for="group in configStatus.requirements" :key="group.name" class="settings-requirements__group">
-            <div class="settings-requirements__name">{{ group.name }}</div>
-            <div class="settings-requirements__items">
-              <span
-                v-for="item in group.items"
-                :key="item.key"
-                class="settings-requirement-chip"
-                :class="{ 'settings-requirement-chip--ok': item.configured }"
+              <button
+                class="settings-action-button"
+                type="button"
+                :disabled="passwordChanging || !currentPassword || !newPassword"
+                @click="changeCurrentPassword"
               >
-                {{ item.key }} {{ item.configured ? '已配置' : '缺失' }}
-              </span>
+                {{ passwordChanging ? '更新中' : '更新' }}
+              </button>
+            </div>
+            <div class="settings-form-grid settings-form-grid--split">
+              <label class="settings-field">
+                <span>当前密码</span>
+                <input v-model="currentPassword" class="settings-input" type="password" autocomplete="current-password" />
+              </label>
+              <label class="settings-field">
+                <span>新密码</span>
+                <input v-model="newPassword" class="settings-input" type="password" minlength="6" autocomplete="new-password" />
+              </label>
+            </div>
+            <div v-if="passwordChangeResult" class="settings-inline-alert settings-inline-alert--success">
+              {{ passwordChangeResult }}
+            </div>
+          </section>
+
+          <section class="settings-panel">
+            <div class="settings-panel__header">
+              <div>
+                <div class="settings-panel__title">登录会话</div>
+                <div class="settings-panel__meta">{{ sessionsLoading ? '加载中' : `${sessions.length} 个有效会话` }}</div>
+              </div>
+              <button class="settings-action-button" type="button" :disabled="sessionsLoading" @click="loadSessions">
+                刷新
+              </button>
+            </div>
+            <div class="settings-bindings">
+              <div v-for="session in sessions" :key="session.id" class="settings-binding-row">
+                <div>
+                  <div class="settings-binding-row__title">
+                    {{ session.current ? '当前会话' : `会话 ${session.id}` }}
+                  </div>
+                  <div class="settings-binding-row__meta">
+                    {{ session.ip_address || '无 IP' }} / 最近 {{ formatTime(session.last_seen_at) }}
+                  </div>
+                </div>
+                <button
+                  class="settings-action-button"
+                  type="button"
+                  :disabled="sessionRevokingID === session.id"
+                  @click="revokeUserSession(session.id, session.current)"
+                >
+                  {{ sessionRevokingID === session.id ? '撤销中' : '撤销' }}
+                </button>
+              </div>
+              <div v-if="!sessions.length" class="settings-panel__meta">暂无有效会话</div>
+            </div>
+          </section>
+
+          <section v-if="authStatus?.user?.role !== 'owner'" class="settings-panel">
+            <div class="settings-panel__header">
+              <div>
+                <div class="settings-panel__title">账号注销</div>
+                <div class="settings-panel__meta">注销后账号会被软删除并退出所有会话</div>
+              </div>
+              <button
+                class="settings-action-button"
+                type="button"
+                :disabled="accountDeleting || !deletePassword"
+                @click="deleteCurrentAccount"
+              >
+                {{ accountDeleting ? '注销中' : '注销' }}
+              </button>
+            </div>
+            <label class="settings-field">
+              <span>当前密码</span>
+              <input v-model="deletePassword" class="settings-input" type="password" autocomplete="current-password" />
+            </label>
+            <div v-if="accountDeleteResult" class="settings-inline-alert settings-inline-alert--success">
+              {{ accountDeleteResult }}
+            </div>
+          </section>
+        </div>
+
+        <section v-if="isSettingsSectionActive('wechat')" class="settings-panel">
+          <div class="settings-panel__header">
+            <div>
+              <div class="settings-panel__title">企业微信绑定</div>
+              <div class="settings-panel__meta">网页授权用于身份绑定和后续确认</div>
+            </div>
+            <button
+              class="settings-action-button"
+              type="button"
+              :disabled="authLoading || !authStatus?.wechat_work_oauth_enabled"
+              @click="bindWeChatWork"
+            >
+              绑定
+            </button>
+          </div>
+          <div v-if="!authStatus?.wechat_work_oauth_enabled" class="settings-inline-alert settings-inline-alert--warning">
+            企业微信网页授权尚未就绪
+          </div>
+          <div class="settings-bindings">
+            <div v-for="binding in authStatus?.bindings || []" :key="binding.id" class="settings-binding-row">
+              <div>
+                <div class="settings-binding-row__title">{{ binding.external_user_id }}</div>
+                <div class="settings-binding-row__meta">
+                  {{ binding.provider }} / {{ binding.binding_status }} / {{ binding.agent_id || '无 AgentID' }}
+                </div>
+              </div>
+              <button
+                class="settings-action-button"
+                type="button"
+                :disabled="bindingActionID === binding.id || binding.binding_status === 'disabled'"
+                @click="disableBinding(binding.id)"
+              >
+                {{ bindingActionID === binding.id ? '处理中' : '禁用' }}
+              </button>
+            </div>
+            <div v-if="!authStatus?.bindings?.length" class="settings-panel__meta">暂无绑定记录</div>
+          </div>
+        </section>
+
+        <section v-if="isSettingsSectionActive('preferences')" class="settings-panel">
+          <div class="settings-panel__header">
+            <div>
+              <div class="settings-panel__title">源时间线预加载</div>
+              <div class="settings-panel__meta">详情页左右滑动时提前准备对应来源内容</div>
+            </div>
+            <label class="settings-switch">
+              <input v-model="sourceTimelinePreload" type="checkbox" @change="updateSourceTimelinePreload" />
+              <span />
+            </label>
+          </div>
+        </section>
+
+        <section v-if="isSettingsSectionActive('overview') && isOwner" class="settings-panel settings-panel--wide">
+          <div class="settings-panel__header">
+            <div>
+              <div class="settings-panel__title">系统配置</div>
+              <div class="settings-panel__meta">
+                {{ configStatus ? `更新于 ${formatTime(configStatus.updated_at)}` : '尚未加载' }}
+              </div>
+            </div>
+            <button class="settings-action-button" type="button" :disabled="configLoading" @click="loadAdminConfig">
+              {{ configLoading ? '刷新中' : '刷新' }}
+            </button>
+          </div>
+          <div v-if="configError" class="settings-inline-alert settings-inline-alert--warning">
+            {{ configError }}
+          </div>
+          <div class="settings-status-grid">
+            <div v-for="card in statusCards" :key="card.title" class="settings-status-card">
+              <div class="settings-status-card__top">
+                <span>{{ card.title }}</span>
+                <span class="settings-status-pill" :class="{ 'settings-status-pill--ok': card.ready }">
+                  {{ statusLabel(card.ready) }}
+                </span>
+              </div>
+              <div class="settings-status-card__value">{{ card.value }}</div>
+              <div class="settings-status-card__meta">{{ card.meta }}</div>
             </div>
           </div>
-        </div>
-      </section>
-    </div>
+        </section>
 
-    <div v-if="isOwner" class="settings-config-grid">
-      <section class="settings-panel">
-        <div class="settings-panel__header">
-          <div>
-            <div class="settings-panel__title">AI 调用测试</div>
-            <div class="settings-panel__meta">Provider 与模型配置验证</div>
+        <section v-if="isSettingsSectionActive('invites') && isOwner" class="settings-panel">
+          <div class="settings-panel__header">
+            <div>
+              <div class="settings-panel__title">邀请码</div>
+              <div class="settings-panel__meta">生成后只显示一次明文邀请码</div>
+            </div>
+            <button class="settings-action-button" type="button" :disabled="inviteCreating" @click="createInviteCode">
+              {{ inviteCreating ? '生成中' : '生成' }}
+            </button>
+          </div>
+          <div class="settings-form-grid">
+            <label class="settings-field">
+              <span>有效期秒数</span>
+              <input v-model.number="inviteTTLSeconds" class="settings-input" type="number" min="60" />
+            </label>
           </div>
           <button
-            class="settings-action-button"
+            v-if="generatedInviteCode"
+            class="settings-copy-alert"
             type="button"
-            :disabled="llmTesting || !configStatus?.llm.client_ready"
-            @click="runLLMTest"
+            @click="copyGeneratedInviteCode"
           >
-            {{ llmTesting ? '测试中' : '测试' }}
+            <span class="settings-copy-alert__code">{{ generatedInviteCode }}</span>
+            <span>{{ inviteCopyResult || '点击复制' }}</span>
           </button>
-        </div>
-        <textarea v-model="llmTestMessage" class="settings-textarea" rows="3" placeholder="请回复 OK" />
-        <div v-if="llmTestError" class="settings-inline-alert settings-inline-alert--warning">{{ llmTestError }}</div>
-        <dl v-if="llmTestResult" class="settings-description-list">
-          <div>
-            <dt>结果</dt>
-            <dd>{{ llmTestResult.status }} / {{ llmTestResult.latency_ms }}ms</dd>
+          <div class="settings-bindings">
+            <div v-for="invite in invites" :key="invite.id" class="settings-binding-row">
+              <div>
+                <div class="settings-binding-row__title">
+                  {{ invite.status }} / {{ invite.use_count }} / {{ invite.max_uses }}
+                </div>
+                <div class="settings-binding-row__meta">
+                  {{ invite.role }} / 过期 {{ formatTime(invite.expires_at) }}
+                </div>
+              </div>
+              <button
+                class="settings-action-button"
+                type="button"
+                :disabled="inviteDeletingID === invite.id || invite.status === 'revoked'"
+                @click="deleteInviteCode(invite.id)"
+              >
+                {{ inviteDeletingID === invite.id ? '删除中' : '删除' }}
+              </button>
+            </div>
+            <div v-if="!invites.length" class="settings-panel__meta">
+              {{ invitesLoading ? '加载中' : '暂无邀请码' }}
+            </div>
           </div>
-          <div>
-            <dt>回复</dt>
-            <dd>{{ llmTestResult.response_text }}</dd>
-          </div>
-        </dl>
-      </section>
+        </section>
 
-      <section class="settings-panel">
-        <div class="settings-panel__header">
-          <div>
-            <div class="settings-panel__title">企业微信发送测试</div>
-            <div class="settings-panel__meta">发送器、token 与消息接口验证</div>
+        <section v-if="isSettingsSectionActive('users') && isOwner" class="settings-panel">
+          <div class="settings-panel__header">
+            <div>
+              <div class="settings-panel__title">用户列表</div>
+              <div class="settings-panel__meta">{{ usersLoading ? '加载中' : `${users.length} 个用户` }}</div>
+            </div>
+            <button class="settings-action-button" type="button" :disabled="usersLoading" @click="loadUsers">
+              刷新
+            </button>
           </div>
-          <button
-            class="settings-action-button"
-            type="button"
-            :disabled="wechatWorkTesting || !configStatus?.wechat_work.sender_configured"
-            @click="runWeChatWorkTest"
-          >
-            {{ wechatWorkTesting ? '发送中' : '发送' }}
-          </button>
-        </div>
-        <div class="settings-form-grid">
-          <label class="settings-field">
-            <span>ToUser</span>
-            <input v-model="wechatWorkToUser" class="settings-input" type="text" autocomplete="off" />
-          </label>
-          <label class="settings-field">
-            <span>内容</span>
-            <textarea v-model="wechatWorkContent" class="settings-textarea" rows="3" />
-          </label>
-        </div>
-        <div v-if="wechatWorkTestError" class="settings-inline-alert settings-inline-alert--warning">
-          {{ wechatWorkTestError }}
-        </div>
-        <dl v-if="wechatWorkTestResult" class="settings-description-list">
-          <div>
-            <dt>结果</dt>
-            <dd>{{ wechatWorkTestResult.status }} / {{ wechatWorkTestResult.latency_ms }}ms</dd>
+          <div class="settings-bindings">
+            <div v-for="user in users" :key="user.id" class="settings-binding-row">
+              <div>
+                <div class="settings-binding-row__title">{{ user.username }} / {{ user.status }}</div>
+                <div class="settings-binding-row__meta">
+                  {{ user.role }} / {{ user.display_name || '无显示名' }} / {{ user.email || '无邮箱' }}
+                </div>
+              </div>
+              <button
+                v-if="user.role !== 'owner' && user.status !== 'deleted'"
+                class="settings-action-button"
+                type="button"
+                :disabled="userDeletingID === user.id"
+                @click="deleteUser(user.id)"
+              >
+                {{ userDeletingID === user.id ? '删除中' : '删除' }}
+              </button>
+            </div>
+            <div v-if="!users.length" class="settings-panel__meta">暂无用户</div>
           </div>
-          <div>
-            <dt>消息 ID</dt>
-            <dd>{{ wechatWorkTestResult.message_id || '无' }}</dd>
-          </div>
-        </dl>
-      </section>
+        </section>
+
+        <div v-if="isSettingsSectionActive('runtime') && isOwner && configStatus" class="settings-config-grid">
+          <section class="settings-panel">
+            <div class="settings-panel__title">企业微信</div>
+            <dl class="settings-description-list">
+              <div>
+                <dt>CorpID</dt>
+                <dd>{{ configStatus.wechat_work.corp_id_masked || '未配置' }}</dd>
+              </div>
+              <div>
+                <dt>回调</dt>
+                <dd>{{ yesNo(configStatus.wechat_work.callback_configured) }}</dd>
+              </div>
+              <div>
+                <dt>发送</dt>
+                <dd>{{ yesNo(configStatus.wechat_work.sender_configured) }}</dd>
+              </div>
+              <div>
+                <dt>回调地址</dt>
+                <dd class="settings-mono">{{ configStatus.wechat_work.callback_url || '未配置' }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="settings-panel">
+            <div class="settings-panel__title">AI 提供商</div>
+            <dl class="settings-description-list">
+              <div>
+                <dt>Provider</dt>
+                <dd>{{ configStatus.llm.provider || '未配置' }}</dd>
+              </div>
+              <div>
+                <dt>Model</dt>
+                <dd>{{ configStatus.llm.model || '未配置' }}</dd>
+              </div>
+              <div>
+                <dt>Base URL</dt>
+                <dd class="settings-mono">{{ configStatus.llm.base_url || '默认' }}</dd>
+              </div>
+              <div>
+                <dt>API Key</dt>
+                <dd>{{ yesNo(configStatus.llm.api_key_present) }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="settings-panel">
+            <div class="settings-panel__title">运行端点</div>
+            <dl class="settings-description-list">
+              <div>
+                <dt>健康</dt>
+                <dd class="settings-mono">{{ configStatus.endpoints.health }}</dd>
+              </div>
+              <div>
+                <dt>就绪</dt>
+                <dd class="settings-mono">{{ configStatus.endpoints.readiness }}</dd>
+              </div>
+              <div>
+                <dt>指标</dt>
+                <dd class="settings-mono">{{ configStatus.endpoints.metrics }}</dd>
+              </div>
+              <div>
+                <dt>Grafana</dt>
+                <dd class="settings-mono">{{ configStatus.observability.grafana_url }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="settings-panel">
+            <div class="settings-panel__title">环境项</div>
+            <div class="settings-requirements">
+              <div v-for="group in configStatus.requirements" :key="group.name" class="settings-requirements__group">
+                <div class="settings-requirements__name">{{ group.name }}</div>
+                <div class="settings-requirements__items">
+                  <span
+                    v-for="item in group.items"
+                    :key="item.key"
+                    class="settings-requirement-chip"
+                    :class="{ 'settings-requirement-chip--ok': item.configured }"
+                  >
+                    {{ item.key }} {{ item.configured ? '已配置' : '缺失' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div v-if="isSettingsSectionActive('tests') && isOwner" class="settings-config-grid">
+          <section class="settings-panel">
+            <div class="settings-panel__header">
+              <div>
+                <div class="settings-panel__title">AI 调用测试</div>
+                <div class="settings-panel__meta">Provider 与模型配置验证</div>
+              </div>
+              <button
+                class="settings-action-button"
+                type="button"
+                :disabled="llmTesting || !configStatus?.llm.client_ready"
+                @click="runLLMTest"
+              >
+                {{ llmTesting ? '测试中' : '测试' }}
+              </button>
+            </div>
+            <textarea v-model="llmTestMessage" class="settings-textarea" rows="3" placeholder="请回复 OK" />
+            <div v-if="llmTestError" class="settings-inline-alert settings-inline-alert--warning">{{ llmTestError }}</div>
+            <dl v-if="llmTestResult" class="settings-description-list">
+              <div>
+                <dt>结果</dt>
+                <dd>{{ llmTestResult.status }} / {{ llmTestResult.latency_ms }}ms</dd>
+              </div>
+              <div>
+                <dt>回复</dt>
+                <dd>{{ llmTestResult.response_text }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="settings-panel">
+            <div class="settings-panel__header">
+              <div>
+                <div class="settings-panel__title">企业微信发送测试</div>
+                <div class="settings-panel__meta">发送器、token 与消息接口验证</div>
+              </div>
+              <button
+                class="settings-action-button"
+                type="button"
+                :disabled="wechatWorkTesting || !configStatus?.wechat_work.sender_configured"
+                @click="runWeChatWorkTest"
+              >
+                {{ wechatWorkTesting ? '发送中' : '发送' }}
+              </button>
+            </div>
+            <div class="settings-form-grid">
+              <label class="settings-field">
+                <span>ToUser</span>
+                <input v-model="wechatWorkToUser" class="settings-input" type="text" autocomplete="off" />
+              </label>
+              <label class="settings-field">
+                <span>内容</span>
+                <textarea v-model="wechatWorkContent" class="settings-textarea" rows="3" />
+              </label>
+            </div>
+            <div v-if="wechatWorkTestError" class="settings-inline-alert settings-inline-alert--warning">
+              {{ wechatWorkTestError }}
+            </div>
+            <dl v-if="wechatWorkTestResult" class="settings-description-list">
+              <div>
+                <dt>结果</dt>
+                <dd>{{ wechatWorkTestResult.status }} / {{ wechatWorkTestResult.latency_ms }}ms</dd>
+              </div>
+              <div>
+                <dt>消息 ID</dt>
+                <dd>{{ wechatWorkTestResult.message_id || '无' }}</dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+
+        <section v-if="isSettingsSectionActive('context') && isOwner && userContext" class="settings-panel settings-panel--wide">
+          <div class="settings-panel__title">用户上下文</div>
+          <dl class="settings-description-list">
+            <div>
+              <dt>User ID</dt>
+              <dd>{{ userContext.data_scope.user_id }}</dd>
+            </div>
+            <div>
+              <dt>可读范围</dt>
+              <dd>{{ userContext.data_scope.readable_domains.join(' / ') }}</dd>
+            </div>
+            <div>
+              <dt>渠道</dt>
+              <dd>{{ userContext.data_scope.external_providers.join(' / ') || '暂无' }}</dd>
+            </div>
+          </dl>
+          <textarea class="settings-textarea" rows="5" :value="userContext.prompt.plain_text" readonly />
+        </section>
+      </main>
     </div>
-
-    <section v-if="isOwner && userContext" class="settings-panel settings-panel--wide">
-      <div class="settings-panel__title">用户上下文</div>
-      <dl class="settings-description-list">
-        <div>
-          <dt>User ID</dt>
-          <dd>{{ userContext.data_scope.user_id }}</dd>
-        </div>
-        <div>
-          <dt>可读范围</dt>
-          <dd>{{ userContext.data_scope.readable_domains.join(' / ') }}</dd>
-        </div>
-        <div>
-          <dt>渠道</dt>
-          <dd>{{ userContext.data_scope.external_providers.join(' / ') || '暂无' }}</dd>
-        </div>
-      </dl>
-      <textarea class="settings-textarea" rows="5" :value="userContext.prompt.plain_text" readonly />
-    </section>
-
-    <article class="settings-row">
-      <div>
-        <div class="settings-row__title">源时间线预加载</div>
-        <div class="settings-row__meta">详情页左右滑动时提前准备对应来源内容</div>
-      </div>
-      <label class="settings-switch">
-        <input v-model="sourceTimelinePreload" type="checkbox" @change="updateSourceTimelinePreload" />
-        <span />
-      </label>
-    </article>
   </section>
 </template>
