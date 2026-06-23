@@ -78,7 +78,7 @@ export function useAppReaderStackOutletBindings(options: AppReaderStackOutletBin
     const readerMorph = options.readerMorph
     const readerMotion = options.readerMotion
     const sourceInteractive = options.sourceReaderVisible.value && !options.sourceReaderUnderDetail.value
-    const sourceChromeInteractive = chromeStyleIsInteractive(options.sourceHeaderStyle.value)
+    const sourceChromeInteractive = sourceInteractive && chromeStyleIsInteractive(options.sourceHeaderStyle.value)
 
     return {
       sourceMounted: options.sourceReaderMounted.value && Boolean(readerSource),
