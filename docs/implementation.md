@@ -12,14 +12,14 @@
 | 阶段二 | 订阅源与 Feed 闭环 | 进行中 | 90% | 2026-06-13 | - |
 | 阶段三 | 日志、错误追踪与链路观测 | 进行中 | 90% | 2026-06-17 | - |
 | 阶段四 | 源目录与导入 | 进行中 | 55% | 2026-06-19 | - |
-| 阶段五 | Agent 基础设施与 AI 源 | 原型进行中 | 15% | 2026-06-19 | - |
+| 阶段五 | 企业微信对话入口 Agent MVP 与 AI 源 | 原型进行中 | 15% | 2026-06-19 | - |
 | 阶段六 | 主动采集与内容理解 Agent | 未开始 | 0% | - | - |
 | 阶段七 | 推荐、摘要与通知 Agent | 未开始 | 0% | - | - |
 | 阶段八 | 金融与跨领域分析 Agent | 未开始 | 0% | - | - |
 | 阶段九 | 工程化增强 | 未开始 | 0% | - | - |
 | 阶段十 | 来源扩展与分布式升级验证 | 未开始 | 0% | - | - |
 
-当前状态基于 2026-06-20 代码审阅、本地部署与 Cloudflare Tunnel 验证：开发态通过 `messageFeed-make cloudflare` 启动，`messageFeed-status` 显示 `development + cloudflare`，`https://localhost:8443/healthz` 与 `https://aroen.eu.cc/healthz` 均返回成功。阶段四与原推荐 Feed 原型存在前置实现，但阶段五到阶段八已经重组为统一的 AI Agent 体系，详细方案见 `docs/agent-plan.md` 和 `docs/financial-agent-plan.md`。
+当前状态基于 2026-06-23 代码审阅、本地部署与 Cloudflare Tunnel 验证：开发态通过 `messageFeed-make cloudflare` 启动，`messageFeed-status` 显示 `development + cloudflare`，`https://localhost:8443/healthz` 与 `https://aroen.eu.cc/healthz` 均返回成功。阶段四与原推荐 Feed 原型存在前置实现，阶段四点五已建立后台刷新、outbox、规则预筛选、策略引擎、通知作业和 AI 源基础模型。阶段五到阶段八已经重组为统一的 AI Agent 体系，其中阶段五 P0 调整为企业微信智能机器人对话入口优先，主动通知和摘要推送后置，详细方案见 `docs/agent-plan.md` 和 `docs/financial-agent-plan.md`。
 
 ---
 
@@ -102,6 +102,7 @@ messageFeed/
 │   ├── repository/
 │   ├── service/
 │   ├── handler/
+│   ├── channel/
 │   ├── catalog/
 │   ├── importer/
 │   ├── fetcher/
@@ -156,6 +157,7 @@ messageFeed/
 | `repository` | PostgreSQL 访问、事务封装、查询对象 | 业务编排、外部 API 抓取、通知发送 |
 | `service` | 用例编排、事务边界、跨模块协调 | Gin 参数绑定、SQL 细节、第三方 SDK 细节 |
 | `handler` | Gin 路由、请求绑定、响应渲染、错误映射 | 业务规则、数据库事务、模型提示词 |
+| `channel` | 企业微信智能机器人、Web、后续移动端等入站消息通道适配和消息标准化 | 业务计划执行、通知触发判断、模型提示词 |
 | `catalog` | 推荐源目录、分类、健康状态、源搜索 | 用户订阅源主逻辑、RSS 抓取实现 |
 | `importer` | OPML 解析、URL 批量导入、目录批量订阅流程 | Feed 抓取解析、AI 摘要 |
 | `fetcher` | RSS、Atom、JSON Feed 抓取、解析、规范化 | 调度策略、用户阅读状态 |
@@ -168,7 +170,7 @@ messageFeed/
 | `market` | 金融标的、行情源、行情快照、市场日历、指标计算 | 通知发送、AI 文本生成 |
 | `alert` | 内容告警、金融告警、规则评估、冷却时间、幂等键 | 行情拉取、微信 SDK 调用 |
 | `llm` | 模型客户端、提示词、结构化输出、token 与耗时记录 | 业务实体持久化、通知通道实现 |
-| `notifier` | ntfy、企业微信、公众号等通知通道适配 | 是否触发通知的业务判断 |
+| `notifier` | `ntfy`、企业微信自建应用、智能机器人主动消息和后续通知出口适配 | 是否触发通知的业务判断、入站消息处理 |
 | `runtime` | 节点标识、部署模式、就绪状态、任务锁接口 | 具体 Feed、金融、摘要业务逻辑 |
 
 Redis 不进入第一阶段目录和运行依赖。后续如引入 Redis，应通过 `runtime`、`scheduler` 或明确的基础设施接口承载缓存、任务队列、限流、短期状态或分布式锁实现，不应让业务 service 直接依赖 Redis 客户端。
@@ -238,6 +240,7 @@ internal/agent/
 handler -> service -> repository
 service -> fetcher/catalog/importer/recommender/llm/notifier/control/market/alert/runtime
 service -> agent/acquisition/profile
+handler -> channel -> service/agent
 recommender -> repository/domain
 agent -> service/llm/runtime
 acquisition -> repository/domain
@@ -253,6 +256,7 @@ adapter modules -> domain
 - `repository` 不依赖 `service`、`handler`、`scheduler`。
 - `domain` 不依赖任何基础设施模块。
 - `handler` 不直接调用 `repository`。
+- `channel` 只处理入站协议、验签、解密、标准化和发送回复的通道语义，不承载 Agent 计划、权限或业务状态变更。
 - `web` 不直接调用数据库，只通过 HTTP API 与服务交互。
 - `scheduler` 不直接调用第三方 SDK，应通过 service 或明确适配模块。
 - `agent` 不直接调用 `repository`，所有执行动作必须通过已注册能力和既有 service 接口完成。
@@ -279,7 +283,7 @@ adapter modules -> domain
 | 阶段三 | 日志、错误追踪与链路观测 | [查看细节](#phase-3) |
 | 阶段四 | 源目录与导入 | [查看细节](#phase-4) |
 | 阶段四点五 | 后端治理与后台刷新解耦 | [查看细节](#phase-4-5) |
-| 阶段五 | Agent 基础设施与 AI 源 | [查看细节](#phase-5) |
+| 阶段五 | 企业微信对话入口 Agent MVP 与 AI 源 | [查看细节](#phase-5) |
 | 阶段六 | 主动采集与内容理解 Agent | [查看细节](#phase-6) |
 | 阶段七 | 推荐、摘要与通知 Agent | [查看细节](#phase-7) |
 | 阶段八 | 金融与跨领域分析 Agent | [查看细节](#phase-8) |
@@ -814,7 +818,7 @@ API 与安全约束：
 
 ### <a id="phase-4-5"></a>阶段四点五：后端治理与后台刷新解耦
 
-**状态**：进行中 | **完成度**：75%
+**状态**：进行中 | **完成度**：80%
 
 阶段四点五用于在进入 Agent、通知和金融能力前，先解决首页刷新性能、后台同步解耦和后端服务边界问题。该阶段的基本原则是：后台同步负责获取事实，确定性规则负责预筛选，Agent 只处理候选内容并生成解释，策略引擎负责最终裁决，通知系统负责可审计发送。
 
@@ -839,6 +843,8 @@ API 与安全约束：
 - [x] `SourceSyncService` 已支持扫描到期来源、创建 queued 抓取任务、执行单个已领取抓取任务、记录 attempt，并只为新建条目生成 `item.created` 事件。
 - [x] `SourceSyncService.RunOnce` 已建立单轮后台 worker 入口，支持领取 queued job、执行、记录成功/失败和可重试失败重新排队。
 - [x] `source_fetch_jobs` 与 `source_fetch_attempts` 仓储已支持历史分页查询。
+- [x] `POST /api/v1/source-fetches` 已作为批量刷新入队接口返回 `async`、`queued_count` 和 `job_ids`，前端通过 `GET /api/v1/source-fetches/status` 轮询后台抓取结果。
+- [x] 订阅流和订阅管理页的批量刷新已移除前端逐源同步 fallback；页面刷新只提交后台任务并读取本地列表，任务完成后再刷新缓存和列表状态。
 - [x] 已建立 `task_locks` 迁移和持久化锁仓储，后台 worker 可通过租约式任务锁互斥执行。
 - [x] 已建立 `alert_rules` 和 `alert_candidates` 基础表、domain、repository 与模型转换测试。
 - [x] `AlertRuleService` 已支持处理 `item.created` 事件，并按来源、关键词、分类、标签、金融标的和全局规则生成确定性候选提醒。
@@ -855,7 +861,7 @@ API 与安全约束：
 3. [x] 新建 `SourceSyncService` 或 `FetchJobService`，负责扫描 `next_fetch_at <= now` 的来源、创建抓取任务和执行单个抓取任务。
 4. [x] 调整条目 upsert 返回结构，使服务可以识别新建条目并只为新条目产生 `item.created` 事件。
 5. 明确事务边界：条目入库和 outbox 事件生成必须处于同一事务，或建立可审计的补偿机制。
-6. 保留现有手动抓取接口，但内部逐步迁移到抓取任务执行路径，避免重复维护两套抓取状态逻辑。
+6. 保留现有单来源手动抓取接口；批量刷新已迁移到抓取任务执行路径，单来源显式抓取后续再收敛到同一任务执行语义，避免重复维护两套抓取状态逻辑。
 7. [x] 新增最小 `alert_rules`，初期只支持来源、关键词、分类、冷却时间和启停状态。
 8. [x] 实现确定性规则预筛选，worker 消费 `item.created` 事件生成候选提醒；该步骤暂不接 AI。
 9. [x] 新增 `ai_analysis_jobs`，Agent 只分析候选条目并保存结构化结果，字段包含 `should_notify`、`importance`、`matched_reasons`、`summary`、`risk_level` 和 `confidence`。
@@ -882,18 +888,31 @@ API 与安全约束：
 - 任务、事件和通知表必须具备幂等键或唯一约束，避免重试导致重复发送。
 - 后台任务指标不得使用 URL、标题、错误全文或 request id 作为 Prometheus label。
 
-### <a id="phase-5"></a>阶段五：Agent 基础设施与 AI 源
+### <a id="phase-5"></a>阶段五：企业微信对话入口 Agent MVP 与 AI 源
 
 **状态**：原型进行中 | **完成度**：15%
 
-阶段五将原“自动化、推荐、摘要、自然语言控制”的基础能力统一为项目级 AI Agent 底座。详细设计见 `docs/agent-plan.md`。
+阶段五将原“自动化、推荐、摘要、自然语言控制”的基础能力统一为项目级 AI Agent 底座。根据企业微信智能机器人官方接入能力，阶段五 P0 调整为先打通企业微信智能机器人对话入口，使用户可以通过企业微信提问，系统可审计地回答；主动通知、摘要推送和自动提醒闭环后置到阶段七。详细设计见 `docs/agent-plan.md`。
+
+企业微信官方接入约束：
+
+- 智能机器人短连接回调使用 URL、Token、EncodingAESKey，GET 验证需要校验 `msg_signature` 并解密 `echostr`，1 秒内返回明文且不得包含引号、BOM 或换行。
+- 智能机器人消息回调与被动回复均为加密 JSON。回调字段包含 `msgid`、`aibotid`、`from.userid`、`response_url`、`msgtype`，群聊还可能包含 `chatid`、`chattype`。`msgid` 必须作为幂等键。
+- 企业微信普通回调 5 秒内未收到响应会断开并重试，总共重试三次。涉及模型调用的 turn 应先入库并快速响应，再由 worker 异步生成回复。
+- 普通自建应用 `access_token` 通过 `gettoken` 获取，通常有效期 7200 秒，需按应用缓存并处理提前失效；`message/send` 文本内容不超过 2048 字节，`touser`、`toparty`、`totag` 不能同时为空。
+- 智能机器人 `from.userid` 可能是企业主体下加密 userid。需要明文 userid 时，通过自建应用 `batch/openuserid_to_userid` 转换，并要求成员在该自建应用可见范围内。
+- 智能机器人长连接适合无公网 IP 或强实时场景，但每个机器人同一时间只能保持一个有效长连接，且需要心跳、断线重连和主备策略，因此不进入阶段五 P0 默认实现。
 
 当前实现状态：
 
 - [x] `GET /api/v1/feed/recommendations` 推荐 Feed 原型已存在，可作为后续推荐 Agent 的候选能力输入。
 - [x] Web 已具备 `/recommendations` 推荐入口和推荐来源订阅启停基础交互。
-- [ ] 尚未建立 `agent` 模块、能力注册、结构化计划、风险校验、确认策略、执行器和审计表。
-- [ ] 尚未建立 `messageFeed AI` 内部源和 AI 生成条目元数据。
+- [x] `AIFeedService` 已能确保 `messageFeed AI` 内部源存在，并写入 AI 源条目。
+- [x] `ai_analysis_jobs`、`notification_jobs` 和 `notification_deliveries` 已在阶段四点五建立基础模型，但主动通知发送链路暂不作为阶段五 P0。
+- [ ] 尚未建立企业微信智能机器人回调入口、验签解密、消息标准化和 `msgid` 幂等入库。
+- [ ] 尚未建立 `external_accounts`、`agent_inbound_messages`、`agent_sessions`、`agent_turns`、`agent_transcript_entries` 和 `agent_audit_logs` 的对话 MVP 表结构。
+- [ ] 尚未建立只读 Agent Runner、企业微信被动回复或 `response_url` 异步回复 worker。
+- [ ] 尚未建立完整 `agent` 模块、能力注册、结构化计划、风险校验、确认策略、执行器和审计表。
 - [ ] 尚未将自然语言设置控制统一纳入 Agent 能力注册框架。
 - [ ] 尚未建立 Agent 上下文管理、冻结记忆快照、语义分块归档和按需回忆机制。
 - [ ] 尚未建立 Agent session/turn 运行时、延迟能力发现、上下文窗口记录和 `allow`、`prompt`、`forbidden` 执行决策。
@@ -901,23 +920,36 @@ API 与安全约束：
 
 实施步骤：
 
-1. 建立 `agent_commands`、`agent_sessions`、`agent_turns`、`agent_capabilities`、`agent_plans`、`agent_plan_steps` 和 `agent_audit_logs`。
-2. 定义 `AgentSessionManager` 和 `AgentTurnRunner`，保证同一 session 同时只有一个 active turn，并支持取消、失败记录和恢复入口。
-3. 定义 `AgentCapabilityRegistry`、`AgentCapabilitySearch`、`AgentInterpreter`、`AgentPlanner`、`AgentExecutor` 和 `AgentAuditLogger`。
-4. 定义能力风险等级、暴露模式和确认策略：`core` 能力默认可见，`deferred` 能力通过搜索按需暴露，`hidden` 能力只由后端策略调用。
-5. 定义 `PolicyEngine`，将计划决策为 `allow`、`prompt` 或 `forbidden`。
-6. 建立 `AgentContextManager`、`MemoryProvider`、`ContextBuilder` 和冻结 `MemorySnapshot`。
-7. 建立上下文窗口、上下文压力评估、不可压缩保护区、语义分块、归档摘要和 search/preview/get 分级回忆基础能力。
-8. 为全文召回建立单轮 token 或字节预算，并记录召回原因、使用位置和预算消耗。
-9. 创建每个用户默认的 `messageFeed AI` 内部源，来源类型为 `ai_agent`。
-10. 将 Agent 生成的日报、周报、热点分析、主动网络研究报告、金融分析和执行结果写入 AI 源。
-11. Web 支持展示 AI 源，与普通来源共用列表、详情、已读、收藏和隐藏能力。
-12. 建立 `agent_eval_cases`、`agent_eval_runs` 和 `agent_eval_results`，沉淀订阅管理、推荐画像、AI 源、主动采集、通知、金融分析、上下文记忆和安全对抗评测集。
-13. 建立评测执行入口，捕获 transcript、计划、工具调用、状态差异、AI 源输出、审计日志、模型版本、提示词版本、token、成本和耗时。
-14. Agent 执行过程接入 request id、trace id、结构化日志、指标、上下文压缩、记忆召回和审计记录。
+1. 新增企业微信智能机器人配置项：`WECHAT_WORK_AIBOT_TOKEN`、`WECHAT_WORK_AIBOT_ENCODING_AES_KEY`、`WECHAT_WORK_AIBOT_ID`。普通自建应用配置项保留为 `WECHAT_WORK_CORP_ID`、`WECHAT_WORK_AGENT_ID`、`WECHAT_WORK_SECRET`，用于后续 `access_token` 与 `message/send`。
+2. 在 `internal/channel/wechatwork` 或等价入站通道模块中实现智能机器人 URL 验证、`msg_signature` 校验、AES 解密、JSON 消息解析和标准化。
+3. 新增路由 `GET /api/v1/channels/wechat-work/aibot/callback` 和 `POST /api/v1/channels/wechat-work/aibot/callback`。handler 只处理协议入口，业务交给 channel/service/agent。
+4. 建立 `external_accounts`，将 `provider=wechat_work_aibot`、`external_user_id` 映射到系统用户；无正式用户系统前可映射到默认用户，但默认用户 ID 必须通过配置或 service 层注入，不能写死在协议适配层。
+5. 建立 `agent_inbound_messages`，保存 `provider`、`provider_message_id`、`external_user_id`、`chat_id`、`chat_type`、`msg_type`、`payload_json`、`request_id`、`trace_id` 和处理状态；对 `provider + provider_message_id` 建立唯一约束。
+6. 建立 `agent_sessions`、`agent_turns`、`agent_transcript_entries` 和 `agent_audit_logs` 的 MVP 表结构，先覆盖对话记录、模型回复、错误、耗时、工具调用摘要和企业微信发送结果。
+7. 定义 `AgentSessionManager` 和 `AgentTurnRunner`，保证同一 session 同时只有一个 active turn，并支持取消、失败记录和恢复入口。
+8. 实现最小只读 Runner，能力范围限定为最近资讯查询、指定来源最新条目查询、当前消息摘要或简短问答。
+9. 回调收到消息后优先落库并快速返回；实际 Runner 由后台 worker 处理 turn，并通过被动回复或 `response_url` 异步回复企业微信。
+10. 实现企业微信自建应用 `access_token` 缓存和 `message/send` 文本发送适配，记录 `invaliduser`、`invalidparty`、`invalidtag`、`unlicenseduser`、`msgid` 和失败原因；该能力暂不触发主动通知。
+11. 定义 `AgentCapabilityRegistry`、`AgentCapabilitySearch`、`AgentInterpreter`、`AgentPlanner`、`AgentExecutor` 和 `AgentAuditLogger`。
+12. 定义能力风险等级、暴露模式和确认策略：`core` 能力默认可见，`deferred` 能力通过搜索按需暴露，`hidden` 能力只由后端策略调用。
+13. 定义 `PolicyEngine`，将计划决策为 `allow`、`prompt` 或 `forbidden`。P0 中只读能力为 `allow`，订阅变更、通知设置、画像写入和金融告警为 `prompt` 或 `forbidden`。
+14. 建立 `AgentContextManager`、`MemoryProvider`、`ContextBuilder` 和冻结 `MemorySnapshot`。
+15. 建立上下文窗口、上下文压力评估、不可压缩保护区、语义分块、归档摘要和 search/preview/get 分级回忆基础能力。
+16. 为全文召回建立单轮 token 或字节预算，并记录召回原因、使用位置和预算消耗。
+17. 使用既有 `AIFeedService` 写入 Agent 对话摘要、执行报告或异常报告；Web 继续复用普通来源列表、详情、已读、收藏和隐藏能力展示 AI 源。
+18. 建立 `agent_eval_cases`、`agent_eval_runs` 和 `agent_eval_results`，沉淀企业微信入口、订阅管理、推荐画像、AI 源、主动采集、通知、金融分析、上下文记忆和安全对抗评测集。
+19. 建立评测执行入口，捕获 transcript、计划、工具调用、状态差异、AI 源输出、审计日志、模型版本、提示词版本、token、成本和耗时。
+20. Agent 执行过程接入 request id、trace id、结构化日志、指标、上下文压缩、记忆召回和审计记录。
 
 验收标准：
 
+- 企业微信后台可以成功保存智能机器人回调 URL 配置。
+- 用户可以通过企业微信智能机器人发送文本消息并收到系统回复。
+- 重复回调不会重复创建 turn，`msgid` 幂等可通过数据库约束验证。
+- 回调入口在未执行模型调用前即可快速响应，模型处理失败不会导致企业微信无限重试业务逻辑。
+- 企业微信消息、Agent turn、transcript、audit、request id、trace id 和回复发送结果可以关联查询。
+- P0 Runner 只能执行只读查询、摘要或问答，不执行订阅新增、删除、通知配置和金融告警变更。
+- 普通自建应用 `access_token` 能按应用缓存，文本发送适配能记录无效接收人与失败原因。
 - 用户可以提交自然语言命令并得到结构化 Agent 计划。
 - Agent 可以创建 session 和 turn，并限制同一 session 同时只有一个 active turn。
 - Agent 能力必须经过注册才能执行。
@@ -935,6 +967,10 @@ API 与安全约束：
 
 风险控制：
 
+- 企业微信 Token、EncodingAESKey、Secret、Webhook URL、`response_url` 和 `access_token` 不进入模型上下文。
+- 智能机器人短连接为阶段五 P0 默认路径；长连接只作为无公网 IP 或强实时场景的后续增强。
+- 企业微信既可作为对话入口，也可作为通知出口，但两套链路必须分开建模：对话回复属于 Agent turn 响应，主动提醒属于阶段七通知系统。
+- P0 不做主动通知闭环，不做推荐推送，不自动订阅，不删除或停用源，不修改提醒阈值，不做金融建议。
 - 模型只生成意图、计划、说明文本和工具参数摘要。
 - 实际执行必须由 `AgentExecutor` 调用既有 service 接口完成。
 - Agent 不 fork 或裁剪 `OpenAI Codex`、`Claude Code` 代码；只吸收其 session/turn、工具路由、上下文压缩、召回预算和权限决策模式，在 Go 后端内实现轻量运行时。
@@ -1001,7 +1037,7 @@ API 与安全约束：
 5. 基于阅读行为、来源权重、标签、语言、收藏、隐藏和停留时间形成初步评分。
 6. 将用户画像、近期兴趣、负反馈和通知偏好作为推荐、摘要和通知 Agent 的长期记忆输入。
 7. 生成日报、周报、专题摘要和热点事件分析，并写入 `messageFeed AI` 源。
-8. 在 `notifier` 中抽象企业微信机器人、企业微信自建应用、`ntfy` 和后续微信通道。
+8. 在 `notifier` 中抽象企业微信自建应用、智能机器人主动消息、`ntfy` 和后续微信通道；企业微信智能机器人入站对话仍归属 `channel` 与 Agent turn，不归属通知发送链路。
 9. 通知记录必须保存通道、接收目标、触发原因、状态、失败原因、模型、token、耗时和 `dedupe_key`。
 
 验收标准：
@@ -1136,23 +1172,26 @@ API 与安全约束：
 2. 补齐 `api/openapi.yaml`：覆盖创建、更新、抓取、导入、推荐和条目状态操作等已实现接口。
 3. 完成阶段三观测验收：通过 Compose 验证 `request_id`、`trace_id`、日志、指标和 trace 的查询链路。
 4. 推进阶段四验收缺口：持久化导入任务，补齐源健康检查、许可状态、语言/健康过滤和错误明细查询。
-5. 进入阶段五 Agent 基础设施：建立 session/turn、能力注册、结构化计划、风险校验、执行决策、确认策略、执行器、审计日志、上下文管理和冻结记忆快照。
-6. 建立 Agent 能力搜索、上下文归档与回忆基础能力：补齐延迟能力发现、语义分块、压缩阈值、上下文窗口、摘要索引、归档引用、分级回忆工具和记忆提升确认。
-7. 建立 Agent 评测基础设施：补齐评测用例、评测批次、评测结果、状态断言、安全对抗样例和回归报告。
-8. 建立 `messageFeed AI` 内部源：将日报、周报、热点分析、主动网络研究报告、金融分析和 Agent 操作报告统一写入 AI 源。
-9. 推进阶段六主动采集：先实现静态网页抽取、网页变化监控和搜索结果抓取评估，再接入 AI 源报告。
-10. 推进阶段七推荐、摘要与通知：补齐阅读行为事件、用户画像、推荐原因、反馈闭环、摘要生成和企业微信或 `ntfy` 推送。
-11. 推进阶段八金融专项：按 `docs/financial-agent-plan.md` 完成关注标的、行情快照、确定性规则、AI 解读和通知闭环。
+5. 进入阶段五 P0 企业微信智能机器人对话入口：完成 URL 验证、验签解密、消息标准化、`msgid` 幂等、外部账号映射、session/turn、transcript、audit 和只读 Runner。
+6. 补齐企业微信回复出口：优先支持智能机器人被动回复或 `response_url`，同时建立普通自建应用 `access_token` 缓存与 `message/send` 文本发送适配，但不启用主动通知闭环。
+7. 建立 Agent 能力注册、结构化计划、风险校验、执行决策、确认策略、执行器、审计日志、上下文管理和冻结记忆快照。
+8. 建立 Agent 能力搜索、上下文归档与回忆基础能力：补齐延迟能力发现、语义分块、压缩阈值、上下文窗口、摘要索引、归档引用、分级回忆工具和记忆提升确认。
+9. 建立 Agent 评测基础设施：补齐评测用例、评测批次、评测结果、状态断言、安全对抗样例和回归报告。
+10. 建立 `messageFeed AI` 内部源：将对话摘要、日报、周报、热点分析、主动网络研究报告、金融分析和 Agent 操作报告统一写入 AI 源。
+11. 推进阶段六主动采集：先实现静态网页抽取、网页变化监控和搜索结果抓取评估，再接入 AI 源报告。
+12. 推进阶段七推荐、摘要与通知：补齐阅读行为事件、用户画像、推荐原因、反馈闭环、摘要生成、企业微信自建应用或智能机器人主动消息、`ntfy` 推送。
+13. 推进阶段八金融专项：按 `docs/financial-agent-plan.md` 完成关注标的、行情快照、确定性规则、AI 解读和通知闭环。
 
 必须优先完成：
 
 - 工程基线。
-- Tailscale 简单远程访问。
+- Cloudflare Tunnel 受控域名访问。
 - RSS 手动抓取。
 - 去重入库。
 - Feed 查询。
 - Web 时间线模式。
 - 日志、错误追踪和链路观测系统。
+- 企业微信智能机器人对话入口、验签解密、入站消息幂等和异步回复 worker。
 - Agent 基础设施与审计。
 - Agent session/turn 运行时、能力搜索和执行决策。
 - Agent 上下文管理、冻结记忆快照、语义归档和回忆工具。
@@ -1199,4 +1238,4 @@ make compose-up
 make verify
 ```
 
-最终项目应在冷启动后通过 `/healthz` 与 `/readyz`，可以在 Tailscale 网络内访问，并能完成“新增订阅源 -> 抓取 -> Web 时间线浏览 -> 推荐 Feed 浏览 -> 生成摘要 -> 发送通知”、“自然语言指令 -> 变更计划 -> 用户确认 -> 设置调整 -> 审计记录”和“新增金融标的 -> 拉取行情 -> 规则命中 -> AI 解读 -> 微信通知”的闭环。
+最终项目应在冷启动后通过 `/healthz` 与 `/readyz`，可以通过 Cloudflare Tunnel 域名访问，并能完成“新增订阅源 -> 抓取 -> Web 时间线浏览 -> 推荐 Feed 浏览”、“企业微信智能机器人消息 -> Agent turn -> 只读回答 -> 审计记录”、“自然语言指令 -> 变更计划 -> 用户确认 -> 设置调整 -> 审计记录”和“新增金融标的 -> 拉取行情 -> 规则命中 -> AI 解读 -> 通知审计”的闭环。
