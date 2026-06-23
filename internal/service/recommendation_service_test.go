@@ -147,6 +147,57 @@ func TestListRecommendationsPaginatesCachedItems(t *testing.T) {
 	}
 }
 
+func TestListRecommendationsPaginatesSourceItemsBeyondRecommendationCap(t *testing.T) {
+	now := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
+	catalogRepository := &fakeRecommendationCatalogRepository{
+		entries: []domain.SourceCatalogEntry{
+			recommendationCatalogEntry(1),
+		},
+	}
+	feedFetcher := &multiItemRecommendationFetcher{itemsPerSource: 12}
+	service := NewRecommendationService(
+		catalogRepository,
+		feedFetcher,
+		WithNow(func() time.Time {
+			return now
+		}),
+	)
+
+	first, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
+		UserID:   1,
+		SourceID: 1,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListRecommendations returned error: %v", err)
+	}
+	if got, want := len(first.Items), 10; got != want {
+		t.Fatalf("first page count = %d, want %d", got, want)
+	}
+	if got, want := first.Total, int64(12); got != want {
+		t.Fatalf("first page total = %d, want %d", got, want)
+	}
+
+	second, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
+		UserID:   1,
+		SourceID: 1,
+		Limit:    10,
+		Offset:   10,
+	})
+	if err != nil {
+		t.Fatalf("second page ListRecommendations returned error: %v", err)
+	}
+	if got, want := len(second.Items), 2; got != want {
+		t.Fatalf("second page count = %d, want %d", got, want)
+	}
+	if got, want := second.Total, int64(12); got != want {
+		t.Fatalf("second page total = %d, want %d", got, want)
+	}
+	if got, want := feedFetcher.calls, 1; got != want {
+		t.Fatalf("fetch calls = %d, want %d", got, want)
+	}
+}
+
 type fakeRecommendationCatalogRepository struct {
 	entries []domain.SourceCatalogEntry
 }

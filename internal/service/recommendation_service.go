@@ -158,7 +158,11 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 		}, nil
 	}
 
-	items := s.buildRecommendationItems(ctx, input.UserID, selected, order)
+	maxItemsPerSource := maxRecommendationItemsPerSource
+	if input.SourceID > 0 {
+		maxItemsPerSource = 0
+	}
+	items := s.buildRecommendationItems(ctx, input.UserID, selected, order, maxItemsPerSource)
 	usedCacheFallback := false
 	if len(items) == 0 && input.Refresh && cachedOK {
 		items = cachedItems
@@ -199,7 +203,7 @@ type recommendationCacheEntry struct {
 	storedAt time.Time
 }
 
-func (s *RecommendationService) fetchRecommendationItems(ctx context.Context, userID int64, entries []domain.SourceCatalogEntry) []recommendationSourceItems {
+func (s *RecommendationService) fetchRecommendationItems(ctx context.Context, userID int64, entries []domain.SourceCatalogEntry, maxItemsPerSource int) []recommendationSourceItems {
 	results := make(chan recommendationSourceItems, len(entries))
 	sem := make(chan struct{}, recommendationFetchConcurrency)
 	var wg sync.WaitGroup
@@ -222,7 +226,7 @@ func (s *RecommendationService) fetchRecommendationItems(ctx context.Context, us
 			if err != nil || len(result.Items) == 0 {
 				return
 			}
-			items := normalizeRecommendationItems(catalogEntry, result.Items)
+			items := normalizeRecommendationItems(catalogEntry, result.Items, maxItemsPerSource)
 			if len(items) == 0 {
 				return
 			}
@@ -310,7 +314,7 @@ func recommendationSourceFromCatalog(userID int64, entry domain.SourceCatalogEnt
 	}
 }
 
-func normalizeRecommendationItems(entry domain.SourceCatalogEntry, items []domain.Item) []domain.Item {
+func normalizeRecommendationItems(entry domain.SourceCatalogEntry, items []domain.Item, maxItems int) []domain.Item {
 	normalized := make([]domain.Item, 0, len(items))
 	for index, item := range items {
 		item.ID = syntheticRecommendationItemID(entry.ID, item.NormalizedURL, index)
@@ -327,8 +331,8 @@ func normalizeRecommendationItems(entry domain.SourceCatalogEntry, items []domai
 	sort.SliceStable(normalized, func(i, j int) bool {
 		return recommendationItemTime(normalized[i]).After(recommendationItemTime(normalized[j]))
 	})
-	if len(normalized) > maxRecommendationItemsPerSource {
-		normalized = normalized[:maxRecommendationItemsPerSource]
+	if maxItems > 0 && len(normalized) > maxItems {
+		normalized = normalized[:maxItems]
 	}
 	return normalized
 }
@@ -364,8 +368,8 @@ func recommendationItemTime(item domain.Item) time.Time {
 	return item.FetchedAt
 }
 
-func (s *RecommendationService) buildRecommendationItems(ctx context.Context, userID int64, entries []domain.SourceCatalogEntry, order domain.ItemSortOrder) []domain.Item {
-	sourceItems := s.fetchRecommendationItems(ctx, userID, entries)
+func (s *RecommendationService) buildRecommendationItems(ctx context.Context, userID int64, entries []domain.SourceCatalogEntry, order domain.ItemSortOrder, maxItemsPerSource int) []domain.Item {
+	sourceItems := s.fetchRecommendationItems(ctx, userID, entries, maxItemsPerSource)
 	return sortedRecommendationItems(sourceItems, order)
 }
 
@@ -403,7 +407,7 @@ func (s *RecommendationService) refreshRecommendationCacheAsync(key recommendati
 		defer s.endRecommendationRefresh(key)
 		ctx, cancel := context.WithTimeout(context.Background(), recommendationRefreshTimeout)
 		defer cancel()
-		items := s.buildRecommendationItems(ctx, userID, refreshEntries, order)
+		items := s.buildRecommendationItems(ctx, userID, refreshEntries, order, maxRecommendationItemsPerSource)
 		if len(items) == 0 {
 			return
 		}
