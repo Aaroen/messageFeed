@@ -1856,14 +1856,22 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
 }
 
 .settings-input {
+  appearance: none;
   height: 36px;
-  padding: 0 11px;
+  padding-inline: 12px;
 }
 
 .settings-textarea {
   resize: vertical;
-  padding: 10px 11px;
+  padding: 10px 12px;
   line-height: 1.45;
+}
+
+.settings-input::-webkit-inner-spin-button,
+.settings-input::-webkit-outer-spin-button,
+.settings-input::-webkit-search-cancel-button {
+  appearance: none;
+  margin: 0;
 }
 
 .settings-input:focus,
@@ -2032,14 +2040,20 @@ body[arco-theme='dark'] .sources-toast--warning {
 }
 
 .sources-input {
+  appearance: none;
   height: 38px;
-  padding: 0 12px;
+  padding-inline: 12px;
 }
 
 .sources-textarea {
   width: 100%;
   padding: 12px;
   resize: vertical;
+}
+
+.sources-input::-webkit-search-cancel-button {
+  appearance: none;
+  margin: 0;
 }
 
 .sources-input:focus,

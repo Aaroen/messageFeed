@@ -157,6 +157,13 @@ async function loadAuthStatus() {
   authError.value = ''
   try {
     authStatus.value = await getCurrentAuth()
+    if (!authStatus.value.authenticated) {
+      sessions.value = []
+      userContext.value = null
+      users.value = []
+      invites.value = []
+      return
+    }
     if (authStatus.value.profile) {
       applyProfile(authStatus.value.profile)
     }
