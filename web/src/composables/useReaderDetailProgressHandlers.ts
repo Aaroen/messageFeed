@@ -38,12 +38,7 @@ export function useReaderDetailProgressHandlers(options: ReaderDetailProgressHan
   }
 
   function scrollDetailContentTo(top: number) {
-    const container = options.detailContentRef.value
-    if (!container) {
-      return
-    }
-
-    container.scrollTop = Math.max(0, top)
+    options.scrollDetailContentElementTo(Math.max(0, top))
     syncDetailContainerMetrics()
   }
 
