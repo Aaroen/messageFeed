@@ -1293,7 +1293,13 @@ export function useReaderStackState() {
     resetDetailHeaderTitleSwapState()
     resetMorphingItemContentState()
     resetReaderBackSwipeDragState()
+    detailOriginRect.value = null
+    clearDetailSourceTransitionTargetState()
     detailFeedOriginLocked.value = false
+    detailProgressDragging.value = false
+    detailScrollHeight.value = 0
+    detailScrollClientHeight.value = 0
+    detailFrameContentHeight.value = 0
     clearReaderStretchAnchorsIfIdle()
     clearHiddenSourceCleanupTimer()
   }
