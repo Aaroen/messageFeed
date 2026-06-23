@@ -85,6 +85,10 @@ export function useReaderDetailMessageHandler(options: ReaderDetailMessageHandle
 
   function handleDetailGestureMessage(payload: DetailGesturePayload) {
     if (options.navigationVisible.value) {
+      if (options.readerBackSwipeTrackingActive.value) {
+        options.cancelBackSwipe()
+      }
+      options.resetGestureTracking()
       return
     }
 
