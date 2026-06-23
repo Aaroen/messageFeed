@@ -1272,7 +1272,7 @@ export function useReaderStackState() {
   function clearReaderStackTimers() {
     clearReaderMotionTimer()
     clearDetailEntryAsync()
-    clearDetailHeaderSwapTimer()
+    resetDetailHeaderTitleSwapState()
     clearMorphingHeightUnlockTimer()
     clearHiddenSourceCleanupTimer()
   }
