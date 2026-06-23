@@ -256,6 +256,93 @@ func TestTriggerFetchSanitizesInvalidUTF8FailureMessage(t *testing.T) {
 	}
 }
 
+func TestImportURLSourcesRecordsImportJob(t *testing.T) {
+	importJobRepository := &fakeSourceImportJobRepository{}
+	service := NewSourceService(
+		newFakeSourceRepository(),
+		WithSourceImportJobRepository(importJobRepository),
+	)
+
+	result, err := service.ImportURLSources(context.Background(), ImportURLSourcesInput{
+		UserID: 1,
+		URLs: []string{
+			"https://example.com/feed.xml",
+			"ftp://invalid.example/feed.xml",
+		},
+	})
+	if err != nil {
+		t.Fatalf("ImportURLSources returned error: %v", err)
+	}
+
+	if result.RequestedCount != 2 {
+		t.Fatalf("RequestedCount = %d, want 2", result.RequestedCount)
+	}
+	if result.SuccessCount != 1 {
+		t.Fatalf("SuccessCount = %d, want 1", result.SuccessCount)
+	}
+	if result.FailureCount != 1 {
+		t.Fatalf("FailureCount = %d, want 1", result.FailureCount)
+	}
+	if result.ImportJob == nil {
+		t.Fatal("ImportJob is nil")
+	}
+	if result.ImportJob.Status != domain.SourceImportStatusPartial {
+		t.Fatalf("ImportJob.Status = %q, want %q", result.ImportJob.Status, domain.SourceImportStatusPartial)
+	}
+	if got, want := len(importJobRepository.jobs), 1; got != want {
+		t.Fatalf("recorded jobs length = %d, want %d", got, want)
+	}
+	job := importJobRepository.jobs[0]
+	if job.ImportType != domain.SourceImportTypeURLs {
+		t.Fatalf("ImportType = %q, want %q", job.ImportType, domain.SourceImportTypeURLs)
+	}
+	if got, want := len(job.ErrorDetails), 1; got != want {
+		t.Fatalf("ErrorDetails length = %d, want %d", got, want)
+	}
+	if job.ErrorDetails[0].Reference != "ftp://invalid.example/feed.xml" {
+		t.Fatalf("ErrorDetails[0].Reference = %q", job.ErrorDetails[0].Reference)
+	}
+}
+
+func TestListSourceImportJobsNormalizesPagination(t *testing.T) {
+	importJobRepository := &fakeSourceImportJobRepository{
+		jobs: []domain.SourceImportJob{
+			{
+				ID:         1,
+				UserID:     1,
+				ImportType: domain.SourceImportTypeURLs,
+				Status:     domain.SourceImportStatusCompleted,
+			},
+		},
+	}
+	service := NewSourceService(
+		newFakeSourceRepository(),
+		WithSourceImportJobRepository(importJobRepository),
+	)
+
+	result, err := service.ListSourceImportJobs(context.Background(), ListSourceImportJobsInput{
+		UserID: 1,
+		Limit:  domain.MaxSourceImportJobListLimit + 1,
+		Offset: 3,
+	})
+	if err != nil {
+		t.Fatalf("ListSourceImportJobs returned error: %v", err)
+	}
+
+	if importJobRepository.listOptions.UserID != 1 {
+		t.Fatalf("UserID = %d, want 1", importJobRepository.listOptions.UserID)
+	}
+	if importJobRepository.listOptions.Limit != domain.MaxSourceImportJobListLimit {
+		t.Fatalf("Limit = %d, want %d", importJobRepository.listOptions.Limit, domain.MaxSourceImportJobListLimit)
+	}
+	if importJobRepository.listOptions.Offset != 3 {
+		t.Fatalf("Offset = %d, want 3", importJobRepository.listOptions.Offset)
+	}
+	if result.Total != 1 {
+		t.Fatalf("Total = %d, want 1", result.Total)
+	}
+}
+
 func TestTruncateErrorPreservesUTF8Boundary(t *testing.T) {
 	got := truncateError("刷新失败：消息流异常", len("刷新失败：消")-1)
 	if !utf8.ValidString(got) {
@@ -344,6 +431,41 @@ func (r *fakeItemRepository) UpsertMany(_ context.Context, items []domain.Item) 
 	return domain.ItemUpsertResult{
 		CreatedCount: len(items),
 		TotalCount:   len(items),
+	}, nil
+}
+
+type fakeSourceImportJobRepository struct {
+	nextID      int64
+	jobs        []domain.SourceImportJob
+	listOptions domain.SourceImportJobListOptions
+}
+
+func (r *fakeSourceImportJobRepository) Create(_ context.Context, job domain.SourceImportJob) (domain.SourceImportJob, error) {
+	if r.nextID == 0 {
+		r.nextID = int64(len(r.jobs) + 1)
+	}
+	now := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
+	job.ID = r.nextID
+	job.CreatedAt = now
+	job.UpdatedAt = now
+	r.nextID++
+	r.jobs = append(r.jobs, job)
+	return job, nil
+}
+
+func (r *fakeSourceImportJobRepository) ListByUser(_ context.Context, options domain.SourceImportJobListOptions) (domain.SourceImportJobListResult, error) {
+	r.listOptions = options
+	jobs := make([]domain.SourceImportJob, 0, len(r.jobs))
+	for _, job := range r.jobs {
+		if job.UserID == options.UserID {
+			jobs = append(jobs, job)
+		}
+	}
+	return domain.SourceImportJobListResult{
+		Jobs:   jobs,
+		Total:  int64(len(jobs)),
+		Limit:  options.Limit,
+		Offset: options.Offset,
 	}, nil
 }
 
