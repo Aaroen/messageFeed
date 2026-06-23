@@ -155,6 +155,19 @@ async function loadCatalog(
   }
 }
 
+async function handleCatalogSearch() {
+  if (pageBusy.value) {
+    return
+  }
+
+  const token = nextPageRequestToken()
+  try {
+    await loadCatalog({ failurePrefix: '搜索失败', token })
+  } catch {
+    // loadCatalog has already surfaced the user-facing failure notice.
+  }
+}
+
 async function refreshPage(options: PageRefreshOptions = {}) {
   if (pageBusy.value) {
     return
@@ -544,7 +557,7 @@ defineExpose({ refreshPage, clearNotice })
           class="sources-button"
           type="button"
           :disabled="pageBusy"
-          @click="() => loadCatalog({ failurePrefix: '搜索失败' })"
+          @click="handleCatalogSearch"
         >
           <IconSearch />
           <span>搜索</span>
