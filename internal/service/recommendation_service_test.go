@@ -84,6 +84,69 @@ func TestRecommendationRefreshShuffleSeedUsesInstant(t *testing.T) {
 	}
 }
 
+func TestListRecommendationsPaginatesCachedItems(t *testing.T) {
+	now := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
+	catalogRepository := &fakeRecommendationCatalogRepository{
+		entries: []domain.SourceCatalogEntry{
+			recommendationCatalogEntry(1),
+			recommendationCatalogEntry(2),
+			recommendationCatalogEntry(3),
+			recommendationCatalogEntry(4),
+			recommendationCatalogEntry(5),
+		},
+	}
+	feedFetcher := &multiItemRecommendationFetcher{itemsPerSource: 3}
+	service := NewRecommendationService(
+		catalogRepository,
+		feedFetcher,
+		WithNow(func() time.Time {
+			return now
+		}),
+	)
+
+	first, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
+		UserID: 1,
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("ListRecommendations returned error: %v", err)
+	}
+	if got, want := len(first.Items), 10; got != want {
+		t.Fatalf("first page count = %d, want %d", got, want)
+	}
+	if got, want := first.Total, int64(15); got != want {
+		t.Fatalf("first page total = %d, want %d", got, want)
+	}
+
+	second, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
+		UserID: 1,
+		Limit:  10,
+		Offset: 10,
+	})
+	if err != nil {
+		t.Fatalf("second page ListRecommendations returned error: %v", err)
+	}
+	if got, want := len(second.Items), 5; got != want {
+		t.Fatalf("second page count = %d, want %d", got, want)
+	}
+	if got, want := second.Total, int64(15); got != want {
+		t.Fatalf("second page total = %d, want %d", got, want)
+	}
+	if got, want := feedFetcher.calls, 5; got != want {
+		t.Fatalf("fetch calls = %d, want %d", got, want)
+	}
+
+	firstIDs := make(map[int64]struct{}, len(first.Items))
+	for _, item := range first.Items {
+		firstIDs[item.ID] = struct{}{}
+	}
+	for _, item := range second.Items {
+		if _, exists := firstIDs[item.ID]; exists {
+			t.Fatalf("second page item %d also appeared on first page", item.ID)
+		}
+	}
+}
+
 type fakeRecommendationCatalogRepository struct {
 	entries []domain.SourceCatalogEntry
 }
@@ -139,4 +202,38 @@ func (f *sequencedRecommendationFetcher) Fetch(_ context.Context, source domain.
 			},
 		},
 	}, nil
+}
+
+func recommendationCatalogEntry(id int64) domain.SourceCatalogEntry {
+	return domain.SourceCatalogEntry{
+		ID:            id,
+		Name:          fmt.Sprintf("Example %d", id),
+		FeedURL:       fmt.Sprintf("https://example.com/%d/feed.xml", id),
+		NormalizedURL: fmt.Sprintf("https://example.com/%d/feed.xml", id),
+		Type:          domain.SourceTypeRSS,
+		Official:      true,
+		HealthStatus:  domain.SourceCatalogHealthHealthy,
+	}
+}
+
+type multiItemRecommendationFetcher struct {
+	calls          int
+	itemsPerSource int
+}
+
+func (f *multiItemRecommendationFetcher) Fetch(_ context.Context, source domain.Source) (domain.FeedFetchResult, error) {
+	f.calls++
+	items := make([]domain.Item, 0, f.itemsPerSource)
+	for index := 0; index < f.itemsPerSource; index++ {
+		url := fmt.Sprintf("https://example.com/%d/items/%d", source.ID, index)
+		items = append(items, domain.Item{
+			SourceID:      source.ID,
+			Title:         fmt.Sprintf("Source %d item %d", source.ID, index),
+			URL:           url,
+			NormalizedURL: url,
+			RawGUID:       fmt.Sprintf("source-%d-item-%d", source.ID, index),
+			FetchedAt:     time.Date(2026, 6, 20, 9, int(source.ID), index, 0, time.UTC),
+		})
+	}
+	return domain.FeedFetchResult{Items: items}, nil
 }
