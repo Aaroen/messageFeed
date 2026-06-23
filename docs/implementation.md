@@ -814,7 +814,7 @@ API 与安全约束：
 
 ### <a id="phase-4-5"></a>阶段四点五：后端治理与后台刷新解耦
 
-**状态**：进行中 | **完成度**：60%
+**状态**：进行中 | **完成度**：70%
 
 阶段四点五用于在进入 Agent、通知和金融能力前，先解决首页刷新性能、后台同步解耦和后端服务边界问题。该阶段的基本原则是：后台同步负责获取事实，确定性规则负责预筛选，Agent 只处理候选内容并生成解释，策略引擎负责最终裁决，通知系统负责可审计发送。
 
@@ -840,7 +840,9 @@ API 与安全约束：
 - [x] `SourceSyncService.RunOnce` 已建立单轮后台 worker 入口，支持领取 queued job、执行、记录成功/失败和可重试失败重新排队。
 - [x] `source_fetch_jobs` 与 `source_fetch_attempts` 仓储已支持历史分页查询。
 - [x] 已建立 `task_locks` 迁移和持久化锁仓储，后台 worker 可通过租约式任务锁互斥执行。
-- [ ] 尚未建立提醒规则、确定性预筛选、AI 分析任务、策略引擎和通知审计。
+- [x] 已建立 `alert_rules` 和 `alert_candidates` 基础表、domain、repository 与模型转换测试。
+- [x] `AlertRuleService` 已支持处理 `item.created` 事件，并按来源、关键词、分类、标签、金融标的和全局规则生成确定性候选提醒。
+- [ ] 尚未建立 AI 分析任务、策略引擎和通知审计。
 
 实施步骤：
 
@@ -850,8 +852,8 @@ API 与安全约束：
 4. [x] 调整条目 upsert 返回结构，使服务可以识别新建条目并只为新条目产生 `item.created` 事件。
 5. 明确事务边界：条目入库和 outbox 事件生成必须处于同一事务，或建立可审计的补偿机制。
 6. 保留现有手动抓取接口，但内部逐步迁移到抓取任务执行路径，避免重复维护两套抓取状态逻辑。
-7. 新增最小 `alert_rules`，初期只支持来源、关键词、分类、冷却时间和启停状态。
-8. 实现确定性规则预筛选，worker 消费 `item.created` 事件生成候选提醒；该步骤暂不接 AI。
+7. [x] 新增最小 `alert_rules`，初期只支持来源、关键词、分类、冷却时间和启停状态。
+8. [x] 实现确定性规则预筛选，worker 消费 `item.created` 事件生成候选提醒；该步骤暂不接 AI。
 9. 新增 `ai_analysis_jobs`，Agent 只分析候选条目并保存结构化结果，字段包含 `should_notify`、`importance`、`matched_reasons`、`summary`、`risk_level` 和 `confidence`。
 10. 新增策略引擎，统一处理规则命中、重要性阈值、置信度阈值、冷却、去重和是否需要用户确认。
 11. 新增 `notification_jobs` 和 `notification_deliveries`，支持企业微信和 `ntfy` 的可审计发送。
