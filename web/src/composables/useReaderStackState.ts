@@ -1052,6 +1052,12 @@ export function useReaderStackState() {
     clearDetailEntryFrames()
   }
 
+  function resetDetailEntryAnimationState() {
+    clearDetailEntryAsync()
+    detailEntryProgress.value = 1
+    detailEntrySettling.value = false
+  }
+
   function setDetailEntryTimer(handler: () => void, delay?: number) {
     clearDetailEntryTimer()
     const token = detailEntryTimerToken
@@ -1271,7 +1277,7 @@ export function useReaderStackState() {
 
   function clearReaderStackTimers() {
     clearReaderMotionTimer()
-    clearDetailEntryAsync()
+    resetDetailEntryAnimationState()
     resetDetailHeaderTitleSwapState()
     clearMorphingHeightUnlockTimer()
     clearHiddenSourceCleanupTimer()
