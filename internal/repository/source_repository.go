@@ -35,6 +35,10 @@ type sourceModel struct {
 	LastFetchError       string
 	LastFetchDurationMS  *int
 	LastFetchItemCount   *int
+	NextFetchAt          *time.Time
+	ETag                 string
+	LastModified         string
+	FetchPriority        int
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
@@ -100,7 +104,7 @@ func (r *SourceRepository) Update(ctx context.Context, source domain.Source) (do
 	model := sourceModelFromDomain(source)
 	result := r.db.WithContext(ctx).
 		Model(&model).
-		Select("Name", "Type", "URL", "NormalizedURL", "Status", "FetchIntervalSeconds", "Tags", "Weight").
+		Select("Name", "Type", "URL", "NormalizedURL", "Status", "FetchIntervalSeconds", "Tags", "Weight", "NextFetchAt", "ETag", "LastModified", "FetchPriority").
 		Where("user_id = ? AND id = ?", source.UserID, source.ID).
 		Updates(&model)
 	if result.Error != nil {
@@ -163,6 +167,10 @@ func sourceModelFromDomain(source domain.Source) sourceModel {
 		LastFetchError:       source.LastFetchError,
 		LastFetchDurationMS:  source.LastFetchDurationMS,
 		LastFetchItemCount:   source.LastFetchItemCount,
+		NextFetchAt:          source.NextFetchAt,
+		ETag:                 source.ETag,
+		LastModified:         source.LastModified,
+		FetchPriority:        source.FetchPriority,
 		CreatedAt:            source.CreatedAt,
 		UpdatedAt:            source.UpdatedAt,
 	}
@@ -185,6 +193,10 @@ func sourceModelToDomain(model sourceModel) domain.Source {
 		LastFetchError:       model.LastFetchError,
 		LastFetchDurationMS:  model.LastFetchDurationMS,
 		LastFetchItemCount:   model.LastFetchItemCount,
+		NextFetchAt:          model.NextFetchAt,
+		ETag:                 model.ETag,
+		LastModified:         model.LastModified,
+		FetchPriority:        model.FetchPriority,
 		CreatedAt:            model.CreatedAt,
 		UpdatedAt:            model.UpdatedAt,
 	}

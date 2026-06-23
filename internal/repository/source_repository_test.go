@@ -14,6 +14,7 @@ func TestSourceModelRoundTrip(t *testing.T) {
 	now := time.Date(2026, 6, 16, 9, 0, 0, 0, time.UTC)
 	durationMS := 120
 	itemCount := 3
+	nextFetchAt := now.Add(time.Hour)
 	source := domain.Source{
 		ID:                   11,
 		UserID:               1,
@@ -30,6 +31,10 @@ func TestSourceModelRoundTrip(t *testing.T) {
 		LastFetchError:       "",
 		LastFetchDurationMS:  &durationMS,
 		LastFetchItemCount:   &itemCount,
+		NextFetchAt:          &nextFetchAt,
+		ETag:                 `"etag-value"`,
+		LastModified:         "Tue, 23 Jun 2026 09:00:00 GMT",
+		FetchPriority:        2,
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
@@ -60,6 +65,18 @@ func TestSourceModelRoundTrip(t *testing.T) {
 	}
 	if converted.LastFetchItemCount == nil || *converted.LastFetchItemCount != itemCount {
 		t.Fatalf("LastFetchItemCount = %#v, want %d", converted.LastFetchItemCount, itemCount)
+	}
+	if converted.NextFetchAt == nil || !converted.NextFetchAt.Equal(nextFetchAt) {
+		t.Fatalf("NextFetchAt = %#v, want %s", converted.NextFetchAt, nextFetchAt)
+	}
+	if converted.ETag != source.ETag {
+		t.Fatalf("ETag = %q, want %q", converted.ETag, source.ETag)
+	}
+	if converted.LastModified != source.LastModified {
+		t.Fatalf("LastModified = %q, want %q", converted.LastModified, source.LastModified)
+	}
+	if converted.FetchPriority != source.FetchPriority {
+		t.Fatalf("FetchPriority = %d, want %d", converted.FetchPriority, source.FetchPriority)
 	}
 }
 

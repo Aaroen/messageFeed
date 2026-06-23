@@ -51,6 +51,10 @@ type Source struct {
 	LastFetchError       string
 	LastFetchDurationMS  *int
 	LastFetchItemCount   *int
+	NextFetchAt          *time.Time
+	ETag                 string
+	LastModified         string
+	FetchPriority        int
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
