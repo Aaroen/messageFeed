@@ -17,8 +17,12 @@ export function useAppPointerGestureInteractions(options: AppPointerGestureInter
     if (event.isPrimary === false) {
       return
     }
-    if (options.touch.readerBackSwipeTrackingActive.value) {
+    const hadReaderBackSwipeTracking = options.touch.readerBackSwipeTrackingActive.value
+    const hadReaderBackSwipeCandidate = options.touch.readerBackSwipeCandidateActive.value
+    if (hadReaderBackSwipeTracking) {
       options.touch.cancelBackSwipe()
+    }
+    if (hadReaderBackSwipeTracking || hadReaderBackSwipeCandidate) {
       options.touch.resetGestureTracking()
     }
   }

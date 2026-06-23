@@ -87,8 +87,12 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
     }
 
     options.finishCommittedListReturnForGesture()
-    if (options.readerBackSwipeTrackingActive.value) {
+    const hadReaderBackSwipeTracking = options.readerBackSwipeTrackingActive.value
+    const hadReaderBackSwipeCandidate = options.readerBackSwipeCandidateActive.value
+    if (hadReaderBackSwipeTracking) {
       options.cancelBackSwipe()
+    }
+    if (hadReaderBackSwipeTracking || hadReaderBackSwipeCandidate) {
       options.resetGestureTracking()
     }
 
