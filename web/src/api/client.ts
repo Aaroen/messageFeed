@@ -36,6 +36,9 @@ export function formatAPIError(error: unknown): string {
     if (error.code === 'ERR_CANCELED') {
       return '请求已取消'
     }
+    if (error.response?.status === 404) {
+      return '请求路径不存在或服务未更新，请刷新页面并确认后端已重启'
+    }
     if (error.response?.status) {
       return `请求失败（HTTP ${error.response.status}）`
     }

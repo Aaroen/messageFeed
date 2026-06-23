@@ -23,6 +23,7 @@ type FeedChromeLayoutStateOptions = {
   viewSwipeActive: ReadableRef<boolean>
   detailReaderOpen: ReadableRef<boolean>
   feedPullActive: ReadableRef<boolean>
+  pagePullActive: ReadableRef<boolean>
   pullProgress: ReadableRef<number>
   feedTopPullStartedWithChrome: ReadableRef<boolean>
   refreshStartedWithChrome: ReadableRef<boolean>
@@ -70,6 +71,14 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
       !options.feedContentCollapsed.value
     const preserveVisibleTopSpace = (space: number) =>
       visibleHeaderAtFeedTop ? Math.max(space, visibleTopSpace) : space
+    const collapsedTopClearance = headerHeight.value * clampProgress(
+      (visibleContentTopOffset.value - options.feedScrollTop.value) /
+        Math.max(visibleContentTopOffset.value, 1),
+    )
+
+    if (!options.isFeedRoute.value && options.pagePullActive.value) {
+      return headerHeight.value
+    }
 
     if (options.feedTopPullStartedWithChrome.value || options.refreshStartedWithChrome.value) {
       return preserveVisibleTopSpace(headerHeight.value)
@@ -84,7 +93,7 @@ export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) 
     }
 
     if (options.feedContentCollapsed.value) {
-      return collapsedRestoreSpace
+      return Math.max(collapsedRestoreSpace, collapsedTopClearance)
     }
 
     return headerHeight.value

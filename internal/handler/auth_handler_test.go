@@ -35,6 +35,14 @@ func (fakeAuthEndpointService) LocalLogin(ctx context.Context, input service.Loc
 	return service.AuthSessionResult{}, nil
 }
 
+func (fakeAuthEndpointService) RegisterWithInvite(ctx context.Context, input service.RegisterWithInviteInput) (service.AuthSessionResult, error) {
+	return service.AuthSessionResult{}, nil
+}
+
+func (fakeAuthEndpointService) ChangePassword(ctx context.Context, input service.ChangePasswordInput) (service.AuthUserResponse, error) {
+	return service.AuthUserResponse{}, nil
+}
+
 func (fakeAuthEndpointService) Logout(ctx context.Context, rawToken string) error {
 	return nil
 }
@@ -57,6 +65,18 @@ func (fakeAuthEndpointService) ListBindings(ctx context.Context, userID int64) (
 
 func (fakeAuthEndpointService) DisableBinding(ctx context.Context, userID int64, accountID int64) (service.AuthBindingResponse, error) {
 	return service.AuthBindingResponse{}, nil
+}
+
+func (fakeAuthEndpointService) CreateInvite(ctx context.Context, input service.CreateInviteInput) (service.CreateInviteResult, error) {
+	return service.CreateInviteResult{}, nil
+}
+
+func (fakeAuthEndpointService) ListInvites(ctx context.Context, auth service.CurrentAuth) ([]service.InviteCodeResponse, error) {
+	return []service.InviteCodeResponse{}, nil
+}
+
+func (fakeAuthEndpointService) RevokeInvite(ctx context.Context, auth service.CurrentAuth, inviteID int64) (service.InviteCodeResponse, error) {
+	return service.InviteCodeResponse{}, nil
 }
 
 func (fakeAuthEndpointService) CookieMaxAge() int {

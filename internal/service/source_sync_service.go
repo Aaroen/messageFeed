@@ -6,6 +6,7 @@ import (
 	"messagefeed/internal/domain"
 	"messagefeed/internal/observability"
 	"strconv"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -206,23 +207,33 @@ func (s *SourceSyncService) runOnceUnlocked(ctx context.Context, input RunSource
 		ClaimedCount:  len(jobs),
 		Errors:        make([]SourceSyncJobError, 0),
 	}
+	var resultMu sync.Mutex
+	var wg sync.WaitGroup
 	for _, job := range jobs {
-		execution, err := s.ExecuteFetchJob(ctx, ExecuteSourceFetchJobInput{Job: job})
-		if err != nil {
-			if execution.Job.Status == domain.SourceFetchJobStatusQueued {
-				result.RetryCount++
-			} else {
-				result.FailureCount++
+		job := job
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			execution, err := s.ExecuteFetchJob(ctx, ExecuteSourceFetchJobInput{Job: job})
+			resultMu.Lock()
+			defer resultMu.Unlock()
+			if err != nil {
+				if execution.Job.Status == domain.SourceFetchJobStatusQueued {
+					result.RetryCount++
+				} else {
+					result.FailureCount++
+				}
+				result.Errors = append(result.Errors, SourceSyncJobError{
+					JobID:    job.ID,
+					SourceID: job.SourceID,
+					Message:  err.Error(),
+				})
+				return
 			}
-			result.Errors = append(result.Errors, SourceSyncJobError{
-				JobID:    job.ID,
-				SourceID: job.SourceID,
-				Message:  err.Error(),
-			})
-			continue
-		}
-		result.SuccessCount++
+			result.SuccessCount++
+		}()
 	}
+	wg.Wait()
 	span.SetAttributes(
 		attribute.Int("source_fetch_job.enqueued", result.EnqueuedCount),
 		attribute.Int("source_fetch_job.claimed", result.ClaimedCount),

@@ -21,6 +21,10 @@ type FeedPagerSwipeFinishResult = {
   startedWithHiddenChrome: boolean
 }
 
+type FeedPagerProgrammaticNavigationResult = {
+  animated: boolean
+}
+
 type FeedPagerDragStartResult = {
   started: boolean
   blocked: boolean
@@ -55,6 +59,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   const settling = ref(false)
   const viewSwipeCandidateActive = ref(false)
   const viewSwipeActive = ref(false)
+  const transitionBaseIndex = ref<number | null>(null)
   let settlingTimer = 0
   let delayedCommitTimer = 0
   let settlingTimerToken = 0
@@ -63,12 +68,13 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   let activePointerId: number | null = null
 
   const activeIndex = computed(() => (options.getActiveKey() === 'recommendations' ? 1 : 0))
+  const trackBaseIndex = computed(() => transitionBaseIndex.value ?? activeIndex.value)
   const activeSurface = computed<FeedSwipeSurface>(() =>
     activeIndex.value === 0 ? 'feed:subscriptions' : 'feed:recommendations',
   )
 
   const trackStyle = computed(() => ({
-    transform: `translate3d(calc(${-activeIndex.value * 100}% + ${cssPx(dragOffset.value)}), 0, 0)`,
+    transform: `translate3d(calc(${-trackBaseIndex.value * 100}% + ${cssPx(dragOffset.value)}), 0, 0)`,
     transition: settling.value ? 'transform var(--motion-normal) var(--ease-standard)' : undefined,
   }))
 
@@ -119,6 +125,24 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     return null
   }
 
+  function feedPathIndex(path: string) {
+    if (path === '/subscriptions') {
+      return 0
+    }
+    if (path === '/recommendations') {
+      return 1
+    }
+    return null
+  }
+
+  function targetOffsetForPath(path: string) {
+    const targetIndex = feedPathIndex(path)
+    if (targetIndex === null || targetIndex === activeIndex.value) {
+      return null
+    }
+    return (activeIndex.value - targetIndex) * options.getWindowWidth()
+  }
+
   function resolveDragCommitPath(deltaX: number, horizontal: boolean, switchDistance: number) {
     if (!viewSwipeActive.value) {
       return null
@@ -155,11 +179,19 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function finishSwipeResult(nextPath: string | null): FeedPagerSwipeFinishResult {
-    const committed = Boolean(nextPath)
+    const targetOffset = nextPath ? targetOffsetForPath(nextPath) : null
+    const committed = targetOffset !== null
     const swipeStartedWithHiddenChrome = consumeStartedWithHiddenChrome()
     setSettling(true)
     clearDelayedCommitTimer()
     clearSettlingTimer()
+    if (committed) {
+      lockTransitionBaseIndex()
+      setDragOffset(targetOffset)
+    } else {
+      unlockTransitionBaseIndex()
+      setDragOffset(0)
+    }
     return {
       committed,
       settlePayload: {
@@ -170,20 +202,51 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     }
   }
 
-  function settleFinishedSwipe(delay: number) {
-    setDragOffset(0)
+  function settleFinishedSwipe(delay: number, commit?: () => Promise<unknown> | unknown) {
+    if (commit) {
+      scheduleDelayedRouteCommit(delay, commit)
+      return
+    }
     scheduleSettlingEnd(delay)
   }
 
   function beginProgrammaticNavigation() {
     clearTimers()
+    unlockTransitionBaseIndex()
     setSettling(true)
     setDragOffset(0)
+  }
+
+  function beginProgrammaticFeedSwitch(path: string): FeedPagerProgrammaticNavigationResult {
+    if (!options.isFeedRoute() || options.isDetailReaderOpen()) {
+      return {
+        animated: false,
+      }
+    }
+
+    const targetOffset = targetOffsetForPath(path)
+    if (targetOffset === null) {
+      return {
+        animated: false,
+      }
+    }
+
+    clearTimers()
+    lockTransitionBaseIndex()
+    setSettling(true)
+    setDragOffset(targetOffset)
+    return {
+      animated: true,
+    }
   }
 
   function settleProgrammaticNavigation(delay: number) {
     clearDelayedCommitTimer()
     scheduleSettlingEnd(delay)
+  }
+
+  function commitProgrammaticNavigation(delay: number, commit: () => Promise<unknown> | unknown) {
+    scheduleDelayedRouteCommit(delay, commit)
   }
 
   function beginDragCandidate() {
@@ -272,6 +335,14 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     settling.value = nextSettling
   }
 
+  function lockTransitionBaseIndex() {
+    transitionBaseIndex.value = activeIndex.value
+  }
+
+  function unlockTransitionBaseIndex() {
+    transitionBaseIndex.value = null
+  }
+
   function markStartedWithHiddenChrome() {
     startedWithHiddenChrome = true
   }
@@ -328,6 +399,28 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     }, Math.max(0, delay))
   }
 
+  function scheduleDelayedRouteCommit(delay: number, commit: () => Promise<unknown> | unknown) {
+    scheduleDelayedCommit(delay, () => {
+      let result: Promise<unknown> | unknown
+      try {
+        result = commit()
+      } catch {
+        setSettling(false)
+        setDragOffset(0)
+        unlockTransitionBaseIndex()
+        return
+      }
+
+      Promise.resolve(result)
+        .catch(() => undefined)
+        .finally(() => {
+          setSettling(false)
+          setDragOffset(0)
+          unlockTransitionBaseIndex()
+        })
+    })
+  }
+
   function clearTimers() {
     clearSettlingTimer()
     clearDelayedCommitTimer()
@@ -369,6 +462,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     clearStartedWithHiddenChrome()
     clearPointerTracking()
     resetViewSwipeTracking()
+    unlockTransitionBaseIndex()
     dragOffset.value = 0
     settling.value = false
   }
@@ -391,7 +485,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     finishSwipeResult,
     settleFinishedSwipe,
     beginProgrammaticNavigation,
+    beginProgrammaticFeedSwitch,
     settleProgrammaticNavigation,
+    commitProgrammaticNavigation,
     beginViewSwipeCandidate,
     cancelViewSwipeCandidate,
     tryBeginDrag,

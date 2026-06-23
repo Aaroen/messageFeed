@@ -305,13 +305,13 @@ func runSourceSyncWorker(ctx context.Context, logger *slog.Logger, workerID stri
 	defer ticker.Stop()
 
 	for {
-		runCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+		runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		result, err := sourceSyncService.RunOnce(runCtx, service.RunSourceSyncOnceInput{
 			WorkerID:           workerID,
 			LockName:           "source-sync",
 			LockTTL:            30 * time.Second,
 			EnqueueLimit:       50,
-			ClaimLimit:         5,
+			ClaimLimit:         50,
 			DefaultMaxAttempts: 3,
 		})
 		cancel()

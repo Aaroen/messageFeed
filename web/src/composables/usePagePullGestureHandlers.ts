@@ -17,6 +17,7 @@ type PagePullRefreshController = {
 
 type PagePullGestureHandlersOptions = {
   isFeedRoute: ReadableRef<boolean>
+  pullStartTopOffset: ReadableRef<number>
   refreshThreshold: number
   pullRefresh: PagePullRefreshController
   currentContentScrollTop: () => number
@@ -39,6 +40,10 @@ function pageRubberBandOffset(distance: number) {
 }
 
 export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptions) {
+  function touchStartsBelowTopChrome(touch: Touch) {
+    return touch.clientY >= Math.max(0, options.pullStartTopOffset.value)
+  }
+
   function resetPageTopPullTracking() {
     options.pullRefresh.finishGestureTracking()
   }
@@ -71,6 +76,11 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
     }
 
     const touch = event.touches[0]
+    if (!touchStartsBelowTopChrome(touch)) {
+      cancelPageTopPullGesture()
+      return
+    }
+
     options.pullRefresh.beginGestureCandidate(touch.clientX, touch.clientY)
   }
 

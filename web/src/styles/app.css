@@ -1525,6 +1525,16 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   width: 100%;
 }
 
+.settings-link-button {
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--mf-primary-strong);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 740;
+}
+
 .settings-panel {
   display: grid;
   min-width: 0;
@@ -1734,9 +1744,20 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   color: #92400e;
 }
 
+.settings-inline-alert--success {
+  border: 1px solid rgba(5, 150, 105, 0.26);
+  background: rgba(5, 150, 105, 0.1);
+  color: #047857;
+  overflow-wrap: anywhere;
+}
+
 .settings-form-grid {
   display: grid;
   gap: 12px;
+}
+
+.settings-form-grid--split {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .settings-bindings {
@@ -2338,6 +2359,10 @@ body[arco-theme='dark'] .empty-surface {
   }
 
   .settings-binding-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-form-grid--split {
     grid-template-columns: minmax(0, 1fr);
   }
 

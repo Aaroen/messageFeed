@@ -16,12 +16,17 @@ import (
 type authEndpointService interface {
 	authService
 	LocalLogin(ctx context.Context, input service.LocalLoginInput) (service.AuthSessionResult, error)
+	RegisterWithInvite(ctx context.Context, input service.RegisterWithInviteInput) (service.AuthSessionResult, error)
+	ChangePassword(ctx context.Context, input service.ChangePasswordInput) (service.AuthUserResponse, error)
 	Logout(ctx context.Context, rawToken string) error
 	Me(ctx context.Context, auth service.CurrentAuth) (service.AuthMeResult, error)
 	BuildWeChatWorkOAuthURL(ctx context.Context, input service.WeChatWorkOAuthURLInput) (service.WeChatWorkOAuthURLResult, error)
 	HandleWeChatWorkOAuthCallback(ctx context.Context, input service.WeChatWorkOAuthCallbackInput) (service.WeChatWorkOAuthCallbackResult, error)
 	ListBindings(ctx context.Context, userID int64) ([]service.AuthBindingResponse, error)
 	DisableBinding(ctx context.Context, userID int64, accountID int64) (service.AuthBindingResponse, error)
+	CreateInvite(ctx context.Context, input service.CreateInviteInput) (service.CreateInviteResult, error)
+	ListInvites(ctx context.Context, auth service.CurrentAuth) ([]service.InviteCodeResponse, error)
+	RevokeInvite(ctx context.Context, auth service.CurrentAuth, inviteID int64) (service.InviteCodeResponse, error)
 	CookieMaxAge() int
 	CookieSecure() bool
 }
@@ -35,6 +40,25 @@ type localLoginRequest struct {
 	Password string `json:"password"`
 }
 
+type registerRequest struct {
+	InviteCode  string `json:"invite_code"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+type createInviteRequest struct {
+	Role       string `json:"role"`
+	MaxUses    int    `json:"max_uses"`
+	TTLSeconds int64  `json:"ttl_seconds"`
+}
+
 type authLoginResponse struct {
 	User      *service.AuthUserResponse `json:"user"`
 	ExpiresAt string                    `json:"expires_at"`
@@ -45,11 +69,17 @@ func registerAuthRoutes(router *gin.RouterGroup, authService authEndpointService
 	auth := router.Group("/auth")
 	auth.GET("/me", handler.me)
 	auth.POST("/login", handler.login)
+	auth.POST("/register", handler.register)
 	auth.POST("/logout", handler.logout)
+	auth.POST("/password", requireAuth(authService), handler.changePassword)
 	auth.GET("/wechat-work/oauth-url", requireAuth(authService), handler.wechatWorkOAuthURL)
 	auth.GET("/wechat-work/callback", handler.wechatWorkCallback)
 	auth.GET("/bindings", requireAuth(authService), handler.listBindings)
 	auth.POST("/bindings/:id/disable", requireAuth(authService), handler.disableBinding)
+	admin := router.Group("/admin")
+	admin.GET("/invites", requireAuth(authService), handler.listInvites)
+	admin.POST("/invites", requireAuth(authService), handler.createInvite)
+	admin.DELETE("/invites/:id", requireAuth(authService), handler.revokeInvite)
 }
 
 func (h authHandler) me(c *gin.Context) {
@@ -92,6 +122,36 @@ func (h authHandler) login(c *gin.Context) {
 	})
 }
 
+func (h authHandler) register(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "auth service unavailable")
+		return
+	}
+	var request registerRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	result, err := h.service.RegisterWithInvite(c.Request.Context(), service.RegisterWithInviteInput{
+		InviteCode:    request.InviteCode,
+		Username:      request.Username,
+		Password:      request.Password,
+		DisplayName:   request.DisplayName,
+		Email:         request.Email,
+		UserAgent:     c.GetHeader("User-Agent"),
+		RemoteAddress: c.ClientIP(),
+	})
+	if err != nil {
+		RenderError(c, err, "register failed")
+		return
+	}
+	setSessionCookie(c, h.service, result.Token, result.ExpiresAt)
+	Success(c, authLoginResponse{
+		User:      serviceUserResponse(result.User),
+		ExpiresAt: result.ExpiresAt.UTC().Format(time.RFC3339),
+	})
+}
+
 func (h authHandler) logout(c *gin.Context) {
 	if h.service == nil {
 		Success(c, gin.H{"logged_out": true})
@@ -104,6 +164,28 @@ func (h authHandler) logout(c *gin.Context) {
 	}
 	clearSessionCookie(c, h.service)
 	Success(c, gin.H{"logged_out": true})
+}
+
+func (h authHandler) changePassword(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "auth service unavailable")
+		return
+	}
+	var request changePasswordRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	result, err := h.service.ChangePassword(c.Request.Context(), service.ChangePasswordInput{
+		UserID:          currentUserID(c),
+		CurrentPassword: request.CurrentPassword,
+		NewPassword:     request.NewPassword,
+	})
+	if err != nil {
+		RenderError(c, err, "change password failed")
+		return
+	}
+	Success(c, result)
 }
 
 func (h authHandler) wechatWorkOAuthURL(c *gin.Context) {
@@ -169,6 +251,60 @@ func (h authHandler) disableBinding(c *gin.Context) {
 	result, err := h.service.DisableBinding(c.Request.Context(), currentUserID(c), accountID)
 	if err != nil {
 		RenderError(c, err, "disable binding failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h authHandler) listInvites(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "auth service unavailable")
+		return
+	}
+	result, err := h.service.ListInvites(c.Request.Context(), currentAuth(c))
+	if err != nil {
+		RenderError(c, err, "load invites failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h authHandler) createInvite(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "auth service unavailable")
+		return
+	}
+	var request createInviteRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	result, err := h.service.CreateInvite(c.Request.Context(), service.CreateInviteInput{
+		Creator:    currentAuth(c).User,
+		Role:       request.Role,
+		MaxUses:    request.MaxUses,
+		TTLSeconds: request.TTLSeconds,
+	})
+	if err != nil {
+		RenderError(c, err, "create invite failed")
+		return
+	}
+	Created(c, result)
+}
+
+func (h authHandler) revokeInvite(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "auth service unavailable")
+		return
+	}
+	inviteID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || inviteID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid invite id")
+		return
+	}
+	result, err := h.service.RevokeInvite(c.Request.Context(), currentAuth(c), inviteID)
+	if err != nil {
+		RenderError(c, err, "delete invite failed")
 		return
 	}
 	Success(c, result)

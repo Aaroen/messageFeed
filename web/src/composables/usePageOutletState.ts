@@ -3,6 +3,7 @@ import { readonly, ref } from 'vue'
 export type PageRefreshOptions = {
   noticeDelayMS?: number
   suppressStartNotice?: boolean
+  onRefreshReleased?: (callback: () => void) => void
   onRefreshSettled?: (callback: () => void) => void
 }
 

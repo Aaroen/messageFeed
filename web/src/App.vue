@@ -272,6 +272,7 @@ const motionStretchAnchorClearDuration = motionTimings.stretchAnchorClearDuratio
 const motionHeaderSwapDuration = motionTimings.headerSwapDuration
 const motionReaderDuration = motionTimings.readerDuration
 const topChromeSettleDuration = motionTimings.topChromeSettleDuration
+const topRefreshSettleDuration = motionTimings.topRefreshSettleDuration
 const navigationDrawerSettleDuration = motionTimings.navigationDrawerSettleDuration
 const sourceReaderCloseCleanupDelay = motionTimings.sourceReaderCloseCleanupDelay
 const topRefreshNoticeDelay = motionTimings.topRefreshNoticeDelay
@@ -1038,9 +1039,9 @@ const feedChromeScrollRuntime = useAppFeedChromeScrollRuntime({
     refreshCompletion: {
       installWatcher: feedRefreshCompletionRuntime.installRefreshCompletionWatcher,
       feedOrSourcePullActive,
-      settleDelayMS: () => motionDelay(topChromeSettleDuration),
+      settleDelayMS: () => motionDelay(topRefreshSettleDuration) + motionTimings.motionCleanupBuffer,
       settleSourceContentAfterRefresh: () => {
-        readerMotionState.settleSourceContentAfterRefresh(topChromeSettleDuration)
+        readerMotionState.settleSourceContentAfterRefresh(topRefreshSettleDuration)
       },
     },
   },
@@ -1156,6 +1157,7 @@ const readerStackOutletListeners = readerStackOutletRuntime.listeners
 
 const pagePullInteractions = routePageRuntime.installPagePullInteractions({
   topRefreshNoticeDelay,
+  pullStartTopOffset: feedHeaderHeight,
   currentRefreshPage: pageOutlet.currentRefreshPage,
   clearCurrentPageNotice: pageOutlet.clearCurrentNotice,
   hasRefreshPage: pageOutlet.hasRefreshPage,

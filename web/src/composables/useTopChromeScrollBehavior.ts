@@ -10,6 +10,10 @@ type ReadableRef<T> = {
 
 type ScrollSurface = 'feed' | 'page' | 'source' | 'detail'
 
+type ScrollChromeContext = {
+  topRangeHasContent: boolean
+}
+
 type TopChromeScrollBehaviorOptions = {
   topChromeProgress: ReadableRef<number>
   feedPullActive: ReadableRef<boolean>
@@ -63,7 +67,15 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
     return clampProgress(options.topChromeProgress.value)
   }
 
-  function revealTopChromeOverlayAtSurfaceTop(surface: ScrollSurface, current: number) {
+  function topRangeHasContent(context: ScrollChromeContext) {
+    return context.topRangeHasContent
+  }
+
+  function revealTopChromeOverlayAtSurfaceTop(
+    surface: ScrollSurface,
+    current: number,
+    context: ScrollChromeContext,
+  ) {
     if (current > feedContentTopOffset(options.feedHeaderHeight.value) || topChromeProgress() >= 0.99) {
       return false
     }
@@ -72,11 +84,15 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
       return false
     }
 
+    if (topRangeHasContent(context)) {
+      return false
+    }
+
     options.showTopChromeOverlay()
     return true
   }
 
-  function revealFeedTopChromeOverlayIfNeeded(current: number) {
+  function revealFeedTopChromeOverlayIfNeeded(current: number, context: ScrollChromeContext) {
     if (!options.isFeedRoute.value || options.detailReaderOpen.value || !options.feedContentCollapsed.value) {
       return false
     }
@@ -91,11 +107,17 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
     const restoreProgress = Math.max(topChromeProgress(), expectedProgress)
     const topSettleOffset = feedContentTopOffset(headerHeight)
     if (current <= topSettleOffset) {
+      if (topRangeHasContent(context)) {
+        return false
+      }
       options.showTopChromeOverlay()
       return true
     }
 
     if (restoreProgress >= 0.95) {
+      if (topRangeHasContent(context)) {
+        return false
+      }
       options.showTopChromeOverlay()
       return true
     }
@@ -103,16 +125,21 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
     return false
   }
 
-  function updateByScroll(surface: ScrollSurface, current: number, previous: number) {
+  function updateByScroll(
+    surface: ScrollSurface,
+    current: number,
+    previous: number,
+    context: ScrollChromeContext,
+  ) {
     if (options.feedPullActive.value || options.sourcePullActive.value || options.feedTopPulling.value) {
       return
     }
 
-    if (revealTopChromeOverlayAtSurfaceTop(surface, current)) {
+    if (revealTopChromeOverlayAtSurfaceTop(surface, current, context)) {
       return
     }
 
-    if (revealFeedTopChromeOverlayIfNeeded(current)) {
+    if (revealFeedTopChromeOverlayIfNeeded(current, context)) {
       return
     }
 
@@ -163,6 +190,9 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
           progress >= 0.95 ||
           (!options.feedContentCollapsed.value && current <= revealSettleDistance)
         if (shouldSettleVisible && currentTopChromeProgress < 0.99) {
+          if (topRangeHasContent(context)) {
+            return
+          }
           options.showTopChromeOverlay()
           return
         }

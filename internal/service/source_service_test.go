@@ -437,9 +437,11 @@ func TestTruncateErrorPreservesUTF8Boundary(t *testing.T) {
 func TestFetchActiveSourcesQueuesJobsWhenRepositoryConfigured(t *testing.T) {
 	sourceRepository := newFakeSourceRepository()
 	fetchJobRepository := &fakeSourceFetchJobQueueRepository{}
+	feedFetcher := &countingFeedFetcher{}
 	service := NewSourceService(
 		sourceRepository,
 		WithSourceFetchJobRepository(fetchJobRepository),
+		WithFeedFetcher(feedFetcher),
 		WithNow(func() time.Time {
 			return time.Date(2026, 6, 24, 16, 0, 0, 0, time.UTC)
 		}),
@@ -483,6 +485,9 @@ func TestFetchActiveSourcesQueuesJobsWhenRepositoryConfigured(t *testing.T) {
 	}
 	if fetchJobRepository.jobs[0].Trigger != domain.SourceFetchTriggerManual {
 		t.Fatalf("queued Trigger = %q, want manual", fetchJobRepository.jobs[0].Trigger)
+	}
+	if feedFetcher.calls != 0 {
+		t.Fatalf("feed fetcher calls = %d, want 0", feedFetcher.calls)
 	}
 }
 
@@ -765,4 +770,13 @@ func (f *fakeFeedFetcher) Fetch(_ context.Context, source domain.Source) (domain
 			},
 		},
 	}, nil
+}
+
+type countingFeedFetcher struct {
+	calls int
+}
+
+func (f *countingFeedFetcher) Fetch(_ context.Context, _ domain.Source) (domain.FeedFetchResult, error) {
+	f.calls++
+	return domain.FeedFetchResult{}, errors.New("unexpected synchronous fetch")
 }

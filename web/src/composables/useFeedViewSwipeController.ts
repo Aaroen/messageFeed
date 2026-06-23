@@ -43,7 +43,7 @@ type FeedViewSwipeControllerOptions<TSurface extends string> = {
   swipeTransitionBeginPayload: (offset: number) => SwipeTransitionBeginPayload<TSurface>
   swipeTransitionUpdatePayload: (offset: number) => SwipeTransitionPayload<TSurface>
   finishSwipeResult: (nextPath: string | null) => FeedViewSwipeFinishResult
-  settleFinishedSwipe: (delayMS: number) => void
+  settleFinishedSwipe: (delayMS: number, commit?: () => Promise<unknown> | unknown) => void
   markStartedWithHiddenChrome: () => void
   beginTopChromeGestureReturn: (options: {
     settleDelayMS: number
@@ -80,10 +80,12 @@ export function useFeedViewSwipeController<TSurface extends string>(
       })
     }
 
-    if (nextPath) {
-      void options.pushRoute(nextPath)
+    const settleDelay = options.resolveDelay(options.motionNormalDuration)
+    if (nextPath && result.committed) {
+      options.settleFinishedSwipe(settleDelay, () => options.pushRoute(nextPath))
+    } else {
+      options.settleFinishedSwipe(settleDelay)
     }
-    options.settleFinishedSwipe(options.resolveDelay(options.motionNormalDuration))
     scheduleSwipeTransitionReset(options.motionNormalDuration)
   }
 

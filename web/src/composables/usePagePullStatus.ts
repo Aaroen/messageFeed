@@ -13,7 +13,7 @@ type PagePullStatusOptions = {
 export function usePagePullStatus(options: PagePullStatusOptions) {
   const text = computed(() => {
     if (options.refreshing.value) {
-      return '抓取中'
+      return '正在刷新'
     }
     return options.progress.value >= 1 ? '释放刷新' : '下拉刷新'
   })

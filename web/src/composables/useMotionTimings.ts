@@ -9,11 +9,12 @@ export function useMotionTimings() {
   const readerDuration = 360
   const slowDuration = 420
   const chromeDuration = 1000
+  const refreshCompletionDuration = headerSwapDuration
   const noticeSuccessDuration = 1000
   const noticeFailureDuration = 3000
   const homeExitDoubleBackTimeout = 1600
   const topRefreshReleaseDelay = 120
-  const topRefreshSettleDuration = chromeDuration
+  const topRefreshSettleDuration = refreshCompletionDuration
   const topChromeSettleDuration = chromeDuration
   const clickSuppressionDuration = slowDuration
   const motionCleanupBuffer = 96
@@ -56,6 +57,7 @@ export function useMotionTimings() {
     readerDuration,
     slowDuration,
     chromeDuration,
+    refreshCompletionDuration,
     noticeSuccessDuration,
     noticeFailureDuration,
     homeExitDoubleBackTimeout,

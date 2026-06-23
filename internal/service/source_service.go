@@ -511,7 +511,7 @@ func (s *SourceService) enqueueActiveSourceFetchJobs(ctx context.Context, source
 			Status:      domain.SourceFetchJobStatusQueued,
 			Trigger:     domain.SourceFetchTriggerManual,
 			ScheduledAt: now,
-			MaxAttempts: 3,
+			MaxAttempts: 1,
 			Priority:    source.FetchPriority,
 		})
 		if err != nil {

@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { getCurrentAuth } from '@/api/auth'
 
 const LoginView = () => import('@/views/LoginView.vue')
+const RegisterView = () => import('@/views/RegisterView.vue')
 const AgentApprovalView = () => import('@/views/AgentApprovalView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const SubscriptionFeedView = () => import('@/views/SubscriptionFeedView.vue')
@@ -20,6 +21,12 @@ const router = createRouter({
       name: 'login',
       component: LoginView,
       meta: { title: '登录', section: 'auth', public: true },
+    },
+    {
+      path: '/auth/register',
+      name: 'register',
+      component: RegisterView,
+      meta: { title: '注册', section: 'auth', public: true },
     },
     {
       path: '/auth/bindings',

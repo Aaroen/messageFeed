@@ -86,6 +86,10 @@ onMounted(async () => {
       <button class="settings-action-button auth-submit-button" type="submit" :disabled="loading || checking || !loginEnabled">
         {{ loading ? '登录中' : '登录' }}
       </button>
+
+      <button class="settings-link-button" type="button" @click="router.replace({ name: 'register', query: { redirect: redirectPath } })">
+        使用邀请码注册
+      </button>
     </form>
   </section>
 </template>

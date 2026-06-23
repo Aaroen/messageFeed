@@ -116,10 +116,10 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
     () => foregroundSourcePullActive.value || sourceRefreshSettlingVisible.value,
   )
   const feedPullProgress = computed(() =>
-    feedRefreshSettlingForFeed.value ? 1 : feedChrome.pullProgress.value,
+    feedRefreshSettlingForFeed.value ? 0 : feedChrome.pullProgress.value,
   )
   const sourcePullProgress = computed(() =>
-    sourceRefreshSettlingVisible.value ? 1 : feedChrome.sourcePullProgress.value,
+    sourceRefreshSettlingVisible.value ? 0 : feedChrome.sourcePullProgress.value,
   )
   const feedPullRefreshing = computed(
     () => options.feedPull.getPullRefreshing() || feedRefreshSettlingForFeed.value,

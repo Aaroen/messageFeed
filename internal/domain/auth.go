@@ -35,14 +35,15 @@ func (r UserRole) Valid() bool {
 }
 
 type User struct {
-	ID          int64
-	Username    string
-	Email       string
-	DisplayName string
-	Role        UserRole
-	Status      UserStatus
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           int64
+	Username     string
+	Email        string
+	DisplayName  string
+	PasswordHash string
+	Role         UserRole
+	Status       UserStatus
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type UserSession struct {
@@ -56,6 +57,44 @@ type UserSession struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	LastSeenAt       time.Time
+}
+
+type AuthInviteCodeStatus string
+
+const (
+	AuthInviteCodeStatusActive  AuthInviteCodeStatus = "active"
+	AuthInviteCodeStatusRevoked AuthInviteCodeStatus = "revoked"
+)
+
+func (s AuthInviteCodeStatus) Valid() bool {
+	switch s {
+	case AuthInviteCodeStatusActive, AuthInviteCodeStatusRevoked:
+		return true
+	default:
+		return false
+	}
+}
+
+type AuthInviteCode struct {
+	ID          int64
+	CodeHash    string
+	CreatedByID int64
+	Role        UserRole
+	MaxUses     int
+	UseCount    int
+	Status      AuthInviteCodeStatus
+	ExpiresAt   *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type AuthInviteRedemption struct {
+	ID            int64
+	InviteCodeID  int64
+	UserID        int64
+	RedeemedAt    time.Time
+	IPAddress     string
+	UserAgentHash string
 }
 
 type AuthOAuthPurpose string

@@ -12,6 +12,7 @@ type PageRefreshAction = (options?: PageRefreshOptions) => Promise<void> | void
 type AppPagePullInteractionsOptions = {
   pagePull: AppPagePullState
   isFeedRoute: ReadableRef<boolean>
+  pullStartTopOffset: ReadableRef<number>
   topRefreshNoticeDelay: number
   currentRefreshPage: () => PageRefreshAction | null
   clearCurrentPageNotice: () => void
@@ -42,6 +43,7 @@ export function useAppPagePullInteractions(options: AppPagePullInteractionsOptio
 
   const gestureHandlers = usePagePullGestureHandlers({
     isFeedRoute: options.isFeedRoute,
+    pullStartTopOffset: options.pullStartTopOffset,
     refreshThreshold: pullRefresh.threshold,
     pullRefresh,
     currentContentScrollTop: options.currentContentScrollTop,

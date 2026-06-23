@@ -13,9 +13,7 @@ export function useAppPagePullState(options: AppPagePullStateOptions) {
   const pullRefresh = usePullRefresh({ threshold: options.threshold ?? 52 })
   const completionRefreshing = ref(false)
   const statusRefreshing = computed(() => pullRefresh.refreshing.value || completionRefreshing.value)
-  const statusProgress = computed(() =>
-    statusRefreshing.value ? Math.max(pullRefresh.distanceProgress.value, 1) : pullRefresh.distanceProgress.value,
-  )
+  const statusProgress = computed(() => pullRefresh.distanceProgress.value)
   const contentMotion = usePageContentMotion({
     pullOffset: pullRefresh.offset,
     settling: pullRefresh.settling,

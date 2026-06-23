@@ -91,6 +91,132 @@ func TestAuthServiceWeChatWorkOAuthBind(t *testing.T) {
 	}
 }
 
+func TestAuthServiceRegisterWithInvite(t *testing.T) {
+	now := time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	codeHash := hashSecret("invite-code")
+	repository.invites[codeHash] = domain.AuthInviteCode{
+		ID:          22,
+		CodeHash:    codeHash,
+		CreatedByID: 1,
+		Role:        domain.UserRoleUser,
+		MaxUses:     1,
+		Status:      domain.AuthInviteCodeStatusActive,
+		ExpiresAt:   ptrTime(now.Add(time.Hour)),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }), WithAuthRandomToken(func() (string, error) {
+		return "registered-session", nil
+	}))
+
+	result, err := service.RegisterWithInvite(context.Background(), RegisterWithInviteInput{
+		InviteCode: "invite-code",
+		Username:   "new_user",
+		Password:   "strong-password",
+	})
+	if err != nil {
+		t.Fatalf("RegisterWithInvite() error = %v", err)
+	}
+	if result.User.Username != "new_user" {
+		t.Fatalf("Username = %q, want new_user", result.User.Username)
+	}
+	if repository.invites[codeHash].UseCount != 1 {
+		t.Fatalf("UseCount = %d, want 1", repository.invites[codeHash].UseCount)
+	}
+}
+
+func TestAuthServiceChangePassword(t *testing.T) {
+	now := time.Date(2026, 6, 23, 12, 30, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }), WithAuthRandomToken(func() (string, error) {
+		return "changed-session", nil
+	}))
+
+	changed, err := service.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:          1,
+		CurrentPassword: "secret",
+		NewPassword:     "new-secret",
+	})
+	if err != nil {
+		t.Fatalf("ChangePassword() error = %v", err)
+	}
+	if !changed.PasswordConfigured {
+		t.Fatal("PasswordConfigured = false, want true")
+	}
+	if err := verifyPassword(repository.user.PasswordHash, "new-secret"); err != nil {
+		t.Fatalf("stored password hash does not verify new password: %v", err)
+	}
+
+	if _, err := service.LocalLogin(context.Background(), LocalLoginInput{Username: "owner", Password: "new-secret"}); err != nil {
+		t.Fatalf("LocalLogin() with changed password error = %v", err)
+	}
+}
+
+func TestAuthServiceCreateListAndRevokeInvite(t *testing.T) {
+	now := time.Date(2026, 6, 23, 13, 0, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }), WithAuthRandomToken(func() (string, error) {
+		return "invite-token", nil
+	}))
+	auth := CurrentAuth{
+		Authenticated: true,
+		User:          repository.user,
+	}
+
+	created, err := service.CreateInvite(context.Background(), CreateInviteInput{
+		Creator:    repository.user,
+		TTLSeconds: int64((2 * time.Hour).Seconds()),
+	})
+	if err != nil {
+		t.Fatalf("CreateInvite() error = %v", err)
+	}
+	if created.Code != "invite-token" {
+		t.Fatalf("Code = %q, want invite-token", created.Code)
+	}
+	if created.Invite.Status != string(domain.AuthInviteCodeStatusActive) {
+		t.Fatalf("Invite.Status = %q, want active", created.Invite.Status)
+	}
+	if created.Invite.MaxUses != 1 {
+		t.Fatalf("Invite.MaxUses = %d, want 1", created.Invite.MaxUses)
+	}
+	if _, ok := repository.invites["invite-token"]; ok {
+		t.Fatal("repository stored raw invite code, want hashed code only")
+	}
+	if _, ok := repository.invites[hashSecret("invite-token")]; !ok {
+		t.Fatal("repository did not store hashed invite code")
+	}
+
+	invites, err := service.ListInvites(context.Background(), auth)
+	if err != nil {
+		t.Fatalf("ListInvites() error = %v", err)
+	}
+	if len(invites) != 1 {
+		t.Fatalf("len(invites) = %d, want 1", len(invites))
+	}
+
+	revoked, err := service.RevokeInvite(context.Background(), auth, created.Invite.ID)
+	if err != nil {
+		t.Fatalf("RevokeInvite() error = %v", err)
+	}
+	if revoked.Status != string(domain.AuthInviteCodeStatusRevoked) {
+		t.Fatalf("revoked.Status = %q, want revoked", revoked.Status)
+	}
+}
+
+func TestAuthServiceRejectsMultiUseInvite(t *testing.T) {
+	now := time.Date(2026, 6, 23, 13, 30, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	if _, err := service.CreateInvite(context.Background(), CreateInviteInput{
+		Creator: repository.user,
+		MaxUses: 2,
+	}); err == nil {
+		t.Fatal("CreateInvite() error = nil, want invalid input error")
+	}
+}
+
 func testAuthConfig() config.Config {
 	cfg := config.Defaults()
 	cfg.Runtime.PublicBaseURL = "https://messagefeed.example"
@@ -125,6 +251,7 @@ type fakeAuthRepository struct {
 	sessions map[string]domain.UserSession
 	states   map[string]domain.AuthOAuthState
 	accounts map[int64]domain.ExternalAccount
+	invites  map[string]domain.AuthInviteCode
 }
 
 func newFakeAuthRepository(now time.Time) *fakeAuthRepository {
@@ -143,6 +270,7 @@ func newFakeAuthRepository(now time.Time) *fakeAuthRepository {
 		sessions: map[string]domain.UserSession{},
 		states:   map[string]domain.AuthOAuthState{},
 		accounts: map[int64]domain.ExternalAccount{},
+		invites:  map[string]domain.AuthInviteCode{},
 	}
 }
 
@@ -164,6 +292,22 @@ func (r *fakeAuthRepository) GetUserByID(ctx context.Context, userID int64) (dom
 		return r.user, nil
 	}
 	return domain.User{}, domain.ErrNotFound
+}
+
+func (r *fakeAuthRepository) GetUserByUsername(ctx context.Context, username string) (domain.User, error) {
+	if r.user.Username == username {
+		return r.user, nil
+	}
+	return domain.User{}, domain.ErrNotFound
+}
+
+func (r *fakeAuthRepository) UpdateUserPassword(ctx context.Context, userID int64, passwordHash string, now time.Time) (domain.User, error) {
+	if r.user.ID != userID {
+		return domain.User{}, domain.ErrNotFound
+	}
+	r.user.PasswordHash = passwordHash
+	r.user.UpdatedAt = now
+	return r.user, nil
 }
 
 func (r *fakeAuthRepository) CreateSession(ctx context.Context, session domain.UserSession) (domain.UserSession, error) {
@@ -240,4 +384,58 @@ func (r *fakeAuthRepository) DisableExternalAccount(ctx context.Context, userID 
 	account.BindingStatus = domain.ExternalAccountBindingStatusDisabled
 	r.accounts[accountID] = account
 	return account, nil
+}
+
+func (r *fakeAuthRepository) CreateInviteCode(ctx context.Context, invite domain.AuthInviteCode) (domain.AuthInviteCode, error) {
+	invite.ID = r.nextID
+	r.nextID++
+	r.invites[invite.CodeHash] = invite
+	return invite, nil
+}
+
+func (r *fakeAuthRepository) ListInviteCodes(ctx context.Context, createdByUserID int64) ([]domain.AuthInviteCode, error) {
+	invites := make([]domain.AuthInviteCode, 0, len(r.invites))
+	for _, invite := range r.invites {
+		if invite.CreatedByID == createdByUserID {
+			invites = append(invites, invite)
+		}
+	}
+	return invites, nil
+}
+
+func (r *fakeAuthRepository) RevokeInviteCode(ctx context.Context, createdByUserID int64, inviteID int64, now time.Time) (domain.AuthInviteCode, error) {
+	for codeHash, invite := range r.invites {
+		if invite.ID == inviteID && invite.CreatedByID == createdByUserID {
+			invite.Status = domain.AuthInviteCodeStatusRevoked
+			invite.UpdatedAt = now
+			r.invites[codeHash] = invite
+			return invite, nil
+		}
+	}
+	return domain.AuthInviteCode{}, domain.ErrNotFound
+}
+
+func (r *fakeAuthRepository) CreateUserWithInvite(ctx context.Context, codeHash string, user domain.User, redemption domain.AuthInviteRedemption, now time.Time) (domain.User, domain.AuthInviteCode, error) {
+	invite, ok := r.invites[codeHash]
+	if !ok ||
+		invite.Status != domain.AuthInviteCodeStatusActive ||
+		invite.UseCount >= invite.MaxUses ||
+		(invite.ExpiresAt != nil && !now.Before(*invite.ExpiresAt)) {
+		return domain.User{}, domain.AuthInviteCode{}, domain.ErrConflict
+	}
+	user.ID = r.nextID
+	r.nextID++
+	user.Role = invite.Role
+	user.Status = domain.UserStatusActive
+	user.CreatedAt = now
+	user.UpdatedAt = now
+	r.user = user
+	invite.UseCount++
+	invite.UpdatedAt = now
+	r.invites[codeHash] = invite
+	return user, invite, nil
+}
+
+func ptrTime(value time.Time) *time.Time {
+	return &value
 }

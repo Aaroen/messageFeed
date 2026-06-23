@@ -39,7 +39,7 @@ export function usePageContentMotion(options: PageContentMotionOptions) {
     ).toFixed(4)})`,
     transformOrigin: stretchTransformOrigin(sideStretch.value, stretchAnchor.value),
     transition: options.settling.value
-      ? 'transform var(--motion-chrome) var(--ease-emphasized)'
+      ? 'transform var(--motion-refresh-complete) var(--ease-emphasized)'
       : 'var(--page-content-shift-transition, none)',
   }))
 

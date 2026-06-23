@@ -93,7 +93,7 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
       offset: 0,
       active: false,
       refreshing: false,
-      statusText: options.isSourceMode.value ? '抓取中' : '正在刷新',
+      statusText: '正在刷新',
       statusMeta: options.pullStatusMeta.value,
     })
   }
@@ -101,6 +101,7 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
   function completeLoad(payload: {
     isRefresh: boolean
     isBackgroundRefresh: boolean
+    afterRelease?: () => void
     afterSettled?: () => void
   }) {
     if (!payload.isRefresh) {
@@ -117,11 +118,14 @@ export function useFeedPullRefreshCompletionAction(options: FeedPullRefreshCompl
       offset: options.pullOffset.value,
       active: true,
       refreshing: true,
-      statusText: options.isSourceMode.value ? '抓取中' : '正在刷新',
+      statusText: '正在刷新',
       statusMeta: options.pullStatusMeta.value,
     })
     options.pullRefresh.settleRefreshCompletion({
-      afterRelease: releasePullStateAfterRefresh,
+      afterRelease: () => {
+        releasePullStateAfterRefresh()
+        payload.afterRelease?.()
+      },
       afterSettled: () => {
         clearPullState()
         payload.afterSettled?.()

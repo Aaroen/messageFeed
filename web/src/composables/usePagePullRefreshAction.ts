@@ -47,8 +47,19 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
     }
 
     const token = nextRefreshRunToken()
+    const afterReleaseCallbacks: Array<() => void> = []
     const afterSettledCallbacks: Array<() => void> = []
+    let releaseCallbacksReleased = false
     let callbacksReleased = false
+    function releaseAfterReleaseCallbacks() {
+      if (releaseCallbacksReleased) {
+        return
+      }
+      releaseCallbacksReleased = true
+      for (const callback of afterReleaseCallbacks) {
+        callback()
+      }
+    }
     function releaseAfterSettledCallbacks() {
       if (callbacksReleased) {
         return
@@ -66,6 +77,9 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
       await refreshPage({
         noticeDelayMS: options.noticeDelayMS,
         suppressStartNotice: true,
+        onRefreshReleased: (callback) => {
+          afterReleaseCallbacks.push(callback)
+        },
         onRefreshSettled: (callback) => {
           afterSettledCallbacks.push(callback)
         },
@@ -73,11 +87,15 @@ export function usePagePullRefreshAction(options: PagePullRefreshActionOptions) 
     } finally {
       if (!refreshRunIsCurrent(token)) {
         options.releaseCompletionRefreshing()
+        releaseAfterReleaseCallbacks()
         releaseAfterSettledCallbacks()
         return
       }
       options.settleRefreshCompletion({
-        afterRelease: options.collapseTopChrome,
+        afterRelease: () => {
+          options.collapseTopChrome()
+          releaseAfterReleaseCallbacks()
+        },
         afterSettled: () => {
           options.releaseCompletionRefreshing()
           releaseAfterSettledCallbacks()

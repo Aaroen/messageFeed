@@ -9,8 +9,8 @@ import {
   importURLSources,
   listSourceCatalog,
   listSources,
-  fetchActiveSources,
   fetchSource,
+  listTimelineItems,
   updateSourceStatus,
   type ImportSourcesResult,
   type Source,
@@ -19,10 +19,13 @@ import {
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import type { PageRefreshOptions } from '@/composables/usePageOutletState'
 import { useRefreshLayoutFreeze } from '@/composables/useRefreshLayoutFreeze'
+import { useRefreshNoticeSequence } from '@/composables/useRefreshNoticeSequence'
 import { useRequestToken } from '@/composables/useRequestToken'
 import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedListCacheStore } from '@/stores/feedListCache'
-import { formatSourceFetchErrors, subscriptionManagementFetchNotice } from '@/utils/sourceFetchMessages'
+import {
+  formatSourceFetchErrors,
+} from '@/utils/sourceFetchMessages'
 
 const sourcesPageRef = ref<HTMLElement | null>(null)
 const sources = ref<Source[]>([])
@@ -41,13 +44,17 @@ const noticeRuntime = useTimedNotice<'running' | 'success' | 'warning'>({
 const notice = noticeRuntime.notice
 const showNotice = noticeRuntime.show
 const clearNotice = noticeRuntime.clear
+const refreshNoticeSequence = useRefreshNoticeSequence<'running' | 'success' | 'warning'>({
+  show: (type, message) => showNotice(type, message),
+})
 const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef })
 const feedListCache = useFeedListCacheStore()
 let pageRefreshingToken = 0
 let disposed = false
-let pendingRefreshNoticeDelayMS = 0
+let knownTimelineItemIDs = new Set<number>()
 const pageRequestToken = useRequestToken({ isActive: () => !disposed })
 const importFetchConcurrency = 3
+const timelineSnapshotLimit = 100
 const pageBusy = computed(
   () =>
     loading.value ||
@@ -105,19 +112,6 @@ function finishPageRefresh(token: number) {
   pageRefreshing.value = false
 }
 
-function reserveRefreshNoticeDelay(delayMS?: number) {
-  if (typeof delayMS !== 'number' || delayMS <= 0) {
-    return
-  }
-  pendingRefreshNoticeDelayMS = Math.max(pendingRefreshNoticeDelayMS, delayMS)
-}
-
-function consumeRefreshNoticeDelay(delayMS?: number) {
-  const reservedDelayMS = pendingRefreshNoticeDelayMS
-  pendingRefreshNoticeDelayMS = 0
-  return Math.max(typeof delayMS === 'number' ? delayMS : 0, reservedDelayMS)
-}
-
 function invalidateSubscriptionFeedCaches(sourceIDs: number[] = []) {
   feedListCache.invalidate('subscriptions:subscriptions:0:0')
   for (const sourceID of sourceIDs) {
@@ -125,6 +119,52 @@ function invalidateSubscriptionFeedCaches(sourceIDs: number[] = []) {
       feedListCache.invalidate(`source:subscriptions:${sourceID}:0`)
     }
   }
+}
+
+function timelineItemIDSet(items: Array<{ id: number }>) {
+  return new Set(items.map((item) => item.id).filter((id) => id > 0))
+}
+
+async function loadTimelineItemIDSnapshot(token: number) {
+  const result = await listTimelineItems({
+    limit: timelineSnapshotLimit,
+    offset: 0,
+    order: 'desc',
+  })
+  if (!pageRequestIsCurrent(token)) {
+    return null
+  }
+  return timelineItemIDSet(result.items)
+}
+
+function sourceContentRefreshNotice(previousItemIDs: Set<number>, nextItemIDs: Set<number>) {
+  let updatedCount = 0
+  for (const id of nextItemIDs) {
+    if (!previousItemIDs.has(id)) {
+      updatedCount += 1
+    }
+  }
+
+  return {
+    type: 'success' as const,
+    message: updatedCount > 0 ? `已更新 ${updatedCount} 条内容` : '暂无更新内容',
+  }
+}
+
+function scrollPageContentToTop() {
+  const root = sourcesPageRef.value?.closest('.app-content')
+  if (root instanceof HTMLElement) {
+    root.scrollTo({ top: 0, behavior: 'auto' })
+  }
+}
+
+function releaseRefreshLayoutAfterSettled(release?: () => void) {
+  release?.()
+  scrollPageContentToTop()
+  window.requestAnimationFrame(() => {
+    scrollPageContentToTop()
+    window.requestAnimationFrame(scrollPageContentToTop)
+  })
 }
 
 async function loadSources(options: { silent?: boolean; notify?: boolean; token?: number } = {}) {
@@ -191,55 +231,69 @@ async function handleCatalogSearch() {
 
 async function refreshPage(options: PageRefreshOptions = {}) {
   if (pageBusy.value) {
-    if (pageRefreshing.value) {
-      reserveRefreshNoticeDelay(options.noticeDelayMS)
-    }
     return
   }
   const token = nextPageRequestToken()
   beginPageRefresh(token)
+  const sequencesRefreshNotice = Boolean(options.onRefreshReleased || options.onRefreshSettled)
+  const shouldNotifyRefresh = sequencesRefreshNotice || !options.suppressStartNotice
+  const previousTimelineItemIDs = new Set(knownTimelineItemIDs)
   let releaseRefreshLayoutFreeze: (() => void) | undefined
+  if (sequencesRefreshNotice) {
+    refreshNoticeSequence.begin()
+  }
+  if (options.onRefreshReleased) {
+    options.onRefreshReleased(() => {
+      refreshNoticeSequence.completeRefreshRelease()
+    })
+  }
   if (options.onRefreshSettled) {
     releaseRefreshLayoutFreeze = refreshLayoutFreeze.capture()
-    options.onRefreshSettled(releaseRefreshLayoutFreeze)
+    options.onRefreshSettled(() => {
+      if (!options.onRefreshReleased) {
+        refreshNoticeSequence.completeRefreshRelease()
+      }
+      releaseRefreshLayoutAfterSettled(releaseRefreshLayoutFreeze)
+    })
   }
   const query = catalogQuery.value.trim()
   try {
     if (!options.suppressStartNotice) {
       showNotice(
         'running',
-        query ? `抓取中：正在更新“${query}”的推荐源搜索结果` : '抓取中：正在更新订阅管理数据',
+        query ? `更新中：正在更新“${query}”的推荐源搜索结果` : '更新中：正在更新订阅管理数据',
       )
     }
-    await Promise.all([
+    const [nextTimelineItemIDs] = await Promise.all([
+      loadTimelineItemIDSnapshot(token),
       loadSources({ silent: true, notify: false, token }),
       loadCatalog({ silent: true, notify: false, token }),
     ])
     if (!pageRequestIsCurrent(token)) {
       return
     }
-    const fetchResult = await fetchActiveSources()
-    if (!pageRequestIsCurrent(token)) {
-      return
+    if (nextTimelineItemIDs) {
+      knownTimelineItemIDs = nextTimelineItemIDs
+      const notice = sourceContentRefreshNotice(previousTimelineItemIDs, nextTimelineItemIDs)
+      if (notice.message !== '暂无更新内容') {
+        invalidateSubscriptionFeedCaches()
+      }
+      if (shouldNotifyRefresh) {
+        refreshNoticeSequence.showAfterRefreshReleased(notice)
+      }
     }
-    invalidateSubscriptionFeedCaches(fetchResult.sources.map((source) => source.id))
-    await loadSources({ silent: true, notify: false, token })
-    if (!pageRequestIsCurrent(token)) {
-      return
-    }
-    const fetchNotice = subscriptionManagementFetchNotice(fetchResult)
-    showNotice(fetchNotice.type, fetchNotice.message, undefined, consumeRefreshNoticeDelay(options.noticeDelayMS))
   } catch (err) {
     if (pageRequestIsCurrent(token)) {
-      showNotice(
-        'warning',
-        `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`,
-        undefined,
-        consumeRefreshNoticeDelay(options.noticeDelayMS),
-      )
+      refreshNoticeSequence.showAfterRefreshReleased({
+        type: 'warning',
+        message: `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`,
+      })
     }
   } finally {
     if (!pageRequestIsCurrent(token)) {
+      if (sequencesRefreshNotice) {
+        refreshNoticeSequence.cancel()
+      }
       releaseRefreshLayoutFreeze?.()
       finishPageRefresh(token)
       return
@@ -546,7 +600,7 @@ async function toggleCatalogSource(entry: SourceCatalogEntry) {
 }
 
 onMounted(() => {
-  void refreshPage().catch(() => undefined)
+  void refreshPage({ suppressStartNotice: true }).catch(() => undefined)
 })
 
 onUnmounted(() => {
@@ -555,6 +609,7 @@ onUnmounted(() => {
   finishPageRefresh(pageRefreshingToken)
   noticeRuntime.dispose()
   refreshLayoutFreeze.release()
+  refreshNoticeSequence.cancel()
 })
 
 defineExpose({ refreshPage, clearNotice })
@@ -563,15 +618,17 @@ defineExpose({ refreshPage, clearNotice })
 <template>
   <section ref="sourcesPageRef" class="sources-page" :style="refreshLayoutFreeze.style.value">
     <Teleport to="body">
-      <div
-        v-if="notice"
-        class="sources-toast"
-        :class="`sources-toast--${notice.type}`"
-        role="status"
-        aria-live="polite"
-      >
-        {{ notice.message }}
-      </div>
+      <Transition name="sources-toast-motion">
+        <div
+          v-if="notice"
+          class="sources-toast"
+          :class="`sources-toast--${notice.type}`"
+          role="status"
+          aria-live="polite"
+        >
+          {{ notice.message }}
+        </div>
+      </Transition>
     </Teleport>
 
     <div class="sources-toolbar">

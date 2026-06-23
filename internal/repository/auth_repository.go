@@ -19,14 +19,15 @@ func NewAuthRepository(db *gorm.DB) *AuthRepository {
 }
 
 type userModel struct {
-	ID          int64 `gorm:"primaryKey"`
-	Username    string
-	Email       string
-	DisplayName string
-	Role        string
-	Status      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           int64 `gorm:"primaryKey"`
+	Username     string
+	Email        string
+	DisplayName  string
+	PasswordHash string
+	Role         string
+	Status       string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type userSessionModel struct {
@@ -57,9 +58,33 @@ type authOAuthStateModel struct {
 	CreatedAt    time.Time
 }
 
-func (userModel) TableName() string           { return "users" }
-func (userSessionModel) TableName() string    { return "user_sessions" }
-func (authOAuthStateModel) TableName() string { return "auth_oauth_states" }
+type authInviteCodeModel struct {
+	ID              int64 `gorm:"primaryKey"`
+	CodeHash        string
+	CreatedByUserID int64 `gorm:"column:created_by_user_id;not null"`
+	Role            string
+	MaxUses         int
+	UseCount        int
+	Status          string
+	ExpiresAt       *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type authInviteRedemptionModel struct {
+	ID            int64 `gorm:"primaryKey"`
+	InviteCodeID  int64 `gorm:"not null"`
+	UserID        int64 `gorm:"not null"`
+	RedeemedAt    time.Time
+	IPAddress     string
+	UserAgentHash string
+}
+
+func (userModel) TableName() string                 { return "users" }
+func (userSessionModel) TableName() string          { return "user_sessions" }
+func (authOAuthStateModel) TableName() string       { return "auth_oauth_states" }
+func (authInviteCodeModel) TableName() string       { return "auth_invite_codes" }
+func (authInviteRedemptionModel) TableName() string { return "auth_invite_redemptions" }
 
 func (r *AuthRepository) EnsureOwner(ctx context.Context, username string) (domain.User, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.ensure_owner", "upsert", "users")
@@ -113,6 +138,46 @@ func (r *AuthRepository) GetUserByID(ctx context.Context, userID int64) (domain.
 	var model userModel
 	if err := r.db.WithContext(ctx).Where("id = ?", userID).First(&model).Error; err != nil {
 		opErr = mapRepositoryError(err)
+		return domain.User{}, opErr
+	}
+	return userModelToDomain(model), nil
+}
+
+func (r *AuthRepository) GetUserByUsername(ctx context.Context, username string) (domain.User, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.get_by_username", "select", "users")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model userModel
+	if err := r.db.WithContext(ctx).
+		Where("username = ?", strings.TrimSpace(username)).
+		First(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.User{}, opErr
+	}
+	return userModelToDomain(model), nil
+}
+
+func (r *AuthRepository) UpdateUserPassword(ctx context.Context, userID int64, passwordHash string, now time.Time) (domain.User, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.update_password", "update", "users")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model userModel
+	result := r.db.WithContext(ctx).
+		Model(&model).
+		Clauses(clause.Returning{}).
+		Where("id = ?", userID).
+		Updates(map[string]any{
+			"password_hash": strings.TrimSpace(passwordHash),
+			"updated_at":    now.UTC(),
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.User{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
 		return domain.User{}, opErr
 	}
 	return userModelToDomain(model), nil
@@ -297,6 +362,133 @@ func (r *AuthRepository) DisableExternalAccount(ctx context.Context, userID int6
 	return externalAccountModelToDomain(model), nil
 }
 
+func (r *AuthRepository) CreateInviteCode(ctx context.Context, invite domain.AuthInviteCode) (domain.AuthInviteCode, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.invite.create", "insert", "auth_invite_codes")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	model := authInviteCodeModelFromDomain(normalizeInviteCode(invite))
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AuthInviteCode{}, opErr
+	}
+	return authInviteCodeModelToDomain(model), nil
+}
+
+func (r *AuthRepository) ListInviteCodes(ctx context.Context, createdByUserID int64) ([]domain.AuthInviteCode, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.invite.list", "select", "auth_invite_codes")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var models []authInviteCodeModel
+	if err := r.db.WithContext(ctx).
+		Where("created_by_user_id = ?", createdByUserID).
+		Order("created_at DESC, id DESC").
+		Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	invites := make([]domain.AuthInviteCode, 0, len(models))
+	for _, model := range models {
+		invites = append(invites, authInviteCodeModelToDomain(model))
+	}
+	return invites, nil
+}
+
+func (r *AuthRepository) RevokeInviteCode(ctx context.Context, createdByUserID int64, inviteID int64, now time.Time) (domain.AuthInviteCode, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.invite.revoke", "update", "auth_invite_codes")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model authInviteCodeModel
+	result := r.db.WithContext(ctx).
+		Model(&model).
+		Clauses(clause.Returning{}).
+		Where("id = ? AND created_by_user_id = ?", inviteID, createdByUserID).
+		Updates(map[string]any{
+			"status":     string(domain.AuthInviteCodeStatusRevoked),
+			"updated_at": now.UTC(),
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.AuthInviteCode{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return domain.AuthInviteCode{}, opErr
+	}
+	return authInviteCodeModelToDomain(model), nil
+}
+
+func (r *AuthRepository) CreateUserWithInvite(ctx context.Context, codeHash string, user domain.User, redemption domain.AuthInviteRedemption, now time.Time) (domain.User, domain.AuthInviteCode, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.invite.create_user", "transaction", "auth_invite_codes")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var createdUser domain.User
+	var usedInvite domain.AuthInviteCode
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var inviteModel authInviteCodeModel
+		if err := tx.
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("code_hash = ?", strings.TrimSpace(codeHash)).
+			First(&inviteModel).Error; err != nil {
+			return mapRepositoryError(err)
+		}
+		invite := authInviteCodeModelToDomain(inviteModel)
+		if invite.Status != domain.AuthInviteCodeStatusActive ||
+			invite.UseCount >= invite.MaxUses ||
+			(invite.ExpiresAt != nil && !now.UTC().Before(invite.ExpiresAt.UTC())) {
+			return domain.ErrConflict
+		}
+
+		user.Role = invite.Role
+		if !user.Role.Valid() {
+			user.Role = domain.UserRoleUser
+		}
+		user.Status = domain.UserStatusActive
+		userModel := userModelFromDomain(normalizeUser(user))
+		userModel.CreatedAt = now.UTC()
+		userModel.UpdatedAt = now.UTC()
+		if err := tx.Create(&userModel).Error; err != nil {
+			return mapRepositoryError(err)
+		}
+
+		if err := tx.Model(&authInviteCodeModel{}).
+			Where("id = ?", inviteModel.ID).
+			Updates(map[string]any{
+				"use_count":  gorm.Expr("use_count + 1"),
+				"updated_at": now.UTC(),
+			}).Error; err != nil {
+			return mapRepositoryError(err)
+		}
+
+		redemptionModel := authInviteRedemptionModelFromDomain(domain.AuthInviteRedemption{
+			InviteCodeID:  inviteModel.ID,
+			UserID:        userModel.ID,
+			RedeemedAt:    now.UTC(),
+			IPAddress:     redemption.IPAddress,
+			UserAgentHash: redemption.UserAgentHash,
+		})
+		if err := tx.Create(&redemptionModel).Error; err != nil {
+			return mapRepositoryError(err)
+		}
+
+		var refreshedInvite authInviteCodeModel
+		if err := tx.Where("id = ?", inviteModel.ID).First(&refreshedInvite).Error; err != nil {
+			return mapRepositoryError(err)
+		}
+		createdUser = userModelToDomain(userModel)
+		usedInvite = authInviteCodeModelToDomain(refreshedInvite)
+		return nil
+	})
+	if err != nil {
+		opErr = err
+		return domain.User{}, domain.AuthInviteCode{}, err
+	}
+	return createdUser, usedInvite, nil
+}
+
 func normalizeUserSession(session domain.UserSession) domain.UserSession {
 	session.SessionTokenHash = strings.TrimSpace(session.SessionTokenHash)
 	session.UserAgentHash = strings.TrimSpace(session.UserAgentHash)
@@ -319,16 +511,65 @@ func normalizeAuthOAuthState(state domain.AuthOAuthState) domain.AuthOAuthState 
 	return state
 }
 
+func normalizeUser(user domain.User) domain.User {
+	user.Username = strings.TrimSpace(user.Username)
+	user.Email = strings.TrimSpace(user.Email)
+	user.DisplayName = strings.TrimSpace(user.DisplayName)
+	if user.DisplayName == "" {
+		user.DisplayName = user.Username
+	}
+	user.PasswordHash = strings.TrimSpace(user.PasswordHash)
+	if !user.Role.Valid() {
+		user.Role = domain.UserRoleUser
+	}
+	if !user.Status.Valid() {
+		user.Status = domain.UserStatusActive
+	}
+	return user
+}
+
+func normalizeInviteCode(invite domain.AuthInviteCode) domain.AuthInviteCode {
+	invite.CodeHash = strings.TrimSpace(invite.CodeHash)
+	if !invite.Role.Valid() {
+		invite.Role = domain.UserRoleUser
+	}
+	if invite.MaxUses < 1 {
+		invite.MaxUses = 1
+	}
+	if invite.UseCount < 0 {
+		invite.UseCount = 0
+	}
+	if !invite.Status.Valid() {
+		invite.Status = domain.AuthInviteCodeStatusActive
+	}
+	return invite
+}
+
+func userModelFromDomain(user domain.User) userModel {
+	return userModel{
+		ID:           user.ID,
+		Username:     user.Username,
+		Email:        user.Email,
+		DisplayName:  user.DisplayName,
+		PasswordHash: user.PasswordHash,
+		Role:         string(user.Role),
+		Status:       string(user.Status),
+		CreatedAt:    user.CreatedAt,
+		UpdatedAt:    user.UpdatedAt,
+	}
+}
+
 func userModelToDomain(model userModel) domain.User {
 	return domain.User{
-		ID:          model.ID,
-		Username:    model.Username,
-		Email:       model.Email,
-		DisplayName: model.DisplayName,
-		Role:        domain.UserRole(model.Role),
-		Status:      domain.UserStatus(model.Status),
-		CreatedAt:   model.CreatedAt,
-		UpdatedAt:   model.UpdatedAt,
+		ID:           model.ID,
+		Username:     model.Username,
+		Email:        model.Email,
+		DisplayName:  model.DisplayName,
+		PasswordHash: model.PasswordHash,
+		Role:         domain.UserRole(model.Role),
+		Status:       domain.UserStatus(model.Status),
+		CreatedAt:    model.CreatedAt,
+		UpdatedAt:    model.UpdatedAt,
 	}
 }
 
@@ -393,5 +634,46 @@ func authOAuthStateModelToDomain(model authOAuthStateModel) domain.AuthOAuthStat
 		ConsumedAt:   model.ConsumedAt,
 		Metadata:     cloneAgentJSON(model.Metadata),
 		CreatedAt:    model.CreatedAt,
+	}
+}
+
+func authInviteCodeModelFromDomain(invite domain.AuthInviteCode) authInviteCodeModel {
+	return authInviteCodeModel{
+		ID:              invite.ID,
+		CodeHash:        invite.CodeHash,
+		CreatedByUserID: invite.CreatedByID,
+		Role:            string(invite.Role),
+		MaxUses:         invite.MaxUses,
+		UseCount:        invite.UseCount,
+		Status:          string(invite.Status),
+		ExpiresAt:       invite.ExpiresAt,
+		CreatedAt:       invite.CreatedAt,
+		UpdatedAt:       invite.UpdatedAt,
+	}
+}
+
+func authInviteCodeModelToDomain(model authInviteCodeModel) domain.AuthInviteCode {
+	return domain.AuthInviteCode{
+		ID:          model.ID,
+		CodeHash:    model.CodeHash,
+		CreatedByID: model.CreatedByUserID,
+		Role:        domain.UserRole(model.Role),
+		MaxUses:     model.MaxUses,
+		UseCount:    model.UseCount,
+		Status:      domain.AuthInviteCodeStatus(model.Status),
+		ExpiresAt:   model.ExpiresAt,
+		CreatedAt:   model.CreatedAt,
+		UpdatedAt:   model.UpdatedAt,
+	}
+}
+
+func authInviteRedemptionModelFromDomain(redemption domain.AuthInviteRedemption) authInviteRedemptionModel {
+	return authInviteRedemptionModel{
+		ID:            redemption.ID,
+		InviteCodeID:  redemption.InviteCodeID,
+		UserID:        redemption.UserID,
+		RedeemedAt:    redemption.RedeemedAt,
+		IPAddress:     redemption.IPAddress,
+		UserAgentHash: redemption.UserAgentHash,
 	}
 }

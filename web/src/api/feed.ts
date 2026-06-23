@@ -3,7 +3,7 @@ import { AxiosError } from 'axios'
 import { apiClient, formatAPIError } from '@/api/client'
 
 const sourceFetchTimeoutMS = 25000
-const activeSourcesFetchTimeoutMS = 60000
+const activeSourcesFetchTimeoutMS = 10000
 const activeSourcesFetchConcurrency = 4
 const sourceFetchStatusTimeoutMS = 10000
 

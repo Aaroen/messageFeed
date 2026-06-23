@@ -77,7 +77,7 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	registerAgentApprovalRoutes(protectedAPI, options.AgentApprovalService)
 
 	router.NoRoute(func(c *gin.Context) {
-		Error(c, http.StatusNotFound, http.StatusNotFound, "not found")
+		Error(c, http.StatusNotFound, http.StatusNotFound, "request path not found")
 	})
 
 	return router

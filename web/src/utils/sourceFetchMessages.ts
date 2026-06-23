@@ -37,7 +37,7 @@ export function subscriptionFeedFetchNotice(
   if (result.requested_count === 0) {
     return {
       type: 'success',
-      message: '刷新成功：当前暂无已开启订阅源，请在订阅管理中开启或导入来源',
+      message: '当前暂无已开启订阅源，请在订阅管理中开启或导入来源',
     }
   }
 
@@ -58,7 +58,7 @@ export function singleSourceFetchNotice(result: FetchSourceResult, sourceName = 
   }
   return {
     type: 'success',
-    message: `刷新成功：已更新 ${sourceName} 的 ${result.created_count} 条内容`,
+    message: `已更新 ${sourceName} 的 ${result.created_count} 条内容`,
   }
 }
 
@@ -68,7 +68,7 @@ export function sourceFetchStatusNotice(
   if (status.requested_count === 0) {
     return {
       type: 'success',
-      message: '刷新成功：当前暂无已开启订阅源，请在订阅管理中开启或导入来源',
+      message: '当前暂无已开启订阅源，请在订阅管理中开启或导入来源',
     }
   }
 
@@ -91,11 +91,52 @@ export function sourceFetchStatusNotice(
   const sourceCount = status.updated_source_count || status.sources.length || status.success_count
   return {
     type: 'success',
-    message: `刷新成功：已更新 ${sourceCount} 个订阅源的 ${status.created_count} 条内容`,
+    message: `已更新 ${sourceCount} 个订阅源的 ${status.created_count} 条内容`,
+  }
+}
+
+export function sourceFetchContentStatusNotice(status: FetchSourcesStatus): SourceFetchNotice {
+  if (status.requested_count === 0 || status.created_count <= 0) {
+    if (status.failure_count > 0) {
+      return {
+        type: 'warning',
+        message: `刷新失败：暂无更新内容，${status.failure_count} 个失败。失败原因：${formatSourceFetchErrors(status.errors)}`,
+      }
+    }
+    return { type: 'success', message: '暂无更新内容' }
+  }
+
+  if (status.failure_count > 0) {
+    const prefix = status.success_count > 0 ? '刷新异常' : '刷新失败'
+    return {
+      type: 'warning',
+      message: `${prefix}：已更新 ${status.created_count} 条内容，${status.failure_count} 个失败。失败原因：${formatSourceFetchErrors(status.errors)}`,
+    }
+  }
+
+  return {
+    type: 'success',
+    message: `已更新 ${status.created_count} 条内容`,
   }
 }
 
 export function subscriptionManagementFetchNotice(result: FetchSourcesResult): SourceFetchNotice {
+  if (result.async) {
+    if ((result.failure_count ?? 0) > 0) {
+      return {
+        type: 'warning',
+        message: `后台刷新排队异常：${result.failure_count} 个订阅源未能排队。失败原因：${formatSourceFetchErrors(result.errors)}`,
+      }
+    }
+    return {
+      type: 'success',
+      message:
+        result.requested_count === 0
+          ? '当前暂无已开启订阅源，请在订阅管理中开启或导入来源'
+          : '后台刷新已开始',
+    }
+  }
+
   if (result.failure_count > 0) {
     const prefix = sourceFetchFailurePrefix(result)
     return {
@@ -108,7 +149,7 @@ export function subscriptionManagementFetchNotice(result: FetchSourcesResult): S
     type: 'success',
     message:
       result.requested_count === 0
-        ? '刷新成功：已更新订阅管理数据，当前暂无已开启订阅源'
-        : '刷新成功：已更新订阅管理数据',
+        ? '暂无更新内容'
+        : '',
   }
 }

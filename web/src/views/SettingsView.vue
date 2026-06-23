@@ -2,11 +2,16 @@
 import { computed, onMounted, ref } from 'vue'
 
 import {
+  changePassword,
+  createInvite,
+  deleteInvite,
   disableAuthBinding,
   getCurrentAuth,
   getWeChatWorkOAuthURL,
+  listInvites,
   logout,
   type CurrentAuth,
+  type InviteCode,
 } from '@/api/auth'
 import {
   getAdminConfigStatus,
@@ -28,6 +33,16 @@ const authLoading = ref(false)
 const authError = ref('')
 const bindingActionID = ref<number | null>(null)
 const logoutLoading = ref(false)
+const currentPassword = ref('')
+const newPassword = ref('')
+const passwordChanging = ref(false)
+const passwordChangeResult = ref('')
+const invites = ref<InviteCode[]>([])
+const invitesLoading = ref(false)
+const inviteCreating = ref(false)
+const inviteDeletingID = ref<number | null>(null)
+const inviteTTLSeconds = ref(604800)
+const generatedInviteCode = ref('')
 const configStatus = ref<AdminConfigStatus | null>(null)
 const configLoading = ref(false)
 const configError = ref('')
@@ -99,10 +114,24 @@ async function loadAuthStatus() {
   authError.value = ''
   try {
     authStatus.value = await getCurrentAuth()
+    if (authStatus.value.user?.role === 'owner') {
+      await loadInvites()
+    }
   } catch (error) {
     authError.value = formatAPIError(error)
   } finally {
     authLoading.value = false
+  }
+}
+
+async function loadInvites() {
+  invitesLoading.value = true
+  try {
+    invites.value = await listInvites()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    invitesLoading.value = false
   }
 }
 
@@ -182,6 +211,57 @@ async function logoutCurrentUser() {
     authError.value = formatAPIError(error)
   } finally {
     logoutLoading.value = false
+  }
+}
+
+async function changeCurrentPassword() {
+  passwordChanging.value = true
+  authError.value = ''
+  passwordChangeResult.value = ''
+  try {
+    await changePassword({
+      current_password: currentPassword.value,
+      new_password: newPassword.value,
+    })
+    currentPassword.value = ''
+    newPassword.value = ''
+    passwordChangeResult.value = '密码已更新'
+    await loadAuthStatus()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    passwordChanging.value = false
+  }
+}
+
+async function createInviteCode() {
+  inviteCreating.value = true
+  authError.value = ''
+  generatedInviteCode.value = ''
+  try {
+    const result = await createInvite({
+      role: 'user',
+      ttl_seconds: inviteTTLSeconds.value,
+    })
+    generatedInviteCode.value = result.code
+    await loadInvites()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    inviteCreating.value = false
+  }
+}
+
+async function deleteInviteCode(id: number) {
+  inviteDeletingID.value = id
+  authError.value = ''
+  try {
+    await deleteInvite(id)
+    await loadInvites()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    inviteDeletingID.value = null
   }
 }
 
@@ -267,11 +347,45 @@ defineExpose({ refreshPage })
             <dt>密码登录</dt>
             <dd>{{ yesNo(authStatus?.login_enabled) }}</dd>
           </div>
+          <div>
+            <dt>数据库密码</dt>
+            <dd>{{ yesNo(authStatus?.user?.password_configured) }}</dd>
+          </div>
           <div v-if="configStatus">
             <dt>Cookie</dt>
             <dd>{{ configStatus.auth.session_cookie }} / {{ configStatus.auth.session_secure ? 'Secure' : 'Non-Secure' }}</dd>
           </div>
         </dl>
+      </section>
+
+      <section class="settings-panel">
+        <div class="settings-panel__header">
+          <div>
+            <div class="settings-panel__title">账号密码</div>
+            <div class="settings-panel__meta">更新当前登录账号的数据库密码</div>
+          </div>
+          <button
+            class="settings-action-button"
+            type="button"
+            :disabled="passwordChanging || !currentPassword || !newPassword"
+            @click="changeCurrentPassword"
+          >
+            {{ passwordChanging ? '更新中' : '更新' }}
+          </button>
+        </div>
+        <div class="settings-form-grid">
+          <label class="settings-field">
+            <span>当前密码</span>
+            <input v-model="currentPassword" class="settings-input" type="password" autocomplete="current-password" />
+          </label>
+          <label class="settings-field">
+            <span>新密码</span>
+            <input v-model="newPassword" class="settings-input" type="password" autocomplete="new-password" />
+          </label>
+        </div>
+        <div v-if="passwordChangeResult" class="settings-inline-alert settings-inline-alert--success">
+          {{ passwordChangeResult }}
+        </div>
       </section>
 
       <section class="settings-panel">
@@ -310,6 +424,50 @@ defineExpose({ refreshPage })
             </button>
           </div>
           <div v-if="!authStatus?.bindings?.length" class="settings-panel__meta">暂无绑定记录</div>
+        </div>
+      </section>
+
+      <section v-if="authStatus?.user?.role === 'owner'" class="settings-panel">
+        <div class="settings-panel__header">
+          <div>
+            <div class="settings-panel__title">邀请码</div>
+            <div class="settings-panel__meta">生成后只显示一次明文邀请码</div>
+          </div>
+          <button class="settings-action-button" type="button" :disabled="inviteCreating" @click="createInviteCode">
+            {{ inviteCreating ? '生成中' : '生成' }}
+          </button>
+        </div>
+        <div class="settings-form-grid">
+          <label class="settings-field">
+            <span>有效期秒数</span>
+            <input v-model.number="inviteTTLSeconds" class="settings-input" type="number" min="60" />
+          </label>
+        </div>
+        <div v-if="generatedInviteCode" class="settings-inline-alert settings-inline-alert--success">
+          {{ generatedInviteCode }}
+        </div>
+        <div class="settings-bindings">
+          <div v-for="invite in invites" :key="invite.id" class="settings-binding-row">
+            <div>
+              <div class="settings-binding-row__title">
+                {{ invite.status }} / {{ invite.use_count }} / {{ invite.max_uses }}
+              </div>
+              <div class="settings-binding-row__meta">
+                {{ invite.role }} / 过期 {{ formatTime(invite.expires_at) }}
+              </div>
+            </div>
+            <button
+              class="settings-action-button"
+              type="button"
+              :disabled="inviteDeletingID === invite.id || invite.status === 'revoked'"
+              @click="deleteInviteCode(invite.id)"
+            >
+              {{ inviteDeletingID === invite.id ? '删除中' : '删除' }}
+            </button>
+          </div>
+          <div v-if="!invites.length" class="settings-panel__meta">
+            {{ invitesLoading ? '加载中' : '暂无邀请码' }}
+          </div>
         </div>
       </section>
     </div>

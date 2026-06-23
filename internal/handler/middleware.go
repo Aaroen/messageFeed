@@ -54,6 +54,7 @@ func CORS() gin.HandlerFunc {
 			http.MethodPost,
 			http.MethodPut,
 			http.MethodPatch,
+			http.MethodDelete,
 			http.MethodOptions,
 		},
 		AllowedHeaders: []string{

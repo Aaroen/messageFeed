@@ -28,7 +28,12 @@ type AppNavigationActionsOptions = {
   feedPagerTransition: {
     reset: () => void
     beginProgrammaticNavigation: () => void
+    beginProgrammaticFeedSwitch: (path: string) => { animated: boolean }
     settleProgrammaticNavigation: (delay: number) => void
+    commitProgrammaticNavigation: (
+      delay: number,
+      commit: () => Promise<unknown> | unknown,
+    ) => void
   }
   managementItems: readonly ManagementItem[]
   resetGestureTracking: () => void
@@ -83,9 +88,20 @@ export function useAppNavigationActions(options: AppNavigationActionsOptions) {
   }
 
   function navigateTo(path: string) {
+    if (options.router.currentRoute.value.path === path) {
+      return
+    }
+
+    const settleDelay = options.motionDelay(options.motionNormalDuration)
+    const feedSwitch = options.feedPagerTransition.beginProgrammaticFeedSwitch(path)
+    if (feedSwitch.animated) {
+      options.feedPagerTransition.commitProgrammaticNavigation(settleDelay, () => pushRoute(path))
+      return
+    }
+
     options.feedPagerTransition.beginProgrammaticNavigation()
     void pushRoute(path)
-    options.feedPagerTransition.settleProgrammaticNavigation(options.motionDelay(options.motionNormalDuration))
+    options.feedPagerTransition.settleProgrammaticNavigation(settleDelay)
   }
 
   return {

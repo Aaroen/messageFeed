@@ -35,7 +35,6 @@ export function useRefreshCompletionState() {
       wasSource: wasSource.value,
     }
     settlingSource.value = wasSource.value
-    startedWithChrome.value = false
     wasActive.value = false
     wasSource.value = false
     clearTimer()
@@ -47,6 +46,7 @@ export function useRefreshCompletionState() {
         return
       }
       settleTimer = 0
+      startedWithChrome.value = false
       settling.value = false
       settlingSource.value = false
     }, Math.max(0, delayMS))
@@ -54,7 +54,9 @@ export function useRefreshCompletionState() {
   }
 
   function resetInactive() {
-    startedWithChrome.value = false
+    if (!settling.value) {
+      startedWithChrome.value = false
+    }
     wasSource.value = false
     if (!settling.value) {
       settlingSource.value = false

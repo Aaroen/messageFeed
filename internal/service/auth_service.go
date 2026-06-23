@@ -16,13 +16,23 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"golang.org/x/crypto/bcrypt"
 )
 
-const authSessionTokenBytes = 32
+const (
+	authSessionTokenBytes = 32
+	minPasswordLength     = 8
+	maxUsernameLength     = 64
+	maxDisplayNameLength  = 80
+	defaultInviteMaxUses  = 1
+	defaultInviteTTL      = 7 * 24 * time.Hour
+)
 
 type AuthRepository interface {
 	EnsureOwner(ctx context.Context, username string) (domain.User, error)
 	GetUserByID(ctx context.Context, userID int64) (domain.User, error)
+	GetUserByUsername(ctx context.Context, username string) (domain.User, error)
+	UpdateUserPassword(ctx context.Context, userID int64, passwordHash string, now time.Time) (domain.User, error)
 	CreateSession(ctx context.Context, session domain.UserSession) (domain.UserSession, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string, now time.Time) (domain.UserSession, error)
 	TouchSession(ctx context.Context, sessionID int64, now time.Time) error
@@ -32,6 +42,10 @@ type AuthRepository interface {
 	BindExternalAccount(ctx context.Context, account domain.ExternalAccount) (domain.ExternalAccount, error)
 	ListExternalAccounts(ctx context.Context, userID int64) ([]domain.ExternalAccount, error)
 	DisableExternalAccount(ctx context.Context, userID int64, accountID int64, now time.Time) (domain.ExternalAccount, error)
+	CreateInviteCode(ctx context.Context, invite domain.AuthInviteCode) (domain.AuthInviteCode, error)
+	ListInviteCodes(ctx context.Context, createdByUserID int64) ([]domain.AuthInviteCode, error)
+	RevokeInviteCode(ctx context.Context, createdByUserID int64, inviteID int64, now time.Time) (domain.AuthInviteCode, error)
+	CreateUserWithInvite(ctx context.Context, codeHash string, user domain.User, redemption domain.AuthInviteRedemption, now time.Time) (domain.User, domain.AuthInviteCode, error)
 }
 
 type WeChatWorkOAuthExchanger interface {
@@ -90,6 +104,22 @@ type LocalLoginInput struct {
 	RemoteAddress string
 }
 
+type RegisterWithInviteInput struct {
+	InviteCode    string
+	Username      string
+	Password      string
+	DisplayName   string
+	Email         string
+	UserAgent     string
+	RemoteAddress string
+}
+
+type ChangePasswordInput struct {
+	UserID          int64
+	CurrentPassword string
+	NewPassword     string
+}
+
 type AuthSessionResult struct {
 	User      domain.User
 	Session   domain.UserSession
@@ -106,17 +136,19 @@ type CurrentAuth struct {
 type AuthMeResult struct {
 	Authenticated          bool                  `json:"authenticated"`
 	LoginEnabled           bool                  `json:"login_enabled"`
+	RegistrationEnabled    bool                  `json:"registration_enabled"`
 	WeChatWorkOAuthEnabled bool                  `json:"wechat_work_oauth_enabled"`
 	User                   *AuthUserResponse     `json:"user,omitempty"`
 	Bindings               []AuthBindingResponse `json:"bindings"`
 }
 
 type AuthUserResponse struct {
-	ID          int64  `json:"id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"display_name"`
-	Role        string `json:"role"`
-	Status      string `json:"status"`
+	ID                 int64  `json:"id"`
+	Username           string `json:"username"`
+	DisplayName        string `json:"display_name"`
+	Role               string `json:"role"`
+	Status             string `json:"status"`
+	PasswordConfigured bool   `json:"password_configured"`
 }
 
 type AuthBindingResponse struct {
@@ -155,6 +187,29 @@ type WeChatWorkOAuthCallbackResult struct {
 	RedirectPath string
 }
 
+type CreateInviteInput struct {
+	Creator    domain.User
+	Role       string
+	MaxUses    int
+	TTLSeconds int64
+}
+
+type InviteCodeResponse struct {
+	ID        int64  `json:"id"`
+	Role      string `json:"role"`
+	MaxUses   int    `json:"max_uses"`
+	UseCount  int    `json:"use_count"`
+	Status    string `json:"status"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type CreateInviteResult struct {
+	Invite InviteCodeResponse `json:"invite"`
+	Code   string             `json:"code"`
+}
+
 func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (AuthSessionResult, error) {
 	if s == nil || s.repository == nil {
 		return AuthSessionResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.login", false, nil)
@@ -173,13 +228,43 @@ func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (Au
 		opErr = fmt.Errorf("%w: username and password are required", domain.ErrInvalidInput)
 		return AuthSessionResult{}, opErr
 	}
+
+	if user, err := s.repository.GetUserByUsername(ctx, username); err == nil && user.ID > 0 {
+		if user.Status != domain.UserStatusActive {
+			opErr = domain.NewAppError(domain.ErrorKindUnavailable, "auth_user_disabled", "user is disabled", "service.auth.login", false, nil)
+			return AuthSessionResult{}, opErr
+		}
+		if strings.TrimSpace(user.PasswordHash) != "" {
+			if err := verifyPassword(user.PasswordHash, password); err != nil {
+				opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invalid_credentials", "invalid username or password", "service.auth.login", false, nil)
+				return AuthSessionResult{}, opErr
+			}
+			result, err := s.createSession(ctx, user, input.UserAgent, input.RemoteAddress)
+			if err != nil {
+				opErr = err
+				return AuthSessionResult{}, err
+			}
+			span.SetAttributes(attribute.Int64("auth.user_id", user.ID))
+			return result, nil
+		}
+	}
+
 	if subtle.ConstantTimeCompare([]byte(username), []byte(s.cfg.Auth.OwnerUsername)) != 1 ||
 		subtle.ConstantTimeCompare([]byte(password), []byte(s.cfg.Auth.OwnerPassword)) != 1 {
 		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invalid_credentials", "invalid username or password", "service.auth.login", false, nil)
 		return AuthSessionResult{}, opErr
 	}
-
 	user, err := s.repository.EnsureOwner(ctx, s.cfg.Auth.OwnerUsername)
+	if err != nil {
+		opErr = err
+		return AuthSessionResult{}, err
+	}
+	passwordHash, err := hashPassword(password)
+	if err != nil {
+		opErr = err
+		return AuthSessionResult{}, err
+	}
+	user, err = s.repository.UpdateUserPassword(ctx, user.ID, passwordHash, s.now().UTC())
 	if err != nil {
 		opErr = err
 		return AuthSessionResult{}, err
@@ -191,6 +276,103 @@ func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (Au
 	}
 	span.SetAttributes(attribute.Int64("auth.user_id", user.ID))
 	return result, nil
+}
+
+func (s *AuthService) RegisterWithInvite(ctx context.Context, input RegisterWithInviteInput) (AuthSessionResult, error) {
+	if s == nil || s.repository == nil {
+		return AuthSessionResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.register", false, nil)
+	}
+	ctx, span := observability.StartSpan(ctx, "service.auth.register")
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	inviteCode := strings.TrimSpace(input.InviteCode)
+	if inviteCode == "" {
+		opErr = fmt.Errorf("%w: invite code is required", domain.ErrInvalidInput)
+		return AuthSessionResult{}, opErr
+	}
+	username, err := normalizeUsername(input.Username)
+	if err != nil {
+		opErr = err
+		return AuthSessionResult{}, err
+	}
+	displayName := normalizeDisplayName(input.DisplayName, username)
+	if err := validatePassword(input.Password); err != nil {
+		opErr = err
+		return AuthSessionResult{}, err
+	}
+	passwordHash, err := hashPassword(input.Password)
+	if err != nil {
+		opErr = err
+		return AuthSessionResult{}, err
+	}
+	now := s.now().UTC()
+	user, _, err := s.repository.CreateUserWithInvite(ctx, hashSecret(inviteCode), domain.User{
+		Username:     username,
+		Email:        strings.TrimSpace(input.Email),
+		DisplayName:  displayName,
+		PasswordHash: passwordHash,
+		Status:       domain.UserStatusActive,
+	}, domain.AuthInviteRedemption{
+		IPAddress:     strings.TrimSpace(input.RemoteAddress),
+		UserAgentHash: hashSecret(strings.TrimSpace(input.UserAgent)),
+	}, now)
+	if err != nil {
+		if domain.ClassifyError(err) == domain.ErrorKindConflict {
+			opErr = domain.NewAppError(domain.ErrorKindConflict, "auth_invite_unavailable", "invite code is invalid, expired or already used", "service.auth.register", false, err)
+			return AuthSessionResult{}, opErr
+		}
+		opErr = err
+		return AuthSessionResult{}, err
+	}
+	result, err := s.createSession(ctx, user, input.UserAgent, input.RemoteAddress)
+	if err != nil {
+		opErr = err
+		return AuthSessionResult{}, err
+	}
+	span.SetAttributes(attribute.Int64("auth.user_id", user.ID))
+	return result, nil
+}
+
+func (s *AuthService) ChangePassword(ctx context.Context, input ChangePasswordInput) (AuthUserResponse, error) {
+	if s == nil || s.repository == nil {
+		return AuthUserResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.change_password", false, nil)
+	}
+	if input.UserID < 1 {
+		return AuthUserResponse{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	if err := validatePassword(input.NewPassword); err != nil {
+		return AuthUserResponse{}, err
+	}
+	ctx, span := observability.StartSpan(ctx, "service.auth.change_password")
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	user, err := s.repository.GetUserByID(ctx, input.UserID)
+	if err != nil {
+		opErr = err
+		return AuthUserResponse{}, err
+	}
+	if strings.TrimSpace(user.PasswordHash) != "" {
+		if err := verifyPassword(user.PasswordHash, input.CurrentPassword); err != nil {
+			opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invalid_current_password", "current password is invalid", "service.auth.change_password", false, nil)
+			return AuthUserResponse{}, opErr
+		}
+	} else if !s.ownerPasswordMatches(user.Username, input.CurrentPassword) {
+		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invalid_current_password", "current password is invalid", "service.auth.change_password", false, nil)
+		return AuthUserResponse{}, opErr
+	}
+	passwordHash, err := hashPassword(input.NewPassword)
+	if err != nil {
+		opErr = err
+		return AuthUserResponse{}, err
+	}
+	user, err = s.repository.UpdateUserPassword(ctx, user.ID, passwordHash, s.now().UTC())
+	if err != nil {
+		opErr = err
+		return AuthUserResponse{}, err
+	}
+	return *userResponse(user), nil
 }
 
 func (s *AuthService) AuthenticateSession(ctx context.Context, rawToken string) (CurrentAuth, error) {
@@ -242,6 +424,7 @@ func (s *AuthService) Me(ctx context.Context, auth CurrentAuth) (AuthMeResult, e
 	result := AuthMeResult{
 		Authenticated:          auth.Authenticated,
 		LoginEnabled:           s != nil && s.cfg.Auth.LocalLoginEnabled(),
+		RegistrationEnabled:    s != nil && s.repository != nil,
 		WeChatWorkOAuthEnabled: s != nil && s.cfg.WeChatWork.Enabled() && s.wechatOAuth != nil,
 		Bindings:               []AuthBindingResponse{},
 	}
@@ -396,6 +579,81 @@ func (s *AuthService) DisableBinding(ctx context.Context, userID int64, accountI
 	return bindingResponse(account), nil
 }
 
+func (s *AuthService) CreateInvite(ctx context.Context, input CreateInviteInput) (CreateInviteResult, error) {
+	if s == nil || s.repository == nil {
+		return CreateInviteResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.create_invite", false, nil)
+	}
+	if input.Creator.ID < 1 || input.Creator.Role != domain.UserRoleOwner {
+		return CreateInviteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_required", "owner role is required", "service.auth.create_invite", false, nil)
+	}
+	role := domain.UserRole(strings.TrimSpace(input.Role))
+	if !role.Valid() || role == domain.UserRoleOwner {
+		role = domain.UserRoleUser
+	}
+	if input.MaxUses > defaultInviteMaxUses {
+		return CreateInviteResult{}, fmt.Errorf("%w: invite code can only be used once", domain.ErrInvalidInput)
+	}
+	ttl := time.Duration(input.TTLSeconds) * time.Second
+	if ttl <= 0 {
+		ttl = defaultInviteTTL
+	}
+	code, err := s.randomToken()
+	if err != nil {
+		return CreateInviteResult{}, err
+	}
+	now := s.now().UTC()
+	expiresAt := now.Add(ttl)
+	invite, err := s.repository.CreateInviteCode(ctx, domain.AuthInviteCode{
+		CodeHash:    hashSecret(code),
+		CreatedByID: input.Creator.ID,
+		Role:        role,
+		MaxUses:     defaultInviteMaxUses,
+		Status:      domain.AuthInviteCodeStatusActive,
+		ExpiresAt:   &expiresAt,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		return CreateInviteResult{}, err
+	}
+	return CreateInviteResult{Invite: inviteResponse(invite), Code: code}, nil
+}
+
+func (s *AuthService) ListInvites(ctx context.Context, auth CurrentAuth) ([]InviteCodeResponse, error) {
+	if s == nil || s.repository == nil {
+		return nil, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.list_invites", false, nil)
+	}
+	if !auth.Authenticated || auth.User.Role != domain.UserRoleOwner {
+		return nil, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_required", "owner role is required", "service.auth.list_invites", false, nil)
+	}
+	invites, err := s.repository.ListInviteCodes(ctx, auth.User.ID)
+	if err != nil {
+		return nil, err
+	}
+	responses := make([]InviteCodeResponse, 0, len(invites))
+	for _, invite := range invites {
+		responses = append(responses, inviteResponse(invite))
+	}
+	return responses, nil
+}
+
+func (s *AuthService) RevokeInvite(ctx context.Context, auth CurrentAuth, inviteID int64) (InviteCodeResponse, error) {
+	if s == nil || s.repository == nil {
+		return InviteCodeResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.revoke_invite", false, nil)
+	}
+	if !auth.Authenticated || auth.User.Role != domain.UserRoleOwner {
+		return InviteCodeResponse{}, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_required", "owner role is required", "service.auth.revoke_invite", false, nil)
+	}
+	if inviteID < 1 {
+		return InviteCodeResponse{}, fmt.Errorf("%w: invite id is required", domain.ErrInvalidInput)
+	}
+	invite, err := s.repository.RevokeInviteCode(ctx, auth.User.ID, inviteID, s.now().UTC())
+	if err != nil {
+		return InviteCodeResponse{}, err
+	}
+	return inviteResponse(invite), nil
+}
+
 func (s *AuthService) CookieName() string {
 	if s == nil || strings.TrimSpace(s.cfg.Auth.SessionCookie) == "" {
 		return config.DefaultAuthSessionCookie
@@ -470,12 +728,29 @@ func sanitizeRedirectPath(path string) string {
 
 func userResponse(user domain.User) *AuthUserResponse {
 	return &AuthUserResponse{
-		ID:          user.ID,
-		Username:    user.Username,
-		DisplayName: user.DisplayName,
-		Role:        string(user.Role),
-		Status:      string(user.Status),
+		ID:                 user.ID,
+		Username:           user.Username,
+		DisplayName:        user.DisplayName,
+		Role:               string(user.Role),
+		Status:             string(user.Status),
+		PasswordConfigured: strings.TrimSpace(user.PasswordHash) != "",
 	}
+}
+
+func inviteResponse(invite domain.AuthInviteCode) InviteCodeResponse {
+	response := InviteCodeResponse{
+		ID:        invite.ID,
+		Role:      string(invite.Role),
+		MaxUses:   invite.MaxUses,
+		UseCount:  invite.UseCount,
+		Status:    string(invite.Status),
+		CreatedAt: invite.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: invite.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+	if invite.ExpiresAt != nil {
+		response.ExpiresAt = invite.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	return response
 }
 
 func bindingResponses(accounts []domain.ExternalAccount) []AuthBindingResponse {
@@ -516,4 +791,67 @@ func newURLToken() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(b[:]), nil
+}
+
+func normalizeUsername(username string) (string, error) {
+	username = strings.TrimSpace(username)
+	if len(username) < 3 || len(username) > maxUsernameLength {
+		return "", fmt.Errorf("%w: username length must be between 3 and 64", domain.ErrInvalidInput)
+	}
+	for _, r := range username {
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		switch r {
+		case '-', '_', '.':
+			continue
+		default:
+			return "", fmt.Errorf("%w: username contains invalid characters", domain.ErrInvalidInput)
+		}
+	}
+	return username, nil
+}
+
+func normalizeDisplayName(displayName string, username string) string {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		return username
+	}
+	runes := []rune(displayName)
+	if len(runes) > maxDisplayNameLength {
+		return string(runes[:maxDisplayNameLength])
+	}
+	return displayName
+}
+
+func validatePassword(password string) error {
+	if len([]rune(password)) < minPasswordLength {
+		return fmt.Errorf("%w: password must be at least 8 characters", domain.ErrInvalidInput)
+	}
+	return nil
+}
+
+func hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+func verifyPassword(passwordHash string, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(strings.TrimSpace(passwordHash)), []byte(password))
+}
+
+func (s *AuthService) ownerPasswordMatches(username string, password string) bool {
+	return s != nil &&
+		s.cfg.Auth.LocalLoginEnabled() &&
+		subtle.ConstantTimeCompare([]byte(strings.TrimSpace(username)), []byte(s.cfg.Auth.OwnerUsername)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(password), []byte(s.cfg.Auth.OwnerPassword)) == 1
 }

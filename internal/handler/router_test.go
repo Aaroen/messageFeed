@@ -154,8 +154,8 @@ func TestNoRouteUsesUnifiedErrorResponse(t *testing.T) {
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("Code = %d, want %d", response.Code, http.StatusNotFound)
 	}
-	if response.Message != "not found" {
-		t.Fatalf("Message = %q, want %q", response.Message, "not found")
+	if response.Message != "request path not found" {
+		t.Fatalf("Message = %q, want %q", response.Message, "request path not found")
 	}
 	if response.RequestID != "test-request-id" {
 		t.Fatalf("RequestID = %q, want %q", response.RequestID, "test-request-id")
