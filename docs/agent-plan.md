@@ -286,6 +286,54 @@ compact prompt       -> context handoff summary template
 10. 如果后续企业微信管理台开放智能机器人 API 模式，可将智能机器人短连接回调作为新增 `channel/wechatwork/aibot` 适配；它更适合群聊 `@机器人` 和机器人原生交互，但不是当前 P0 前提。
 11. 智能机器人长连接适用于无公网 IP、高实时性或希望免处理回调加解密的场景。长连接需要 BotID、长连接专用 Secret、心跳、断线重连和单连接主备策略，因此只作为后续增强。
 
+### 2.11 端到端接入、对话与任务执行方案
+
+企业微信自建应用只承担“入站消息入口”和“对话回复出口”，不承担业务决策。Agent 只承担理解、计划、解释和受控工具调用编排，不直接写数据库、不直接发送主动通知。所有真实状态变更必须由后端 service 完成。
+
+接入链路：
+
+```text
+企业微信自建应用
+  -> GET 回调 URL 验证
+  -> POST 接收加密 XML
+  -> channel/wechatwork 验签、解密、解析和标准化
+  -> agent_inbound_messages 幂等落库
+  -> external_accounts 解析外部用户
+  -> agent_sessions 创建或恢复会话
+  -> agent_turns 创建本轮输入
+  -> AgentTurnRunner 异步处理
+  -> transcript / audit / trace 记录
+  -> 被动回复或 message/send 返回企业微信
+```
+
+对话运行时：
+
+1. `handler` 只负责 HTTP 参数、响应和错误映射，不承载企业微信协议细节。
+2. `channel/wechatwork` 负责 URL 验证、`msg_signature` 校验、AES 解密、XML 解析、消息标准化和 `MsgId` 幂等键生成。
+3. `AgentSessionManager` 依据 `provider=wechat_work_app`、`external_user_id` 和当前系统用户创建或恢复 session。
+4. `AgentTurnRunner` 将用户输入、系统提示、必要上下文和能力边界组装为 turn，保证同一 session 内 active turn 串行。
+5. `AgentContextManager` 只读取必要事实：最近条目、来源、显式偏好、AI 源报告摘要和 capability 边界。
+6. 短响应可走企业微信被动回复；可能超过回调时限的响应先快速返回成功，再通过 `message/send` 异步发送。
+
+任务执行分层：
+
+| 层级 | 阶段 | 处理方式 | 示例 |
+| --- | --- | --- | --- |
+| 只读回答 | P0 | `allow`，可直接执行已注册只读 capability | 查询最近资讯、查询某来源最新条目、摘要当前输入 |
+| 低风险建议 | P0-P1 | 生成计划和解释，不立即改变状态 | 推荐可订阅来源、建议降低低价值来源权重 |
+| 需确认变更 | P1 | `prompt`，通过 Web 确认页、网页授权/JS-SDK 身份确认或企业微信确认流程后执行 | 新增订阅、停用来源、调整抓取周期、创建提醒规则 |
+| 禁止执行 | 长期默认 | `forbidden`，只给出拒绝原因或安全替代方案 | 泄露密钥、绕过访问限制、默认永久删除、未授权通知目标 |
+
+P0 capability 最小集合：
+
+1. `feed.query_recent_items`：按用户读取最近条目。
+2. `source.query_latest_items`：按来源读取最新条目。
+3. `content.summarize_text`：对用户输入或条目摘要做简短总结。
+4. `agent.write_transcript`：写入对话记录、模型回复和错误。
+5. `agent.write_audit`：写入权限决策、工具调用摘要、耗时和回复发送结果。
+
+P1 之后再开放可改变状态的 capability，例如 `source.subscribe`、`source.disable`、`source.update_fetch_interval`、`alert_rule.create`、`notification.configure` 和 `market_alert.create`。这些能力必须具备输入 schema、风险等级、幂等键、回滚说明、审计事件和确认策略。
+
 ## 3. 重组后阶段定义
 
 | 新阶段 | 名称 | 目标 | 原阶段映射 |

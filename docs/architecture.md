@@ -589,6 +589,18 @@ AI Agent 采用“Web 命令、企业微信入站消息或系统事件 -> sessio
 11. 企业微信对话回复由当前 turn 的响应链路发送；高优先级 AI 源条目或告警由阶段七通知系统通过企业微信自建应用消息、可选智能机器人主动消息、`ntfy` 等通道推送。
 12. 全过程写入 transcript、审计日志、上下文压缩记录、记忆召回记录、指标和 trace。
 
+企业微信自建应用对话入口采用三层边界：
+
+| 层级 | 模块 | 职责 | 禁止事项 |
+| --- | --- | --- | --- |
+| 协议入口 | `handler`、`channel/wechatwork` | URL 验证、签名校验、AES 解密、XML 标准化、幂等键生成、快速响应 | 不执行业务变更，不调用模型，不发送主动通知 |
+| 对话运行时 | `agent/session`、`agent/transcript`、`agent/context` | 外部账号映射、session/turn、上下文组装、transcript 和 audit 记录 | 不绕过 capability 调用 service，不直接写业务表 |
+| 任务执行 | `agent/capability`、`agent/policy`、`agent/executor` | 能力检索、计划生成、`allow/prompt/forbidden` 决策、调用既有 service | 不执行未注册能力，不让模型直接持有密钥或数据库写接口 |
+
+企业微信消息处理必须先落库再异步执行。`agent_inbound_messages` 负责 `provider + provider_message_id` 幂等，`agent_turns` 负责本轮处理状态，`agent_transcript_entries` 保存用户消息、模型回复和工具摘要，`agent_audit_logs` 保存权限决策、错误原因、耗时、request id 和 trace id。短回答可以在回调窗口内被动回复；长回答或模型调用结果通过 `message/send` 返回。`message/send` 在阶段五 P0 只属于当前 turn 的回复出口，不属于阶段七主动通知系统。
+
+任务执行按风险分层。只读查询和摘要类 capability 可由 `PolicyEngine` 判定为 `allow` 后直接执行；新增订阅、停用来源、调整抓取周期、创建提醒规则、配置通知和创建金融告警必须判定为 `prompt` 并等待确认；泄露密钥、绕过访问限制、未授权通知目标、默认永久删除和未注册能力必须判定为 `forbidden`。网页授权及 JS-SDK 可信域名只用于账号绑定、设置页和高风险确认页，不替代企业微信聊天消息回调。
+
 ### 10.2 主动网络采集链路
 
 主动网络采集采用“任务定义 -> 搜索或抓取 -> 快照保存 -> 正文抽取 -> 去重评估 -> 条目或 AI 源报告”的链路：

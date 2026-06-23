@@ -904,6 +904,15 @@ API 与安全约束：
 - 网页授权及 JS-SDK 可信域名可用于账号绑定、设置页和高风险操作确认，但不替代聊天消息回调。
 - 智能机器人短连接或长连接只作为后续可选通道；当前管理台无智能机器人入口时，不进入阶段五 P0 默认实现。
 
+端到端实施口径：
+
+- 接入层先完成 `GET /api/v1/channels/wechat-work/app/callback` 和 `POST /api/v1/channels/wechat-work/app/callback`。`handler` 只负责 HTTP 出入口，`channel/wechatwork` 负责验签、解密、XML 标准化、幂等键生成和快速响应。
+- 对话层随后建立 `external_accounts`、`agent_inbound_messages`、`agent_sessions`、`agent_turns`、`agent_transcript_entries` 和 `agent_audit_logs`。回调消息必须先落库，再由 worker 创建或恢复 session 并处理 turn。
+- 回复层使用两种路径：短回答可通过企业微信被动回复返回；模型调用或工具查询可能超过回调时限时，回调先返回成功，再通过自建应用 `message/send` 异步发送。该路径在阶段五 P0 只属于当前 turn 回复，不进入主动通知系统。
+- 执行层按 `allow`、`prompt`、`forbidden` 决策。P0 只开放最近资讯查询、指定来源最新条目查询、当前输入摘要和简短问答；新增订阅、停用来源、修改抓取周期、通知设置和金融告警只生成待确认计划，不直接执行。
+- 确认层后置到 P1：Web 确认页、企业微信确认流程、网页授权及 JS-SDK 身份确认均可作为确认入口，但确认后仍必须由 `AgentExecutor` 调用既有 service 完成实际变更。
+- 观测层贯穿全链路：入站消息、session、turn、transcript、audit、模型调用、工具调用、回复发送结果、request id 和 trace id 必须可以关联查询。
+
 当前实现状态：
 
 - [x] `GET /api/v1/feed/recommendations` 推荐 Feed 原型已存在，可作为后续推荐 Agent 的候选能力输入。
@@ -931,16 +940,18 @@ API 与安全约束：
 8. 实现最小只读 Runner，能力范围限定为最近资讯查询、指定来源最新条目查询、当前消息摘要或简短问答。
 9. 回调收到消息后优先落库并快速返回；实际 Runner 由后台 worker 处理 turn，并通过自建应用被动回复或 `message/send` 异步回复企业微信。
 10. 实现企业微信自建应用 `access_token` 缓存和 `message/send` 文本发送适配，记录 `invaliduser`、`invalidparty`、`invalidtag`、`unlicenseduser`、`msgid` 和失败原因；该能力暂不触发主动通知。
-11. 定义 `AgentCapabilityRegistry`、`AgentCapabilitySearch`、`AgentInterpreter`、`AgentPlanner`、`AgentExecutor` 和 `AgentAuditLogger`。
-12. 定义能力风险等级、暴露模式和确认策略：`core` 能力默认可见，`deferred` 能力通过搜索按需暴露，`hidden` 能力只由后端策略调用。
-13. 定义 `PolicyEngine`，将计划决策为 `allow`、`prompt` 或 `forbidden`。P0 中只读能力为 `allow`，订阅变更、通知设置、画像写入和金融告警为 `prompt` 或 `forbidden`。
-14. 建立 `AgentContextManager`、`MemoryProvider`、`ContextBuilder` 和冻结 `MemorySnapshot`。
-15. 建立上下文窗口、上下文压力评估、不可压缩保护区、语义分块、归档摘要和 search/preview/get 分级回忆基础能力。
-16. 为全文召回建立单轮 token 或字节预算，并记录召回原因、使用位置和预算消耗。
-17. 使用既有 `AIFeedService` 写入 Agent 对话摘要、执行报告或异常报告；Web 继续复用普通来源列表、详情、已读、收藏和隐藏能力展示 AI 源。
-18. 建立 `agent_eval_cases`、`agent_eval_runs` 和 `agent_eval_results`，沉淀企业微信入口、订阅管理、推荐画像、AI 源、主动采集、通知、金融分析、上下文记忆和安全对抗评测集。
-19. 建立评测执行入口，捕获 transcript、计划、工具调用、状态差异、AI 源输出、审计日志、模型版本、提示词版本、token、成本和耗时。
-20. Agent 执行过程接入 request id、trace id、结构化日志、指标、上下文压缩、记忆召回和审计记录。
+11. 定义 P0 capability：`feed.query_recent_items`、`source.query_latest_items`、`content.summarize_text`、`agent.write_transcript` 和 `agent.write_audit`。
+12. 定义 `AgentCapabilityRegistry`、`AgentCapabilitySearch`、`AgentInterpreter`、`AgentPlanner`、`AgentExecutor` 和 `AgentAuditLogger`。
+13. 定义能力风险等级、暴露模式和确认策略：`core` 能力默认可见，`deferred` 能力通过搜索按需暴露，`hidden` 能力只由后端策略调用。
+14. 定义 `PolicyEngine`，将计划决策为 `allow`、`prompt` 或 `forbidden`。P0 中只读能力为 `allow`，订阅变更、通知设置、画像写入和金融告警为 `prompt` 或 `forbidden`。
+15. 建立 P1 确认入口设计，确认后由 `AgentExecutor` 调用既有 service；网页授权及 JS-SDK 只用于确认页身份，不用于聊天入口。
+16. 建立 `AgentContextManager`、`MemoryProvider`、`ContextBuilder` 和冻结 `MemorySnapshot`。
+17. 建立上下文窗口、上下文压力评估、不可压缩保护区、语义分块、归档摘要和 search/preview/get 分级回忆基础能力。
+18. 为全文召回建立单轮 token 或字节预算，并记录召回原因、使用位置和预算消耗。
+19. 使用既有 `AIFeedService` 写入 Agent 对话摘要、执行报告或异常报告；Web 继续复用普通来源列表、详情、已读、收藏和隐藏能力展示 AI 源。
+20. 建立 `agent_eval_cases`、`agent_eval_runs` 和 `agent_eval_results`，沉淀企业微信入口、订阅管理、推荐画像、AI 源、主动采集、通知、金融分析、上下文记忆和安全对抗评测集。
+21. 建立评测执行入口，捕获 transcript、计划、工具调用、状态差异、AI 源输出、审计日志、模型版本、提示词版本、token、成本和耗时。
+22. Agent 执行过程接入 request id、trace id、结构化日志、指标、上下文压缩、记忆召回和审计记录。
 
 验收标准：
 
