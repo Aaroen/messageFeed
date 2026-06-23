@@ -3,7 +3,7 @@ type RuntimeCleaner = () => void
 type AppRuntimeCleanupOptions = {
   swipe: {
     resetFeedPagerTransition: RuntimeCleaner
-    clearSwipeTransitionTimer: RuntimeCleaner
+    resetSwipeTransition: RuntimeCleaner
   }
   navigation: {
     clearTimer: RuntimeCleaner
@@ -54,7 +54,7 @@ type AppRuntimeCleanupOptions = {
 export function useAppRuntimeCleanup(options: AppRuntimeCleanupOptions) {
   const clearRuntimeTimers: RuntimeCleaner[] = [
     () => options.swipe.resetFeedPagerTransition(),
-    () => options.swipe.clearSwipeTransitionTimer(),
+    () => options.swipe.resetSwipeTransition(),
     () => options.navigation.clearTimer(),
     () => options.feedRefresh.resetRefreshCompletion(),
     () => options.chrome.clearTimer(),

@@ -329,7 +329,6 @@ const {
   settleSwipeTransition,
   scheduleSwipeReset,
   resetSwipeTransition,
-  clearSwipeTransitionTimer,
   feedPagerTransition,
   viewDragOffset,
   viewSwipeCandidateActive,
@@ -1166,7 +1165,7 @@ routeRuntime.installRouteSessionWatchers({
 const runtimeCleanup = useAppRuntimeCleanup({
   swipe: {
     resetFeedPagerTransition,
-    clearSwipeTransitionTimer,
+    resetSwipeTransition,
   },
   navigation: {
     clearTimer: navigationDrawer.clearTimer,
