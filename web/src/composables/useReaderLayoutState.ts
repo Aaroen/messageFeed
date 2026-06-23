@@ -68,7 +68,7 @@ export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
   })
   const detailSourceFallbackTargetRect = computed<RectSnapshot>(() => {
     const side = options.windowWidth.value <= 720 ? 24 : 46
-    const top = options.feedHeaderHeight.value + 24
+    const top = options.feedHeaderHeight.value + sourceVisibleTopOffset.value
     return {
       left: side,
       top,
