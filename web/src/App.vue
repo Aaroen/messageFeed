@@ -521,11 +521,42 @@ const navOpenButtonStyle = chromeRuntime.navOpenButtonStyle
 const navOpenButtonInteractive = computed(() => chromeStyleIsInteractive(navOpenButtonStyle.value))
 const mainClass = chromeRuntime.mainClass
 const topChromeActions = chromeRuntime.topChromeActions
-const setTopChromeVisible = topChromeActions.setTopChromeVisible
+type TopChromeGestureReturnOptions = Parameters<typeof chromeState.beginGestureReturn>[0]
+
+function syncFeedChromeScrollTopFromContent() {
+  if (!isFeedRoute.value || detailReaderOpen.value || sourceReaderOpen.value) {
+    return
+  }
+
+  syncFeedScrollTop(feedContent.currentScrollTop())
+}
+
+function setTopChromeVisible(visible: boolean) {
+  if (visible) {
+    syncFeedChromeScrollTopFromContent()
+  }
+  topChromeActions.setTopChromeVisible(visible)
+}
+
 const hideTopChromeForScroll = topChromeActions.hideTopChromeForScroll
-const showTopChromeOverlay = topChromeActions.showTopChromeOverlay
+function showTopChromeOverlay() {
+  syncFeedChromeScrollTopFromContent()
+  topChromeActions.showTopChromeOverlay()
+}
+
 const hideTopChromeOverlay = topChromeActions.hideTopChromeOverlay
-const setTopChromeOverlayProgress = topChromeActions.setTopChromeOverlayProgress
+function setTopChromeOverlayProgress(progress: number) {
+  if (progress > 0.01) {
+    syncFeedChromeScrollTopFromContent()
+  }
+  topChromeActions.setTopChromeOverlayProgress(progress)
+}
+
+function beginTopChromeGestureReturn(options?: TopChromeGestureReturnOptions) {
+  syncFeedChromeScrollTopFromContent()
+  chromeState.beginGestureReturn(options)
+}
+
 const collapseTopChrome = topChromeActions.collapseTopChrome
 const currentContentScrollTop = topChromeActions.currentContentScrollTop
 const settlePagePullOffset = topChromeActions.settlePagePullOffset
@@ -781,7 +812,7 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
     finishSwipeResult: feedPagerTransition.finishSwipeResult,
     settleFinishedSwipe: feedPagerTransition.settleFinishedSwipe,
     markStartedWithHiddenChrome: feedPagerTransition.markStartedWithHiddenChrome,
-    beginTopChromeGestureReturn: chromeState.beginGestureReturn,
+    beginTopChromeGestureReturn,
     setTopChromeVisible,
     hideTopChromeOverlay,
     pushRoute,
@@ -823,7 +854,7 @@ const gestureInteractionRuntime = useAppGestureInteractionRuntime<SwipeSurface, 
       cancelViewSwipeCandidate: feedPagerTransition.cancelViewSwipeCandidate,
       isBackHorizontalSwipe,
       suppressFollowingClick,
-      beginTopChromeGestureReturn: chromeState.beginGestureReturn,
+      beginTopChromeGestureReturn,
       refreshDetailFeedOriginRect,
       captureDetailSourceTransitionRects,
       showSourceReaderUnderDetail,
