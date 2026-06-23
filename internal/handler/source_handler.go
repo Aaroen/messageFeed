@@ -25,6 +25,7 @@ type sourceService interface {
 	UpdateSource(ctx context.Context, input service.UpdateSourceInput) (domain.Source, error)
 	TriggerFetch(ctx context.Context, input service.FetchSourceInput) (service.FetchSourceResult, error)
 	FetchActiveSources(ctx context.Context, input service.FetchActiveSourcesInput) (service.FetchSourcesResult, error)
+	GetFetchStatus(ctx context.Context, input service.SourceFetchStatusInput) (service.SourceFetchStatusResult, error)
 }
 
 type sourceHandler struct {
@@ -38,6 +39,7 @@ func registerSourceRoutes(router *gin.RouterGroup, service sourceService) {
 	router.PATCH("/sources/:id", handler.updateSource)
 	router.POST("/sources/:id/fetch", handler.fetchSource)
 	router.POST("/source-fetches", handler.fetchActiveSources)
+	router.GET("/source-fetches/status", handler.getSourceFetchStatus)
 	router.GET("/source-catalogs", handler.listSourceCatalog)
 	router.GET("/source-catalogs/search", handler.searchSourceCatalog)
 	router.POST("/sources/import/catalog", handler.importCatalogSources)
@@ -96,8 +98,26 @@ type fetchSourcesResponse struct {
 	RequestedCount int                        `json:"requested_count"`
 	SuccessCount   int                        `json:"success_count"`
 	FailureCount   int                        `json:"failure_count"`
+	Async          bool                       `json:"async"`
+	QueuedCount    int                        `json:"queued_count"`
+	JobIDs         []int64                    `json:"job_ids"`
 	Sources        []sourceResponse           `json:"sources"`
 	Errors         []fetchSourceErrorResponse `json:"errors"`
+}
+
+type fetchSourcesStatusResponse struct {
+	RequestedCount     int                        `json:"requested_count"`
+	CompletedCount     int                        `json:"completed_count"`
+	QueuedCount        int                        `json:"queued_count"`
+	RunningCount       int                        `json:"running_count"`
+	SuccessCount       int                        `json:"success_count"`
+	FailureCount       int                        `json:"failure_count"`
+	CreatedCount       int                        `json:"created_count"`
+	UpdatedCount       int                        `json:"updated_count"`
+	UpdatedSourceCount int                        `json:"updated_source_count"`
+	Done               bool                       `json:"done"`
+	Sources            []sourceResponse           `json:"sources"`
+	Errors             []fetchSourceErrorResponse `json:"errors"`
 }
 
 type fetchSourceErrorResponse struct {
@@ -334,6 +354,9 @@ func (h sourceHandler) fetchActiveSources(c *gin.Context) {
 		RequestedCount: result.RequestedCount,
 		SuccessCount:   result.SuccessCount,
 		FailureCount:   result.FailureCount,
+		Async:          result.Async,
+		QueuedCount:    result.QueuedCount,
+		JobIDs:         append([]int64(nil), result.JobIDs...),
 		Sources:        make([]sourceResponse, 0, len(result.Sources)),
 		Errors:         make([]fetchSourceErrorResponse, 0, len(result.Errors)),
 	}
@@ -348,6 +371,53 @@ func (h sourceHandler) fetchActiveSources(c *gin.Context) {
 		})
 	}
 
+	Success(c, response)
+}
+
+func (h sourceHandler) getSourceFetchStatus(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "source service unavailable")
+		return
+	}
+
+	jobIDs, err := int64ListQuery(c, "job_ids")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid job_ids")
+		return
+	}
+	result, err := h.service.GetFetchStatus(c.Request.Context(), service.SourceFetchStatusInput{
+		UserID: currentUserID(c),
+		JobIDs: jobIDs,
+	})
+	if err != nil {
+		writeSourceError(c, err)
+		return
+	}
+
+	response := fetchSourcesStatusResponse{
+		RequestedCount:     result.RequestedCount,
+		CompletedCount:     result.CompletedCount,
+		QueuedCount:        result.QueuedCount,
+		RunningCount:       result.RunningCount,
+		SuccessCount:       result.SuccessCount,
+		FailureCount:       result.FailureCount,
+		CreatedCount:       result.CreatedCount,
+		UpdatedCount:       result.UpdatedCount,
+		UpdatedSourceCount: result.UpdatedSourceCount,
+		Done:               result.Done,
+		Sources:            make([]sourceResponse, 0, len(result.Sources)),
+		Errors:             make([]fetchSourceErrorResponse, 0, len(result.Errors)),
+	}
+	for _, source := range result.Sources {
+		response.Sources = append(response.Sources, sourceResponseFromDomain(source))
+	}
+	for _, item := range result.Errors {
+		response.Errors = append(response.Errors, fetchSourceErrorResponse{
+			SourceID:   item.SourceID,
+			SourceName: item.SourceName,
+			Message:    item.Message,
+		})
+	}
 	Success(c, response)
 }
 
@@ -530,6 +600,27 @@ func writeSourceError(c *gin.Context, err error) {
 	default:
 		RenderError(c, err, "source operation failed")
 	}
+}
+
+func int64ListQuery(c *gin.Context, key string) ([]int64, error) {
+	raw := strings.TrimSpace(c.Query(key))
+	if raw == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	values := make([]int64, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		value, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, nil
 }
 
 func sourceResponseFromDomain(source domain.Source) sourceResponse {

@@ -104,6 +104,11 @@ type SourceFetchJobListOptions struct {
 	Offset int
 }
 
+type SourceFetchJobListByIDsOptions struct {
+	UserID int64
+	IDs    []int64
+}
+
 type SourceFetchJobListResult struct {
 	Jobs   []SourceFetchJob
 	Total  int64

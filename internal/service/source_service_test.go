@@ -434,6 +434,119 @@ func TestTruncateErrorPreservesUTF8Boundary(t *testing.T) {
 	}
 }
 
+func TestFetchActiveSourcesQueuesJobsWhenRepositoryConfigured(t *testing.T) {
+	sourceRepository := newFakeSourceRepository()
+	fetchJobRepository := &fakeSourceFetchJobQueueRepository{}
+	service := NewSourceService(
+		sourceRepository,
+		WithSourceFetchJobRepository(fetchJobRepository),
+		WithNow(func() time.Time {
+			return time.Date(2026, 6, 24, 16, 0, 0, 0, time.UTC)
+		}),
+	)
+
+	active, err := service.CreateSource(context.Background(), CreateSourceInput{
+		UserID: 1,
+		URL:    "https://active.example/feed.xml",
+	})
+	if err != nil {
+		t.Fatalf("Create active source returned error: %v", err)
+	}
+	inactive, err := service.CreateSource(context.Background(), CreateSourceInput{
+		UserID: 1,
+		URL:    "https://inactive.example/feed.xml",
+	})
+	if err != nil {
+		t.Fatalf("Create inactive source returned error: %v", err)
+	}
+	status := domain.SourceStatusInactive
+	if _, err := service.UpdateSource(context.Background(), UpdateSourceInput{UserID: 1, ID: inactive.ID, Status: &status}); err != nil {
+		t.Fatalf("Update inactive source returned error: %v", err)
+	}
+
+	result, err := service.FetchActiveSources(context.Background(), FetchActiveSourcesInput{UserID: 1})
+	if err != nil {
+		t.Fatalf("FetchActiveSources returned error: %v", err)
+	}
+
+	if !result.Async {
+		t.Fatal("Async = false, want true")
+	}
+	if result.RequestedCount != 1 || result.QueuedCount != 1 {
+		t.Fatalf("result counts = %#v, want one requested and queued", result)
+	}
+	if got, want := len(result.JobIDs), 1; got != want {
+		t.Fatalf("job IDs length = %d, want %d", got, want)
+	}
+	if fetchJobRepository.jobs[0].SourceID != active.ID {
+		t.Fatalf("queued SourceID = %d, want %d", fetchJobRepository.jobs[0].SourceID, active.ID)
+	}
+	if fetchJobRepository.jobs[0].Trigger != domain.SourceFetchTriggerManual {
+		t.Fatalf("queued Trigger = %q, want manual", fetchJobRepository.jobs[0].Trigger)
+	}
+}
+
+func TestGetFetchStatusSummarizesCompletedJobs(t *testing.T) {
+	sourceRepository := newFakeSourceRepository()
+	source, err := sourceRepository.Create(context.Background(), domain.Source{
+		UserID:        1,
+		Name:          "Example",
+		Type:          domain.SourceTypeRSS,
+		URL:           "https://example.com/feed.xml",
+		NormalizedURL: "https://example.com/feed.xml",
+		Status:        domain.SourceStatusActive,
+	})
+	if err != nil {
+		t.Fatalf("Create source returned error: %v", err)
+	}
+	finishedAt := time.Date(2026, 6, 24, 16, 30, 0, 0, time.UTC)
+	fetchJobRepository := &fakeSourceFetchJobQueueRepository{
+		jobs: []domain.SourceFetchJob{
+			{
+				ID:         11,
+				UserID:     1,
+				SourceID:   source.ID,
+				Status:     domain.SourceFetchJobStatusSucceeded,
+				Trigger:    domain.SourceFetchTriggerManual,
+				FinishedAt: &finishedAt,
+			},
+		},
+		attempts: []domain.SourceFetchAttempt{
+			{
+				ID:            21,
+				JobID:         11,
+				SourceID:      source.ID,
+				AttemptNumber: 1,
+				Status:        domain.SourceFetchAttemptStatusSucceeded,
+				CreatedCount:  3,
+				UpdatedCount:  4,
+			},
+		},
+	}
+	service := NewSourceService(sourceRepository, WithSourceFetchJobRepository(fetchJobRepository))
+
+	result, err := service.GetFetchStatus(context.Background(), SourceFetchStatusInput{
+		UserID: 1,
+		JobIDs: []int64{11},
+	})
+	if err != nil {
+		t.Fatalf("GetFetchStatus returned error: %v", err)
+	}
+
+	if !result.Done {
+		t.Fatal("Done = false, want true")
+	}
+	if result.SuccessCount != 1 || result.CompletedCount != 1 {
+		t.Fatalf("result counts = %#v, want one completed success", result)
+	}
+	if result.CreatedCount != 3 || result.UpdatedCount != 4 {
+		t.Fatalf("item counts = created:%d updated:%d, want 3/4", result.CreatedCount, result.UpdatedCount)
+	}
+	if result.UpdatedSourceCount != 1 {
+		t.Fatalf("UpdatedSourceCount = %d, want 1", result.UpdatedSourceCount)
+	}
+}
+
 type fakeSourceRepository struct {
 	nextID  int64
 	sources map[int64]domain.Source
@@ -512,6 +625,61 @@ func (r *fakeItemRepository) UpsertMany(_ context.Context, items []domain.Item) 
 	return domain.ItemUpsertResult{
 		CreatedCount: len(items),
 		TotalCount:   len(items),
+	}, nil
+}
+
+type fakeSourceFetchJobQueueRepository struct {
+	nextID   int64
+	jobs     []domain.SourceFetchJob
+	attempts []domain.SourceFetchAttempt
+}
+
+func (r *fakeSourceFetchJobQueueRepository) CreateJob(_ context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error) {
+	for _, existing := range r.jobs {
+		if existing.UserID == job.UserID &&
+			existing.SourceID == job.SourceID &&
+			(existing.Status == domain.SourceFetchJobStatusQueued || existing.Status == domain.SourceFetchJobStatusRunning) {
+			return existing, nil
+		}
+	}
+	if r.nextID == 0 {
+		r.nextID = int64(len(r.jobs) + 1)
+	}
+	job.ID = r.nextID
+	r.nextID++
+	r.jobs = append(r.jobs, job)
+	return job, nil
+}
+
+func (r *fakeSourceFetchJobQueueRepository) ListJobsByIDs(_ context.Context, options domain.SourceFetchJobListByIDsOptions) ([]domain.SourceFetchJob, error) {
+	idSet := make(map[int64]struct{}, len(options.IDs))
+	for _, id := range options.IDs {
+		idSet[id] = struct{}{}
+	}
+	jobs := make([]domain.SourceFetchJob, 0, len(options.IDs))
+	for _, job := range r.jobs {
+		if job.UserID != options.UserID {
+			continue
+		}
+		if _, ok := idSet[job.ID]; ok {
+			jobs = append(jobs, job)
+		}
+	}
+	return jobs, nil
+}
+
+func (r *fakeSourceFetchJobQueueRepository) ListAttemptsByJob(_ context.Context, options domain.SourceFetchAttemptListOptions) (domain.SourceFetchAttemptListResult, error) {
+	attempts := make([]domain.SourceFetchAttempt, 0)
+	for _, attempt := range r.attempts {
+		if attempt.JobID == options.JobID {
+			attempts = append(attempts, attempt)
+		}
+	}
+	return domain.SourceFetchAttemptListResult{
+		Attempts: attempts,
+		Total:    int64(len(attempts)),
+		Limit:    options.Limit,
+		Offset:   options.Offset,
 	}, nil
 }
 

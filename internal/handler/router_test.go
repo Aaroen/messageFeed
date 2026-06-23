@@ -314,6 +314,27 @@ func TestSourceRoutes(t *testing.T) {
 		t.Fatalf("fetch active source id = %d, want 2", fetchActiveResponse.Data.Sources[0].ID)
 	}
 
+	fetchStatusHTTPReq := httptest.NewRequest(http.MethodGet, "/api/v1/source-fetches/status?job_ids=11", nil)
+	fetchStatusRecorder := httptest.NewRecorder()
+	router.ServeHTTP(fetchStatusRecorder, fetchStatusHTTPReq)
+
+	if fetchStatusRecorder.Code != http.StatusOK {
+		t.Fatalf("fetch status code = %d, want %d", fetchStatusRecorder.Code, http.StatusOK)
+	}
+	var fetchStatusResponse struct {
+		Code int                        `json:"code"`
+		Data fetchSourcesStatusResponse `json:"data"`
+	}
+	if err := json.NewDecoder(fetchStatusRecorder.Body).Decode(&fetchStatusResponse); err != nil {
+		t.Fatalf("decode fetch status response: %v", err)
+	}
+	if !fetchStatusResponse.Data.Done {
+		t.Fatal("fetch status done = false, want true")
+	}
+	if fetchStatusResponse.Data.CreatedCount != 1 {
+		t.Fatalf("fetch status created count = %d, want 1", fetchStatusResponse.Data.CreatedCount)
+	}
+
 	importJobsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/sources/import-jobs?limit=1&offset=0", nil)
 	importJobsRecorder := httptest.NewRecorder()
 	router.ServeHTTP(importJobsRecorder, importJobsRequest)
@@ -595,6 +616,18 @@ func (s *fakeSourceService) FetchActiveSources(_ context.Context, _ service.Fetc
 		Sources:        activeSources,
 	}
 	return result, nil
+}
+
+func (s *fakeSourceService) GetFetchStatus(_ context.Context, _ service.SourceFetchStatusInput) (service.SourceFetchStatusResult, error) {
+	return service.SourceFetchStatusResult{
+		RequestedCount:     1,
+		CompletedCount:     1,
+		SuccessCount:       1,
+		CreatedCount:       1,
+		UpdatedSourceCount: 1,
+		Done:               true,
+		Sources:            append([]domain.Source(nil), s.sources...),
+	}, nil
 }
 
 func (s *fakeSourceService) ListSourceCatalog(_ context.Context, input service.ListSourceCatalogInput) (service.ListSourceCatalogResult, error) {

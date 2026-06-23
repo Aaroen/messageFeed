@@ -66,6 +66,9 @@ func main() {
 	var recommendationService *service.RecommendationService
 	var itemService *service.ItemService
 	var feedViewService *service.FeedViewService
+	var sourceSyncService *service.SourceSyncService
+	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
+	defer cancelBackground()
 	if cfg.Database.DSN != "" {
 		dbCfg := db.Config{
 			DSN:             cfg.Database.DSN,
@@ -101,13 +104,25 @@ func main() {
 		itemRepository := repository.NewItemRepository(database)
 		userItemStateRepository := repository.NewUserItemStateRepository(database)
 		feedViewPreferenceRepository := repository.NewFeedViewPreferenceRepository(database)
+		sourceFetchJobRepository := repository.NewSourceFetchJobRepository(database)
+		itemEventRepository := repository.NewItemEventRepository(database)
+		taskLockRepository := repository.NewTaskLockRepository(database)
 		feedFetcher := fetcher.NewClient()
 		sourceService = service.NewSourceService(
 			sourceRepository,
 			service.WithSourceCatalogRepository(sourceCatalogRepository),
 			service.WithSourceImportJobRepository(sourceImportJobRepository),
+			service.WithSourceFetchJobRepository(sourceFetchJobRepository),
 			service.WithItemRepository(itemRepository),
 			service.WithFeedFetcher(feedFetcher),
+		)
+		sourceSyncService = service.NewSourceSyncService(
+			sourceRepository,
+			itemRepository,
+			feedFetcher,
+			sourceFetchJobRepository,
+			itemEventRepository,
+			service.WithSourceSyncTaskLocker(taskLockRepository),
 		)
 		timelineService = service.NewTimelineService(itemRepository)
 		recommendationService = service.NewRecommendationService(sourceCatalogRepository, feedFetcher)
@@ -117,6 +132,7 @@ func main() {
 
 		// 启动数据库连接池指标采集器
 		go collectDatabaseMetrics(database, logger)
+		go runSourceSyncWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, sourceSyncService)
 	} else {
 		logger.Warn("database not configured, running in database-less mode")
 	}
@@ -173,16 +189,60 @@ func main() {
 	select {
 	case sig := <-stopCh:
 		logger.Info("api server stopping", "signal", sig.String())
+		cancelBackground()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		shutdown(ctx, logger, server, database)
 	case err := <-errCh:
+		cancelBackground()
 		if !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("api server failed", "error", err)
 			if database != nil {
 				_ = db.Close(database)
 			}
 			os.Exit(1)
+		}
+	}
+}
+
+func runSourceSyncWorker(ctx context.Context, logger *slog.Logger, workerID string, sourceSyncService *service.SourceSyncService) {
+	if sourceSyncService == nil {
+		return
+	}
+	if workerID == "" {
+		workerID = "api"
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		runCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+		result, err := sourceSyncService.RunOnce(runCtx, service.RunSourceSyncOnceInput{
+			WorkerID:           workerID,
+			LockName:           "source-sync",
+			LockTTL:            30 * time.Second,
+			EnqueueLimit:       50,
+			ClaimLimit:         5,
+			DefaultMaxAttempts: 3,
+		})
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			logger.Warn("source sync worker run failed", "error", err)
+		} else if result.ClaimedCount > 0 || result.EnqueuedCount > 0 {
+			logger.Info(
+				"source sync worker run completed",
+				"enqueued", result.EnqueuedCount,
+				"claimed", result.ClaimedCount,
+				"success", result.SuccessCount,
+				"failed", result.FailureCount,
+				"retry", result.RetryCount,
+			)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

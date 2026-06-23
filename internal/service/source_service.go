@@ -45,6 +45,12 @@ type SourceImportJobRepository interface {
 	ListByUser(ctx context.Context, options domain.SourceImportJobListOptions) (domain.SourceImportJobListResult, error)
 }
 
+type SourceFetchJobQueueRepository interface {
+	CreateJob(ctx context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error)
+	ListJobsByIDs(ctx context.Context, options domain.SourceFetchJobListByIDsOptions) ([]domain.SourceFetchJob, error)
+	ListAttemptsByJob(ctx context.Context, options domain.SourceFetchAttemptListOptions) (domain.SourceFetchAttemptListResult, error)
+}
+
 type FeedFetcher interface {
 	Fetch(ctx context.Context, source domain.Source) (domain.FeedFetchResult, error)
 }
@@ -53,6 +59,7 @@ type SourceService struct {
 	repository        SourceRepository
 	catalogRepository SourceCatalogRepository
 	importJobRepo     SourceImportJobRepository
+	fetchJobRepo      SourceFetchJobQueueRepository
 	itemRepository    ItemRepository
 	feedFetcher       FeedFetcher
 	now               func() time.Time
@@ -75,6 +82,12 @@ func WithSourceCatalogRepository(repository SourceCatalogRepository) SourceServi
 func WithSourceImportJobRepository(repository SourceImportJobRepository) SourceServiceOption {
 	return func(service *SourceService) {
 		service.importJobRepo = repository
+	}
+}
+
+func WithSourceFetchJobRepository(repository SourceFetchJobQueueRepository) SourceServiceOption {
+	return func(service *SourceService) {
+		service.fetchJobRepo = repository
 	}
 }
 
@@ -132,6 +145,11 @@ type FetchSourceInput struct {
 
 type FetchActiveSourcesInput struct {
 	UserID int64
+}
+
+type SourceFetchStatusInput struct {
+	UserID int64
+	JobIDs []int64
 }
 
 type ListSourceCatalogInput struct {
@@ -197,8 +215,26 @@ type FetchSourcesResult struct {
 	RequestedCount int
 	SuccessCount   int
 	FailureCount   int
+	Async          bool
+	QueuedCount    int
+	JobIDs         []int64
 	Sources        []domain.Source
 	Errors         []FetchSourceError
+}
+
+type SourceFetchStatusResult struct {
+	RequestedCount     int
+	CompletedCount     int
+	QueuedCount        int
+	RunningCount       int
+	SuccessCount       int
+	FailureCount       int
+	CreatedCount       int
+	UpdatedCount       int
+	UpdatedSourceCount int
+	Done               bool
+	Sources            []domain.Source
+	Errors             []FetchSourceError
 }
 
 type ListSourceImportJobsResult struct {
@@ -326,6 +362,20 @@ func (s *SourceService) FetchActiveSources(ctx context.Context, input FetchActiv
 		}
 	}
 
+	if s.fetchJobRepo != nil {
+		result, err := s.enqueueActiveSourceFetchJobs(ctx, activeSources)
+		if err != nil {
+			opErr = err
+			return FetchSourcesResult{}, opErr
+		}
+		span.SetAttributes(
+			attribute.Int("source.fetch_requested", result.RequestedCount),
+			attribute.Int("source.fetch_queued", result.QueuedCount),
+			attribute.Bool("source.fetch_async", true),
+		)
+		return result, nil
+	}
+
 	attempts := s.fetchSources(ctx, input.UserID, activeSources)
 	result := FetchSourcesResult{
 		RequestedCount: len(activeSources),
@@ -351,6 +401,155 @@ func (s *SourceService) FetchActiveSources(ctx context.Context, input FetchActiv
 		attribute.Int("source.fetch_failed", result.FailureCount),
 	)
 	return result, nil
+}
+
+func (s *SourceService) GetFetchStatus(ctx context.Context, input SourceFetchStatusInput) (SourceFetchStatusResult, error) {
+	ctx, span := observability.StartSpan(ctx, "service.source.fetch_status",
+		attribute.Int64("user.id", input.UserID),
+		attribute.Int("source_fetch_job.requested", len(input.JobIDs)),
+	)
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	if s == nil || s.repository == nil || s.fetchJobRepo == nil {
+		opErr = fmt.Errorf("source fetch status service is not configured")
+		return SourceFetchStatusResult{}, opErr
+	}
+	if input.UserID < 1 {
+		opErr = fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
+		return SourceFetchStatusResult{}, opErr
+	}
+	jobIDs := uniquePositiveIDs(input.JobIDs)
+	if len(jobIDs) == 0 {
+		opErr = fmt.Errorf("%w: job_ids must not be empty", domain.ErrInvalidInput)
+		return SourceFetchStatusResult{}, opErr
+	}
+
+	jobs, err := s.fetchJobRepo.ListJobsByIDs(ctx, domain.SourceFetchJobListByIDsOptions{
+		UserID: input.UserID,
+		IDs:    jobIDs,
+	})
+	if err != nil {
+		opErr = err
+		return SourceFetchStatusResult{}, opErr
+	}
+	sources, err := s.repository.ListByUser(ctx, input.UserID)
+	if err != nil {
+		opErr = err
+		return SourceFetchStatusResult{}, opErr
+	}
+	sourcesByID := make(map[int64]domain.Source, len(sources))
+	for _, source := range sources {
+		sourcesByID[source.ID] = source
+	}
+
+	result := SourceFetchStatusResult{
+		RequestedCount: len(jobs),
+		Sources:        make([]domain.Source, 0),
+		Errors:         make([]FetchSourceError, 0),
+	}
+	for _, job := range jobs {
+		switch job.Status {
+		case domain.SourceFetchJobStatusQueued:
+			result.QueuedCount++
+		case domain.SourceFetchJobStatusRunning:
+			result.RunningCount++
+		case domain.SourceFetchJobStatusSucceeded:
+			result.SuccessCount++
+			result.CompletedCount++
+		case domain.SourceFetchJobStatusFailed, domain.SourceFetchJobStatusCanceled:
+			result.FailureCount++
+			result.CompletedCount++
+			source := sourcesByID[job.SourceID]
+			result.Errors = append(result.Errors, FetchSourceError{
+				SourceID:   job.SourceID,
+				SourceName: source.Name,
+				Message:    job.LastError,
+			})
+		}
+
+		attempt, ok, err := s.latestFetchAttempt(ctx, input.UserID, job.ID)
+		if err != nil {
+			opErr = err
+			return SourceFetchStatusResult{}, opErr
+		}
+		if !ok || attempt.Status != domain.SourceFetchAttemptStatusSucceeded {
+			continue
+		}
+		result.CreatedCount += attempt.CreatedCount
+		result.UpdatedCount += attempt.UpdatedCount
+		if attempt.CreatedCount > 0 {
+			result.UpdatedSourceCount++
+			if source, ok := sourcesByID[job.SourceID]; ok {
+				result.Sources = append(result.Sources, source)
+			}
+		}
+	}
+	result.Done = result.RequestedCount > 0 && result.CompletedCount >= result.RequestedCount
+	span.SetAttributes(
+		attribute.Int("source_fetch_job.completed", result.CompletedCount),
+		attribute.Int("source_fetch_job.success", result.SuccessCount),
+		attribute.Int("source_fetch_job.failed", result.FailureCount),
+		attribute.Int("source_fetch_job.created_items", result.CreatedCount),
+	)
+	return result, nil
+}
+
+func (s *SourceService) enqueueActiveSourceFetchJobs(ctx context.Context, sources []domain.Source) (FetchSourcesResult, error) {
+	now := s.now().UTC()
+	result := FetchSourcesResult{
+		RequestedCount: len(sources),
+		Async:          true,
+		JobIDs:         make([]int64, 0, len(sources)),
+		Sources:        make([]domain.Source, 0, len(sources)),
+		Errors:         make([]FetchSourceError, 0),
+	}
+	for _, source := range sources {
+		job, err := s.fetchJobRepo.CreateJob(ctx, domain.SourceFetchJob{
+			UserID:      source.UserID,
+			SourceID:    source.ID,
+			Status:      domain.SourceFetchJobStatusQueued,
+			Trigger:     domain.SourceFetchTriggerManual,
+			ScheduledAt: now,
+			MaxAttempts: 3,
+			Priority:    source.FetchPriority,
+		})
+		if err != nil {
+			result.FailureCount++
+			result.Errors = append(result.Errors, FetchSourceError{
+				SourceID:   source.ID,
+				SourceName: source.Name,
+				Message:    sourceImportErrorMessage(err),
+			})
+			continue
+		}
+		result.QueuedCount++
+		result.JobIDs = append(result.JobIDs, job.ID)
+		result.Sources = append(result.Sources, source)
+	}
+	return result, nil
+}
+
+func (s *SourceService) latestFetchAttempt(ctx context.Context, userID int64, jobID int64) (domain.SourceFetchAttempt, bool, error) {
+	result, err := s.fetchJobRepo.ListAttemptsByJob(ctx, domain.SourceFetchAttemptListOptions{
+		UserID: userID,
+		JobID:  jobID,
+		Limit:  100,
+		Offset: 0,
+	})
+	if err != nil {
+		return domain.SourceFetchAttempt{}, false, err
+	}
+	if len(result.Attempts) == 0 {
+		return domain.SourceFetchAttempt{}, false, nil
+	}
+	latest := result.Attempts[0]
+	for _, attempt := range result.Attempts[1:] {
+		if attempt.AttemptNumber > latest.AttemptNumber || (attempt.AttemptNumber == latest.AttemptNumber && attempt.ID > latest.ID) {
+			latest = attempt
+		}
+	}
+	return latest, true, nil
 }
 
 func (s *SourceService) fetchSources(ctx context.Context, userID int64, sources []domain.Source) []fetchSourceAttempt {

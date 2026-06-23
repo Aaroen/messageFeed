@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"messagefeed/internal/domain"
 	"strings"
 	"time"
@@ -74,6 +75,22 @@ func (r *SourceFetchJobRepository) CreateJob(ctx context.Context, job domain.Sou
 	ctx, finish := traceRepositoryOperation(ctx, "repository.source_fetch_job.create", "create", "source_fetch_jobs")
 	var opErr error
 	defer func() { finish(opErr) }()
+
+	var existing sourceFetchJobModel
+	err := r.db.WithContext(ctx).
+		Where("user_id = ? AND source_id = ? AND status IN ?", job.UserID, job.SourceID, []string{
+			string(domain.SourceFetchJobStatusQueued),
+			string(domain.SourceFetchJobStatusRunning),
+		}).
+		Order("created_at DESC, id DESC").
+		First(&existing).Error
+	if err == nil {
+		return sourceFetchJobModelToDomain(existing), nil
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		opErr = mapRepositoryError(err)
+		return domain.SourceFetchJob{}, opErr
+	}
 
 	model := sourceFetchJobModelFromDomain(job)
 	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
@@ -203,6 +220,32 @@ func (r *SourceFetchJobRepository) ListJobsByUser(ctx context.Context, options d
 	}, nil
 }
 
+func (r *SourceFetchJobRepository) ListJobsByIDs(ctx context.Context, options domain.SourceFetchJobListByIDsOptions) ([]domain.SourceFetchJob, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.source_fetch_job.list_by_ids", "select", "source_fetch_jobs")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	ids := uniquePositiveInt64s(options.IDs)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	var models []sourceFetchJobModel
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND id IN ?", options.UserID, ids).
+		Order("id ASC").
+		Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+
+	jobs := make([]domain.SourceFetchJob, 0, len(models))
+	for _, model := range models {
+		jobs = append(jobs, sourceFetchJobModelToDomain(model))
+	}
+	return jobs, nil
+}
+
 func (r *SourceFetchJobRepository) ListAttemptsByJob(ctx context.Context, options domain.SourceFetchAttemptListOptions) (domain.SourceFetchAttemptListResult, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.source_fetch_attempt.list_by_job", "select", "source_fetch_attempts")
 	var opErr error
@@ -240,6 +283,22 @@ func (r *SourceFetchJobRepository) ListAttemptsByJob(ctx context.Context, option
 		Limit:    options.Limit,
 		Offset:   options.Offset,
 	}, nil
+}
+
+func uniquePositiveInt64s(values []int64) []int64 {
+	seen := make(map[int64]struct{}, len(values))
+	result := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value < 1 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func (r *SourceFetchJobRepository) CreateAttempt(ctx context.Context, attempt domain.SourceFetchAttempt) (domain.SourceFetchAttempt, error) {
