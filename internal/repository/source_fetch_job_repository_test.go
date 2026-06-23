@@ -116,3 +116,44 @@ func TestNormalizeSourceFetchJobClaimInput(t *testing.T) {
 		t.Fatalf("default Limit = %d, want %d", defaulted.Limit, defaultSourceFetchJobClaimLimit)
 	}
 }
+
+func TestNormalizeSourceFetchJobListOptions(t *testing.T) {
+	options := normalizeSourceFetchJobListOptions(domain.SourceFetchJobListOptions{
+		UserID: 1,
+		Limit:  maxSourceFetchJobListLimit + 1,
+		Offset: -1,
+	})
+
+	if options.Limit != maxSourceFetchJobListLimit {
+		t.Fatalf("Limit = %d, want %d", options.Limit, maxSourceFetchJobListLimit)
+	}
+	if options.Offset != 0 {
+		t.Fatalf("Offset = %d, want 0", options.Offset)
+	}
+
+	defaulted := normalizeSourceFetchJobListOptions(domain.SourceFetchJobListOptions{UserID: 1})
+	if defaulted.Limit != defaultSourceFetchJobListLimit {
+		t.Fatalf("default Limit = %d, want %d", defaulted.Limit, defaultSourceFetchJobListLimit)
+	}
+}
+
+func TestNormalizeSourceFetchAttemptListOptions(t *testing.T) {
+	options := normalizeSourceFetchAttemptListOptions(domain.SourceFetchAttemptListOptions{
+		UserID: 1,
+		JobID:  2,
+		Limit:  maxSourceFetchJobListLimit + 1,
+		Offset: -1,
+	})
+
+	if options.Limit != maxSourceFetchJobListLimit {
+		t.Fatalf("Limit = %d, want %d", options.Limit, maxSourceFetchJobListLimit)
+	}
+	if options.Offset != 0 {
+		t.Fatalf("Offset = %d, want 0", options.Offset)
+	}
+
+	defaulted := normalizeSourceFetchAttemptListOptions(domain.SourceFetchAttemptListOptions{UserID: 1, JobID: 2})
+	if defaulted.Limit != defaultSourceFetchJobListLimit {
+		t.Fatalf("default Limit = %d, want %d", defaulted.Limit, defaultSourceFetchJobListLimit)
+	}
+}

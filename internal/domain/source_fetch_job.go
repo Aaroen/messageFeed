@@ -97,3 +97,30 @@ type SourceFetchJobClaimInput struct {
 	WorkerID string
 	Limit    int
 }
+
+type SourceFetchJobListOptions struct {
+	UserID int64
+	Limit  int
+	Offset int
+}
+
+type SourceFetchJobListResult struct {
+	Jobs   []SourceFetchJob
+	Total  int64
+	Limit  int
+	Offset int
+}
+
+type SourceFetchAttemptListOptions struct {
+	UserID int64
+	JobID  int64
+	Limit  int
+	Offset int
+}
+
+type SourceFetchAttemptListResult struct {
+	Attempts []SourceFetchAttempt
+	Total    int64
+	Limit    int
+	Offset   int
+}

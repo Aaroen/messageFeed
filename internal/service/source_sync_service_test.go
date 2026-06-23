@@ -44,7 +44,7 @@ func TestSourceSyncServiceExecuteFetchJobCreatesItemEvents(t *testing.T) {
 			Status:       domain.SourceFetchJobStatusRunning,
 			Trigger:      domain.SourceFetchTriggerScheduled,
 			AttemptCount: 1,
-			MaxAttempts:  3,
+			MaxAttempts:  1,
 		},
 	})
 	if err != nil {
@@ -111,7 +111,7 @@ func TestSourceSyncServiceExecuteFetchJobRecordsFailure(t *testing.T) {
 			SourceID:     source.ID,
 			Status:       domain.SourceFetchJobStatusRunning,
 			Trigger:      domain.SourceFetchTriggerScheduled,
-			AttemptCount: 1,
+			AttemptCount: 3,
 			MaxAttempts:  3,
 		},
 	})
@@ -133,6 +133,59 @@ func TestSourceSyncServiceExecuteFetchJobRecordsFailure(t *testing.T) {
 	}
 	if got, want := len(itemEventStore.events), 0; got != want {
 		t.Fatalf("events length = %d, want %d", got, want)
+	}
+}
+
+func TestSourceSyncServiceExecuteFetchJobQueuesRetry(t *testing.T) {
+	now := time.Date(2026, 6, 23, 15, 30, 0, 0, time.UTC)
+	sourceRepository := newFakeSourceRepository()
+	source, err := sourceRepository.Create(context.Background(), domain.Source{
+		UserID:        1,
+		Name:          "Example",
+		Type:          domain.SourceTypeRSS,
+		URL:           "https://example.com/feed.xml",
+		NormalizedURL: "https://example.com/feed.xml",
+		Status:        domain.SourceStatusActive,
+	})
+	if err != nil {
+		t.Fatalf("Create source returned error: %v", err)
+	}
+
+	service := NewSourceSyncService(
+		sourceRepository,
+		&fakeSourceSyncItemRepository{},
+		&fakeFeedFetcher{err: errors.New("network failed")},
+		&fakeSourceFetchJobStore{},
+		&fakeItemEventStore{},
+		WithSourceSyncNow(func() time.Time { return now }),
+	)
+
+	result, err := service.ExecuteFetchJob(context.Background(), ExecuteSourceFetchJobInput{
+		Job: domain.SourceFetchJob{
+			ID:           9,
+			UserID:       1,
+			SourceID:     source.ID,
+			Status:       domain.SourceFetchJobStatusRunning,
+			Trigger:      domain.SourceFetchTriggerScheduled,
+			AttemptCount: 1,
+			MaxAttempts:  3,
+		},
+	})
+	if err == nil {
+		t.Fatal("ExecuteFetchJob returned nil error")
+	}
+
+	if result.Job.Status != domain.SourceFetchJobStatusQueued {
+		t.Fatalf("Job.Status = %q, want %q", result.Job.Status, domain.SourceFetchJobStatusQueued)
+	}
+	if result.Job.Trigger != domain.SourceFetchTriggerRetry {
+		t.Fatalf("Job.Trigger = %q, want %q", result.Job.Trigger, domain.SourceFetchTriggerRetry)
+	}
+	if !result.Job.ScheduledAt.Equal(now.Add(time.Minute)) {
+		t.Fatalf("ScheduledAt = %s, want %s", result.Job.ScheduledAt, now.Add(time.Minute))
+	}
+	if result.Job.LockedBy != "" || result.Job.LockedAt != nil {
+		t.Fatalf("lock fields = %q/%#v, want cleared", result.Job.LockedBy, result.Job.LockedAt)
 	}
 }
 
@@ -210,6 +263,65 @@ func TestSourceSyncServiceEnqueueDueSourcesCreatesJobs(t *testing.T) {
 	}
 }
 
+func TestSourceSyncServiceRunOnceClaimsAndExecutesJobs(t *testing.T) {
+	now := time.Date(2026, 6, 23, 17, 0, 0, 0, time.UTC)
+	sourceRepository := newFakeSourceRepository()
+	source, err := sourceRepository.Create(context.Background(), domain.Source{
+		UserID:        1,
+		Name:          "Queued",
+		Type:          domain.SourceTypeRSS,
+		URL:           "https://queued.example/feed.xml",
+		NormalizedURL: "https://queued.example/feed.xml",
+		Status:        domain.SourceStatusActive,
+	})
+	if err != nil {
+		t.Fatalf("Create source returned error: %v", err)
+	}
+	locker := &fakeSourceSyncTaskLocker{}
+	fetchJobStore := &fakeSourceFetchJobStore{
+		claimJobs: []domain.SourceFetchJob{
+			{
+				ID:           11,
+				UserID:       1,
+				SourceID:     source.ID,
+				Status:       domain.SourceFetchJobStatusRunning,
+				Trigger:      domain.SourceFetchTriggerScheduled,
+				AttemptCount: 1,
+				MaxAttempts:  3,
+			},
+		},
+	}
+	service := NewSourceSyncService(
+		sourceRepository,
+		&fakeSourceSyncItemRepository{},
+		&fakeFeedFetcher{},
+		fetchJobStore,
+		&fakeItemEventStore{},
+		WithSourceSyncNow(func() time.Time { return now }),
+		WithSourceSyncTaskLocker(locker),
+	)
+
+	result, err := service.RunOnce(context.Background(), RunSourceSyncOnceInput{
+		Now:        now,
+		WorkerID:   "worker-a",
+		LockName:   "source-sync",
+		ClaimLimit: 5,
+	})
+	if err != nil {
+		t.Fatalf("RunOnce returned error: %v", err)
+	}
+
+	if !locker.called {
+		t.Fatal("task locker was not called")
+	}
+	if fetchJobStore.claimInput.WorkerID != "worker-a" {
+		t.Fatalf("claim WorkerID = %q, want worker-a", fetchJobStore.claimInput.WorkerID)
+	}
+	if result.ClaimedCount != 1 || result.SuccessCount != 1 {
+		t.Fatalf("result = %#v, want one claimed success", result)
+	}
+}
+
 type fakeSourceSyncItemRepository struct {
 	nextID int64
 	items  []domain.Item
@@ -231,9 +343,11 @@ func (r *fakeSourceSyncItemRepository) UpsertMany(_ context.Context, items []dom
 }
 
 type fakeSourceFetchJobStore struct {
-	nextID   int64
-	jobs     []domain.SourceFetchJob
-	attempts []domain.SourceFetchAttempt
+	nextID     int64
+	jobs       []domain.SourceFetchJob
+	attempts   []domain.SourceFetchAttempt
+	claimJobs  []domain.SourceFetchJob
+	claimInput domain.SourceFetchJobClaimInput
 }
 
 func (s *fakeSourceFetchJobStore) CreateJob(_ context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error) {
@@ -244,6 +358,11 @@ func (s *fakeSourceFetchJobStore) CreateJob(_ context.Context, job domain.Source
 	s.nextID++
 	s.jobs = append(s.jobs, job)
 	return job, nil
+}
+
+func (s *fakeSourceFetchJobStore) ClaimDueJobs(_ context.Context, input domain.SourceFetchJobClaimInput) ([]domain.SourceFetchJob, error) {
+	s.claimInput = input
+	return append([]domain.SourceFetchJob(nil), s.claimJobs...), nil
 }
 
 func (s *fakeSourceFetchJobStore) UpdateJob(_ context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error) {
@@ -286,4 +405,13 @@ func (r *fakeSourceRepository) ListDueForFetch(_ context.Context, options domain
 		sources = append(sources, source)
 	}
 	return sources, nil
+}
+
+type fakeSourceSyncTaskLocker struct {
+	called bool
+}
+
+func (l *fakeSourceSyncTaskLocker) WithLock(ctx context.Context, _ string, _ time.Duration, run func(context.Context) error) error {
+	l.called = true
+	return run(ctx)
 }

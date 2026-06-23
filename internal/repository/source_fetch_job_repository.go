@@ -13,6 +13,8 @@ import (
 const (
 	defaultSourceFetchJobClaimLimit = 20
 	maxSourceFetchJobClaimLimit     = 100
+	defaultSourceFetchJobListLimit  = 20
+	maxSourceFetchJobListLimit      = 100
 )
 
 type SourceFetchJobRepository struct {
@@ -144,7 +146,7 @@ func (r *SourceFetchJobRepository) UpdateJob(ctx context.Context, job domain.Sou
 	result := r.db.WithContext(ctx).
 		Model(&sourceFetchJobModel{}).
 		Where("user_id = ? AND id = ?", job.UserID, job.ID).
-		Select("Status", "StartedAt", "FinishedAt", "AttemptCount", "MaxAttempts", "Priority", "LockedBy", "LockedAt", "LastError").
+		Select("Status", "TriggerType", "ScheduledAt", "StartedAt", "FinishedAt", "AttemptCount", "MaxAttempts", "Priority", "LockedBy", "LockedAt", "LastError").
 		Updates(&model)
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
@@ -163,6 +165,81 @@ func (r *SourceFetchJobRepository) UpdateJob(ctx context.Context, job domain.Sou
 		return domain.SourceFetchJob{}, opErr
 	}
 	return sourceFetchJobModelToDomain(updated), nil
+}
+
+func (r *SourceFetchJobRepository) ListJobsByUser(ctx context.Context, options domain.SourceFetchJobListOptions) (domain.SourceFetchJobListResult, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.source_fetch_job.list_by_user", "select", "source_fetch_jobs")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	options = normalizeSourceFetchJobListOptions(options)
+	query := r.db.WithContext(ctx).Model(&sourceFetchJobModel{}).Where("user_id = ?", options.UserID)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.SourceFetchJobListResult{}, opErr
+	}
+
+	var models []sourceFetchJobModel
+	if err := query.
+		Order("created_at DESC, id DESC").
+		Limit(options.Limit).
+		Offset(options.Offset).
+		Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.SourceFetchJobListResult{}, opErr
+	}
+
+	jobs := make([]domain.SourceFetchJob, 0, len(models))
+	for _, model := range models {
+		jobs = append(jobs, sourceFetchJobModelToDomain(model))
+	}
+	return domain.SourceFetchJobListResult{
+		Jobs:   jobs,
+		Total:  total,
+		Limit:  options.Limit,
+		Offset: options.Offset,
+	}, nil
+}
+
+func (r *SourceFetchJobRepository) ListAttemptsByJob(ctx context.Context, options domain.SourceFetchAttemptListOptions) (domain.SourceFetchAttemptListResult, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.source_fetch_attempt.list_by_job", "select", "source_fetch_attempts")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	options = normalizeSourceFetchAttemptListOptions(options)
+	query := r.db.WithContext(ctx).
+		Model(&sourceFetchAttemptModel{}).
+		Joins("JOIN source_fetch_jobs ON source_fetch_jobs.id = source_fetch_attempts.job_id").
+		Where("source_fetch_jobs.user_id = ? AND source_fetch_attempts.job_id = ?", options.UserID, options.JobID)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.SourceFetchAttemptListResult{}, opErr
+	}
+
+	var models []sourceFetchAttemptModel
+	if err := query.
+		Order("source_fetch_attempts.attempt_number ASC, source_fetch_attempts.id ASC").
+		Limit(options.Limit).
+		Offset(options.Offset).
+		Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.SourceFetchAttemptListResult{}, opErr
+	}
+
+	attempts := make([]domain.SourceFetchAttempt, 0, len(models))
+	for _, model := range models {
+		attempts = append(attempts, sourceFetchAttemptModelToDomain(model))
+	}
+	return domain.SourceFetchAttemptListResult{
+		Attempts: attempts,
+		Total:    total,
+		Limit:    options.Limit,
+		Offset:   options.Offset,
+	}, nil
 }
 
 func (r *SourceFetchJobRepository) CreateAttempt(ctx context.Context, attempt domain.SourceFetchAttempt) (domain.SourceFetchAttempt, error) {
@@ -195,6 +272,32 @@ func normalizeSourceFetchJobClaimInput(input domain.SourceFetchJobClaimInput) do
 		input.Limit = maxSourceFetchJobClaimLimit
 	}
 	return input
+}
+
+func normalizeSourceFetchJobListOptions(options domain.SourceFetchJobListOptions) domain.SourceFetchJobListOptions {
+	if options.Limit <= 0 {
+		options.Limit = defaultSourceFetchJobListLimit
+	}
+	if options.Limit > maxSourceFetchJobListLimit {
+		options.Limit = maxSourceFetchJobListLimit
+	}
+	if options.Offset < 0 {
+		options.Offset = 0
+	}
+	return options
+}
+
+func normalizeSourceFetchAttemptListOptions(options domain.SourceFetchAttemptListOptions) domain.SourceFetchAttemptListOptions {
+	if options.Limit <= 0 {
+		options.Limit = defaultSourceFetchJobListLimit
+	}
+	if options.Limit > maxSourceFetchJobListLimit {
+		options.Limit = maxSourceFetchJobListLimit
+	}
+	if options.Offset < 0 {
+		options.Offset = 0
+	}
+	return options
 }
 
 func sourceFetchJobModelFromDomain(job domain.SourceFetchJob) sourceFetchJobModel {
