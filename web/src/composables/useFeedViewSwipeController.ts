@@ -88,7 +88,8 @@ export function useFeedViewSwipeController<TSurface extends string>(
   }
 
   function showTopChromeForViewSwipe() {
-    const shouldRevealChrome = clampProgress(options.topChromeProgress.value) < 0.99 || options.feedContentCollapsed.value
+    const shouldRevealChrome =
+      clampProgress(options.topChromeProgress.value) < 0.99 && !options.feedContentCollapsed.value
     if (shouldRevealChrome) {
       options.markStartedWithHiddenChrome()
       options.beginTopChromeGestureReturn({
