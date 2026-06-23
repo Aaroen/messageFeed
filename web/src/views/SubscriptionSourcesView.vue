@@ -45,6 +45,7 @@ const refreshLayoutFreeze = useRefreshLayoutFreeze({ targetRef: sourcesPageRef }
 const feedListCache = useFeedListCacheStore()
 let pageRefreshingToken = 0
 let disposed = false
+let pendingRefreshNoticeDelayMS = 0
 const pageRequestToken = useRequestToken({ isActive: () => !disposed })
 const importFetchConcurrency = 3
 const pageBusy = computed(
@@ -102,6 +103,19 @@ function finishPageRefresh(token: number) {
   }
   pageRefreshingToken = 0
   pageRefreshing.value = false
+}
+
+function reserveRefreshNoticeDelay(delayMS?: number) {
+  if (typeof delayMS !== 'number' || delayMS <= 0) {
+    return
+  }
+  pendingRefreshNoticeDelayMS = Math.max(pendingRefreshNoticeDelayMS, delayMS)
+}
+
+function consumeRefreshNoticeDelay(delayMS?: number) {
+  const reservedDelayMS = pendingRefreshNoticeDelayMS
+  pendingRefreshNoticeDelayMS = 0
+  return Math.max(typeof delayMS === 'number' ? delayMS : 0, reservedDelayMS)
 }
 
 function invalidateSubscriptionFeedCaches(sourceIDs: number[] = []) {
@@ -177,6 +191,9 @@ async function handleCatalogSearch() {
 
 async function refreshPage(options: PageRefreshOptions = {}) {
   if (pageBusy.value) {
+    if (pageRefreshing.value) {
+      reserveRefreshNoticeDelay(options.noticeDelayMS)
+    }
     return
   }
   const token = nextPageRequestToken()
@@ -211,14 +228,14 @@ async function refreshPage(options: PageRefreshOptions = {}) {
       return
     }
     const fetchNotice = subscriptionManagementFetchNotice(fetchResult)
-    showNotice(fetchNotice.type, fetchNotice.message, undefined, options.noticeDelayMS)
+    showNotice(fetchNotice.type, fetchNotice.message, undefined, consumeRefreshNoticeDelay(options.noticeDelayMS))
   } catch (err) {
     if (pageRequestIsCurrent(token)) {
       showNotice(
         'warning',
         `刷新异常：订阅管理数据未完整更新。详细原因：${formatAPIError(err)}`,
         undefined,
-        options.noticeDelayMS,
+        consumeRefreshNoticeDelay(options.noticeDelayMS),
       )
     }
   } finally {
