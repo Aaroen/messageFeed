@@ -114,6 +114,19 @@ services:
       # 数据库配置
       DATABASE_URL: postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable
 
+      # 企业微信自建应用对话入口配置
+      WECHAT_WORK_CORP_ID: ${WECHAT_WORK_CORP_ID:-}
+      WECHAT_WORK_AGENT_ID: ${WECHAT_WORK_AGENT_ID:-}
+      WECHAT_WORK_SECRET: ${WECHAT_WORK_SECRET:-}
+      WECHAT_WORK_CALLBACK_TOKEN: ${WECHAT_WORK_CALLBACK_TOKEN:-}
+      WECHAT_WORK_ENCODING_AES_KEY: ${WECHAT_WORK_ENCODING_AES_KEY:-}
+
+      # AI 模型配置
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+
       # 时区设置
       TZ: UTC
 
@@ -161,6 +174,15 @@ services:
       LOG_LEVEL: debug
       OBSERVABILITY_TRACE_ENABLED: "false"
       DATABASE_URL: postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable
+      WECHAT_WORK_CORP_ID: ${WECHAT_WORK_CORP_ID:-}
+      WECHAT_WORK_AGENT_ID: ${WECHAT_WORK_AGENT_ID:-}
+      WECHAT_WORK_SECRET: ${WECHAT_WORK_SECRET:-}
+      WECHAT_WORK_CALLBACK_TOKEN: ${WECHAT_WORK_CALLBACK_TOKEN:-}
+      WECHAT_WORK_ENCODING_AES_KEY: ${WECHAT_WORK_ENCODING_AES_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
       TZ: UTC
 
     volumes:
