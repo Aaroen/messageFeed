@@ -809,7 +809,9 @@ function handleTouchMove(event: TouchEvent) {
   }
 
   if (trackingPull.value) {
-    event.preventDefault()
+    if (event.cancelable) {
+      event.preventDefault()
+    }
     emit('top-pull-move', Math.max(0, deltaY))
     const refreshDistance = Math.max(0, deltaY - touchStartChromeDistance)
     if (refreshDistance <= 0) {

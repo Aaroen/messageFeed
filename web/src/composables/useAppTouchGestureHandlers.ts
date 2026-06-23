@@ -81,6 +81,12 @@ type AppTouchGestureHandlersOptions = {
 }
 
 export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptions) {
+  function preventDefaultIfCancelable(event: TouchEvent) {
+    if (event.cancelable) {
+      event.preventDefault()
+    }
+  }
+
   function hasTrackedTouchGesture() {
     return (
       options.navigationGesture.hasCandidate() ||
@@ -182,7 +188,7 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
       if (!handledBackSwipe) {
         return
       }
-      event.preventDefault()
+      preventDefaultIfCancelable(event)
       return
     }
 
@@ -207,7 +213,7 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
     }
 
     if (options.navigationGesture.hasActiveSwipe() || options.viewSwipeActive.value) {
-      event.preventDefault()
+      preventDefaultIfCancelable(event)
     }
 
     if (options.navigationGesture.edgeSwipe()) {

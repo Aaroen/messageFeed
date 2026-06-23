@@ -108,7 +108,9 @@ export function usePagePullGestureHandlers(options: PagePullGestureHandlersOptio
     }
 
     if (options.pullRefresh.gestureTracking.value) {
-      event.preventDefault()
+      if (event.cancelable) {
+        event.preventDefault()
+      }
       options.pullRefresh.updateGestureDistance(deltaY)
       options.pullRefresh.setGestureOffset(pageRubberBandOffset(deltaY))
     }
