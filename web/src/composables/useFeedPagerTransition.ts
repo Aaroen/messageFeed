@@ -38,6 +38,17 @@ function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
 }
 
+function blockedDragOffset(deltaX: number, windowWidth: number) {
+  if (!Number.isFinite(deltaX) || deltaX === 0) {
+    return 0
+  }
+
+  const distance = Math.abs(deltaX)
+  const maxOffset = Math.min(Math.max(windowWidth * 0.1, 22), 36)
+  const offset = Math.min(maxOffset, Math.log1p(distance) * 8)
+  return deltaX > 0 ? offset : -offset
+}
+
 export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   const dragThreshold = options.dragThreshold ?? 8
   const dragOffset = ref(0)
@@ -123,11 +134,13 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function swipeTransitionBeginPayload(offset: number) {
+    const targetSurface = surfaceFromOffset(offset)
     return {
       from: activeSurface.value,
-      to: surfaceFromOffset(offset),
+      to: targetSurface,
       direction: directionFromOffset(offset),
       progress: swipeProgress.value,
+      isBlocked: targetSurface === null,
     }
   }
 
@@ -194,10 +207,19 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   function tryBeginDrag(deltaX: number): FeedPagerDragStartResult {
     const blocked = isBlockedDragDirection(deltaX)
-    if (blocked || !canStartDrag(deltaX)) {
+    if (blocked) {
+      beginViewSwipe()
+      setDragDelta(deltaX)
+      return {
+        started: true,
+        blocked: true,
+      }
+    }
+
+    if (!canStartDrag(deltaX)) {
       return {
         started: false,
-        blocked,
+        blocked: false,
       }
     }
 
@@ -313,14 +335,23 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
   function setDragDelta(deltaX: number) {
     if (activeIndex.value === 0) {
-      setDragOffset(Math.min(0, Math.max(deltaX, -options.getWindowWidth())))
+      if (deltaX > 0) {
+        setDragOffset(blockedDragOffset(deltaX, options.getWindowWidth()))
+        return
+      }
+      setDragOffset(Math.max(deltaX, -options.getWindowWidth()))
       return
     }
-    setDragOffset(Math.max(0, Math.min(deltaX, options.getWindowWidth())))
+    if (deltaX < 0) {
+      setDragOffset(blockedDragOffset(deltaX, options.getWindowWidth()))
+      return
+    }
+    setDragOffset(Math.min(deltaX, options.getWindowWidth()))
   }
 
   function updateDragDelta(deltaX: number, updateOptions: FeedPagerDragUpdateOptions = {}): FeedPagerDragUpdateResult {
-    if (updateOptions.resetBlockedDirection && isBlockedDragDirection(deltaX)) {
+    const blocked = isBlockedDragDirection(deltaX)
+    if (updateOptions.resetBlockedDirection && blocked) {
       resetDragOffset()
       return {
         blocked: true,
@@ -329,7 +360,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
 
     setDragDelta(deltaX)
     return {
-      blocked: false,
+      blocked,
     }
   }
 

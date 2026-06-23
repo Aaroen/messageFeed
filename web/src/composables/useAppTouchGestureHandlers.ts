@@ -228,10 +228,6 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
 
     if (options.viewSwipeCandidateActive.value && viewHorizontal) {
       const dragStart = options.feedPagerTransition.tryBeginDrag(deltaX)
-      if (dragStart.blocked) {
-        options.feedPagerTransition.cancelViewSwipeCandidate()
-        return
-      }
       if (dragStart.started) {
         options.navigationGesture.cancelCandidates()
         options.showTopChromeForViewSwipe()

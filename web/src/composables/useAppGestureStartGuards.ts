@@ -11,6 +11,11 @@ type AppGestureStartGuardsOptions = {
   feedPullBusy: ReadableRef<boolean>
 }
 
+function navigationEdgeWidth() {
+  const viewportWidth = typeof window === 'undefined' ? 390 : window.innerWidth
+  return Math.min(Math.max(viewportWidth * 0.08, 44), 56)
+}
+
 export function useAppGestureStartGuards(options: AppGestureStartGuardsOptions) {
   function canStartViewSwipe(_clientX: number) {
     if (
@@ -26,9 +31,10 @@ export function useAppGestureStartGuards(options: AppGestureStartGuardsOptions) 
     return true
   }
 
-  function canStartNavigationOpen(_clientX: number) {
+  function canStartNavigationOpen(clientX: number) {
     return (
       options.isSubscriptionsRoute() &&
+      clientX <= navigationEdgeWidth() &&
       !options.navigationVisible.value &&
       !options.sourceReaderOpen.value &&
       !options.feedPullBusy.value &&
