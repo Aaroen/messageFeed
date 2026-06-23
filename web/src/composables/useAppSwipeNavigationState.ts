@@ -37,5 +37,6 @@ export function useAppSwipeNavigationState<TSurface extends string>(
     clearFeedViewStartedWithHiddenChrome: feedPagerTransition.clearStartedWithHiddenChrome,
     resetFeedViewDragOffset: feedPagerTransition.resetDragOffset,
     clearFeedPagerTimers: feedPagerTransition.clearTimers,
+    resetFeedPagerTransition: feedPagerTransition.reset,
   }
 }

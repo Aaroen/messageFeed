@@ -343,7 +343,7 @@ const {
   resetFeedViewSwipeTracking,
   clearFeedViewStartedWithHiddenChrome,
   resetFeedViewDragOffset,
-  clearFeedPagerTimers,
+  resetFeedPagerTransition,
   isHorizontalSwipe,
   isViewHorizontalSwipe,
   isNavigationDrag,
@@ -1165,7 +1165,7 @@ routeRuntime.installRouteSessionWatchers({
 
 const runtimeCleanup = useAppRuntimeCleanup({
   swipe: {
-    clearFeedPagerTimers,
+    resetFeedPagerTransition,
     clearSwipeTransitionTimer,
   },
   navigation: {
