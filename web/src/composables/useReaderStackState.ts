@@ -2174,10 +2174,16 @@ export function useReaderStackState() {
 
   function setSourceReaderContentElement(element: HTMLElement | null) {
     sourceReaderContentRef.value = element
+    if (element) {
+      updateSourceReaderScrollTopState(element.scrollTop)
+    }
   }
 
   function setDetailContentElement(element: HTMLElement | null) {
     detailContentRef.value = element
+    if (element) {
+      updateDetailScrollMetricsState(element.scrollTop, element.scrollHeight, element.clientHeight)
+    }
   }
 
   function setDetailInlineSourceElement(element: HTMLElement | null) {
@@ -2193,6 +2199,7 @@ export function useReaderStackState() {
       return false
     }
     sourceReaderContentRef.value.scrollTop = scrollTop
+    updateSourceReaderScrollTopState(sourceReaderContentRef.value.scrollTop)
     return true
   }
 
@@ -2201,6 +2208,11 @@ export function useReaderStackState() {
       return false
     }
     detailContentRef.value.scrollTop = scrollTop
+    updateDetailScrollMetricsState(
+      detailContentRef.value.scrollTop,
+      detailContentRef.value.scrollHeight,
+      detailContentRef.value.clientHeight,
+    )
     return true
   }
 

@@ -176,6 +176,54 @@ const {
 } = readerStackRuntime
 const feedScroll = useFeedScrollState()
 const feedScrollTop = feedScroll.scrollTop
+
+function syncFeedScrollTop(scrollTop: number) {
+  feedScroll.update(scrollTop)
+  scrollHistory.set('feed', scrollTop)
+}
+
+function setFeedContentElementSynced(element: HTMLElement | null) {
+  feedContent.setContentElement(element)
+  if (element) {
+    syncFeedScrollTop(element.scrollTop)
+  }
+}
+
+function scrollFeedContentToSynced(scrollTop: number) {
+  feedContent.scrollTo(scrollTop)
+  syncFeedScrollTop(feedContent.currentScrollTop())
+}
+
+function setSourceReaderContentElementSynced(element: HTMLElement | null) {
+  setSourceReaderContentElementState(element)
+  if (element) {
+    scrollHistory.set('source', sourceReaderScrollTop.value)
+  }
+}
+
+function setDetailContentElementSynced(element: HTMLElement | null) {
+  setDetailContentElementState(element)
+  if (element) {
+    scrollHistory.set('detail', detailScrollTop.value)
+  }
+}
+
+function scrollSourceReaderContentToSynced(scrollTop: number) {
+  const restored = scrollSourceReaderContentElementTo(scrollTop)
+  if (restored) {
+    scrollHistory.set('source', sourceReaderScrollTop.value)
+  }
+  return restored
+}
+
+function scrollDetailContentToSynced(scrollTop: number) {
+  const restored = scrollDetailContentElementTo(scrollTop)
+  if (restored) {
+    scrollHistory.set('detail', detailScrollTop.value)
+  }
+  return restored
+}
+
 const chromeState = useChromeState()
 const topChromeProgress = chromeState.progress
 const topChromePhase = chromeState.phase
@@ -238,7 +286,7 @@ const {
   scrollRestoreSettledDelay: readerScrollRestoreSettledDelay,
   createReaderStackSessionSnapshot,
   restoreFeedScrollTop: (scrollTop) => {
-    feedScroll.restore(scrollTop)
+    syncFeedScrollTop(scrollTop)
   },
   restoreChromeSnapshot: (snapshot) => {
     chromeState.restoreSnapshot(snapshot)
@@ -246,10 +294,10 @@ const {
   applyReaderStackSessionSnapshot,
   loadSourceReaderSubscription,
   scrollFeedContentTo: (scrollTop) => {
-    feedContent.scrollTo(scrollTop)
+    scrollFeedContentToSynced(scrollTop)
   },
-  scrollSourceReaderContentTo: scrollSourceReaderContentElementTo,
-  scrollDetailContentTo: scrollDetailContentElementTo,
+  scrollSourceReaderContentTo: scrollSourceReaderContentToSynced,
+  scrollDetailContentTo: scrollDetailContentToSynced,
   syncDetailContainerMetrics: () => {
     syncDetailContainerMetrics()
   },
@@ -563,11 +611,11 @@ const {
   setDetailFrameElement,
 } = useAppElementRefs({
   detailFrameRef,
-  setSourceReaderContentElement: setSourceReaderContentElementState,
-  setFeedContentElement: feedContent.setContentElement,
+  setSourceReaderContentElement: setSourceReaderContentElementSynced,
+  setFeedContentElement: setFeedContentElementSynced,
   setPageContentElement: pageOutlet.setContentElement,
   setPageViewInstance: pageOutlet.setViewInstance,
-  setDetailContentElement: setDetailContentElementState,
+  setDetailContentElement: setDetailContentElementSynced,
   setDetailInlineSourceElement: setDetailInlineSourceElementState,
   setDetailFrameElement: setDetailFrameElementState,
 })
@@ -602,7 +650,7 @@ const readerNavigationRuntime = useAppReaderNavigationRuntime({
       loadSourceReaderSubscription,
       resetSourceSubscriptionState,
       rememberSourceScrollTop,
-      scrollSourceReaderContentElementTo,
+      scrollSourceReaderContentElementTo: scrollSourceReaderContentToSynced,
     },
     sourceReveal: {
       detailItem,
@@ -625,7 +673,7 @@ const readerNavigationRuntime = useAppReaderNavigationRuntime({
       setChromeStableVisible: chromeState.setStableVisible,
       finishFeedTopPull,
       rememberDetailScrollTop,
-      scrollDetailContentElementTo,
+      scrollDetailContentElementTo: scrollDetailContentToSynced,
       scheduleReaderSessionSave,
     },
   },
@@ -944,7 +992,7 @@ const readerStackOutletRuntime = useAppReaderStackOutletRuntime({
       updateDetailScrollMetrics: updateDetailScrollMetricsState,
       updateDetailScrollTop: updateDetailScrollTopState,
       rememberDetailScrollTop,
-      scrollDetailContentElementTo,
+      scrollDetailContentElementTo: scrollDetailContentToSynced,
       suppressFollowingClick,
       setDetailProgressDragging: setDetailProgressDraggingState,
     },
