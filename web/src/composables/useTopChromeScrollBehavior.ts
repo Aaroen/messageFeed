@@ -33,14 +33,13 @@ function safeGapFeedRevealProgress(payload: {
 }) {
   const topOffset = feedContentTopOffset(payload.headerHeight)
   if (payload.contentCollapsed) {
-    const visibleTopOffset = feedVisibleContentTopOffset(payload.headerHeight)
-    if (payload.scrollTop >= visibleTopOffset) {
+    if (payload.scrollTop > topOffset) {
       return 0
     }
 
     return Math.min(
       payload.progress,
-      clampProgress((visibleTopOffset - payload.scrollTop) / Math.max(visibleTopOffset, 1)),
+      clampProgress((topOffset - payload.scrollTop) / Math.max(topOffset, 1)),
     )
   }
 
@@ -77,7 +76,7 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
     const expectedProgress = feedRevealProgressAtScrollTop(current, headerHeight, true)
     const restoreProgress = Math.max(topChromeProgress(), expectedProgress)
     const topSettleOffset = feedContentTopOffset(headerHeight)
-    if (current <= topSettleOffset && restoreProgress >= 0.86) {
+    if (current <= topSettleOffset) {
       options.setTopChromeVisible(true)
       return true
     }
