@@ -88,6 +88,23 @@ HTTP request
 
 ## 3. 目录结构
 
+当前顶层工作区 `Go_Pro/` 不作为产品源码包参与构建，只承担多仓库工作区和参考资料承载职责。正式产品仓库仍是 `messageFeed/`；外部参考项目继续保留在同级 `references/`，仅作为源码阅读和设计比较资料，不得成为运行时依赖、构建输入或测试夹具来源。
+
+顶层边界如下：
+
+```text
+Go_Pro/
+├── messageFeed/      # 正式产品仓库，所有运行时代码、部署、迁移、API 和长期文档均在此维护
+├── references/       # 外部参考项目，只读研究资料，不参与 messageFeed 构建
+├── .agents/          # 工作区级 Agent 配置
+├── .codex/           # 工作区级 Codex 配置
+└── Go_Pro.md         # 工作区级说明或学习索引
+```
+
+因此，后续不对顶层工作区做大规模重建，也不把参考项目移动进 `messageFeed/`。需要重构的是 `messageFeed/internal` 内部模块职责和依赖方向，尤其是阶段五以后新增的 Agent、主动采集、画像、通知和金融模块。
+
+`messageFeed/` 顶层保持单体模块化结构：
+
 ```text
 messageFeed/
 ├── cmd/api/main.go
@@ -119,6 +136,14 @@ messageFeed/
 └── Makefile
 ```
 
+目录演进原则：
+
+1. 顶层目录保持稳定，不因新增业务能力频繁增加一级目录。
+2. Agent、主动采集、画像、通知和金融能力优先落在 `internal` 的明确职责模块内。
+3. 不提前创建大量空目录；只有当某个职责进入实际实现或迁移、接口、测试需要落位时才新增目录。
+4. `references/` 中的项目不得被 import、go:generate、测试或部署脚本直接引用。
+5. 需要沉淀的参考结论进入 `docs/agent-plan.md`、`docs/architecture.md` 或专项计划文档，而不是复制参考项目目录结构。
+
 ## 4. 模块职责
 
 | 模块 | 职责 |
@@ -142,6 +167,23 @@ messageFeed/
 | `llm` | 抽象模型调用、token 统计、结构化摘要和错误记录 |
 | `notifier` | 抽象 ntfy、微信和后续通知通道 |
 | `runtime` | 管理节点标识、部署模式、就绪状态、任务锁和后续分布式运行接口 |
+
+阶段五开始，`internal/agent` 可以按运行时职责继续拆分子包，但不应拆成独立微服务。推荐内部边界如下：
+
+```text
+internal/agent/
+├── session      # session、turn、active turn 串行化和恢复
+├── transcript   # transcript append、上下文输入输出记录
+├── capability   # capability registry、search、execute proxy 和 schema
+├── planning     # intent、plan、step、impact 和 plan validation
+├── policy       # allow/prompt/forbidden、risk、approval
+├── memory       # MemoryProvider、MemorySnapshot、profile/context 聚合
+├── context      # token 估算、语义分块、压缩、归档、召回
+├── eval         # eval case、eval run、状态断言和评分
+└── audit        # command、approval、tool result、model output 审计
+```
+
+这些子包的依赖方向应保持单向：`session/turn` 编排 `planning`、`policy`、`capability`、`memory`、`context` 和 `audit`；`capability` 只能通过已注册 adapter 调用 `service`；`agent` 不直接依赖 `repository`。如果某个 capability 需要变更订阅源、通知、画像或金融规则，应通过对应 service 暴露明确用例方法，而不是在 Agent 内部拼接数据库写入逻辑。
 
 ## 5. 核心数据模型
 
