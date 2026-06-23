@@ -97,7 +97,7 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
     const token = motionToken + 1
     motionToken = token
     settlePhase.value = 'holding'
-    settleOffset.value = options.headerHeight.value
+    settleOffset.value = options.headerSpace.value
     settleFrame = window.requestAnimationFrame(() => {
       if (token !== motionToken) {
         return
