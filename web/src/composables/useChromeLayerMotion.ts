@@ -111,7 +111,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
       {
         shift: 0,
         scaleStart: 1,
-        disableTransition: payload.dragging,
+        disableTransition: payload.dragging || !payload.visible || payload.feedPullActive,
         pointerEnabled: false,
       },
     )
