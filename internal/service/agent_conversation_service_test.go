@@ -5,6 +5,7 @@ import (
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/notifier"
+	"strings"
 	"testing"
 	"time"
 )
@@ -76,6 +77,51 @@ func TestAgentConversationServiceBindsReceivesAndSendsAIReply(t *testing.T) {
 	}
 	if len(llmClient.lastRequest.Messages) != 2 {
 		t.Fatalf("llm messages = %#v", llmClient.lastRequest.Messages)
+	}
+	if llmClient.lastRequest.MaxTokens != agentReplyMaxTokens {
+		t.Fatalf("MaxTokens = %d, want %d", llmClient.lastRequest.MaxTokens, agentReplyMaxTokens)
+	}
+}
+
+func TestAgentConversationServiceSplitsLongWeChatWorkReply(t *testing.T) {
+	repository := newFakeAgentConversationRepository()
+	reply := strings.Repeat("你", notifier.WeChatWorkTextByteLimit)
+	llmClient := &fakeAgentConversationLLM{
+		response: llm.ChatResponse{Provider: "hyb", Model: "custom-model", Content: reply},
+	}
+	sender := &fakeAgentConversationSender{}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-1",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "详细介绍",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Reply != reply {
+		t.Fatalf("Reply was changed")
+	}
+	if sender.calls < 2 {
+		t.Fatalf("sender calls = %d, want at least 2", sender.calls)
+	}
+	var sent strings.Builder
+	for _, message := range sender.sentMessages {
+		if len(message.Content) > notifier.WeChatWorkTextByteLimit {
+			t.Fatalf("chunk byte length = %d, limit %d", len(message.Content), notifier.WeChatWorkTextByteLimit)
+		}
+		sent.WriteString(message.Content)
+	}
+	if sent.String() != reply {
+		t.Fatalf("sent content does not match reply")
 	}
 }
 
@@ -232,15 +278,17 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 }
 
 type fakeAgentConversationSender struct {
-	calls  int
-	sent   notifier.WeChatWorkTextMessage
-	result notifier.WeChatWorkSendResult
-	err    error
+	calls        int
+	sent         notifier.WeChatWorkTextMessage
+	sentMessages []notifier.WeChatWorkTextMessage
+	result       notifier.WeChatWorkSendResult
+	err          error
 }
 
 func (f *fakeAgentConversationSender) SendText(_ context.Context, message notifier.WeChatWorkTextMessage) (notifier.WeChatWorkSendResult, error) {
 	f.calls++
 	f.sent = message
+	f.sentMessages = append(f.sentMessages, message)
 	if f.err != nil {
 		return notifier.WeChatWorkSendResult{}, f.err
 	}

@@ -147,8 +147,8 @@ func TestWeChatWorkAppClientTruncatesTextByBytes(t *testing.T) {
 		t.Fatalf("SendText() error = %v", err)
 	}
 
-	if len([]byte(sent.Text.Content)) > weChatWorkTextByteLimit {
-		t.Fatalf("sent content bytes = %d, limit %d", len([]byte(sent.Text.Content)), weChatWorkTextByteLimit)
+	if len([]byte(sent.Text.Content)) > WeChatWorkTextByteLimit {
+		t.Fatalf("sent content bytes = %d, limit %d", len([]byte(sent.Text.Content)), WeChatWorkTextByteLimit)
 	}
 }
 

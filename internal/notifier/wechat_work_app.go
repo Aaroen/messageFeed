@@ -17,7 +17,7 @@ import (
 
 const (
 	defaultWeChatWorkAPIBaseURL = "https://qyapi.weixin.qq.com"
-	weChatWorkTextByteLimit     = 2048
+	WeChatWorkTextByteLimit     = 2048
 )
 
 type WeChatWorkAppConfig struct {
@@ -130,7 +130,7 @@ func (c *WeChatWorkAppClient) SendText(ctx context.Context, message WeChatWorkTe
 	message.ToUser = strings.TrimSpace(message.ToUser)
 	message.ToParty = strings.TrimSpace(message.ToParty)
 	message.ToTag = strings.TrimSpace(message.ToTag)
-	message.Content = truncateUTF8Bytes(strings.TrimSpace(message.Content), weChatWorkTextByteLimit)
+	message.Content = truncateUTF8Bytes(strings.TrimSpace(message.Content), WeChatWorkTextByteLimit)
 	if message.ToUser == "" && message.ToParty == "" && message.ToTag == "" {
 		return WeChatWorkSendResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "wechat_work_missing_recipient", "wechat work recipient is required", "notifier.wechat_work.send_text", false, nil)
 	}

@@ -13,6 +13,7 @@ import (
 const (
 	defaultAgentOwnerUserID = int64(1)
 	agentSystemPrompt       = "你是 messageFeed AI，只能围绕本项目内的信息聚合、订阅源、阅读和设置提供简洁回答。"
+	agentReplyMaxTokens     = 2048
 )
 
 type AgentConversationRepository interface {
@@ -224,11 +225,9 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	})
 
 	sendResult := notifier.WeChatWorkSendResult{}
+	sendCount := 0
 	if s.sender != nil {
-		sendResult, err = s.sender.SendText(ctx, notifier.WeChatWorkTextMessage{
-			ToUser:  input.ExternalUserID,
-			Content: reply,
-		})
+		sendResult, sendCount, err = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
 		if err != nil {
 			return s.failTurn(ctx, account.UserID, session.ID, turn, input, err)
 		}
@@ -255,6 +254,7 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 			"provider_message_id": input.ProviderMessageID,
 			"wechat_msgid":        sendResult.MessageID,
 			"invalid_user":        sendResult.InvalidUser,
+			"send_count":          sendCount,
 		},
 		RequestID: input.RequestID,
 		TraceID:   input.TraceID,
@@ -284,12 +284,28 @@ func (s *AgentConversationService) generateReply(ctx context.Context, input Rece
 			{Role: "user", Content: input.TextContent},
 		},
 		Temperature: 0.2,
-		MaxTokens:   512,
+		MaxTokens:   agentReplyMaxTokens,
 	})
 	if err != nil {
 		return "", "", "", err
 	}
 	return response.Content, response.Provider, response.Model, nil
+}
+
+func (s *AgentConversationService) sendWeChatWorkReply(ctx context.Context, toUser string, reply string) (notifier.WeChatWorkSendResult, int, error) {
+	chunks := splitUTF8Bytes(reply, notifier.WeChatWorkTextByteLimit)
+	var result notifier.WeChatWorkSendResult
+	for i, chunk := range chunks {
+		var err error
+		result, err = s.sender.SendText(ctx, notifier.WeChatWorkTextMessage{
+			ToUser:  toUser,
+			Content: chunk,
+		})
+		if err != nil {
+			return result, i, err
+		}
+	}
+	return result, len(chunks), nil
 }
 
 func (s *AgentConversationService) failTurn(ctx context.Context, userID int64, sessionID int64, turn domain.AgentTurn, input ReceiveWeChatWorkAppMessageInput, cause error) (ReceiveWeChatWorkAppMessageResult, error) {
@@ -313,6 +329,34 @@ func (s *AgentConversationService) failTurn(ctx context.Context, userID int64, s
 		CreatedAt: now,
 	})
 	return ReceiveWeChatWorkAppMessageResult{Turn: turn}, cause
+}
+
+func splitUTF8Bytes(value string, limit int) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if limit <= 0 || len(value) <= limit {
+		return []string{value}
+	}
+	chunks := make([]string, 0, len(value)/limit+1)
+	var builder strings.Builder
+	currentBytes := 0
+	for _, r := range value {
+		part := string(r)
+		partBytes := len(part)
+		if currentBytes > 0 && currentBytes+partBytes > limit {
+			chunks = append(chunks, strings.TrimSpace(builder.String()))
+			builder.Reset()
+			currentBytes = 0
+		}
+		builder.WriteString(part)
+		currentBytes += partBytes
+	}
+	if tail := strings.TrimSpace(builder.String()); tail != "" {
+		chunks = append(chunks, tail)
+	}
+	return chunks
 }
 
 func normalizeReceiveWeChatWorkInput(input ReceiveWeChatWorkAppMessageInput) ReceiveWeChatWorkAppMessageInput {
