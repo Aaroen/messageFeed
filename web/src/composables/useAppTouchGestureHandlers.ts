@@ -81,8 +81,39 @@ type AppTouchGestureHandlersOptions = {
 }
 
 export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptions) {
+  function hasTrackedTouchGesture() {
+    return (
+      options.navigationGesture.hasCandidate() ||
+      options.viewSwipeCandidateActive.value ||
+      options.readerBackSwipeCandidateActive.value ||
+      options.navigationGesture.hasActiveSwipe() ||
+      options.viewSwipeActive.value ||
+      options.readerBackSwipeTrackingActive.value
+    )
+  }
+
+  function cancelTrackedTouchGesture() {
+    const hadNavigationGesture = options.navigationGesture.hasActiveSwipe()
+    const hadViewGesture = options.viewSwipeActive.value
+    const hadBackGesture = options.readerBackSwipeTrackingActive.value
+    if (hadBackGesture) {
+      options.cancelBackSwipe()
+    }
+    if (hadViewGesture) {
+      options.finishViewSwipe(null)
+    }
+    options.resetGestureTracking()
+    if (hadNavigationGesture && options.navigationVisible.value) {
+      options.settleNavigation(options.navigationProgress.value >= 0.42)
+    }
+    options.feedPagerTransition.endPointerTracking()
+  }
+
   function handleTouchStart(event: TouchEvent) {
     if (event.touches.length !== 1) {
+      if (hasTrackedTouchGesture()) {
+        cancelTrackedTouchGesture()
+      }
       return
     }
 
@@ -269,20 +300,7 @@ export function useAppTouchGestureHandlers(options: AppTouchGestureHandlersOptio
   }
 
   function handleTouchCancel() {
-    const hadNavigationGesture = options.navigationGesture.hasActiveSwipe()
-    const hadViewGesture = options.viewSwipeActive.value
-    const hadBackGesture = options.readerBackSwipeTrackingActive.value
-    if (hadBackGesture) {
-      options.cancelBackSwipe()
-    }
-    if (hadViewGesture) {
-      options.finishViewSwipe(null)
-    }
-    options.resetGestureTracking()
-    if (hadNavigationGesture && options.navigationVisible.value) {
-      options.settleNavigation(options.navigationProgress.value >= 0.42)
-    }
-    options.feedPagerTransition.endPointerTracking()
+    cancelTrackedTouchGesture()
   }
 
   return {
