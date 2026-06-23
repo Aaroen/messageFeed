@@ -12,7 +12,7 @@ type AppRuntimeCleanupOptions = {
     resetRefreshCompletion: RuntimeCleaner
   }
   chrome: {
-    clearTimer: RuntimeCleaner
+    reset: RuntimeCleaner
   }
   route: {
     clearTimer: RuntimeCleaner
@@ -57,7 +57,7 @@ export function useAppRuntimeCleanup(options: AppRuntimeCleanupOptions) {
     () => options.swipe.resetSwipeTransition(),
     () => options.navigation.reset(),
     () => options.feedRefresh.resetRefreshCompletion(),
-    () => options.chrome.clearTimer(),
+    () => options.chrome.reset(),
     () => options.route.clearTimer(),
     () => options.readerRouteSync.clearTimer(),
     () => options.readerMotion.resetSourceContentMotion(),

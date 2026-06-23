@@ -147,6 +147,10 @@ export function useChromeState() {
     settling.value = false
   }
 
+  function reset() {
+    setStableVisible()
+  }
+
   function beginGestureReturn(options: BeginChromeGestureReturnOptions = {}) {
     setSettling(true, 'gesture-returning')
     if (!options.preserveContentCollapsed) {
@@ -193,6 +197,7 @@ export function useChromeState() {
     setCollapsedHidden,
     setOverlayProgress,
     setStableVisible,
+    reset,
     beginGestureReturn,
     beginRefreshing,
     setRefreshingProgress,

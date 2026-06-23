@@ -1173,7 +1173,7 @@ const runtimeCleanup = useAppRuntimeCleanup({
     resetRefreshCompletion: feedRefreshCompletionRuntime.resetRefreshCompletion,
   },
   chrome: {
-    clearTimer: chromeState.clearTimer,
+    reset: chromeState.reset,
   },
   route: {
     clearTimer: routeRuntime.clearTimer,
