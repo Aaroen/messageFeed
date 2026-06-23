@@ -68,6 +68,13 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
     motionToken += 1
   }
 
+  function reset() {
+    clearTimer()
+    open.value = false
+    progress.value = 0
+    settling.value = false
+  }
+
   function settle(nextOpen: boolean) {
     clearTimer()
     const token = motionToken + 1
@@ -146,6 +153,7 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
     panelStyle,
     scrimStyle,
     clearTimer,
+    reset,
     settle,
     openPanel,
     closePanel,

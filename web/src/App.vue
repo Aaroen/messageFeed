@@ -1167,7 +1167,7 @@ const runtimeCleanup = useAppRuntimeCleanup({
     resetSwipeTransition,
   },
   navigation: {
-    clearTimer: navigationDrawer.clearTimer,
+    reset: navigationDrawer.reset,
   },
   feedRefresh: {
     resetRefreshCompletion: feedRefreshCompletionRuntime.resetRefreshCompletion,
