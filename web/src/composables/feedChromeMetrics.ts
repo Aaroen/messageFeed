@@ -14,7 +14,7 @@ export function feedContentTopOffset(headerHeight: number) {
 }
 
 export function feedVisibleContentTopOffset(headerHeight: number) {
-  return feedContentTopOffset(headerHeight) * 2
+  return feedContentTopOffset(headerHeight) + (headerHeight <= 78 ? 20 : 24)
 }
 
 export function chromePhaseConsumesCollapsedLayout(phase: string) {
