@@ -51,6 +51,31 @@ func TestAuthServiceRejectsInvalidCredentials(t *testing.T) {
 	}
 }
 
+func TestAuthServiceRateLimitsLocalLoginAttempts(t *testing.T) {
+	now := time.Date(2026, 6, 23, 10, 30, 0, 0, time.UTC)
+	service := NewAuthService(newFakeAuthRepository(now), testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	for i := 0; i < authAttemptLimit; i++ {
+		_, err := service.LocalLogin(context.Background(), LocalLoginInput{
+			Username:      "owner",
+			Password:      "wrong",
+			RemoteAddress: "127.0.0.1",
+		})
+		if domain.ClassifyError(err) != domain.ErrorKindInvalidInput {
+			t.Fatalf("attempt %d error kind = %s, want invalid_input", i+1, domain.ClassifyError(err))
+		}
+	}
+
+	_, err := service.LocalLogin(context.Background(), LocalLoginInput{
+		Username:      "owner",
+		Password:      "secret",
+		RemoteAddress: "127.0.0.1",
+	})
+	if domain.ClassifyError(err) != domain.ErrorKindRateLimited {
+		t.Fatalf("error kind = %s, want rate_limited", domain.ClassifyError(err))
+	}
+}
+
 func TestAuthServiceDefaultOwnerMigrationPasswordHash(t *testing.T) {
 	const migrationHash = "$2a$10$DTKcuvnsad7405UJYtMIxOQDrpO6PN5bQJGgwgJDlJz8AIkcYicYO"
 	if err := verifyPassword(migrationHash, "***REMOVED-FROM-GIT-HISTORY***"); err != nil {
@@ -130,6 +155,65 @@ func TestAuthServiceRegisterWithInvite(t *testing.T) {
 	}
 	if repository.invites[codeHash].UseCount != 1 {
 		t.Fatalf("UseCount = %d, want 1", repository.invites[codeHash].UseCount)
+	}
+}
+
+func TestAuthServiceRegisterWithSixCharacterPassword(t *testing.T) {
+	now := time.Date(2026, 6, 23, 12, 10, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	codeHash := hashSecret("short-password-invite")
+	repository.invites[codeHash] = domain.AuthInviteCode{
+		ID:          23,
+		CodeHash:    codeHash,
+		CreatedByID: 1,
+		Role:        domain.UserRoleUser,
+		MaxUses:     1,
+		Status:      domain.AuthInviteCodeStatusActive,
+		ExpiresAt:   ptrTime(now.Add(time.Hour)),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }), WithAuthRandomToken(func() (string, error) {
+		return "registered-short-password-session", nil
+	}))
+
+	result, err := service.RegisterWithInvite(context.Background(), RegisterWithInviteInput{
+		InviteCode:    "short-password-invite",
+		Username:      "new_user",
+		Password:      "***REMOVED-FROM-GIT-HISTORY***",
+		RemoteAddress: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("RegisterWithInvite() error = %v", err)
+	}
+	if result.User.Username != "new_user" {
+		t.Fatalf("Username = %q, want new_user", result.User.Username)
+	}
+}
+
+func TestAuthServiceRateLimitsRegisterAttempts(t *testing.T) {
+	now := time.Date(2026, 6, 23, 12, 20, 0, 0, time.UTC)
+	service := NewAuthService(newFakeAuthRepository(now), testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	for i := 0; i < authAttemptLimit; i++ {
+		_, err := service.RegisterWithInvite(context.Background(), RegisterWithInviteInput{
+			Username:      "new_user",
+			Password:      "***REMOVED-FROM-GIT-HISTORY***",
+			RemoteAddress: "127.0.0.1",
+		})
+		if domain.ClassifyError(err) != domain.ErrorKindInvalidInput {
+			t.Fatalf("attempt %d error kind = %s, want invalid_input", i+1, domain.ClassifyError(err))
+		}
+	}
+
+	_, err := service.RegisterWithInvite(context.Background(), RegisterWithInviteInput{
+		InviteCode:    "invite-code",
+		Username:      "new_user",
+		Password:      "***REMOVED-FROM-GIT-HISTORY***",
+		RemoteAddress: "127.0.0.1",
+	})
+	if domain.ClassifyError(err) != domain.ErrorKindRateLimited {
+		t.Fatalf("error kind = %s, want rate_limited", domain.ClassifyError(err))
 	}
 }
 

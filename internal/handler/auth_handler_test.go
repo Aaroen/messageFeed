@@ -21,10 +21,12 @@ func TestProtectedRoutesRequireAuthWhenAuthServiceConfigured(t *testing.T) {
 	}
 }
 
-type fakeAuthEndpointService struct{}
+type fakeAuthEndpointService struct {
+	auth service.CurrentAuth
+}
 
-func (fakeAuthEndpointService) AuthenticateSession(ctx context.Context, rawToken string) (service.CurrentAuth, error) {
-	return service.CurrentAuth{}, nil
+func (f fakeAuthEndpointService) AuthenticateSession(ctx context.Context, rawToken string) (service.CurrentAuth, error) {
+	return f.auth, nil
 }
 
 func (fakeAuthEndpointService) CookieName() string {

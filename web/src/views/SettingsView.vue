@@ -86,6 +86,7 @@ const inviteCreating = ref(false)
 const inviteDeletingID = ref<number | null>(null)
 const inviteTTLSeconds = ref(604800)
 const generatedInviteCode = ref('')
+const inviteCopyResult = ref('')
 const configStatus = ref<AdminConfigStatus | null>(null)
 const configLoading = ref(false)
 const configError = ref('')
@@ -98,6 +99,9 @@ const wechatWorkContent = ref('messageFeed 管理后台测试消息')
 const wechatWorkTesting = ref(false)
 const wechatWorkTestResult = ref<AdminWeChatWorkTestResult | null>(null)
 const wechatWorkTestError = ref('')
+let inviteCopyTimer: number | undefined
+
+const isOwner = computed(() => authStatus.value?.user?.role === 'owner')
 
 const statusCards = computed(() => {
   const status = configStatus.value
@@ -167,10 +171,13 @@ async function loadAuthStatus() {
     if (authStatus.value.profile) {
       applyProfile(authStatus.value.profile)
     }
-    await Promise.all([loadSessions(), loadUserContext()])
+    const tasks: Promise<void>[] = [loadSessions()]
     if (authStatus.value.user?.role === 'owner') {
-      await Promise.all([loadInvites(), loadUsers()])
+      tasks.push(loadUserContext(), loadInvites(), loadUsers())
+    } else {
+      userContext.value = null
     }
+    await Promise.all(tasks)
   } catch (error) {
     authError.value = formatAPIError(error)
   } finally {
@@ -221,7 +228,13 @@ async function loadUserContext() {
 
 async function refreshPage() {
   loadSettings()
-  await Promise.all([loadAuthStatus(), loadAdminConfig()])
+  await loadAuthStatus()
+  if (isOwner.value) {
+    await loadAdminConfig()
+    return
+  }
+  configStatus.value = null
+  configError.value = ''
 }
 
 function updateSourceTimelinePreload() {
@@ -420,6 +433,7 @@ async function createInviteCode() {
   inviteCreating.value = true
   authError.value = ''
   generatedInviteCode.value = ''
+  inviteCopyResult.value = ''
   try {
     const result = await createInvite({
       role: 'user',
@@ -432,6 +446,25 @@ async function createInviteCode() {
   } finally {
     inviteCreating.value = false
   }
+}
+
+async function copyGeneratedInviteCode() {
+  const code = generatedInviteCode.value.trim()
+  if (!code) {
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(code)
+    inviteCopyResult.value = '已复制'
+  } catch {
+    inviteCopyResult.value = '复制失败'
+  }
+  if (inviteCopyTimer) {
+    window.clearTimeout(inviteCopyTimer)
+  }
+  inviteCopyTimer = window.setTimeout(() => {
+    inviteCopyResult.value = ''
+  }, 1800)
 }
 
 async function deleteInviteCode(id: number) {
@@ -471,7 +504,7 @@ defineExpose({ refreshPage })
 
 <template>
   <section class="settings-page">
-    <div class="settings-panel settings-panel--wide">
+    <div v-if="isOwner" class="settings-panel settings-panel--wide">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">系统配置</div>
@@ -544,7 +577,7 @@ defineExpose({ refreshPage })
         <div class="settings-panel__header">
           <div>
             <div class="settings-panel__title">用户资料</div>
-            <div class="settings-panel__meta">供通知和后续 Agent 上下文使用</div>
+            <div class="settings-panel__meta">{{ isOwner ? '供通知和后续 Agent 上下文使用' : '基础账号信息' }}</div>
           </div>
           <button class="settings-action-button" type="button" :disabled="profileSaving" @click="saveProfile">
             {{ profileSaving ? '保存中' : '保存' }}
@@ -571,16 +604,16 @@ defineExpose({ refreshPage })
             <span>地区</span>
             <input v-model="profileForm.region" class="settings-input" type="text" autocomplete="off" />
           </label>
-          <label class="settings-field">
+          <label v-if="isOwner" class="settings-field">
             <span>回复风格</span>
             <input v-model="profileForm.reply_style" class="settings-input" type="text" autocomplete="off" />
           </label>
         </div>
-        <label class="settings-field">
+        <label v-if="isOwner" class="settings-field">
           <span>个人画像</span>
           <textarea v-model="profileForm.bio" class="settings-textarea" rows="3" />
         </label>
-        <div class="settings-form-grid">
+        <div v-if="isOwner" class="settings-form-grid">
           <label class="settings-field">
             <span>关注主题</span>
             <textarea v-model="focusTopicsText" class="settings-textarea" rows="2" />
@@ -606,7 +639,7 @@ defineExpose({ refreshPage })
             <input v-model="profileForm.notification_quiet_hours" class="settings-input" type="text" autocomplete="off" />
           </label>
         </div>
-        <label class="settings-field">
+        <label v-if="isOwner" class="settings-field">
           <span>Agent 备注</span>
           <textarea v-model="profileForm.agent_notes" class="settings-textarea" rows="3" />
         </label>
@@ -637,7 +670,7 @@ defineExpose({ refreshPage })
           </label>
           <label class="settings-field">
             <span>新密码</span>
-            <input v-model="newPassword" class="settings-input" type="password" autocomplete="new-password" />
+            <input v-model="newPassword" class="settings-input" type="password" minlength="6" autocomplete="new-password" />
           </label>
         </div>
         <div v-if="passwordChangeResult" class="settings-inline-alert settings-inline-alert--success">
@@ -757,9 +790,15 @@ defineExpose({ refreshPage })
             <input v-model.number="inviteTTLSeconds" class="settings-input" type="number" min="60" />
           </label>
         </div>
-        <div v-if="generatedInviteCode" class="settings-inline-alert settings-inline-alert--success">
-          {{ generatedInviteCode }}
-        </div>
+        <button
+          v-if="generatedInviteCode"
+          class="settings-copy-alert"
+          type="button"
+          @click="copyGeneratedInviteCode"
+        >
+          <span class="settings-copy-alert__code">{{ generatedInviteCode }}</span>
+          <span>{{ inviteCopyResult || '点击复制' }}</span>
+        </button>
         <div class="settings-bindings">
           <div v-for="invite in invites" :key="invite.id" class="settings-binding-row">
             <div>
@@ -818,7 +857,7 @@ defineExpose({ refreshPage })
       </section>
     </div>
 
-    <div v-if="configStatus" class="settings-config-grid">
+    <div v-if="isOwner && configStatus" class="settings-config-grid">
       <section class="settings-panel">
         <div class="settings-panel__title">企业微信</div>
         <dl class="settings-description-list">
@@ -905,7 +944,7 @@ defineExpose({ refreshPage })
       </section>
     </div>
 
-    <div class="settings-config-grid">
+    <div v-if="isOwner" class="settings-config-grid">
       <section class="settings-panel">
         <div class="settings-panel__header">
           <div>
@@ -976,7 +1015,7 @@ defineExpose({ refreshPage })
       </section>
     </div>
 
-    <section v-if="userContext" class="settings-panel settings-panel--wide">
+    <section v-if="isOwner && userContext" class="settings-panel settings-panel--wide">
       <div class="settings-panel__title">用户上下文</div>
       <dl class="settings-description-list">
         <div>

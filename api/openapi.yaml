@@ -547,7 +547,7 @@ paths:
                         $ref: '#/components/schemas/AuthMe'
   /api/v1/auth/login:
     post:
-      summary: Log in as the local owner user
+      summary: Log in as a local user
       requestBody:
         required: true
         content:
@@ -572,6 +572,8 @@ paths:
                         $ref: '#/components/schemas/LoginResult'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/auth/register:
@@ -603,6 +605,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/auth/password:
@@ -866,6 +870,8 @@ paths:
                         $ref: '#/components/schemas/AdminConfigStatus'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /api/v1/admin/config/tests/llm:
     post:
       summary: Test the configured LLM provider
@@ -892,6 +898,8 @@ paths:
                         $ref: '#/components/schemas/AdminLLMTestResult'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/admin/config/tests/wechat-work:
@@ -926,6 +934,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/admin/invites:
@@ -1247,6 +1257,18 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIResponse'
+    Forbidden:
+      description: Permission denied
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIResponse'
+    TooManyRequests:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIResponse'
     ServiceUnavailable:
       description: Service dependency is unavailable
       content:
@@ -1546,7 +1568,7 @@ components:
         password:
           type: string
           format: password
-          minLength: 8
+          minLength: 6
         display_name:
           type: string
           maxLength: 80
@@ -1565,7 +1587,7 @@ components:
         new_password:
           type: string
           format: password
-          minLength: 8
+          minLength: 6
     DeactivateAccountRequest:
       type: object
       required:

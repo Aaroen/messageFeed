@@ -13,6 +13,7 @@ import (
 	"messagefeed/internal/observability"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -20,12 +21,14 @@ import (
 )
 
 const (
-	authSessionTokenBytes = 32
-	minPasswordLength     = 8
-	maxUsernameLength     = 64
-	maxDisplayNameLength  = 80
-	defaultInviteMaxUses  = 1
-	defaultInviteTTL      = 7 * 24 * time.Hour
+	authSessionTokenBytes     = 32
+	minPasswordLength         = 6
+	maxUsernameLength         = 64
+	maxDisplayNameLength      = 80
+	defaultInviteMaxUses      = 1
+	defaultInviteTTL          = 7 * 24 * time.Hour
+	authAttemptLimit          = 10
+	authAttemptWindowDuration = time.Hour
 )
 
 type AuthRepository interface {
@@ -67,6 +70,13 @@ type AuthService struct {
 	wechatOAuth WeChatWorkOAuthExchanger
 	now         func() time.Time
 	randomToken func() (string, error)
+	rateMu      sync.Mutex
+	rateWindows map[string]authAttemptWindow
+}
+
+type authAttemptWindow struct {
+	Start time.Time
+	Count int
 }
 
 type AuthServiceOption func(*AuthService)
@@ -99,6 +109,7 @@ func NewAuthService(repository AuthRepository, cfg config.Config, options ...Aut
 		cfg:         cfg,
 		now:         time.Now,
 		randomToken: newURLToken,
+		rateWindows: map[string]authAttemptWindow{},
 	}
 	for _, option := range options {
 		option(service)
@@ -302,6 +313,38 @@ type CreateInviteResult struct {
 	Code   string             `json:"code"`
 }
 
+func (s *AuthService) checkAuthAttempt(operation string, remoteAddress string) error {
+	if s == nil {
+		return nil
+	}
+	key := authAttemptKey(operation, remoteAddress)
+	now := s.now().UTC()
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+
+	if s.rateWindows == nil {
+		s.rateWindows = map[string]authAttemptWindow{}
+	}
+	window := s.rateWindows[key]
+	if window.Start.IsZero() || now.Sub(window.Start) >= authAttemptWindowDuration {
+		window = authAttemptWindow{Start: now}
+	}
+	if window.Count >= authAttemptLimit {
+		s.rateWindows[key] = window
+		return domain.NewAppError(
+			domain.ErrorKindRateLimited,
+			"auth_rate_limited",
+			"too many authentication attempts; try again later",
+			"service.auth."+operation,
+			false,
+			domain.ErrRateLimited,
+		)
+	}
+	window.Count++
+	s.rateWindows[key] = window
+	return nil
+}
+
 func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (AuthSessionResult, error) {
 	if s == nil || s.repository == nil {
 		return AuthSessionResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.login", false, nil)
@@ -310,10 +353,15 @@ func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (Au
 	var opErr error
 	defer func() { observability.EndSpan(span, opErr) }()
 
+	if err := s.checkAuthAttempt("login", input.RemoteAddress); err != nil {
+		opErr = err
+		return AuthSessionResult{}, err
+	}
+
 	username := strings.TrimSpace(input.Username)
 	password := strings.TrimSpace(input.Password)
 	if username == "" || password == "" {
-		opErr = fmt.Errorf("%w: username and password are required", domain.ErrInvalidInput)
+		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_login_required", "username and password are required", "service.auth.login", false, domain.ErrInvalidInput)
 		return AuthSessionResult{}, opErr
 	}
 
@@ -378,20 +426,32 @@ func (s *AuthService) RegisterWithInvite(ctx context.Context, input RegisterWith
 	var opErr error
 	defer func() { observability.EndSpan(span, opErr) }()
 
+	if err := s.checkAuthAttempt("register", input.RemoteAddress); err != nil {
+		opErr = err
+		return AuthSessionResult{}, err
+	}
+
 	inviteCode := strings.TrimSpace(input.InviteCode)
 	if inviteCode == "" {
-		opErr = fmt.Errorf("%w: invite code is required", domain.ErrInvalidInput)
+		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invite_required", "invite code is required", "service.auth.register", false, domain.ErrInvalidInput)
 		return AuthSessionResult{}, opErr
 	}
 	username, err := normalizeUsername(input.Username)
 	if err != nil {
-		opErr = err
-		return AuthSessionResult{}, err
+		opErr = domain.NewAppError(
+			domain.ErrorKindInvalidInput,
+			"auth_invalid_username",
+			"username must be 3-64 characters and contain only letters, numbers, hyphen, underscore or dot",
+			"service.auth.register",
+			false,
+			err,
+		)
+		return AuthSessionResult{}, opErr
 	}
 	displayName := normalizeDisplayName(input.DisplayName, username)
 	if err := validatePassword(input.Password); err != nil {
-		opErr = err
-		return AuthSessionResult{}, err
+		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invalid_password", fmt.Sprintf("password must be at least %d characters", minPasswordLength), "service.auth.register", false, err)
+		return AuthSessionResult{}, opErr
 	}
 	passwordHash, err := hashPassword(input.Password)
 	if err != nil {
@@ -411,6 +471,10 @@ func (s *AuthService) RegisterWithInvite(ctx context.Context, input RegisterWith
 	}, now)
 	if err != nil {
 		if domain.ClassifyError(err) == domain.ErrorKindConflict {
+			if existing, lookupErr := s.repository.GetUserByUsername(ctx, username); lookupErr == nil && existing.ID > 0 {
+				opErr = domain.NewAppError(domain.ErrorKindConflict, "auth_username_exists", "username already exists", "service.auth.register", false, err)
+				return AuthSessionResult{}, opErr
+			}
 			opErr = domain.NewAppError(domain.ErrorKindConflict, "auth_invite_unavailable", "invite code is invalid, expired or already used", "service.auth.register", false, err)
 			return AuthSessionResult{}, opErr
 		}
@@ -1284,9 +1348,21 @@ func normalizeDisplayName(displayName string, username string) string {
 
 func validatePassword(password string) error {
 	if len([]rune(password)) < minPasswordLength {
-		return fmt.Errorf("%w: password must be at least 8 characters", domain.ErrInvalidInput)
+		return fmt.Errorf("%w: password must be at least %d characters", domain.ErrInvalidInput, minPasswordLength)
 	}
 	return nil
+}
+
+func authAttemptKey(operation string, remoteAddress string) string {
+	operation = strings.TrimSpace(operation)
+	if operation == "" {
+		operation = "auth"
+	}
+	remoteAddress = strings.TrimSpace(remoteAddress)
+	if remoteAddress == "" {
+		remoteAddress = "unknown"
+	}
+	return operation + ":" + remoteAddress
 }
 
 func hashPassword(password string) (string, error) {

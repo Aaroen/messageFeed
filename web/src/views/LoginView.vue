@@ -7,7 +7,7 @@ import { formatAPIError } from '@/api/client'
 
 const route = useRoute()
 const router = useRouter()
-const username = ref('aroen')
+const username = ref('')
 const password = ref('')
 const loading = ref(false)
 const checking = ref(true)

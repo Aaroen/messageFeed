@@ -84,6 +84,8 @@ func mapError(err error, fallbackMessage string) (int, int, string) {
 		return http.StatusNotFound, http.StatusNotFound, fallbackMessage
 	case domain.ErrorKindConflict:
 		return http.StatusConflict, http.StatusConflict, fallbackMessage
+	case domain.ErrorKindRateLimited:
+		return http.StatusTooManyRequests, http.StatusTooManyRequests, fallbackMessage
 	case domain.ErrorKindUnavailable:
 		return http.StatusServiceUnavailable, http.StatusServiceUnavailable, fallbackMessage
 	default:
@@ -99,6 +101,8 @@ func statusCodeForKind(kind domain.ErrorKind) int {
 		return http.StatusNotFound
 	case domain.ErrorKindConflict:
 		return http.StatusConflict
+	case domain.ErrorKindRateLimited:
+		return http.StatusTooManyRequests
 	case domain.ErrorKindUnavailable:
 		return http.StatusServiceUnavailable
 	default:

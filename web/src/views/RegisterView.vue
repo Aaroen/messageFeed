@@ -102,6 +102,7 @@ onMounted(async () => {
           v-model="password"
           class="settings-input"
           type="password"
+          minlength="6"
           autocomplete="new-password"
           :disabled="checking"
         />

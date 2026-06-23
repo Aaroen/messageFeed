@@ -1751,6 +1751,31 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   overflow-wrap: anywhere;
 }
 
+.settings-copy-alert {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(5, 150, 105, 0.26);
+  border-radius: 8px;
+  background: rgba(5, 150, 105, 0.1);
+  color: #047857;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.settings-copy-alert__code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+}
+
 .settings-form-grid {
   display: grid;
   gap: 12px;

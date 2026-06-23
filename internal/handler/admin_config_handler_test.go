@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"messagefeed/internal/domain"
 	"messagefeed/internal/service"
 )
 
@@ -104,6 +105,29 @@ func TestAdminConfigRoutesRequireConfiguredService(t *testing.T) {
 
 	if recorder.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestAdminConfigRoutesRequireOwner(t *testing.T) {
+	router := newTestRouter(t, RouterOptions{
+		AdminConfigService: &fakeAdminConfigService{},
+		AuthService: fakeAuthEndpointService{auth: service.CurrentAuth{
+			Authenticated: true,
+			User: domain.User{
+				ID:     2,
+				Role:   domain.UserRoleUser,
+				Status: domain.UserStatusActive,
+			},
+		}},
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/admin/config", nil)
+	request.AddCookie(&http.Cookie{Name: "messagefeed_session", Value: "session-token"})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusForbidden)
 	}
 }
 

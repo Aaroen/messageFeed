@@ -6,6 +6,7 @@ var (
 	ErrInvalidInput = errors.New("invalid input")
 	ErrNotFound     = errors.New("not found")
 	ErrConflict     = errors.New("conflict")
+	ErrRateLimited  = errors.New("rate limited")
 )
 
 type ErrorKind string
@@ -14,6 +15,7 @@ const (
 	ErrorKindInvalidInput ErrorKind = "invalid_input"
 	ErrorKindNotFound     ErrorKind = "not_found"
 	ErrorKindConflict     ErrorKind = "conflict"
+	ErrorKindRateLimited  ErrorKind = "rate_limited"
 	ErrorKindUnavailable  ErrorKind = "unavailable"
 	ErrorKindInternal     ErrorKind = "internal"
 )
@@ -58,6 +60,8 @@ func (e *AppError) Is(target error) bool {
 		return e.Kind == ErrorKindNotFound
 	case ErrConflict:
 		return e.Kind == ErrorKindConflict
+	case ErrRateLimited:
+		return e.Kind == ErrorKindRateLimited
 	default:
 		return false
 	}
@@ -86,6 +90,8 @@ func ClassifyError(err error) ErrorKind {
 		return ErrorKindNotFound
 	case errors.Is(err, ErrConflict):
 		return ErrorKindConflict
+	case errors.Is(err, ErrRateLimited):
+		return ErrorKindRateLimited
 	default:
 		return ErrorKindInternal
 	}

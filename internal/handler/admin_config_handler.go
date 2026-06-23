@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"messagefeed/internal/domain"
 	"messagefeed/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -34,6 +35,9 @@ func (h adminConfigHandler) status(c *gin.Context) {
 		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "admin config service unavailable")
 		return
 	}
+	if !requireOwnerRole(c) {
+		return
+	}
 	result, err := h.service.Status(c.Request.Context())
 	if err != nil {
 		RenderError(c, err, "admin config status failed")
@@ -45,6 +49,9 @@ func (h adminConfigHandler) status(c *gin.Context) {
 func (h adminConfigHandler) testLLM(c *gin.Context) {
 	if h.service == nil {
 		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "admin config service unavailable")
+		return
+	}
+	if !requireOwnerRole(c) {
 		return
 	}
 	var input service.AdminLLMTestInput
@@ -67,6 +74,9 @@ func (h adminConfigHandler) testWeChatWork(c *gin.Context) {
 		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "admin config service unavailable")
 		return
 	}
+	if !requireOwnerRole(c) {
+		return
+	}
 	var input service.AdminWeChatWorkTestInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
@@ -80,4 +90,20 @@ func (h adminConfigHandler) testWeChatWork(c *gin.Context) {
 		return
 	}
 	Success(c, result)
+}
+
+func requireOwnerRole(c *gin.Context) bool {
+	auth := currentAuth(c)
+	if !auth.Authenticated {
+		Error(c, http.StatusUnauthorized, http.StatusUnauthorized, "authentication required")
+		return false
+	}
+	if auth.User.ID == 0 {
+		return true
+	}
+	if auth.User.Role != domain.UserRoleOwner {
+		Error(c, http.StatusForbidden, http.StatusForbidden, "owner role required")
+		return false
+	}
+	return true
 }
