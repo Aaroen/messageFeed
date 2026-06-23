@@ -1293,6 +1293,7 @@ export function useReaderStackState() {
     resetDetailHeaderTitleSwapState()
     resetMorphingItemContentState()
     resetReaderBackSwipeDragState()
+    detailFeedOriginLocked.value = false
     clearReaderStretchAnchorsIfIdle()
     clearHiddenSourceCleanupTimer()
   }
