@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"messagefeed/internal/channel/wechatwork"
+	"messagefeed/internal/service"
 )
 
 func TestWeChatWorkCallbackRoutesRequireConfiguredCodec(t *testing.T) {
@@ -67,6 +69,46 @@ func TestWeChatWorkPostCallbackReturnsSuccess(t *testing.T) {
 	}
 }
 
+func TestWeChatWorkPostCallbackPassesMessageToReceiver(t *testing.T) {
+	callback := &fakeWeChatWorkAppCallback{
+		parseMessage: wechatwork.InboundMessage{
+			Provider:          wechatwork.ProviderWeChatWorkApp,
+			ProviderMessageID: "msg-1",
+			CorpID:            "corp-a",
+			AgentID:           "1000002",
+			ExternalUserID:    "zhangsan",
+			ChatID:            "zhangsan",
+			ChatType:          "direct",
+			MsgType:           "text",
+			TextContent:       "最近有什么更新",
+			RawXML:            "<xml></xml>",
+		},
+	}
+	receiver := &fakeWeChatWorkInboundReceiver{}
+	router := newTestRouter(t, RouterOptions{
+		WeChatWorkAppCallback: callback,
+		WeChatWorkReceiver:    receiver,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/channels/wechat-work/app/callback?msg_signature=sig&timestamp=ts&nonce=nonce", strings.NewReader("<xml></xml>"))
+	request.Header.Set(requestIDHeader, "request-1")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if receiver.input.ProviderMessageID != "msg-1" {
+		t.Fatalf("ProviderMessageID = %q", receiver.input.ProviderMessageID)
+	}
+	if receiver.input.TextContent != "最近有什么更新" {
+		t.Fatalf("TextContent = %q", receiver.input.TextContent)
+	}
+	if receiver.input.RequestID != "request-1" {
+		t.Fatalf("RequestID = %q", receiver.input.RequestID)
+	}
+}
+
 func TestWeChatWorkPostCallbackRejectsOversizedBody(t *testing.T) {
 	callback := &fakeWeChatWorkAppCallback{}
 	router := newTestRouter(t, RouterOptions{WeChatWorkAppCallback: callback})
@@ -85,11 +127,12 @@ func TestWeChatWorkPostCallbackRejectsOversizedBody(t *testing.T) {
 }
 
 type fakeWeChatWorkAppCallback struct {
-	verifyInput wechatwork.VerifyURLInput
-	parseInput  wechatwork.ParseInboundMessageInput
-	verifyEcho  string
-	verifyErr   error
-	parseErr    error
+	verifyInput  wechatwork.VerifyURLInput
+	parseInput   wechatwork.ParseInboundMessageInput
+	verifyEcho   string
+	verifyErr    error
+	parseErr     error
+	parseMessage wechatwork.InboundMessage
 }
 
 func (f *fakeWeChatWorkAppCallback) VerifyURL(input wechatwork.VerifyURLInput) (string, error) {
@@ -108,5 +151,21 @@ func (f *fakeWeChatWorkAppCallback) ParseInboundMessage(input wechatwork.ParseIn
 	if input.Body == nil {
 		return wechatwork.InboundMessage{}, errors.New("missing body")
 	}
+	if f.parseMessage.Provider != "" {
+		return f.parseMessage, nil
+	}
 	return wechatwork.InboundMessage{Provider: wechatwork.ProviderWeChatWorkApp}, nil
+}
+
+type fakeWeChatWorkInboundReceiver struct {
+	input service.ReceiveWeChatWorkAppMessageInput
+	err   error
+}
+
+func (f *fakeWeChatWorkInboundReceiver) ReceiveWeChatWorkAppMessage(_ context.Context, input service.ReceiveWeChatWorkAppMessageInput) (service.ReceiveWeChatWorkAppMessageResult, error) {
+	f.input = input
+	if f.err != nil {
+		return service.ReceiveWeChatWorkAppMessageResult{}, f.err
+	}
+	return service.ReceiveWeChatWorkAppMessageResult{}, nil
 }

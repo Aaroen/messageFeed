@@ -58,6 +58,7 @@ type Config struct {
 	Database      DatabaseConfig
 	Observability ObservabilityConfig
 	WeChatWork    WeChatWorkConfig
+	LLM           LLMConfig
 }
 
 // HTTPConfig 保存 HTTP 服务相关配置。
@@ -137,6 +138,19 @@ func (cfg WeChatWorkConfig) Enabled() bool {
 		cfg.EncodingAESKey != ""
 }
 
+// LLMConfig 保存自定义 AI 提供商配置。
+type LLMConfig struct {
+	Provider string
+	APIKey   string
+	BaseURL  string
+	Model    string
+}
+
+// Enabled 表示是否启用模型调用。
+func (cfg LLMConfig) Enabled() bool {
+	return cfg.Provider != "" || cfg.APIKey != "" || cfg.BaseURL != "" || cfg.Model != ""
+}
+
 // Load 从环境变量加载配置，并在返回前执行基础校验。
 // 当前不读取 YAML、TOML 或 JSON 配置文件，避免第一阶段引入路径、挂载和敏感信息落盘问题。
 // 后续如需配置文件，可在 Defaults 和环境变量覆盖之间增加文件配置合并层。
@@ -168,6 +182,11 @@ func Load() (Config, error) {
 	cfg.WeChatWork.Secret = envString("WECHAT_WORK_SECRET", cfg.WeChatWork.Secret)
 	cfg.WeChatWork.CallbackToken = envString("WECHAT_WORK_CALLBACK_TOKEN", cfg.WeChatWork.CallbackToken)
 	cfg.WeChatWork.EncodingAESKey = envString("WECHAT_WORK_ENCODING_AES_KEY", cfg.WeChatWork.EncodingAESKey)
+
+	cfg.LLM.Provider = strings.ToLower(envString("LLM_PROVIDER", cfg.LLM.Provider))
+	cfg.LLM.APIKey = envString("LLM_API_KEY", cfg.LLM.APIKey)
+	cfg.LLM.BaseURL = envString("LLM_BASE_URL", cfg.LLM.BaseURL)
+	cfg.LLM.Model = envString("LLM_MODEL", cfg.LLM.Model)
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -207,6 +226,7 @@ func Defaults() Config {
 			TraceSampleRatio: DefaultTraceSampleRatio,
 		},
 		WeChatWork: WeChatWorkConfig{},
+		LLM:        LLMConfig{},
 	}
 }
 
@@ -278,6 +298,9 @@ func (cfg Config) Validate() error {
 	if err := validateWeChatWorkConfig(cfg.WeChatWork); err != nil {
 		return err
 	}
+	if err := validateLLMConfig(cfg.LLM); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -310,6 +333,39 @@ func validateWeChatWorkConfig(cfg WeChatWorkConfig) error {
 	}
 	if _, err := strconv.ParseInt(cfg.AgentID, 10, 64); err != nil {
 		return fmt.Errorf("WECHAT_WORK_AGENT_ID must be an integer: %w", err)
+	}
+	return nil
+}
+
+func validateLLMConfig(cfg LLMConfig) error {
+	if !cfg.Enabled() {
+		return nil
+	}
+	if strings.TrimSpace(cfg.Provider) == "" {
+		return fmt.Errorf("LLM_PROVIDER must not be empty when LLM is configured")
+	}
+	switch cfg.Provider {
+	case "openai", "openai_compatible":
+	default:
+		return fmt.Errorf("unsupported LLM_PROVIDER %q", cfg.Provider)
+	}
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return fmt.Errorf("LLM_API_KEY must not be empty when LLM is configured")
+	}
+	if strings.TrimSpace(cfg.Model) == "" {
+		return fmt.Errorf("LLM_MODEL must not be empty when LLM is configured")
+	}
+	if cfg.Provider == "openai_compatible" && strings.TrimSpace(cfg.BaseURL) == "" {
+		return fmt.Errorf("LLM_BASE_URL must not be empty when LLM_PROVIDER=openai_compatible")
+	}
+	if strings.TrimSpace(cfg.BaseURL) != "" {
+		parsed, err := url.Parse(cfg.BaseURL)
+		if err != nil {
+			return fmt.Errorf("invalid LLM_BASE_URL %q: %w", cfg.BaseURL, err)
+		}
+		if parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("invalid LLM_BASE_URL %q: scheme and host are required", cfg.BaseURL)
+		}
 	}
 	return nil
 }

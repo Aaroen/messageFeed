@@ -53,6 +53,10 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("WECHAT_WORK_SECRET", "wechat-work-secret")
 	t.Setenv("WECHAT_WORK_CALLBACK_TOKEN", "callback-token")
 	t.Setenv("WECHAT_WORK_ENCODING_AES_KEY", "abcdefghijklmnopqrstuvwxyzABCDEFG1234567890")
+	t.Setenv("LLM_PROVIDER", "openai_compatible")
+	t.Setenv("LLM_API_KEY", "llm-key")
+	t.Setenv("LLM_BASE_URL", "https://llm.example/v1")
+	t.Setenv("LLM_MODEL", "custom-model")
 
 	cfg, err := Load()
 	if err != nil {
@@ -103,6 +107,15 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.WeChatWork.AgentID != "1000002" {
 		t.Fatalf("WeChatWork.AgentID = %q", cfg.WeChatWork.AgentID)
+	}
+	if !cfg.LLM.Enabled() {
+		t.Fatal("LLM.Enabled() = false, want true")
+	}
+	if cfg.LLM.Provider != "openai_compatible" {
+		t.Fatalf("LLM.Provider = %q", cfg.LLM.Provider)
+	}
+	if cfg.LLM.BaseURL != "https://llm.example/v1" {
+		t.Fatalf("LLM.BaseURL = %q", cfg.LLM.BaseURL)
 	}
 }
 
@@ -163,5 +176,25 @@ func TestLoadRejectsInvalidWeChatWorkEncodingAESKey(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want invalid WeChat Work encoding aes key error")
+	}
+}
+
+func TestLoadRejectsPartialLLMConfig(t *testing.T) {
+	t.Setenv("LLM_PROVIDER", "openai_compatible")
+	t.Setenv("LLM_API_KEY", "llm-key")
+	t.Setenv("LLM_MODEL", "custom-model")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want partial LLM config error")
+	}
+}
+
+func TestLoadRejectsUnsupportedLLMProvider(t *testing.T) {
+	t.Setenv("LLM_PROVIDER", "unknown")
+	t.Setenv("LLM_API_KEY", "llm-key")
+	t.Setenv("LLM_MODEL", "custom-model")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want unsupported LLM provider error")
 	}
 }

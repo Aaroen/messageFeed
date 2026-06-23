@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"context"
 	"io"
 	"net/http"
 
 	"messagefeed/internal/channel/wechatwork"
+	"messagefeed/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,12 +18,17 @@ type wechatWorkAppCallback interface {
 	ParseInboundMessage(input wechatwork.ParseInboundMessageInput) (wechatwork.InboundMessage, error)
 }
 
-type wechatWorkHandler struct {
-	appCallback wechatWorkAppCallback
+type wechatWorkInboundReceiver interface {
+	ReceiveWeChatWorkAppMessage(ctx context.Context, input service.ReceiveWeChatWorkAppMessageInput) (service.ReceiveWeChatWorkAppMessageResult, error)
 }
 
-func registerWeChatWorkRoutes(router *gin.RouterGroup, appCallback wechatWorkAppCallback) {
-	handler := wechatWorkHandler{appCallback: appCallback}
+type wechatWorkHandler struct {
+	appCallback     wechatWorkAppCallback
+	inboundReceiver wechatWorkInboundReceiver
+}
+
+func registerWeChatWorkRoutes(router *gin.RouterGroup, appCallback wechatWorkAppCallback, inboundReceiver wechatWorkInboundReceiver) {
+	handler := wechatWorkHandler{appCallback: appCallback, inboundReceiver: inboundReceiver}
 	router.GET("/channels/wechat-work/app/callback", handler.verifyAppCallbackURL)
 	router.POST("/channels/wechat-work/app/callback", handler.receiveAppCallback)
 }
@@ -62,14 +69,35 @@ func (h wechatWorkHandler) receiveAppCallback(c *gin.Context) {
 		return
 	}
 
-	if _, err := h.appCallback.ParseInboundMessage(wechatwork.ParseInboundMessageInput{
+	message, err := h.appCallback.ParseInboundMessage(wechatwork.ParseInboundMessageInput{
 		MsgSignature: c.Query("msg_signature"),
 		Timestamp:    c.Query("timestamp"),
 		Nonce:        c.Query("nonce"),
 		Body:         body,
-	}); err != nil {
+	})
+	if err != nil {
 		RenderError(c, err, "invalid wechat work callback message")
 		return
+	}
+	if h.inboundReceiver != nil {
+		if _, err := h.inboundReceiver.ReceiveWeChatWorkAppMessage(c.Request.Context(), service.ReceiveWeChatWorkAppMessageInput{
+			Provider:          message.Provider,
+			ProviderMessageID: message.ProviderMessageID,
+			CorpID:            message.CorpID,
+			AgentID:           message.AgentID,
+			ExternalUserID:    message.ExternalUserID,
+			ChatID:            message.ChatID,
+			ChatType:          message.ChatType,
+			MsgType:           message.MsgType,
+			TextContent:       message.TextContent,
+			EventType:         message.EventType,
+			EventKey:          message.EventKey,
+			RawXML:            message.RawXML,
+			RequestID:         requestID(c),
+		}); err != nil {
+			RenderError(c, err, "wechat work callback processing failed")
+			return
+		}
 	}
 
 	c.String(http.StatusOK, "success")

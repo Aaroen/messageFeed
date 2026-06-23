@@ -9,7 +9,9 @@ import (
 	"messagefeed/internal/db"
 	"messagefeed/internal/fetcher"
 	"messagefeed/internal/handler"
+	"messagefeed/internal/llm"
 	"messagefeed/internal/metrics"
+	"messagefeed/internal/notifier"
 	"messagefeed/internal/observability"
 	"messagefeed/internal/repository"
 	appRuntime "messagefeed/internal/runtime"
@@ -56,6 +58,7 @@ func main() {
 		"deployment_mode", cfg.Runtime.DeploymentMode,
 		"database_configured", cfg.Database.DSN != "",
 		"wechat_work_configured", cfg.WeChatWork.Enabled(),
+		"llm_configured", cfg.LLM.Enabled(),
 		"tracing_enabled", cfg.Observability.TraceEnabled,
 		"otel_endpoint", cfg.Observability.OTLPEndpoint,
 	)
@@ -70,6 +73,9 @@ func main() {
 	var feedViewService *service.FeedViewService
 	var sourceSyncService *service.SourceSyncService
 	var weChatWorkAppCallback *wechatwork.AppCallbackCodec
+	var weChatWorkSender *notifier.WeChatWorkAppClient
+	var llmClient llm.Client
+	var agentConversationService *service.AgentConversationService
 	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
 	if cfg.WeChatWork.Enabled() {
@@ -84,6 +90,32 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Info("wechat work app callback configured", "agent_id", cfg.WeChatWork.AgentID)
+		weChatWorkSender, err = notifier.NewWeChatWorkAppClient(notifier.WeChatWorkAppConfig{
+			CorpID:  cfg.WeChatWork.CorpID,
+			AgentID: cfg.WeChatWork.AgentID,
+			Secret:  cfg.WeChatWork.Secret,
+		})
+		if err != nil {
+			logger.Error("failed to initialize wechat work sender", "error", err)
+			os.Exit(1)
+		}
+	}
+	if cfg.LLM.Enabled() {
+		baseURL := cfg.LLM.BaseURL
+		if cfg.LLM.Provider == "openai" && baseURL == "" {
+			baseURL = "https://api.openai.com/v1"
+		}
+		llmClient, err = llm.NewOpenAICompatibleClient(llm.OpenAICompatibleConfig{
+			Provider: cfg.LLM.Provider,
+			BaseURL:  baseURL,
+			APIKey:   cfg.LLM.APIKey,
+			Model:    cfg.LLM.Model,
+		})
+		if err != nil {
+			logger.Error("failed to initialize llm client", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("llm client configured", "provider", cfg.LLM.Provider, "model", cfg.LLM.Model)
 	}
 	if cfg.Database.DSN != "" {
 		dbCfg := db.Config{
@@ -123,6 +155,7 @@ func main() {
 		sourceFetchJobRepository := repository.NewSourceFetchJobRepository(database)
 		itemEventRepository := repository.NewItemEventRepository(database)
 		taskLockRepository := repository.NewTaskLockRepository(database)
+		agentRepository := repository.NewAgentRepository(database)
 		feedFetcher := fetcher.NewClient()
 		sourceService = service.NewSourceService(
 			sourceRepository,
@@ -145,6 +178,13 @@ func main() {
 		recommendationService.SetLocalHistoryRepositories(sourceRepository, itemRepository)
 		itemService = service.NewItemService(userItemStateRepository)
 		feedViewService = service.NewFeedViewService(feedViewPreferenceRepository)
+		if weChatWorkAppCallback != nil {
+			agentConversationService = service.NewAgentConversationService(
+				agentRepository,
+				service.WithAgentConversationLLM(llmClient),
+				service.WithAgentConversationSender(weChatWorkSender),
+			)
+		}
 
 		// 启动数据库连接池指标采集器
 		go collectDatabaseMetrics(database, logger)
@@ -175,6 +215,7 @@ func main() {
 		ItemService:           itemService,
 		FeedViewService:       feedViewService,
 		WeChatWorkAppCallback: weChatWorkAppCallback,
+		WeChatWorkReceiver:    agentConversationService,
 		ServiceName:           cfg.Observability.ServiceName,
 	})
 
