@@ -32,6 +32,7 @@ type RouterOptions struct {
 	RecommendationService recommendationService
 	ItemService           itemStateService
 	FeedViewService       feedViewService
+	WeChatWorkAppCallback wechatWorkAppCallback
 	ServiceName           string
 }
 
@@ -64,6 +65,7 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	registerSourceRoutes(apiV1, options.SourceService)
 	registerItemRoutes(apiV1, options.TimelineService, options.ItemService, options.RecommendationService)
 	registerFeedViewRoutes(apiV1, options.FeedViewService)
+	registerWeChatWorkRoutes(apiV1, options.WeChatWorkAppCallback)
 
 	router.NoRoute(func(c *gin.Context) {
 		Error(c, http.StatusNotFound, http.StatusNotFound, "not found")

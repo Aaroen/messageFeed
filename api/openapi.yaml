@@ -529,6 +529,84 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/channels/wechat-work/app/callback:
+    get:
+      summary: Verify WeChat Work app callback URL
+      description: Returns the decrypted echostr as plain text for WeChat Work callback URL verification.
+      parameters:
+        - name: msg_signature
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: timestamp
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: nonce
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: echostr
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Decrypted callback echo string
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      summary: Receive WeChat Work app callback message
+      description: Verifies callback signature, decrypts XML payload and acknowledges the inbound message quickly.
+      parameters:
+        - name: msg_signature
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: timestamp
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: nonce
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/xml:
+            schema:
+              type: string
+          text/xml:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Callback acknowledged
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: success
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '413':
+          description: Callback body is too large
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 components:
   parameters:
     ID:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"messagefeed/internal/channel/wechatwork"
 	"messagefeed/internal/config"
 	"messagefeed/internal/db"
 	"messagefeed/internal/fetcher"
@@ -54,6 +55,7 @@ func main() {
 		"app_node_id", cfg.Runtime.AppNodeID,
 		"deployment_mode", cfg.Runtime.DeploymentMode,
 		"database_configured", cfg.Database.DSN != "",
+		"wechat_work_configured", cfg.WeChatWork.Enabled(),
 		"tracing_enabled", cfg.Observability.TraceEnabled,
 		"otel_endpoint", cfg.Observability.OTLPEndpoint,
 	)
@@ -67,8 +69,22 @@ func main() {
 	var itemService *service.ItemService
 	var feedViewService *service.FeedViewService
 	var sourceSyncService *service.SourceSyncService
+	var weChatWorkAppCallback *wechatwork.AppCallbackCodec
 	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
+	if cfg.WeChatWork.Enabled() {
+		weChatWorkAppCallback, err = wechatwork.NewAppCallbackCodec(wechatwork.AppCallbackConfig{
+			CorpID:         cfg.WeChatWork.CorpID,
+			AgentID:        cfg.WeChatWork.AgentID,
+			CallbackToken:  cfg.WeChatWork.CallbackToken,
+			EncodingAESKey: cfg.WeChatWork.EncodingAESKey,
+		})
+		if err != nil {
+			logger.Error("failed to initialize wechat work callback codec", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("wechat work app callback configured", "agent_id", cfg.WeChatWork.AgentID)
+	}
 	if cfg.Database.DSN != "" {
 		dbCfg := db.Config{
 			DSN:             cfg.Database.DSN,
@@ -158,6 +174,7 @@ func main() {
 		RecommendationService: recommendationService,
 		ItemService:           itemService,
 		FeedViewService:       feedViewService,
+		WeChatWorkAppCallback: weChatWorkAppCallback,
 		ServiceName:           cfg.Observability.ServiceName,
 	})
 

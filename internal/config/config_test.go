@@ -48,6 +48,11 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
 	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0.5")
+	t.Setenv("WECHAT_WORK_CORP_ID", "ww0123456789abcdef")
+	t.Setenv("WECHAT_WORK_AGENT_ID", "1000002")
+	t.Setenv("WECHAT_WORK_SECRET", "wechat-work-secret")
+	t.Setenv("WECHAT_WORK_CALLBACK_TOKEN", "callback-token")
+	t.Setenv("WECHAT_WORK_ENCODING_AES_KEY", "abcdefghijklmnopqrstuvwxyzABCDEFG1234567890")
 
 	cfg, err := Load()
 	if err != nil {
@@ -90,6 +95,15 @@ func TestLoadFromEnv(t *testing.T) {
 	if cfg.Observability.TraceSampleRatio != 0.5 {
 		t.Fatalf("TraceSampleRatio = %f, want 0.5", cfg.Observability.TraceSampleRatio)
 	}
+	if !cfg.WeChatWork.Enabled() {
+		t.Fatal("WeChatWork.Enabled() = false, want true")
+	}
+	if cfg.WeChatWork.CorpID != "ww0123456789abcdef" {
+		t.Fatalf("WeChatWork.CorpID = %q", cfg.WeChatWork.CorpID)
+	}
+	if cfg.WeChatWork.AgentID != "1000002" {
+		t.Fatalf("WeChatWork.AgentID = %q", cfg.WeChatWork.AgentID)
+	}
 }
 
 func TestLoadRejectsInvalidBindAddr(t *testing.T) {
@@ -129,5 +143,25 @@ func TestLoadRejectsInvalidTraceSampleRatio(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want invalid trace sampler error")
+	}
+}
+
+func TestLoadRejectsPartialWeChatWorkConfig(t *testing.T) {
+	t.Setenv("WECHAT_WORK_CORP_ID", "ww0123456789abcdef")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want partial WeChat Work config error")
+	}
+}
+
+func TestLoadRejectsInvalidWeChatWorkEncodingAESKey(t *testing.T) {
+	t.Setenv("WECHAT_WORK_CORP_ID", "ww0123456789abcdef")
+	t.Setenv("WECHAT_WORK_AGENT_ID", "1000002")
+	t.Setenv("WECHAT_WORK_SECRET", "wechat-work-secret")
+	t.Setenv("WECHAT_WORK_CALLBACK_TOKEN", "callback-token")
+	t.Setenv("WECHAT_WORK_ENCODING_AES_KEY", "short")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want invalid WeChat Work encoding aes key error")
 	}
 }

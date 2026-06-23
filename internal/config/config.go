@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net"
@@ -56,6 +57,7 @@ type Config struct {
 	Log           LogConfig
 	Database      DatabaseConfig
 	Observability ObservabilityConfig
+	WeChatWork    WeChatWorkConfig
 }
 
 // HTTPConfig 保存 HTTP 服务相关配置。
@@ -117,6 +119,24 @@ type ObservabilityConfig struct {
 	TraceSampleRatio float64
 }
 
+// WeChatWorkConfig 保存企业微信自建应用接收消息与回复所需配置。
+type WeChatWorkConfig struct {
+	CorpID         string
+	AgentID        string
+	Secret         string
+	CallbackToken  string
+	EncodingAESKey string
+}
+
+// Enabled 表示企业微信自建应用回调配置是否已经启用。
+func (cfg WeChatWorkConfig) Enabled() bool {
+	return cfg.CorpID != "" ||
+		cfg.AgentID != "" ||
+		cfg.Secret != "" ||
+		cfg.CallbackToken != "" ||
+		cfg.EncodingAESKey != ""
+}
+
 // Load 从环境变量加载配置，并在返回前执行基础校验。
 // 当前不读取 YAML、TOML 或 JSON 配置文件，避免第一阶段引入路径、挂载和敏感信息落盘问题。
 // 后续如需配置文件，可在 Defaults 和环境变量覆盖之间增加文件配置合并层。
@@ -142,6 +162,12 @@ func Load() (Config, error) {
 	cfg.Observability.OTLPEndpoint = envString("OTEL_EXPORTER_OTLP_ENDPOINT", cfg.Observability.OTLPEndpoint)
 	cfg.Observability.OTLPInsecure = envBool("OTEL_EXPORTER_OTLP_INSECURE", cfg.Observability.OTLPInsecure)
 	cfg.Observability.TraceSampleRatio = envFloat("OTEL_TRACES_SAMPLER_ARG", cfg.Observability.TraceSampleRatio)
+
+	cfg.WeChatWork.CorpID = envString("WECHAT_WORK_CORP_ID", cfg.WeChatWork.CorpID)
+	cfg.WeChatWork.AgentID = envString("WECHAT_WORK_AGENT_ID", cfg.WeChatWork.AgentID)
+	cfg.WeChatWork.Secret = envString("WECHAT_WORK_SECRET", cfg.WeChatWork.Secret)
+	cfg.WeChatWork.CallbackToken = envString("WECHAT_WORK_CALLBACK_TOKEN", cfg.WeChatWork.CallbackToken)
+	cfg.WeChatWork.EncodingAESKey = envString("WECHAT_WORK_ENCODING_AES_KEY", cfg.WeChatWork.EncodingAESKey)
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -180,6 +206,7 @@ func Defaults() Config {
 			OTLPInsecure:     true,
 			TraceSampleRatio: DefaultTraceSampleRatio,
 		},
+		WeChatWork: WeChatWorkConfig{},
 	}
 }
 
@@ -248,6 +275,42 @@ func (cfg Config) Validate() error {
 		return fmt.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT must not be empty when tracing is enabled")
 	}
 
+	if err := validateWeChatWorkConfig(cfg.WeChatWork); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateWeChatWorkConfig(cfg WeChatWorkConfig) error {
+	if !cfg.Enabled() {
+		return nil
+	}
+	required := map[string]string{
+		"WECHAT_WORK_CORP_ID":          cfg.CorpID,
+		"WECHAT_WORK_AGENT_ID":         cfg.AgentID,
+		"WECHAT_WORK_SECRET":           cfg.Secret,
+		"WECHAT_WORK_CALLBACK_TOKEN":   cfg.CallbackToken,
+		"WECHAT_WORK_ENCODING_AES_KEY": cfg.EncodingAESKey,
+	}
+	for name, value := range required {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("%s must not be empty when WeChat Work callback is configured", name)
+		}
+	}
+	if len(cfg.EncodingAESKey) != 43 {
+		return fmt.Errorf("WECHAT_WORK_ENCODING_AES_KEY must be 43 characters")
+	}
+	aesKey, err := base64.StdEncoding.DecodeString(cfg.EncodingAESKey + "=")
+	if err != nil {
+		return fmt.Errorf("WECHAT_WORK_ENCODING_AES_KEY must be valid base64: %w", err)
+	}
+	if len(aesKey) != 32 {
+		return fmt.Errorf("WECHAT_WORK_ENCODING_AES_KEY must decode to 32 bytes")
+	}
+	if _, err := strconv.ParseInt(cfg.AgentID, 10, 64); err != nil {
+		return fmt.Errorf("WECHAT_WORK_AGENT_ID must be an integer: %w", err)
+	}
 	return nil
 }
 
