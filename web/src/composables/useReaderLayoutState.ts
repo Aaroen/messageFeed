@@ -41,7 +41,7 @@ export function useReaderLayoutState(options: ReaderLayoutStateOptions) {
       return false
     }
 
-    if (options.sourceReaderScrollTop.value > sourceTopOffset || topChromeProgress.value <= 0.04) {
+    if (options.sourceReaderScrollTop.value > sourceVisibleTopOffset.value || topChromeProgress.value <= 0.04) {
       return false
     }
 
