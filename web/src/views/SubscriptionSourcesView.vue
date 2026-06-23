@@ -47,7 +47,14 @@ let pageRefreshingToken = 0
 let disposed = false
 const pageRequestToken = useRequestToken({ isActive: () => !disposed })
 const importFetchConcurrency = 3
-const pageBusy = computed(() => loading.value || catalogLoading.value || actionLoading.value || pageRefreshing.value)
+const pageBusy = computed(
+  () =>
+    loading.value ||
+    catalogLoading.value ||
+    actionLoading.value ||
+    pageRefreshing.value ||
+    refreshLayoutFreeze.active.value,
+)
 
 type ImportFetchSummary = {
   requestedCount: number
