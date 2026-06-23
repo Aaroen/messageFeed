@@ -26,7 +26,7 @@ export function chromePhaseConsumesCollapsedLayout(phase: string) {
 }
 
 export function chromePhaseNeedsVisibleTopClearance(phase: string) {
-  return phase === 'visible'
+  return phase === 'visible' || phase === 'revealing'
 }
 
 export function chromeNeedsVisibleTopClearance(phase: string, progress: number) {
