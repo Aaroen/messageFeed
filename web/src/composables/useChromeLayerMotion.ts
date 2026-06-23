@@ -5,6 +5,7 @@ type ChromeLayerStyleOptions = {
   scaleStart?: number
   disableTransition?: boolean
   pointerEnabled?: boolean
+  transitionVisibility?: boolean
 }
 
 type ChromeLayerMotionOptions = {
@@ -64,7 +65,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
   }
 
   function refreshStatusStyle(visible: boolean, progress: number) {
-    return layerStyle(visible, progress, { shift: -10, scaleStart: 0.96 })
+    return layerStyle(visible, progress, { shift: -10, scaleStart: 0.96, transitionVisibility: false })
   }
 
   function refreshIconStyle(refreshing: boolean, progress: number) {
@@ -142,6 +143,10 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
     const shift = styleOptions.shift ?? -8
     const scaleStart = styleOptions.scaleStart ?? 0.96
     const pointerEnabled = styleOptions.pointerEnabled ?? true
+    const transitionVisibility = styleOptions.transitionVisibility ?? true
+    const transitionProperties = transitionVisibility
+      ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard), visibility var(--motion-chrome) var(--ease-standard)'
+      : 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard)'
     return {
       opacity: safeProgress.toFixed(3),
       pointerEvents: safeProgress > 0.86 && pointerEnabled ? ('auto' as const) : ('none' as const),
@@ -152,7 +157,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
       transition: styleOptions.disableTransition
         ? 'none'
         : options.isSettling?.()
-          ? 'transform var(--motion-chrome) var(--ease-emphasized), opacity var(--motion-chrome) var(--ease-standard), visibility var(--motion-chrome) var(--ease-standard)'
+          ? transitionProperties
           : undefined,
       visibility: safeProgress > 0.01 ? ('visible' as const) : ('hidden' as const),
     }

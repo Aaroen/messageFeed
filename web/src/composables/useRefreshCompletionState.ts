@@ -5,6 +5,7 @@ export function useRefreshCompletionState() {
   const wasSource = ref(false)
   const startedWithChrome = ref(false)
   const settling = ref(false)
+  const settlingSource = ref(false)
   let settleTimer = 0
   let settleTimerToken = 0
 
@@ -33,6 +34,7 @@ export function useRefreshCompletionState() {
       wasActive: wasActive.value,
       wasSource: wasSource.value,
     }
+    settlingSource.value = wasSource.value
     startedWithChrome.value = false
     wasActive.value = false
     wasSource.value = false
@@ -46,6 +48,7 @@ export function useRefreshCompletionState() {
       }
       settleTimer = 0
       settling.value = false
+      settlingSource.value = false
     }, Math.max(0, delayMS))
     return result
   }
@@ -53,6 +56,9 @@ export function useRefreshCompletionState() {
   function resetInactive() {
     startedWithChrome.value = false
     wasSource.value = false
+    if (!settling.value) {
+      settlingSource.value = false
+    }
   }
 
   function reset() {
@@ -61,6 +67,7 @@ export function useRefreshCompletionState() {
     wasSource.value = false
     startedWithChrome.value = false
     settling.value = false
+    settlingSource.value = false
   }
 
   return {
@@ -68,6 +75,7 @@ export function useRefreshCompletionState() {
     wasSource: readonly(wasSource),
     startedWithChrome: readonly(startedWithChrome),
     settling: readonly(settling),
+    settlingSource: readonly(settlingSource),
     recordStartedWithChrome,
     begin,
     finish,

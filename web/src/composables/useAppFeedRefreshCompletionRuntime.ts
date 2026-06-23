@@ -57,6 +57,7 @@ export function useAppFeedRefreshCompletionRuntime(
     refreshCompletion,
     refreshStartedWithChrome: refreshCompletion.startedWithChrome,
     feedRefreshSettling: refreshCompletion.settling,
+    feedRefreshSettlingSource: refreshCompletion.settlingSource,
     recordRefreshStartedWithChrome: refreshCompletion.recordStartedWithChrome,
     resetRefreshCompletion: refreshCompletion.reset,
     canApplyCompletionEffects,

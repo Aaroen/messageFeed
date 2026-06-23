@@ -48,6 +48,16 @@ function safeGapFeedRevealProgress(payload: {
   return Math.min(payload.progress, clampProgress(maxProgress))
 }
 
+function feedRevealProgressAtScrollTop(scrollTop: number, headerHeight: number, contentCollapsed: boolean) {
+  const revealDistance = Math.max(headerHeight * 2, 1)
+  return safeGapFeedRevealProgress({
+    progress: clampProgress(1 - scrollTop / revealDistance),
+    scrollTop,
+    headerHeight,
+    contentCollapsed,
+  })
+}
+
 export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptions) {
   function topChromeProgress() {
     return clampProgress(options.topChromeProgress.value)
@@ -58,17 +68,26 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
       return false
     }
 
-    if (topChromeProgress() < 0.95) {
-      return false
-    }
-
     const visibleTopOffset = feedVisibleContentTopOffset(options.feedHeaderHeight.value)
     if (current > visibleTopOffset) {
       return false
     }
 
-    options.setTopChromeVisible(true)
-    return true
+    const headerHeight = options.feedHeaderHeight.value
+    const expectedProgress = feedRevealProgressAtScrollTop(current, headerHeight, true)
+    const restoreProgress = Math.max(topChromeProgress(), expectedProgress)
+    const topSettleOffset = feedContentTopOffset(headerHeight)
+    if (current <= topSettleOffset && restoreProgress >= 0.86) {
+      options.setTopChromeVisible(true)
+      return true
+    }
+
+    if (restoreProgress >= 0.95) {
+      options.setTopChromeVisible(true)
+      return true
+    }
+
+    return false
   }
 
   function updateByScroll(current: number, previous: number) {
@@ -117,14 +136,12 @@ export function useTopChromeScrollBehavior(options: TopChromeScrollBehaviorOptio
     if (delta < 0 && currentTopChromeProgress < 0.99) {
       if (options.isFeedRoute.value && !options.detailReaderOpen.value) {
         const headerHeight = options.feedHeaderHeight.value
-        const revealDistance = Math.max(headerHeight * 2, 1)
         const revealSettleDistance = feedContentTopOffset(headerHeight)
-        const progress = safeGapFeedRevealProgress({
-          progress: clampProgress(1 - current / revealDistance),
-          scrollTop: current,
+        const progress = feedRevealProgressAtScrollTop(
+          current,
           headerHeight,
-          contentCollapsed: options.feedContentCollapsed.value,
-        })
+          options.feedContentCollapsed.value,
+        )
         const shouldSettleVisible =
           progress >= 0.95 ||
           (!options.feedContentCollapsed.value && current <= revealSettleDistance)

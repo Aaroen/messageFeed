@@ -95,15 +95,45 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
   const foregroundSourcePullActive = computed(
     () => feedChrome.sourcePullActive.value && sourceReaderInteractive.value,
   )
-  const feedPullRefreshing = computed(() => options.feedPull.getPullRefreshing())
+  const feedRefreshSettlingForFeed = computed(
+    () =>
+      feedRefreshCompletion.feedRefreshSettling.value &&
+      !feedRefreshCompletion.feedRefreshSettlingSource.value &&
+      options.feedRefreshCompletion.isFeedRoute.value &&
+      !options.feedRefreshCompletion.detailReaderOpen.value &&
+      !options.feedRefreshCompletion.sourceReaderOpen.value &&
+      !options.feedRefreshCompletion.navigationVisible.value,
+  )
+  const sourceRefreshSettlingVisible = computed(
+    () =>
+      feedRefreshCompletion.feedRefreshSettling.value &&
+      feedRefreshCompletion.feedRefreshSettlingSource.value &&
+      sourceReaderInteractive.value &&
+      !options.feedRefreshCompletion.navigationVisible.value,
+  )
+  const feedPullActive = computed(() => feedChrome.feedPullActive.value || feedRefreshSettlingForFeed.value)
+  const foregroundSourcePullVisible = computed(
+    () => foregroundSourcePullActive.value || sourceRefreshSettlingVisible.value,
+  )
+  const feedPullProgress = computed(() =>
+    feedRefreshSettlingForFeed.value ? 1 : feedChrome.pullProgress.value,
+  )
+  const sourcePullProgress = computed(() =>
+    sourceRefreshSettlingVisible.value ? 1 : feedChrome.sourcePullProgress.value,
+  )
+  const feedPullRefreshing = computed(
+    () => options.feedPull.getPullRefreshing() || feedRefreshSettlingForFeed.value,
+  )
   const sourcePullRefreshing = computed(
-    () => foregroundSourcePullActive.value && feedPullRefreshing.value,
+    () =>
+      (foregroundSourcePullActive.value && options.feedPull.getPullRefreshing()) ||
+      sourceRefreshSettlingVisible.value,
   )
   const chromeVisual = useAppChromeVisualState({
     layer: {
-      feedPullActive: feedChrome.feedPullActive,
+      feedPullActive,
       feedPullRefreshing: () => feedPullRefreshing.value,
-      pullProgress: feedChrome.pullProgress,
+      pullProgress: feedPullProgress,
       pagePullActive: feedChrome.pagePullActive,
       pagePullRefreshing: options.visual.pagePullRefreshing,
       pagePullProgress: options.visual.pagePullProgress,
@@ -115,9 +145,9 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
       viewSwipeActive: options.visual.viewSwipeActive,
       viewSwipeTargetVisible: options.visual.viewSwipeTargetVisible,
       viewSwipeTargetProgress: options.visual.viewSwipeTargetProgress,
-      sourcePullActive: foregroundSourcePullActive,
+      sourcePullActive: foregroundSourcePullVisible,
       sourcePullRefreshing: () => sourcePullRefreshing.value,
-      sourcePullProgress: feedChrome.sourcePullProgress,
+      sourcePullProgress,
       topChromeProgress: options.visual.topChromeProgress,
       feedHeaderHeight: feedChrome.feedHeaderHeight,
       feedChromeSettling: options.visual.feedChromeSettling,
@@ -131,14 +161,14 @@ export function useAppChromeRuntime(options: AppChromeRuntimeOptions) {
   })
 
   return {
-    feedPullActive: feedChrome.feedPullActive,
+    feedPullActive,
     feedPullRefreshing,
     pagePullActive: feedChrome.pagePullActive,
-    foregroundSourcePullActive,
+    foregroundSourcePullActive: foregroundSourcePullVisible,
     sourcePullRefreshing,
     feedOrSourcePullActive: feedChrome.feedOrSourcePullActive,
-    pullProgress: feedChrome.pullProgress,
-    sourcePullProgress: feedChrome.sourcePullProgress,
+    pullProgress: feedPullProgress,
+    sourcePullProgress,
     feedHeaderHeight: feedChrome.feedHeaderHeight,
     feedHeaderProgress: feedChrome.feedHeaderProgress,
     freezeFeedBodyDuringTopRefresh: feedChrome.freezeFeedBodyDuringTopRefresh,
