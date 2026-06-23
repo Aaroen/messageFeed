@@ -28,7 +28,7 @@ type AppRuntimeCleanupOptions = {
   }
   pagePull: {
     invalidateRefreshCompletion: RuntimeCleaner
-    clearTimers: RuntimeCleaner
+    reset: RuntimeCleaner
   }
   shell: {
     clearClickSuppressionTimer: RuntimeCleaner
@@ -63,7 +63,7 @@ export function useAppRuntimeCleanup(options: AppRuntimeCleanupOptions) {
     () => options.readerMotion.resetSourceContentMotion(),
     () => options.detailSourceTransition.clearRectCapture(),
     () => options.pagePull.invalidateRefreshCompletion(),
-    () => options.pagePull.clearTimers(),
+    () => options.pagePull.reset(),
     () => options.shell.clearClickSuppressionTimer(),
     () => options.sourceSubscription.clearRuntime(),
     () => options.readerDetailFrames.clear(),

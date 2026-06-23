@@ -1191,7 +1191,7 @@ const runtimeCleanup = useAppRuntimeCleanup({
   },
   pagePull: {
     invalidateRefreshCompletion: invalidatePagePullRefreshCompletion,
-    clearTimers: pagePullState.clearTimers,
+    reset: pagePullState.reset,
   },
   shell: {
     clearClickSuppressionTimer,

@@ -34,6 +34,8 @@ export function useAppPagePullState(options: AppPagePullStateOptions) {
   function reset() {
     releaseCompletionRefreshing()
     pullRefresh.reset()
+    contentMotion.resetSideMotion()
+    contentMotion.clearStretchAnchorIfIdle(false)
   }
 
   return {
