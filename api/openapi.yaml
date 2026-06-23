@@ -108,7 +108,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/source-fetches:
     post:
-      summary: Fetch all active sources
+      summary: Queue fetch jobs for all active sources
+      description: Enqueues manual fetch jobs for active sources and returns immediately. Clients should poll /api/v1/source-fetches/status when async is true.
       responses:
         '200':
           description: Batch fetch result
@@ -529,6 +530,233 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auth/me:
+    get:
+      summary: Get current authenticated user and bindings
+      responses:
+        '200':
+          description: Current auth status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthMe'
+  /api/v1/auth/login:
+    post:
+      summary: Log in as the local owner user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login succeeded
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auth/logout:
+    post:
+      summary: Revoke the current session
+      responses:
+        '200':
+          description: Logout succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIResponse'
+  /api/v1/auth/wechat-work/oauth-url:
+    get:
+      summary: Build a WeChat Work OAuth URL for binding or confirmation
+      parameters:
+        - name: redirect
+          in: query
+          schema:
+            type: string
+            default: /settings
+        - name: purpose
+          in: query
+          schema:
+            type: string
+            enum:
+              - bind
+              - confirm
+            default: bind
+      responses:
+        '200':
+          description: WeChat Work OAuth URL
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WeChatWorkOAuthURL'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auth/wechat-work/callback:
+    get:
+      summary: Handle WeChat Work OAuth callback
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirects back to the configured frontend path
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/auth/bindings:
+    get:
+      summary: List external account bindings
+      responses:
+        '200':
+          description: External account bindings
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuthBinding'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/auth/bindings/{id}/disable:
+    post:
+      summary: Disable an external account binding
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: Disabled binding
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthBinding'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/admin/config:
+    get:
+      summary: Get runtime admin configuration status
+      responses:
+        '200':
+          description: Admin configuration status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminConfigStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/admin/config/tests/llm:
+    post:
+      summary: Test the configured LLM provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+      responses:
+        '200':
+          description: LLM test result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminLLMTestResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/admin/config/tests/wechat-work:
+    post:
+      summary: Test WeChat Work app message sending
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - to_user
+              properties:
+                to_user:
+                  type: string
+                content:
+                  type: string
+      responses:
+        '200':
+          description: WeChat Work send test result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AdminWeChatWorkTestResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/channels/wechat-work/app/callback:
     get:
       summary: Verify WeChat Work app callback URL
@@ -651,6 +879,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/APIResponse'
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/APIResponse'
     ServiceUnavailable:
       description: Service dependency is unavailable
       content:
@@ -711,6 +945,223 @@ components:
           description: OpenTelemetry trace id for correlating API responses with logs and traces.
         data:
           nullable: true
+    AuthMe:
+      type: object
+      required:
+        - authenticated
+        - login_enabled
+        - wechat_work_oauth_enabled
+        - bindings
+      properties:
+        authenticated:
+          type: boolean
+        login_enabled:
+          type: boolean
+        wechat_work_oauth_enabled:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/AuthUser'
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthBinding'
+    AuthUser:
+      type: object
+      required:
+        - id
+        - username
+        - display_name
+        - role
+        - status
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        display_name:
+          type: string
+        role:
+          type: string
+          enum:
+            - owner
+            - user
+        status:
+          type: string
+          enum:
+            - active
+            - disabled
+    AuthBinding:
+      type: object
+      required:
+        - id
+        - provider
+        - corp_id_masked
+        - agent_id
+        - external_user_id
+        - display_name
+        - binding_status
+      properties:
+        id:
+          type: integer
+          format: int64
+        provider:
+          type: string
+        corp_id_masked:
+          type: string
+        agent_id:
+          type: string
+        external_user_id:
+          type: string
+        display_name:
+          type: string
+        binding_status:
+          type: string
+          enum:
+            - active
+            - disabled
+        verified_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+    LoginResult:
+      type: object
+      required:
+        - user
+        - expires_at
+      properties:
+        user:
+          $ref: '#/components/schemas/AuthUser'
+        expires_at:
+          type: string
+          format: date-time
+    WeChatWorkOAuthURL:
+      type: object
+      required:
+        - url
+        - expires_at
+      properties:
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+    AdminConfigStatus:
+      type: object
+      properties:
+        updated_at:
+          type: string
+          format: date-time
+        runtime:
+          type: object
+          additionalProperties: true
+        database:
+          type: object
+          properties:
+            configured:
+              type: boolean
+        auth:
+          type: object
+          properties:
+            local_login_enabled:
+              type: boolean
+            session_cookie:
+              type: string
+            session_secure:
+              type: boolean
+            session_ttl_seconds:
+              type: integer
+              format: int64
+            oauth_state_ttl_seconds:
+              type: integer
+              format: int64
+        wechat_work:
+          type: object
+          additionalProperties: true
+        llm:
+          type: object
+          additionalProperties: true
+        observability:
+          type: object
+          additionalProperties: true
+        endpoints:
+          type: object
+          additionalProperties:
+            type: string
+        requirements:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              items:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    key:
+                      type: string
+                    configured:
+                      type: boolean
+                    secret:
+                      type: boolean
+    AdminLLMTestResult:
+      type: object
+      properties:
+        status:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        latency_ms:
+          type: integer
+          format: int64
+        response_text:
+          type: string
+        checked_at:
+          type: string
+          format: date-time
+    AdminWeChatWorkTestResult:
+      type: object
+      properties:
+        status:
+          type: string
+        errcode:
+          type: integer
+        errmsg:
+          type: string
+        message_id:
+          type: string
+        invalid_user:
+          type: string
+        invalid_party:
+          type: string
+        invalid_tag:
+          type: string
+        unlicensed_user:
+          type: string
+        latency_ms:
+          type: integer
+          format: int64
+        checked_at:
+          type: string
+          format: date-time
     CreateSourceRequest:
       type: object
       required:
@@ -851,6 +1302,9 @@ components:
         - requested_count
         - success_count
         - failure_count
+        - async
+        - queued_count
+        - job_ids
         - sources
         - errors
       properties:
@@ -860,6 +1314,18 @@ components:
           type: integer
         failure_count:
           type: integer
+        async:
+          type: boolean
+          description: True when the request only queued background fetch jobs.
+        queued_count:
+          type: integer
+          description: Number of fetch jobs accepted by the queue.
+        job_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: Queued fetch job identifiers for status polling.
         sources:
           type: array
           items:

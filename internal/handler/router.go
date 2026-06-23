@@ -27,6 +27,7 @@ type RouterOptions struct {
 	Database              *gorm.DB
 	NodeInfo              appRuntime.NodeInfo
 	Now                   func() time.Time
+	AuthService           authEndpointService
 	SourceService         sourceService
 	TimelineService       timelineService
 	RecommendationService recommendationService
@@ -34,6 +35,7 @@ type RouterOptions struct {
 	FeedViewService       feedViewService
 	WeChatWorkAppCallback wechatWorkAppCallback
 	WeChatWorkReceiver    wechatWorkInboundReceiver
+	AdminConfigService    adminConfigService
 	ServiceName           string
 }
 
@@ -54,7 +56,7 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	}
 
 	router := gin.New()
-	router.Use(RequestID(), otelgin.Middleware(options.ServiceName), UserContext(), CORS(), Recovery(options.Logger), AccessLog(options.Logger))
+	router.Use(RequestID(), otelgin.Middleware(options.ServiceName), UserContext(options.AuthService), CORS(), Recovery(options.Logger), AccessLog(options.Logger))
 
 	router.GET("/", rootHandler)
 	router.GET("/healthz", healthzHandler)
@@ -63,10 +65,14 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	router.GET("/metrics", gin.WrapH(promhttp.HandlerFor(metrics.Gatherer, promhttp.HandlerOpts{})))
 
 	apiV1 := router.Group("/api/v1")
-	registerSourceRoutes(apiV1, options.SourceService)
-	registerItemRoutes(apiV1, options.TimelineService, options.ItemService, options.RecommendationService)
-	registerFeedViewRoutes(apiV1, options.FeedViewService)
+	registerAuthRoutes(apiV1, options.AuthService)
+	protectedAPI := apiV1.Group("")
+	protectedAPI.Use(requireAuth(options.AuthService))
+	registerSourceRoutes(protectedAPI, options.SourceService)
+	registerItemRoutes(protectedAPI, options.TimelineService, options.ItemService, options.RecommendationService)
+	registerFeedViewRoutes(protectedAPI, options.FeedViewService)
 	registerWeChatWorkRoutes(apiV1, options.WeChatWorkAppCallback, options.WeChatWorkReceiver)
+	registerAdminConfigRoutes(protectedAPI, options.AdminConfigService)
 
 	router.NoRoute(func(c *gin.Context) {
 		Error(c, http.StatusNotFound, http.StatusNotFound, "not found")

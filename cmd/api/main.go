@@ -76,6 +76,8 @@ func main() {
 	var weChatWorkSender *notifier.WeChatWorkAppClient
 	var llmClient llm.Client
 	var agentConversationService *service.AgentConversationService
+	var adminConfigService *service.AdminConfigService
+	var authService *service.AuthService
 	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
 	if cfg.WeChatWork.Enabled() {
@@ -117,6 +119,12 @@ func main() {
 		}
 		logger.Info("llm client configured", "provider", cfg.LLM.Provider, "model", cfg.LLM.Model)
 	}
+	adminConfigService = service.NewAdminConfigService(
+		cfg,
+		service.WithAdminConfigLLM(llmClient),
+		service.WithAdminConfigWeChatWorkSender(weChatWorkSender),
+		service.WithAdminConfigWeChatWorkCallbackConfigured(weChatWorkAppCallback != nil),
+	)
 	if cfg.Database.DSN != "" {
 		dbCfg := db.Config{
 			DSN:             cfg.Database.DSN,
@@ -156,6 +164,7 @@ func main() {
 		itemEventRepository := repository.NewItemEventRepository(database)
 		taskLockRepository := repository.NewTaskLockRepository(database)
 		agentRepository := repository.NewAgentRepository(database)
+		authRepository := repository.NewAuthRepository(database)
 		feedFetcher := fetcher.NewClient()
 		sourceService = service.NewSourceService(
 			sourceRepository,
@@ -178,6 +187,22 @@ func main() {
 		recommendationService.SetLocalHistoryRepositories(sourceRepository, itemRepository)
 		itemService = service.NewItemService(userItemStateRepository)
 		feedViewService = service.NewFeedViewService(feedViewPreferenceRepository)
+		var weChatWorkOAuth *service.WeChatWorkOAuthClient
+		if cfg.WeChatWork.Enabled() {
+			weChatWorkOAuth, err = service.NewWeChatWorkOAuthClient(service.WeChatWorkOAuthConfig{
+				CorpID: cfg.WeChatWork.CorpID,
+				Secret: cfg.WeChatWork.Secret,
+			})
+			if err != nil {
+				logger.Error("failed to initialize wechat work oauth client", "error", err)
+				os.Exit(1)
+			}
+		}
+		authService = service.NewAuthService(
+			authRepository,
+			cfg,
+			service.WithAuthWeChatWorkOAuth(weChatWorkOAuth),
+		)
 		if weChatWorkAppCallback != nil {
 			agentConversationService = service.NewAgentConversationService(
 				agentRepository,
@@ -209,6 +234,7 @@ func main() {
 		Database:              database,
 		NodeInfo:              nodeInfo,
 		Now:                   time.Now,
+		AuthService:           authService,
 		SourceService:         sourceService,
 		TimelineService:       timelineService,
 		RecommendationService: recommendationService,
@@ -216,6 +242,7 @@ func main() {
 		FeedViewService:       feedViewService,
 		WeChatWorkAppCallback: weChatWorkAppCallback,
 		WeChatWorkReceiver:    agentConversationService,
+		AdminConfigService:    adminConfigService,
 		ServiceName:           cfg.Observability.ServiceName,
 	})
 

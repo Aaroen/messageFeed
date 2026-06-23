@@ -133,12 +133,11 @@ func (r *AgentRepository) EnsureExternalAccount(ctx context.Context, account dom
 				{Name: "external_user_id"},
 			},
 			DoUpdates: clause.Assignments(map[string]any{
-				"user_id":        model.UserID,
-				"display_name":   model.DisplayName,
-				"binding_status": model.BindingStatus,
-				"verified_at":    model.VerifiedAt,
-				"last_seen_at":   model.LastSeenAt,
-				"updated_at":     time.Now().UTC(),
+				"user_id":      model.UserID,
+				"display_name": model.DisplayName,
+				"verified_at":  model.VerifiedAt,
+				"last_seen_at": model.LastSeenAt,
+				"updated_at":   time.Now().UTC(),
 			}),
 		}).
 		Create(&model).Error

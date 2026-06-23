@@ -3,6 +3,7 @@ import axios, { AxiosError } from 'axios'
 export const apiClient = axios.create({
   baseURL: '',
   timeout: 8000,
+  withCredentials: true,
 })
 
 function readErrorData(data: unknown) {

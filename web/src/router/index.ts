@@ -1,5 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+import { getCurrentAuth } from '@/api/auth'
+
+const LoginView = () => import('@/views/LoginView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const SubscriptionFeedView = () => import('@/views/SubscriptionFeedView.vue')
 const SubscriptionSourcesView = () => import('@/views/SubscriptionSourcesView.vue')
@@ -10,6 +13,16 @@ const router = createRouter({
     {
       path: '/',
       redirect: '/recommendations',
+    },
+    {
+      path: '/auth/login',
+      name: 'login',
+      component: LoginView,
+      meta: { title: '登录', section: 'auth', public: true },
+    },
+    {
+      path: '/auth/bindings',
+      redirect: '/settings',
     },
     {
       path: '/timeline',
@@ -40,6 +53,27 @@ const router = createRouter({
       meta: { title: '设置', section: 'settings' },
     },
   ],
+})
+
+router.beforeEach(async (to) => {
+  if (to.meta.public) {
+    return true
+  }
+  try {
+    const auth = await getCurrentAuth()
+    if (auth.authenticated) {
+      return true
+    }
+  } catch {
+    return {
+      name: 'login',
+      query: { redirect: to.fullPath },
+    }
+  }
+  return {
+    name: 'login',
+    query: { redirect: to.fullPath },
+  }
 })
 
 export default router

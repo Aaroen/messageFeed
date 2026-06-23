@@ -47,6 +47,12 @@ const (
 	DefaultObservabilityService = "messagefeed-api"
 	DefaultServiceVersion       = "0.2.0"
 	DefaultTraceSampleRatio     = 1.0
+
+	DefaultAuthOwnerUsername    = "owner"
+	DefaultAuthSessionCookie    = "messagefeed_session"
+	DefaultAuthSessionTTL       = 7 * 24 * time.Hour
+	DefaultAuthOAuthStateTTL    = 10 * time.Minute
+	DefaultAuthApprovalTokenTTL = 30 * time.Minute
 )
 
 // Config 汇总应用启动所需的基础配置。
@@ -57,6 +63,7 @@ type Config struct {
 	Log           LogConfig
 	Database      DatabaseConfig
 	Observability ObservabilityConfig
+	Auth          AuthConfig
 	WeChatWork    WeChatWorkConfig
 	LLM           LLMConfig
 }
@@ -120,6 +127,22 @@ type ObservabilityConfig struct {
 	TraceSampleRatio float64
 }
 
+// AuthConfig 保存 Web 登录、HttpOnly session、企业微信网页授权 state 和审批 token 配置。
+type AuthConfig struct {
+	OwnerUsername    string
+	OwnerPassword    string
+	SessionCookie    string
+	SessionTTL       time.Duration
+	SessionSecure    bool
+	OAuthStateTTL    time.Duration
+	ApprovalTokenTTL time.Duration
+}
+
+// LocalLoginEnabled 表示是否允许使用本地 owner 用户名和密码登录。
+func (cfg AuthConfig) LocalLoginEnabled() bool {
+	return strings.TrimSpace(cfg.OwnerUsername) != "" && strings.TrimSpace(cfg.OwnerPassword) != ""
+}
+
 // WeChatWorkConfig 保存企业微信自建应用接收消息与回复所需配置。
 type WeChatWorkConfig struct {
 	CorpID         string
@@ -177,6 +200,14 @@ func Load() (Config, error) {
 	cfg.Observability.OTLPInsecure = envBool("OTEL_EXPORTER_OTLP_INSECURE", cfg.Observability.OTLPInsecure)
 	cfg.Observability.TraceSampleRatio = envFloat("OTEL_TRACES_SAMPLER_ARG", cfg.Observability.TraceSampleRatio)
 
+	cfg.Auth.OwnerUsername = envString("AUTH_OWNER_USERNAME", cfg.Auth.OwnerUsername)
+	cfg.Auth.OwnerPassword = envString("AUTH_OWNER_PASSWORD", cfg.Auth.OwnerPassword)
+	cfg.Auth.SessionCookie = envString("AUTH_SESSION_COOKIE_NAME", cfg.Auth.SessionCookie)
+	cfg.Auth.SessionTTL = envDuration("AUTH_SESSION_TTL", cfg.Auth.SessionTTL)
+	cfg.Auth.SessionSecure = envBool("AUTH_SESSION_COOKIE_SECURE", cfg.Auth.SessionSecure)
+	cfg.Auth.OAuthStateTTL = envDuration("AUTH_OAUTH_STATE_TTL", cfg.Auth.OAuthStateTTL)
+	cfg.Auth.ApprovalTokenTTL = envDuration("AUTH_APPROVAL_TOKEN_TTL", cfg.Auth.ApprovalTokenTTL)
+
 	cfg.WeChatWork.CorpID = envString("WECHAT_WORK_CORP_ID", cfg.WeChatWork.CorpID)
 	cfg.WeChatWork.AgentID = envString("WECHAT_WORK_AGENT_ID", cfg.WeChatWork.AgentID)
 	cfg.WeChatWork.Secret = envString("WECHAT_WORK_SECRET", cfg.WeChatWork.Secret)
@@ -224,6 +255,15 @@ func Defaults() Config {
 			OTLPEndpoint:     "",
 			OTLPInsecure:     true,
 			TraceSampleRatio: DefaultTraceSampleRatio,
+		},
+		Auth: AuthConfig{
+			OwnerUsername:    DefaultAuthOwnerUsername,
+			OwnerPassword:    "",
+			SessionCookie:    DefaultAuthSessionCookie,
+			SessionTTL:       DefaultAuthSessionTTL,
+			SessionSecure:    false,
+			OAuthStateTTL:    DefaultAuthOAuthStateTTL,
+			ApprovalTokenTTL: DefaultAuthApprovalTokenTTL,
 		},
 		WeChatWork: WeChatWorkConfig{},
 		LLM:        LLMConfig{},
@@ -295,6 +335,9 @@ func (cfg Config) Validate() error {
 		return fmt.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT must not be empty when tracing is enabled")
 	}
 
+	if err := validateAuthConfig(cfg.Auth); err != nil {
+		return err
+	}
 	if err := validateWeChatWorkConfig(cfg.WeChatWork); err != nil {
 		return err
 	}
@@ -302,6 +345,28 @@ func (cfg Config) Validate() error {
 		return err
 	}
 
+	return nil
+}
+
+func validateAuthConfig(cfg AuthConfig) error {
+	if strings.TrimSpace(cfg.OwnerUsername) == "" {
+		return fmt.Errorf("AUTH_OWNER_USERNAME must not be empty")
+	}
+	if strings.TrimSpace(cfg.SessionCookie) == "" {
+		return fmt.Errorf("AUTH_SESSION_COOKIE_NAME must not be empty")
+	}
+	if strings.ContainsAny(cfg.SessionCookie, " \t\r\n;,\000") {
+		return fmt.Errorf("AUTH_SESSION_COOKIE_NAME contains invalid characters")
+	}
+	if cfg.SessionTTL <= 0 {
+		return fmt.Errorf("AUTH_SESSION_TTL must be positive")
+	}
+	if cfg.OAuthStateTTL <= 0 {
+		return fmt.Errorf("AUTH_OAUTH_STATE_TTL must be positive")
+	}
+	if cfg.ApprovalTokenTTL <= 0 {
+		return fmt.Errorf("AUTH_APPROVAL_TOKEN_TTL must be positive")
+	}
 	return nil
 }
 

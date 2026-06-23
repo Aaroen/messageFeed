@@ -32,6 +32,12 @@ func TestDefaults(t *testing.T) {
 	if cfg.Observability.TraceEnabled {
 		t.Fatal("TraceEnabled = true, want false")
 	}
+	if cfg.Auth.OwnerUsername != DefaultAuthOwnerUsername {
+		t.Fatalf("OwnerUsername = %q, want %q", cfg.Auth.OwnerUsername, DefaultAuthOwnerUsername)
+	}
+	if cfg.Auth.SessionCookie != DefaultAuthSessionCookie {
+		t.Fatalf("SessionCookie = %q, want %q", cfg.Auth.SessionCookie, DefaultAuthSessionCookie)
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -48,6 +54,13 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
 	t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "true")
 	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0.5")
+	t.Setenv("AUTH_OWNER_USERNAME", "owner")
+	t.Setenv("AUTH_OWNER_PASSWORD", "owner-secret")
+	t.Setenv("AUTH_SESSION_COOKIE_NAME", "mf_session")
+	t.Setenv("AUTH_SESSION_TTL", "3600")
+	t.Setenv("AUTH_SESSION_COOKIE_SECURE", "true")
+	t.Setenv("AUTH_OAUTH_STATE_TTL", "300")
+	t.Setenv("AUTH_APPROVAL_TOKEN_TTL", "900")
 	t.Setenv("WECHAT_WORK_CORP_ID", "ww0123456789abcdef")
 	t.Setenv("WECHAT_WORK_AGENT_ID", "1000002")
 	t.Setenv("WECHAT_WORK_SECRET", "wechat-work-secret")
@@ -101,6 +114,15 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if !cfg.WeChatWork.Enabled() {
 		t.Fatal("WeChatWork.Enabled() = false, want true")
+	}
+	if !cfg.Auth.LocalLoginEnabled() {
+		t.Fatal("Auth.LocalLoginEnabled() = false, want true")
+	}
+	if cfg.Auth.SessionCookie != "mf_session" {
+		t.Fatalf("SessionCookie = %q", cfg.Auth.SessionCookie)
+	}
+	if !cfg.Auth.SessionSecure {
+		t.Fatal("SessionSecure = false, want true")
 	}
 	if cfg.WeChatWork.CorpID != "ww0123456789abcdef" {
 		t.Fatalf("WeChatWork.CorpID = %q", cfg.WeChatWork.CorpID)
@@ -156,6 +178,22 @@ func TestLoadRejectsInvalidTraceSampleRatio(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want invalid trace sampler error")
+	}
+}
+
+func TestLoadRejectsInvalidAuthCookieName(t *testing.T) {
+	t.Setenv("AUTH_SESSION_COOKIE_NAME", "bad cookie")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want invalid auth cookie name error")
+	}
+}
+
+func TestLoadRejectsInvalidAuthTTL(t *testing.T) {
+	t.Setenv("AUTH_SESSION_TTL", "0")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want invalid auth ttl error")
 	}
 }
 

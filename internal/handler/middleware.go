@@ -62,7 +62,8 @@ func CORS() gin.HandlerFunc {
 		ExposedHeaders: []string{
 			requestIDHeader,
 		},
-		MaxAge: int((12 * time.Hour).Seconds()),
+		AllowCredentials: true,
+		MaxAge:           int((12 * time.Hour).Seconds()),
 	})
 
 	return func(c *gin.Context) {
