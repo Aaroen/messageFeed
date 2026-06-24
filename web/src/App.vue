@@ -1416,6 +1416,7 @@ useAppRuntimeEffects({
       :selected-keys="selectedKeys"
       :dark-theme="darkTheme"
       :settings-active="route.meta.section === 'settings'"
+      :subscription-filters-visible="route.name === 'subscriptions'"
       @corner-click="handleCornerButtonClick"
       @close-navigation="closeNavigation"
       @go-home="goHome({ closePanel: true })"

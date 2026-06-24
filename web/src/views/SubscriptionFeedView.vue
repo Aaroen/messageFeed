@@ -1,12 +1,11 @@
 <script setup lang="ts">
+import { storeToRefs } from 'pinia'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { formatAPIError } from '@/api/client'
 import {
   fetchSource,
   type FeedItem,
-  type Source,
-  listSources,
   listRecommendationItems,
   listTimelineItems,
   setItemFavorite,
@@ -24,14 +23,13 @@ import { useRefreshNoticeSequence } from '@/composables/useRefreshNoticeSequence
 import { useRequestToken } from '@/composables/useRequestToken'
 import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
+import { type HiddenFilter, type TriStateFilter, useFeedFiltersStore } from '@/stores/feedFilters'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
 
 type FeedMode = 'subscriptions' | 'recommendations' | 'source'
 type SourceKind = 'subscriptions' | 'recommendations'
 type FeedNoticeType = 'success' | 'warning'
 type FeedNotice = { type: FeedNoticeType; message: string }
-type TriStateFilter = 'all' | 'true' | 'false'
-type HiddenFilter = 'visible' | 'all' | 'hidden'
 type ItemStateKey = 'read' | 'favorite' | 'hidden'
 
 const props = withDefaults(
@@ -79,15 +77,19 @@ const emit = defineEmits<{
 }>()
 
 const feedInteraction = useFeedInteractionStore()
+const feedFilters = useFeedFiltersStore()
 const feedListCache = useFeedListCacheStore()
+const {
+  selectedSourceID,
+  readFilter,
+  favoriteFilter,
+  hiddenFilter,
+} = storeToRefs(feedFilters)
 const motionTimings = useMotionTimings()
 const items = ref<FeedItem[]>([])
-const sources = ref<Source[]>([])
 const loading = ref(false)
 const loadingMore = ref(false)
-const filtersLoading = ref(false)
 const error = ref('')
-const filterError = ref('')
 const backgroundRefreshing = ref(false)
 const lastUpdatedAt = ref('')
 const totalCount = ref(0)
@@ -95,10 +97,6 @@ const nextOffset = ref(0)
 const reachedEnd = ref(false)
 const feedPageRef = ref<HTMLElement | null>(null)
 const feedBodyRef = ref<HTMLElement | null>(null)
-const selectedSourceID = ref(0)
-const readFilter = ref<TriStateFilter>('all')
-const favoriteFilter = ref<TriStateFilter>('all')
-const hiddenFilter = ref<HiddenFilter>('visible')
 const itemActionBusy = ref<Record<number, ItemStateKey | ''>>({})
 
 const pullThreshold = 76
@@ -215,7 +213,6 @@ const pullStatusText = computed(() => {
 })
 const pullStatusMeta = computed(() => (lastUpdatedAt.value ? `最近更新 ${lastUpdatedAt.value}` : '尚未更新'))
 const errorMessage = computed(() => error.value.trim())
-const filterErrorMessage = computed(() => filterError.value.trim())
 const filtersVisible = computed(() => props.mode === 'subscriptions' && !isSourceMode.value)
 const pageClass = computed(() => ({
   'feed-list-page--pulling': pullActive.value,
@@ -410,21 +407,6 @@ function resetListState() {
   nextOffset.value = 0
   reachedEnd.value = false
   lastUpdatedAt.value = ''
-}
-
-async function loadFilterSources() {
-  if (!filtersVisible.value || sources.value.length || filtersLoading.value) {
-    return
-  }
-  filtersLoading.value = true
-  filterError.value = ''
-  try {
-    sources.value = (await listSources()).filter((source) => source.status === 'active')
-  } catch (err) {
-    filterError.value = `筛选项加载失败：${formatAPIError(err)}`
-  } finally {
-    filtersLoading.value = false
-  }
 }
 
 function loadInitialItems() {
@@ -1083,7 +1065,6 @@ function handleTouchCancel() {
 }
 
 onMounted(() => {
-  void loadFilterSources()
   loadInitialItems()
   window.addEventListener('focus', refreshStaleCacheInBackground)
   document.addEventListener('visibilitychange', handleVisibilityRefresh)
@@ -1135,17 +1116,10 @@ watch(
       pullOwnerViewKey: previousViewKey,
     })
     if (props.active) {
-      void loadFilterSources()
       loadInitialItems()
     }
   },
 )
-
-watch(filtersVisible, (visible) => {
-  if (visible) {
-    void loadFilterSources()
-  }
-})
 
 watch(
   cacheRevision,
@@ -1236,48 +1210,6 @@ watch(
     </Teleport>
 
     <div ref="feedBodyRef" class="feed-list-body" :style="feedBodyStyle">
-      <section v-if="filtersVisible" class="feed-filter-bar" aria-label="时间线筛选">
-        <label class="feed-filter-bar__field">
-          <span>来源</span>
-          <select v-model.number="selectedSourceID" :disabled="filtersLoading">
-            <option :value="0">全部来源</option>
-            <option v-for="source in sources" :key="source.id" :value="source.id">
-              {{ source.name }}
-            </option>
-          </select>
-        </label>
-        <label class="feed-filter-bar__field">
-          <span>阅读</span>
-          <select v-model="readFilter">
-            <option value="all">全部</option>
-            <option value="false">未读</option>
-            <option value="true">已读</option>
-          </select>
-        </label>
-        <label class="feed-filter-bar__field">
-          <span>收藏</span>
-          <select v-model="favoriteFilter">
-            <option value="all">全部</option>
-            <option value="true">已收藏</option>
-            <option value="false">未收藏</option>
-          </select>
-        </label>
-        <label class="feed-filter-bar__field">
-          <span>隐藏</span>
-          <select v-model="hiddenFilter">
-            <option value="visible">可见</option>
-            <option value="all">全部</option>
-            <option value="hidden">已隐藏</option>
-          </select>
-        </label>
-      </section>
-      <a-alert
-        v-if="filterErrorMessage"
-        class="feed-alert"
-        type="warning"
-        :content="filterErrorMessage"
-        show-icon
-      />
       <a-alert v-if="errorMessage" class="feed-alert" type="warning" :content="errorMessage" show-icon />
 
       <section v-if="loading && !hasItems" class="empty-surface">

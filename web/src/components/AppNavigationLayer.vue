@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { storeToRefs } from 'pinia'
 import type { Component, StyleValue } from 'vue'
+import { watch } from 'vue'
 import {
   IconMenuUnfold,
   IconMoonFill,
@@ -7,13 +9,15 @@ import {
   IconSunFill,
 } from '@arco-design/web-vue/es/icon'
 
+import { useFeedFiltersStore } from '@/stores/feedFilters'
+
 type ManagementItem = {
   key: string
   label: string
   icon: Component
 }
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     navigationVisible?: boolean
     detailChromeVisible?: boolean
@@ -26,6 +30,7 @@ withDefaults(
     selectedKeys?: string[]
     darkTheme?: boolean
     settingsActive?: boolean
+    subscriptionFiltersVisible?: boolean
   }>(),
   {
     navigationVisible: false,
@@ -39,6 +44,7 @@ withDefaults(
     selectedKeys: () => [],
     darkTheme: false,
     settingsActive: false,
+    subscriptionFiltersVisible: false,
   },
 )
 
@@ -50,6 +56,27 @@ const emit = defineEmits<{
   (event: 'toggle-theme'): void
   (event: 'open-settings'): void
 }>()
+
+const feedFilters = useFeedFiltersStore()
+const {
+  selectedSourceID,
+  readFilter,
+  favoriteFilter,
+  hiddenFilter,
+  sources,
+  loading: filtersLoading,
+  error: filtersError,
+} = storeToRefs(feedFilters)
+
+watch(
+  () => [props.navigationVisible, props.subscriptionFiltersVisible],
+  ([navigationVisible, subscriptionFiltersVisible]) => {
+    if (navigationVisible && subscriptionFiltersVisible) {
+      void feedFilters.loadSources()
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -117,6 +144,48 @@ const emit = defineEmits<{
       </button>
     </nav>
 
+    <section
+      v-if="subscriptionFiltersVisible"
+      class="nav-filter-section"
+      aria-label="订阅筛选"
+    >
+      <div class="nav-filter-section__title">订阅筛选</div>
+      <label class="nav-filter-field">
+        <span>来源</span>
+        <select v-model.number="selectedSourceID" :disabled="filtersLoading">
+          <option :value="0">全部来源</option>
+          <option v-for="source in sources" :key="source.id" :value="source.id">
+            {{ source.name }}
+          </option>
+        </select>
+      </label>
+      <label class="nav-filter-field">
+        <span>阅读</span>
+        <select v-model="readFilter">
+          <option value="all">全部</option>
+          <option value="false">未读</option>
+          <option value="true">已读</option>
+        </select>
+      </label>
+      <label class="nav-filter-field">
+        <span>收藏</span>
+        <select v-model="favoriteFilter">
+          <option value="all">全部</option>
+          <option value="true">已收藏</option>
+          <option value="false">未收藏</option>
+        </select>
+      </label>
+      <label class="nav-filter-field">
+        <span>隐藏</span>
+        <select v-model="hiddenFilter">
+          <option value="visible">可见</option>
+          <option value="all">全部</option>
+          <option value="hidden">已隐藏</option>
+        </select>
+      </label>
+      <p v-if="filtersError" class="nav-filter-section__error">{{ filtersError }}</p>
+    </section>
+
     <div class="nav-panel-actions">
       <button
         class="theme-icon-button"
@@ -143,3 +212,58 @@ const emit = defineEmits<{
     </div>
   </aside>
 </template>
+
+<style scoped>
+.nav-panel {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+.nav-filter-section {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+  margin: 0 14px 12px;
+  padding: 12px;
+  border: 1px solid var(--mf-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+body[arco-theme='dark'] .nav-filter-section {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.nav-filter-section__title {
+  color: var(--mf-text);
+  font-size: 13px;
+  font-weight: 780;
+}
+
+.nav-filter-field {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--mf-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nav-filter-field select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid var(--mf-border);
+  border-radius: 8px;
+  background: var(--mf-surface);
+  color: var(--mf-text);
+  font: inherit;
+}
+
+.nav-filter-section__error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.45;
+}
+</style>
