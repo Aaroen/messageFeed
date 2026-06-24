@@ -321,7 +321,7 @@ func (s *AdminConfigService) TestLLM(ctx context.Context, input AdminLLMTestInpu
 	startedAt := time.Now()
 	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
 		Messages: []llm.ChatMessage{
-			{Role: "system", Content: "你是 messageFeed 管理后台配置测试助手。只使用普通文本，不使用 Markdown。"},
+			{Role: "system", Content: llm.AdminConfigTestSystemPrompt},
 			{Role: "user", Content: message},
 		},
 		Temperature: 0,

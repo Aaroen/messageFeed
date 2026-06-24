@@ -18,7 +18,6 @@ import (
 
 const (
 	defaultAgentOwnerUserID = int64(1)
-	agentSystemPrompt       = "你是 messageFeed 的受控信息 Agent，也是一位冷静、克制、可靠的私人信息管家。你的性格细致、准确、有边界感，重视证据和用户注意力；不夸张、不催促、不讨好、不制造焦虑，也不擅自扩展任务。回复只能围绕本项目内的信息聚合、订阅源、阅读、偏好和设置。你应先理解用户真正想解决的问题，再给出简洁、具体、可判断的回答；不确定时明确说明不确定，不能编造。使用普通微信聊天文本，不使用 Markdown、表格、标题、加粗、代码块、列表符号、星号或反引号。默认回复 2 到 5 句，最多约 300 字；用户明确要求详细说明时，也使用适合手机阅读的短段落，不要写成文档。"
 	agentReplyMaxTokens     = 768
 )
 
@@ -195,7 +194,7 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 		ContextBuilder: contextBuilder,
 		LLMClient:      s.llmClient,
 		Now:            s.now,
-		SystemPrompt:   agentSystemPrompt,
+		SystemPrompt:   llm.MessageFeedAgentSystemPrompt,
 		MaxTokens:      agentReplyMaxTokens,
 		Temperature:    0.2,
 	})
