@@ -263,14 +263,18 @@ type AgentTranscriptListOptions struct {
 type AgentTranscriptQueryOptions struct {
 	SessionID     int64
 	UserID        int64
+	Mode          string
 	Keyword       string
 	Roles         []AgentTranscriptRole
 	ArchiveStatus AgentTranscriptArchiveStatus
 	MemoryKind    AgentMemoryKind
 	BeforeEntryID int64
+	AfterEntryID  int64
 	BeforeTurnID  int64
 	After         *time.Time
 	Before        *time.Time
+	Order         string
+	Offset        int
 	Limit         int
 }
 

@@ -29,10 +29,11 @@ type ConversationMemoryProvider interface {
 }
 
 type ConversationMemory struct {
-	Messages        []ContextMessage
-	HistoryNeedHint HistoryNeedHint
-	HistoryQueried  bool
-	HistoryResults  []ContextMessage
+	Messages             []ContextMessage
+	HistoryNeedHint      HistoryNeedHint
+	HistoryQueried       bool
+	HistoryResults       []ContextMessage
+	HistoryResultContent string
 }
 
 type CapabilityExecutor interface {
@@ -148,7 +149,10 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 		if memory.HistoryQueried {
 			status := "succeeded"
 			summary := fmt.Sprintf("loaded %d history messages", len(memory.HistoryResults))
-			content := FormatContextMessages(memory.HistoryResults)
+			content := strings.TrimSpace(memory.HistoryResultContent)
+			if content == "" {
+				content = FormatContextMessages(memory.HistoryResults)
+			}
 			if strings.TrimSpace(content) == "" {
 				status = "empty"
 				summary = "no matching history messages"
@@ -252,7 +256,7 @@ func ClassifyHistoryNeed(text string) HistoryNeedHint {
 	if normalized == "" {
 		return HistoryNeedNone
 	}
-	requiredTerms := []string{"之前", "以前", "上次", "上回", "我说过", "你说过", "还记得", "记得我", "历史记录"}
+	requiredTerms := []string{"之前", "以前", "上次", "上回", "我说过", "你说过", "还记得", "记得我", "历史记录", "第一条", "第一句", "最早", "最开始", "最初", "开头"}
 	for _, term := range requiredTerms {
 		if strings.Contains(normalized, term) {
 			return HistoryNeedRequired
@@ -382,11 +386,11 @@ func formatContextMessageTime(value time.Time) string {
 func historyNeedPrompt(hint HistoryNeedHint) string {
 	switch hint {
 	case HistoryNeedRequired:
-		return "用户明确要求回忆较早聊天。若最近聊天窗口和历史聊天查询结果均无明确原文证据，必须说明没有查到明确记录，不得凭印象编造。"
+		return "用户明确要求回忆较早聊天。若用户询问第一条、最早、最开始或开头消息，必须依据 conversation.query_history 的 earliest 结果或历史查询结果中的边界信息回答；当结果显示 has_older=false 且返回了记录时，这表示已确认当前 session 没有更早记录，应回答该记录就是当前 session 的第一条，不得说没有查到第一条。若最近聊天窗口和历史聊天查询结果均无明确原文证据，必须说明没有查到明确记录，不得凭印象编造。"
 	case HistoryNeedPossible:
 		return "用户可能在指代最近上下文。优先使用最近聊天窗口；若证据不足，才依据历史聊天查询结果回答。"
 	default:
-		return "通常不需要查询历史聊天。若回答依赖更早对话且当前上下文没有证据，必须说明需要查询历史，不能编造。"
+		return "通常不需要查询历史聊天。若回答依赖更早对话且当前上下文没有证据，必须说明需要查询历史，不能编造。没有更早记录属于边界确认，不等同于查询失败。"
 	}
 }
 

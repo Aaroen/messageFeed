@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"messagefeed/internal/domain"
 	"os"
 	"reflect"
 	"strings"
@@ -51,5 +52,51 @@ func TestAgentSessionManagementMigrationDefinesActiveSessionAndContextState(t *t
 		if !strings.Contains(text, required) {
 			t.Fatalf("migration missing %q", required)
 		}
+	}
+}
+
+func TestTranscriptMemoryClassificationRuleV2(t *testing.T) {
+	cases := []struct {
+		name       string
+		content    string
+		kind       domain.AgentMemoryKind
+		importance int
+	}{
+		{name: "decision", content: "最终决定就用 Go 实现 agent 框架", kind: domain.AgentMemoryKindDecision, importance: 80},
+		{name: "task", content: "提醒我明天检查部署状态", kind: domain.AgentMemoryKindTask, importance: 70},
+		{name: "preference", content: "我的偏好是短回复，不要写太多", kind: domain.AgentMemoryKindPreference, importance: 75},
+		{name: "fact", content: "我的用户名是 aroen，时区是 Asia/Shanghai", kind: domain.AgentMemoryKindFact, importance: 55},
+		{name: "casual", content: "你好，随便聊聊", kind: domain.AgentMemoryKindCasual, importance: 20},
+		{name: "unknown", content: "  ", kind: domain.AgentMemoryKindUnknown, importance: 0},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyTranscriptMemoryKind(tt.content); got != tt.kind {
+				t.Fatalf("kind = %q, want %q", got, tt.kind)
+			}
+			if got := transcriptImportance(tt.content); got != tt.importance {
+				t.Fatalf("importance = %d, want %d", got, tt.importance)
+			}
+		})
+	}
+}
+
+func TestTranscriptClassificationMetadataIncludesReclassifyFields(t *testing.T) {
+	classification := classifyTranscriptMemory("我决定以后优先关注 Go")
+	metadata := transcriptClassificationMetadata(classification, true)
+	if metadata["classification_strategy"] != "rule_v2" {
+		t.Fatalf("strategy = %#v", metadata["classification_strategy"])
+	}
+	if metadata["classification_version"] != 2 {
+		t.Fatalf("version = %#v", metadata["classification_version"])
+	}
+	if metadata["llm_classifier_status"] != "not_requested" {
+		t.Fatalf("llm classifier status = %#v", metadata["llm_classifier_status"])
+	}
+	if metadata["background_reclassify"] != true {
+		t.Fatalf("background reclassify = %#v", metadata["background_reclassify"])
+	}
+	if metadata["rebuild"] != true {
+		t.Fatalf("rebuild = %#v", metadata["rebuild"])
 	}
 }

@@ -523,6 +523,9 @@ func (r *AgentRepository) QueryTranscriptEntries(ctx context.Context, options do
 	if options.BeforeEntryID > 0 {
 		query = query.Where("agent_transcript_entries.id < ?", options.BeforeEntryID)
 	}
+	if options.AfterEntryID > 0 {
+		query = query.Where("agent_transcript_entries.id > ?", options.AfterEntryID)
+	}
 	if options.BeforeTurnID > 0 {
 		query = query.Where("agent_transcript_entries.turn_id < ?", options.BeforeTurnID)
 	}
@@ -543,11 +546,22 @@ func (r *AgentRepository) QueryTranscriptEntries(ctx context.Context, options do
 	}
 
 	var models []agentTranscriptEntryModel
-	if err := query.Select("agent_transcript_entries.*").Order("agent_transcript_entries.created_at DESC, agent_transcript_entries.id DESC").Limit(options.Limit).Scan(&models).Error; err != nil {
+	orderClause := "agent_transcript_entries.created_at DESC, agent_transcript_entries.id DESC"
+	if options.Order == "asc" {
+		orderClause = "agent_transcript_entries.created_at ASC, agent_transcript_entries.id ASC"
+	}
+	query = query.Select("agent_transcript_entries.*").Order(orderClause)
+	if options.Offset > 0 {
+		query = query.Offset(options.Offset)
+	}
+	if err := query.Limit(options.Limit).Scan(&models).Error; err != nil {
 		opErr = mapRepositoryError(err)
 		return nil, opErr
 	}
-	entries := transcriptModelsToChronologicalDomain(models)
+	entries := transcriptModelsToDomain(models)
+	if options.Order != "asc" {
+		entries = transcriptModelsToChronologicalDomain(models)
+	}
 	r.touchTranscriptArchiveIndexes(ctx, entries)
 	return entries, nil
 }
@@ -673,15 +687,16 @@ func (r *AgentRepository) RebuildAgentSessionContext(ctx context.Context, userID
 		}
 		for _, model := range entries {
 			entry := agentTranscriptEntryModelToDomain(model)
+			classification := classifyTranscriptMemory(entry.Content)
 			index := agentTranscriptArchiveIndexModelFromDomain(domain.AgentTranscriptArchiveIndex{
 				TranscriptEntryID: entry.ID,
 				SessionID:         entry.SessionID,
 				UserID:            entry.UserID,
 				ArchiveStatus:     domain.AgentTranscriptArchiveStatusHot,
-				MemoryKind:        classifyTranscriptMemoryKind(entry.Content),
-				Importance:        transcriptImportance(entry.Content),
+				MemoryKind:        classification.Kind,
+				Importance:        transcriptImportanceForKind(classification.Kind),
 				Keywords:          transcriptIndexKeywords(entry.Content),
-				Metadata:          domain.AgentJSON{"rebuild": true},
+				Metadata:          transcriptClassificationMetadata(classification, true),
 				CreatedAt:         startedAt,
 				UpdatedAt:         startedAt,
 			})
@@ -846,7 +861,15 @@ func normalizeTranscriptListOptions(options domain.AgentTranscriptListOptions) d
 }
 
 func normalizeTranscriptQueryOptions(options domain.AgentTranscriptQueryOptions) domain.AgentTranscriptQueryOptions {
+	options.Mode = strings.ToLower(strings.TrimSpace(options.Mode))
 	options.Keyword = strings.TrimSpace(options.Keyword)
+	options.Order = strings.ToLower(strings.TrimSpace(options.Order))
+	if options.Order != "asc" {
+		options.Order = "desc"
+	}
+	if options.Offset < 0 {
+		options.Offset = 0
+	}
 	if options.Limit <= 0 {
 		options.Limit = 8
 	}
@@ -1162,15 +1185,16 @@ func (r *AgentRepository) ensureTranscriptArchiveIndex(ctx context.Context, entr
 	if r == nil || r.db == nil || entry.ID == 0 || entry.SessionID == 0 || entry.UserID == 0 {
 		return nil
 	}
+	classification := classifyTranscriptMemory(entry.Content)
 	index := agentTranscriptArchiveIndexModelFromDomain(domain.AgentTranscriptArchiveIndex{
 		TranscriptEntryID: entry.ID,
 		SessionID:         entry.SessionID,
 		UserID:            entry.UserID,
 		ArchiveStatus:     domain.AgentTranscriptArchiveStatusHot,
-		MemoryKind:        classifyTranscriptMemoryKind(entry.Content),
-		Importance:        transcriptImportance(entry.Content),
+		MemoryKind:        classification.Kind,
+		Importance:        transcriptImportanceForKind(classification.Kind),
 		Keywords:          transcriptIndexKeywords(entry.Content),
-		Metadata:          domain.AgentJSON{},
+		Metadata:          transcriptClassificationMetadata(classification, false),
 	})
 	return r.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
@@ -1211,6 +1235,14 @@ func transcriptModelsToChronologicalDomain(models []agentTranscriptEntryModel) [
 	return entries
 }
 
+func transcriptModelsToDomain(models []agentTranscriptEntryModel) []domain.AgentTranscriptEntry {
+	entries := make([]domain.AgentTranscriptEntry, 0, len(models))
+	for _, model := range models {
+		entries = append(entries, agentTranscriptEntryModelToDomain(model))
+	}
+	return entries
+}
+
 func transcriptRoleStrings(roles []domain.AgentTranscriptRole) []string {
 	values := make([]string, 0, len(roles))
 	for _, role := range roles {
@@ -1228,33 +1260,106 @@ func escapeLike(value string) string {
 	return value
 }
 
+type transcriptMemoryClassification struct {
+	Kind   domain.AgentMemoryKind
+	Terms  []string
+	Reason string
+}
+
 func classifyTranscriptMemoryKind(content string) domain.AgentMemoryKind {
+	return classifyTranscriptMemory(content).Kind
+}
+
+func classifyTranscriptMemory(content string) transcriptMemoryClassification {
 	content = strings.TrimSpace(content)
 	if content == "" {
-		return domain.AgentMemoryKindUnknown
+		return transcriptMemoryClassification{Kind: domain.AgentMemoryKindUnknown, Reason: "empty_content"}
 	}
-	for _, term := range []string{"偏好", "喜欢", "不喜欢", "关注", "优先", "以后", "记住"} {
-		if strings.Contains(content, term) {
-			return domain.AgentMemoryKindPreference
+	categories := []struct {
+		kind   domain.AgentMemoryKind
+		reason string
+		terms  []string
+	}{
+		{
+			kind:   domain.AgentMemoryKindDecision,
+			reason: "matched_decision_terms",
+			terms:  []string{"决定", "确定", "确认采用", "就用", "定为", "选择", "最终", "结论", "同意", "批准"},
+		},
+		{
+			kind:   domain.AgentMemoryKindTask,
+			reason: "matched_task_terms",
+			terms:  []string{"任务", "计划", "待办", "提醒", "今天", "明天", "下周", "帮我", "执行", "安排", "创建", "更新", "检查", "跟进"},
+		},
+		{
+			kind:   domain.AgentMemoryKindPreference,
+			reason: "matched_preference_terms",
+			terms:  []string{"偏好", "喜欢", "不喜欢", "关注", "优先", "以后", "记住", "习惯", "希望", "默认", "风格", "不要", "别再"},
+		},
+		{
+			kind:   domain.AgentMemoryKindFact,
+			reason: "matched_fact_terms",
+			terms:  []string{"我是", "我的", "叫", "用户名", "公司", "账号", "绑定", "来源", "事实", "信息", "生日", "地区", "时区", "邮箱", "模型", "能力", "项目"},
+		},
+	}
+	for _, category := range categories {
+		matched := matchedTerms(content, category.terms)
+		if len(matched) > 0 {
+			return transcriptMemoryClassification{Kind: category.kind, Terms: matched, Reason: category.reason}
 		}
 	}
-	for _, term := range []string{"任务", "计划", "待办", "执行", "确认"} {
+	return transcriptMemoryClassification{Kind: domain.AgentMemoryKindCasual, Reason: "fallback_casual"}
+}
+
+func matchedTerms(content string, terms []string) []string {
+	matched := make([]string, 0, 3)
+	for _, term := range terms {
 		if strings.Contains(content, term) {
-			return domain.AgentMemoryKindTask
+			matched = append(matched, term)
+			if len(matched) >= 3 {
+				break
+			}
 		}
 	}
-	return domain.AgentMemoryKindCasual
+	return matched
 }
 
 func transcriptImportance(content string) int {
-	switch classifyTranscriptMemoryKind(content) {
+	return transcriptImportanceForKind(classifyTranscriptMemoryKind(content))
+}
+
+func transcriptImportanceForKind(kind domain.AgentMemoryKind) int {
+	switch kind {
+	case domain.AgentMemoryKindDecision:
+		return 80
 	case domain.AgentMemoryKindPreference:
-		return 70
+		return 75
 	case domain.AgentMemoryKindTask:
-		return 60
-	default:
+		return 70
+	case domain.AgentMemoryKindFact:
+		return 55
+	case domain.AgentMemoryKindCasual:
 		return 20
+	default:
+		return 0
 	}
+}
+
+func transcriptClassificationMetadata(classification transcriptMemoryClassification, rebuild bool) domain.AgentJSON {
+	metadata := domain.AgentJSON{
+		"classification_strategy": "rule_v2",
+		"classification_version":  2,
+		"classifier":              "rule",
+		"memory_kind_reason":      classification.Reason,
+		"llm_classifier_status":   "not_requested",
+		"background_reclassify":   true,
+	}
+	if len(classification.Terms) > 0 {
+		metadata["classification_terms"] = classification.Terms
+	}
+	if rebuild {
+		metadata["rebuild"] = true
+	}
+	return metadata
 }
 
 func transcriptIndexKeywords(content string) []string {

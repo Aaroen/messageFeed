@@ -62,15 +62,20 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 	registry.Register(Capability{
 		Key:         "conversation.query_history",
 		Name:        "查询历史聊天",
-		Description: "按关键词、时间和角色读取当前用户企微长期会话的历史聊天原文。",
+		Description: "按关键词、时间、角色或会话边界读取当前用户企微长期会话的历史聊天原文。",
 		Mode:        CapabilityModeCore,
 		Risk:        CapabilityRiskLow,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
+				"mode": map[string]any{
+					"type":        "string",
+					"description": "查询模式。search 为关键词或普通历史查询；earliest 用于查询当前 session 最早聊天；latest 用于查询当前 session 最新聊天。",
+					"enum":        []string{"search", "earliest", "latest"},
+				},
 				"keyword": map[string]any{
 					"type":        "string",
-					"description": "用于匹配历史聊天原文的关键词。若用户在询问整体偏好或过往决定，可使用偏好、关注、决定等词。",
+					"description": "用于匹配历史聊天原文的关键词。earliest/latest 模式通常留空。",
 				},
 				"role": map[string]any{
 					"type":        "string",
@@ -86,6 +91,20 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 				"before_entry_id": map[string]any{
 					"type":        "integer",
 					"description": "只查询该 transcript entry 之前的历史。",
+				},
+				"after_entry_id": map[string]any{
+					"type":        "integer",
+					"description": "只查询该 transcript entry 之后的历史。",
+				},
+				"order": map[string]any{
+					"type":        "string",
+					"description": "返回方向。asc 从早到晚，desc 从晚到早；展示给模型时仍会尽量保持可读顺序。",
+					"enum":        []string{"asc", "desc"},
+				},
+				"offset": map[string]any{
+					"type":        "integer",
+					"description": "跳过命中结果数量，用于分页。",
+					"minimum":     0,
 				},
 			},
 		},

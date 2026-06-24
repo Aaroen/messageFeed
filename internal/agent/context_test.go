@@ -68,6 +68,9 @@ func TestHistoryNeedClassificationAndRecentEvidence(t *testing.T) {
 	if got := ClassifyHistoryNeed("我之前说过关注什么吗"); got != HistoryNeedRequired {
 		t.Fatalf("required hint = %q", got)
 	}
+	if got := ClassifyHistoryNeed("我发的第一条消息是什么"); got != HistoryNeedRequired {
+		t.Fatalf("earliest hint = %q", got)
+	}
 	if got := ClassifyHistoryNeed("刚才 Go 官方博客 那个继续"); got != HistoryNeedPossible {
 		t.Fatalf("possible hint = %q", got)
 	}

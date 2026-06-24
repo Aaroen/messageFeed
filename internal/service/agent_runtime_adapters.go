@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+const (
+	conversationHistoryModeSearch   = "search"
+	conversationHistoryModeEarliest = "earliest"
+	conversationHistoryModeLatest   = "latest"
+)
+
 type agentUserContextBlockProvider struct {
 	provider AgentUserContextProvider
 	now      func() time.Time
@@ -72,22 +78,42 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 		return memory, nil
 	}
 
-	keyword := agent.HistorySearchKeyword(input.MessageText)
-	beforeEntryID := earliestTranscriptEntryID(recent)
+	mode := inferConversationHistoryMode(input.MessageText, "")
+	keyword := ""
+	order := "desc"
+	limit := 8
+	beforeEntryID := int64(0)
+	if mode == conversationHistoryModeSearch {
+		keyword = agent.HistorySearchKeyword(input.MessageText)
+		beforeEntryID = earliestTranscriptEntryID(recent)
+	} else if mode == conversationHistoryModeEarliest {
+		order = "asc"
+		limit = 1
+	} else if mode == conversationHistoryModeLatest {
+		limit = 1
+	}
 	results, err := p.repository.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{
 		SessionID:     input.SessionID,
 		UserID:        input.UserID,
+		Mode:          mode,
 		Keyword:       keyword,
 		Roles:         []domain.AgentTranscriptRole{domain.AgentTranscriptRoleUser, domain.AgentTranscriptRoleAssistant},
 		BeforeEntryID: beforeEntryID,
 		BeforeTurnID:  input.TurnID,
-		Limit:         8,
+		Order:         order,
+		Limit:         limit,
 	})
 	if err != nil {
 		return memory, err
 	}
 	memory.HistoryQueried = true
 	memory.HistoryResults = transcriptEntriesToContextMessages(results)
+	memory.HistoryResultContent = formatConversationHistoryResult(conversationHistoryResultInput{
+		Mode:         mode,
+		Scope:        "current_session",
+		Entries:      results,
+		MatchedCount: len(results),
+	})
 
 	_, err = p.repository.CreateRecallEvent(ctx, domain.AgentRecallEvent{
 		SessionID: input.SessionID,
@@ -97,11 +123,14 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 		QueryParams: domain.AgentJSON{
 			"message":           input.MessageText,
 			"history_need_hint": string(hint),
+			"mode":              mode,
 			"keyword":           keyword,
+			"order":             order,
 			"before_entry_id":   beforeEntryID,
 			"before_turn_id":    input.TurnID,
-			"limit":             8,
+			"limit":             limit,
 			"roles":             []string{string(domain.AgentTranscriptRoleUser), string(domain.AgentTranscriptRoleAssistant)},
+			"boundary":          conversationHistoryBoundaryMetadata(mode, len(results)),
 		},
 		RecalledRefs: domain.AgentJSON{
 			"transcript_entry_ids": transcriptEntryIDs(results),
@@ -270,8 +299,12 @@ func (e agentP0CapabilityExecutor) currentTime() time.Time {
 type conversationHistoryToolArgs struct {
 	Keyword       string `json:"keyword"`
 	Role          string `json:"role"`
+	Mode          string `json:"mode"`
+	Order         string `json:"order"`
 	Limit         int    `json:"limit"`
 	BeforeEntryID int64  `json:"before_entry_id"`
+	AfterEntryID  int64  `json:"after_entry_id"`
+	Offset        int    `json:"offset"`
 }
 
 func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
@@ -286,16 +319,32 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 	}
 
 	args := parseConversationHistoryToolArgs(input.RawArguments)
+	mode := inferConversationHistoryMode(input.Message, args.Mode)
 	keyword := strings.TrimSpace(args.Keyword)
-	if keyword == "" {
+	if keyword == "" && mode == conversationHistoryModeSearch {
 		keyword = agent.HistorySearchKeyword(input.Message)
+	}
+	if mode != conversationHistoryModeSearch {
+		keyword = ""
 	}
 	limit := args.Limit
 	if limit <= 0 {
 		limit = 8
 	}
+	if mode == conversationHistoryModeEarliest || mode == conversationHistoryModeLatest {
+		if args.Limit <= 0 {
+			limit = 1
+		}
+	}
 	if limit > 20 {
 		limit = 20
+	}
+	order := strings.TrimSpace(args.Order)
+	if order != "asc" && order != "desc" {
+		order = "desc"
+		if mode == conversationHistoryModeEarliest {
+			order = "asc"
+		}
 	}
 	roles := []domain.AgentTranscriptRole{domain.AgentTranscriptRoleUser, domain.AgentTranscriptRoleAssistant}
 	switch strings.TrimSpace(args.Role) {
@@ -308,10 +357,14 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 	entries, err := e.repository.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{
 		SessionID:     input.SessionID,
 		UserID:        input.UserID,
+		Mode:          mode,
 		Keyword:       keyword,
 		Roles:         roles,
 		BeforeEntryID: args.BeforeEntryID,
+		AfterEntryID:  args.AfterEntryID,
 		BeforeTurnID:  input.TurnID,
+		Order:         order,
+		Offset:        args.Offset,
 		Limit:         limit,
 	})
 	if err != nil {
@@ -319,9 +372,13 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 	}
 
 	contextMessages := transcriptEntriesToContextMessages(entries)
-	content := agent.FormatContextMessages(contextMessages)
-	if strings.TrimSpace(content) == "" {
-		content = "没有查到明确历史聊天记录。"
+	content := formatConversationHistoryResult(conversationHistoryResultInput{
+		Mode:         mode,
+		Scope:        "current_session",
+		Entries:      entries,
+		MatchedCount: len(contextMessages),
+	})
+	if len(contextMessages) == 0 {
 		observation.Status = "empty"
 		observation.Summary = "no matching history messages"
 	} else {
@@ -337,15 +394,20 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 		QueryParams: domain.AgentJSON{
 			"tool_call_id":    input.ToolCallID,
 			"raw_arguments":   input.RawArguments,
+			"mode":            mode,
 			"keyword":         keyword,
 			"role":            args.Role,
+			"order":           order,
 			"limit":           limit,
+			"offset":          args.Offset,
 			"before_entry_id": args.BeforeEntryID,
+			"after_entry_id":  args.AfterEntryID,
 			"before_turn_id":  input.TurnID,
 			"trigger_message": input.Message,
 			"capability_key":  input.Capability.Key,
 			"request_id":      input.RequestID,
 			"trace_id":        input.TraceID,
+			"boundary":        conversationHistoryBoundaryMetadata(mode, len(entries)),
 		},
 		RecalledRefs: domain.AgentJSON{
 			"transcript_entry_ids": transcriptEntryIDs(entries),
@@ -371,7 +433,118 @@ func parseConversationHistoryToolArgs(raw string) conversationHistoryToolArgs {
 	}
 	args.Keyword = strings.TrimSpace(args.Keyword)
 	args.Role = strings.TrimSpace(args.Role)
+	args.Mode = strings.TrimSpace(args.Mode)
+	args.Order = strings.TrimSpace(args.Order)
+	if args.Offset < 0 {
+		args.Offset = 0
+	}
 	return args
+}
+
+type conversationHistoryResultInput struct {
+	Mode         string
+	Scope        string
+	Entries      []domain.AgentTranscriptEntry
+	MatchedCount int
+}
+
+func formatConversationHistoryResult(input conversationHistoryResultInput) string {
+	mode := inferConversationHistoryMode("", input.Mode)
+	scope := strings.TrimSpace(input.Scope)
+	if scope == "" {
+		scope = "current_session"
+	}
+	metadata := conversationHistoryBoundaryMetadata(mode, len(input.Entries))
+	var builder strings.Builder
+	builder.WriteString("查询模式：")
+	builder.WriteString(mode)
+	builder.WriteString("\n查询范围：")
+	builder.WriteString(scope)
+	builder.WriteString("\n是否已确认会话边界：")
+	builder.WriteString(formatHistoryBool(metadata["is_session_boundary"]))
+	builder.WriteString("\n是否存在更早记录：")
+	builder.WriteString(formatHistoryBool(metadata["has_older"]))
+	builder.WriteString("\n是否存在更新记录：")
+	builder.WriteString(formatHistoryBool(metadata["has_newer"]))
+	builder.WriteString("\n命中条数：")
+	builder.WriteString(strconv.Itoa(input.MatchedCount))
+	if len(input.Entries) == 0 {
+		builder.WriteString("\n没有查到符合条件的历史聊天原文。")
+		if mode == conversationHistoryModeEarliest {
+			builder.WriteString("\n边界说明：当前 session 在查询范围内没有当前 turn 之前的历史聊天记录。")
+		}
+		return builder.String()
+	}
+	builder.WriteString("\n命中原文：")
+	builder.WriteString("\n")
+	builder.WriteString(agent.FormatContextMessages(transcriptEntriesToContextMessages(input.Entries)))
+	return builder.String()
+}
+
+func conversationHistoryBoundaryMetadata(mode string, matchedCount int) domain.AgentJSON {
+	mode = inferConversationHistoryMode("", mode)
+	metadata := domain.AgentJSON{
+		"mode":                mode,
+		"scope":               "current_session",
+		"matched_count":       matchedCount,
+		"is_session_boundary": false,
+		"has_older":           "unknown",
+		"has_newer":           "unknown",
+	}
+	switch mode {
+	case conversationHistoryModeEarliest:
+		metadata["is_session_boundary"] = true
+		metadata["has_older"] = false
+	case conversationHistoryModeLatest:
+		metadata["is_session_boundary"] = true
+		metadata["has_newer"] = false
+	}
+	return metadata
+}
+
+func formatHistoryBool(value any) string {
+	switch typed := value.(type) {
+	case bool:
+		if typed {
+			return "是"
+		}
+		return "否"
+	case string:
+		if typed == "" {
+			return "未知"
+		}
+		if typed == "unknown" {
+			return "未知"
+		}
+		return typed
+	default:
+		return "未知"
+	}
+}
+
+func inferConversationHistoryMode(message string, requested string) string {
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	switch requested {
+	case conversationHistoryModeEarliest, conversationHistoryModeLatest, conversationHistoryModeSearch:
+		return requested
+	}
+	message = strings.TrimSpace(message)
+	if containsAny(message, []string{"第一条", "第一句", "最早", "最开始", "最初", "开头"}) {
+		return conversationHistoryModeEarliest
+	}
+	if containsAny(message, []string{"最后一条", "最新一条", "最近一条", "末尾"}) {
+		return conversationHistoryModeLatest
+	}
+	return conversationHistoryModeSearch
+}
+
+func containsAny(value string, terms []string) bool {
+	for _, term := range terms {
+		if strings.Contains(value, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p agentConversationMemoryProvider) currentTime() time.Time {

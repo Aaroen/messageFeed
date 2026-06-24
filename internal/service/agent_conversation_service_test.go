@@ -5,6 +5,7 @@ import (
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/notifier"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -522,6 +523,65 @@ func TestAgentConversationServiceExecutesConversationHistoryToolCall(t *testing.
 	}
 }
 
+func TestAgentConversationServiceHistoryToolReturnsEarliestBoundary(t *testing.T) {
+	now := time.Date(2026, 6, 24, 20, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 210, UserID: 1, Provider: domain.AgentProviderWeChatWorkApp, ChannelSessionKey: "corp-a:1000002:zhangsan"}
+	repository.transcripts = []domain.AgentTranscriptEntry{
+		{ID: 31, SessionID: 210, TurnID: 1, UserID: 1, Role: domain.AgentTranscriptRoleUser, Content: "介绍你的能力", CreatedAt: now.Add(-48 * time.Hour)},
+		{ID: 32, SessionID: 210, TurnID: 2, UserID: 1, Role: domain.AgentTranscriptRoleAssistant, Content: "我可以帮助你查询订阅和历史对话。", CreatedAt: now.Add(-47 * time.Hour)},
+	}
+	repository.nextID = 211
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "conversation__query_history", Arguments: `{"mode":"earliest","limit":1}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "当前 session 的第一条消息是：介绍你的能力。"},
+		},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-earliest-history",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "我发的第一条消息是什么",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Reply != "当前 session 的第一条消息是：介绍你的能力。" {
+		t.Fatalf("Reply = %q", result.Reply)
+	}
+	toolMessage := llmClient.lastRequest.Messages[len(llmClient.lastRequest.Messages)-1]
+	for _, required := range []string{"查询模式：earliest", "是否存在更早记录：否", "介绍你的能力"} {
+		if !strings.Contains(toolMessage.Content, required) {
+			t.Fatalf("tool message missing %q: %q", required, toolMessage.Content)
+		}
+	}
+	if len(repository.recalls) == 0 {
+		t.Fatal("recall event is missing")
+	}
+	if got := repository.recalls[len(repository.recalls)-1].QueryParams["mode"]; got != conversationHistoryModeEarliest {
+		t.Fatalf("recall mode = %#v", got)
+	}
+}
+
 type fakeAgentConversationRepository struct {
 	nextID         int64
 	forceDuplicate bool
@@ -643,6 +703,9 @@ func (r *fakeAgentConversationRepository) QueryTranscriptEntries(_ context.Conte
 		if options.BeforeEntryID > 0 && entry.ID >= options.BeforeEntryID {
 			continue
 		}
+		if options.AfterEntryID > 0 && entry.ID <= options.AfterEntryID {
+			continue
+		}
 		if len(options.Roles) > 0 && !fakeTranscriptRoleAllowed(entry.Role, options.Roles) {
 			continue
 		}
@@ -651,8 +714,31 @@ func (r *fakeAgentConversationRepository) QueryTranscriptEntries(_ context.Conte
 		}
 		entries = append(entries, entry)
 	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].CreatedAt.Equal(entries[j].CreatedAt) {
+			if strings.ToLower(strings.TrimSpace(options.Order)) == "asc" {
+				return entries[i].ID < entries[j].ID
+			}
+			return entries[i].ID > entries[j].ID
+		}
+		if strings.ToLower(strings.TrimSpace(options.Order)) == "asc" {
+			return entries[i].CreatedAt.Before(entries[j].CreatedAt)
+		}
+		return entries[i].CreatedAt.After(entries[j].CreatedAt)
+	})
+	if options.Offset > 0 {
+		if options.Offset >= len(entries) {
+			return nil, nil
+		}
+		entries = entries[options.Offset:]
+	}
 	if options.Limit > 0 && len(entries) > options.Limit {
-		entries = entries[len(entries)-options.Limit:]
+		entries = entries[:options.Limit]
+	}
+	if strings.ToLower(strings.TrimSpace(options.Order)) != "asc" {
+		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+			entries[i], entries[j] = entries[j], entries[i]
+		}
 	}
 	return entries, nil
 }
