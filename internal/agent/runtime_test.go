@@ -19,6 +19,22 @@ func TestP0CapabilityRegistryContainsReadOnlyCapabilities(t *testing.T) {
 	}
 }
 
+func TestP0CapabilityRegistryContainsWebCapabilities(t *testing.T) {
+	registry := NewP0CapabilityRegistry()
+	for _, key := range []string{"web.search", "web.fetch_page", "web.extract_page"} {
+		capability, ok := registry.Get(key)
+		if !ok {
+			t.Fatalf("%s was not registered", key)
+		}
+		if !capability.ExternalAccess {
+			t.Fatalf("%s should be marked as external access", key)
+		}
+		if capability.Mutates {
+			t.Fatalf("%s should be read-only", key)
+		}
+	}
+}
+
 func TestPolicyEngineAllowsReadOnlyAndPromptsMutatingCapability(t *testing.T) {
 	engine := NewPolicyEngine()
 	readOnly := Capability{Key: "feed.query_recent_items", Risk: CapabilityRiskLow}

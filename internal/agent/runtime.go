@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"sort"
 	"strings"
 )
 
@@ -30,13 +31,15 @@ const (
 )
 
 type Capability struct {
-	Key         string
-	Name        string
-	Description string
-	Mode        CapabilityMode
-	Risk        CapabilityRisk
-	Mutates     bool
-	Parameters  map[string]any
+	Key            string
+	Name           string
+	Description    string
+	Mode           CapabilityMode
+	Risk           CapabilityRisk
+	Mutates        bool
+	ExternalAccess bool
+	Schedulable    bool
+	Parameters     map[string]any
 }
 
 type CapabilityRegistry struct {
@@ -101,6 +104,8 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description: "创建当前企微用户的定时提醒或定时发送消息任务。模型负责把自然语言时间归一化为 scheduled_at；后端只做校验和写入。默认需要用户明确确认后才能创建。",
 		Mode:        CapabilityModeDeferred,
 		Risk:        CapabilityRiskMedium,
+		Mutates:     true,
+		Schedulable: true,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -136,6 +141,66 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 				},
 			},
 			"required": []string{"task_type", "content"},
+		},
+	})
+	registry.Register(Capability{
+		Key:            "web.search",
+		Name:           "搜索网页",
+		Description:    "根据查询词返回候选网页，输出来源、抓取时间和摘要。",
+		Mode:           CapabilityModeDeferred,
+		Risk:           CapabilityRiskLow,
+		ExternalAccess: true,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{
+					"type":        "string",
+					"description": "搜索关键词或自然语言查询。",
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "候选结果数量，默认 5，最大 8。",
+					"minimum":     1,
+					"maximum":     8,
+				},
+			},
+			"required": []string{"query"},
+		},
+	})
+	registry.Register(Capability{
+		Key:            "web.fetch_page",
+		Name:           "抓取网页",
+		Description:    "按 URL 获取网页响应元数据和受限大小的正文片段。",
+		Mode:           CapabilityModeDeferred,
+		Risk:           CapabilityRiskLow,
+		ExternalAccess: true,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"url": map[string]any{
+					"type":        "string",
+					"description": "需要抓取的 http 或 https URL。",
+				},
+			},
+			"required": []string{"url"},
+		},
+	})
+	registry.Register(Capability{
+		Key:            "web.extract_page",
+		Name:           "抽取网页正文",
+		Description:    "按 URL 抓取页面并抽取标题、正文摘要、主要链接和来源信息。",
+		Mode:           CapabilityModeDeferred,
+		Risk:           CapabilityRiskLow,
+		ExternalAccess: true,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"url": map[string]any{
+					"type":        "string",
+					"description": "需要抽取正文的 http 或 https URL。",
+				},
+			},
+			"required": []string{"url"},
 		},
 	})
 	registry.Register(Capability{
@@ -193,6 +258,9 @@ func (r *CapabilityRegistry) List() []Capability {
 	for _, capability := range r.byKey {
 		capabilities = append(capabilities, capability)
 	}
+	sort.Slice(capabilities, func(i, j int) bool {
+		return capabilities[i].Key < capabilities[j].Key
+	})
 	return capabilities
 }
 
@@ -222,8 +290,14 @@ func (e *PolicyEngine) Decide(_ context.Context, input PolicyInput) PolicyResult
 	if input.Capability.Mutates {
 		return PolicyResult{Decision: PolicyDecisionPrompt, Reason: "state-changing capability requires approval"}
 	}
+	if input.Capability.Schedulable {
+		return PolicyResult{Decision: PolicyDecisionPrompt, Reason: "scheduled capability requires approval"}
+	}
 	if input.Capability.Risk == CapabilityRiskHigh {
 		return PolicyResult{Decision: PolicyDecisionPrompt, Reason: "high risk capability requires approval"}
 	}
-	return PolicyResult{Decision: PolicyDecisionAllow, Reason: "read-only P0 capability"}
+	if input.Capability.ExternalAccess {
+		return PolicyResult{Decision: PolicyDecisionAllow, Reason: "external read-only capability with bounded fetch policy"}
+	}
+	return PolicyResult{Decision: PolicyDecisionAllow, Reason: "read-only capability"}
 }

@@ -360,7 +360,10 @@ func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, ca
 	if !ok {
 		return ToolExecuteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_unknown_tool", "agent tool is not registered", "agent.turn_runner.tools", false, nil)
 	}
-	if capability.Mutates || capability.Risk == CapabilityRiskHigh {
+	if !r.toolAllowedInCurrentScope(key) {
+		return ToolExecuteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_tool_scope_forbidden", "agent tool is outside current capability scope", "agent.turn_runner.tools", false, nil)
+	}
+	if (capability.Mutates && !capability.Schedulable) || capability.Risk == CapabilityRiskHigh {
 		return ToolExecuteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_tool_not_allowed", "agent tool is not allowed in current policy", "agent.turn_runner.tools", false, nil)
 	}
 	return r.toolExecutor.ExecuteTool(ctx, ToolExecuteInput{
@@ -378,6 +381,23 @@ func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, ca
 	})
 }
 
+func (r *TurnRunner) toolAllowedInCurrentScope(key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	keys := append([]string(nil), r.toolKeys...)
+	if len(keys) == 0 {
+		keys = []string{"conversation.query_history"}
+	}
+	for _, allowed := range keys {
+		if strings.TrimSpace(allowed) == key {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *TurnRunner) buildToolDefinitions() []llm.ToolDefinition {
 	if r == nil || r.toolRegistry == nil || r.toolExecutor == nil {
 		return nil
@@ -389,7 +409,7 @@ func (r *TurnRunner) buildToolDefinitions() []llm.ToolDefinition {
 	definitions := make([]llm.ToolDefinition, 0, len(keys))
 	for _, key := range keys {
 		capability, ok := r.toolRegistry.Get(key)
-		if !ok || capability.Mutates || capability.Risk == CapabilityRiskHigh {
+		if !ok || (capability.Mutates && !capability.Schedulable) || capability.Risk == CapabilityRiskHigh {
 			continue
 		}
 		definitions = append(definitions, llm.ToolDefinition{

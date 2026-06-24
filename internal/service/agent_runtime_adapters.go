@@ -1,16 +1,23 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/agent/timeintent"
 	"messagefeed/internal/domain"
+	"net"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 const (
@@ -18,6 +25,7 @@ const (
 	conversationHistoryModeTimeRange = "time_range"
 	conversationHistoryModeEarliest  = "earliest"
 	conversationHistoryModeLatest    = "latest"
+	agentWebFetchMaxBytes            = int64(1 << 20)
 )
 
 type agentUserContextBlockProvider struct {
@@ -186,6 +194,12 @@ func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.
 		return e.queryConversationHistory(ctx, input)
 	case "agent.schedule_message":
 		return e.scheduleMessage(ctx, input)
+	case "web.search":
+		return e.webSearch(ctx, input)
+	case "web.fetch_page":
+		return e.webFetchPage(ctx, input)
+	case "web.extract_page":
+		return e.webExtractPage(ctx, input)
 	default:
 		return agent.ToolExecuteResult{
 			Content: "当前工具执行器不支持该能力。",
@@ -329,6 +343,15 @@ type scheduleMessageToolArgs struct {
 	TimeZone    string `json:"time_zone"`
 	Importance  string `json:"importance"`
 	Confirmed   bool   `json:"confirmed"`
+}
+
+type webSearchToolArgs struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit"`
+}
+
+type webURLToolArgs struct {
+	URL string `json:"url"`
 }
 
 func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
@@ -563,6 +586,102 @@ func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input ag
 	}, nil
 }
 
+func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	args := parseWebSearchToolArgs(input.RawArguments)
+	if args.Query == "" {
+		args.Query = strings.TrimSpace(input.Message)
+	}
+	limit := args.Limit
+	if limit < 1 {
+		limit = 5
+	}
+	if limit > 8 {
+		limit = 8
+	}
+	observation := agent.CapabilityObservation{
+		Capability: input.Capability.Key,
+		Decision:   string(agent.PolicyDecisionAllow),
+	}
+	if args.Query == "" {
+		observation.Status = "failed"
+		observation.Summary = "web search query is empty"
+		return agent.ToolExecuteResult{Content: "web.search 需要非空 query。", Observation: observation}, nil
+	}
+	endpoint := "https://duckduckgo.com/html/?" + url.Values{"q": []string{args.Query}}.Encode()
+	body, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, endpoint)
+	if err != nil {
+		observation.Status = "failed"
+		observation.Summary = safeSummary(err.Error(), 300)
+		return agent.ToolExecuteResult{Content: "web.search 执行失败：" + err.Error(), Observation: observation}, nil
+	}
+	results := parseDuckDuckGoResults(body, limit)
+	observation.Status = "succeeded"
+	observation.Summary = fmt.Sprintf("loaded %d web search results", len(results))
+	if len(results) == 0 {
+		observation.Status = "empty"
+		observation.Summary = "no web search result parsed"
+	}
+	return agent.ToolExecuteResult{
+		Content:     formatWebSearchResult(args.Query, finalURL, statusCode, contentType, e.currentTime(), results),
+		Observation: observation,
+	}, nil
+}
+
+func (e agentP0CapabilityExecutor) webFetchPage(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	args := parseWebURLToolArgs(input.RawArguments)
+	observation := agent.CapabilityObservation{
+		Capability: input.Capability.Key,
+		Decision:   string(agent.PolicyDecisionAllow),
+	}
+	if args.URL == "" {
+		observation.Status = "failed"
+		observation.Summary = "web fetch url is empty"
+		return agent.ToolExecuteResult{Content: "web.fetch_page 需要非空 url。", Observation: observation}, nil
+	}
+	body, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, args.URL)
+	if err != nil {
+		observation.Status = "failed"
+		observation.Summary = safeSummary(err.Error(), 300)
+		return agent.ToolExecuteResult{Content: "web.fetch_page 执行失败：" + err.Error(), Observation: observation}, nil
+	}
+	observation.Status = "succeeded"
+	observation.Summary = fmt.Sprintf("fetched %d bytes from %s", len(body), finalURL)
+	return agent.ToolExecuteResult{
+		Content:     formatWebFetchResult(finalURL, statusCode, contentType, e.currentTime(), body),
+		Observation: observation,
+	}, nil
+}
+
+func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	args := parseWebURLToolArgs(input.RawArguments)
+	observation := agent.CapabilityObservation{
+		Capability: input.Capability.Key,
+		Decision:   string(agent.PolicyDecisionAllow),
+	}
+	if args.URL == "" {
+		observation.Status = "failed"
+		observation.Summary = "web extract url is empty"
+		return agent.ToolExecuteResult{Content: "web.extract_page 需要非空 url。", Observation: observation}, nil
+	}
+	body, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, args.URL)
+	if err != nil {
+		observation.Status = "failed"
+		observation.Summary = safeSummary(err.Error(), 300)
+		return agent.ToolExecuteResult{Content: "web.extract_page 执行失败：" + err.Error(), Observation: observation}, nil
+	}
+	extracted := extractAgentWebPage(body, finalURL)
+	observation.Status = "succeeded"
+	observation.Summary = "extracted web page content"
+	if extracted.Summary == "" && extracted.Title == "" {
+		observation.Status = "empty"
+		observation.Summary = "no readable page content extracted"
+	}
+	return agent.ToolExecuteResult{
+		Content:     formatWebExtractResult(finalURL, statusCode, contentType, e.currentTime(), extracted),
+		Observation: observation,
+	}, nil
+}
+
 func parseConversationHistoryToolArgs(raw string) conversationHistoryToolArgs {
 	var args conversationHistoryToolArgs
 	raw = strings.TrimSpace(raw)
@@ -599,6 +718,32 @@ func parseScheduleMessageToolArgs(raw string) scheduleMessageToolArgs {
 	args.TimeHint = strings.TrimSpace(args.TimeHint)
 	args.TimeZone = strings.TrimSpace(args.TimeZone)
 	args.Importance = strings.TrimSpace(args.Importance)
+	return args
+}
+
+func parseWebSearchToolArgs(raw string) webSearchToolArgs {
+	var args webSearchToolArgs
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return args
+	}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return webSearchToolArgs{}
+	}
+	args.Query = strings.TrimSpace(args.Query)
+	return args
+}
+
+func parseWebURLToolArgs(raw string) webURLToolArgs {
+	var args webURLToolArgs
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return args
+	}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return webURLToolArgs{}
+	}
+	args.URL = strings.TrimSpace(args.URL)
 	return args
 }
 
@@ -836,6 +981,314 @@ func scheduledMessageDedupeKey(userID int64, toUser string, taskType string, con
 	}, "|")
 	sum := sha256.Sum256([]byte(raw))
 	return fmt.Sprintf("agent_scheduled_message:%x", sum[:16])
+}
+
+type agentWebSearchResult struct {
+	Title   string
+	URL     string
+	Snippet string
+}
+
+type agentWebExtractedPage struct {
+	Title       string
+	SiteName    string
+	Summary     string
+	PublishedAt string
+	Author      string
+	Links       []agentWebSearchResult
+}
+
+func fetchAgentWebURL(ctx context.Context, rawURL string) ([]byte, string, int, string, error) {
+	parsed, err := validateAgentWebURL(rawURL)
+	if err != nil {
+		return nil, "", 0, "", err
+	}
+	client := &http.Client{Timeout: 8 * time.Second}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, "", 0, "", err
+	}
+	request.Header.Set("User-Agent", "messageFeed-agent/0.1")
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, "", 0, "", err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, agentWebFetchMaxBytes))
+	if err != nil {
+		return nil, "", response.StatusCode, response.Header.Get("Content-Type"), err
+	}
+	finalURL := parsed.String()
+	if response.Request != nil && response.Request.URL != nil {
+		finalURL = response.Request.URL.String()
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return body, finalURL, response.StatusCode, response.Header.Get("Content-Type"), fmt.Errorf("unexpected HTTP status %d", response.StatusCode)
+	}
+	return body, finalURL, response.StatusCode, response.Header.Get("Content-Type"), nil
+}
+
+func validateAgentWebURL(rawURL string) (*url.URL, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("unsupported URL scheme")
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host == "" {
+		return nil, fmt.Errorf("missing URL host")
+	}
+	if isBlockedAgentWebHost(host) {
+		return nil, fmt.Errorf("blocked local or private host")
+	}
+	return parsed, nil
+}
+
+func isBlockedAgentWebHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+func parseDuckDuckGoResults(body []byte, limit int) []agentWebSearchResult {
+	document, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	results := make([]agentWebSearchResult, 0, limit)
+	document.Find("a.result__a").EachWithBreak(func(_ int, selection *goquery.Selection) bool {
+		if len(results) >= limit {
+			return false
+		}
+		title := strings.TrimSpace(selection.Text())
+		href, _ := selection.Attr("href")
+		href = normalizeDuckDuckGoResultURL(href)
+		if title == "" || href == "" {
+			return true
+		}
+		snippet := strings.TrimSpace(selection.ParentsFiltered(".result").First().Find(".result__snippet").Text())
+		results = append(results, agentWebSearchResult{Title: title, URL: href, Snippet: cleanWhitespace(snippet)})
+		return true
+	})
+	if len(results) > 0 {
+		return results
+	}
+	document.Find("a[href]").EachWithBreak(func(_ int, selection *goquery.Selection) bool {
+		if len(results) >= limit {
+			return false
+		}
+		title := strings.TrimSpace(selection.Text())
+		href, _ := selection.Attr("href")
+		href = normalizeDuckDuckGoResultURL(href)
+		if title == "" || href == "" || strings.HasPrefix(href, "#") {
+			return true
+		}
+		parsed, err := url.Parse(href)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return true
+		}
+		results = append(results, agentWebSearchResult{Title: title, URL: href})
+		return true
+	})
+	return results
+}
+
+func normalizeDuckDuckGoResultURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err == nil {
+		if uddg := strings.TrimSpace(parsed.Query().Get("uddg")); uddg != "" {
+			if decoded, decodeErr := url.QueryUnescape(uddg); decodeErr == nil {
+				return decoded
+			}
+			return uddg
+		}
+	}
+	if strings.HasPrefix(value, "//") {
+		return "https:" + value
+	}
+	return value
+}
+
+func extractAgentWebPage(body []byte, sourceURL string) agentWebExtractedPage {
+	document, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return agentWebExtractedPage{}
+	}
+	document.Find("script, style, noscript, svg").Each(func(_ int, selection *goquery.Selection) {
+		selection.Remove()
+	})
+	page := agentWebExtractedPage{
+		Title:       cleanWhitespace(document.Find("title").First().Text()),
+		SiteName:    cleanWhitespace(firstMetaContent(document, "property", "og:site_name")),
+		PublishedAt: cleanWhitespace(firstMetaContent(document, "property", "article:published_time")),
+		Author:      cleanWhitespace(firstMetaContent(document, "name", "author")),
+	}
+	if page.Title == "" {
+		page.Title = cleanWhitespace(firstMetaContent(document, "property", "og:title"))
+	}
+	summary := cleanWhitespace(firstMetaContent(document, "name", "description"))
+	if summary == "" {
+		summary = cleanWhitespace(firstMetaContent(document, "property", "og:description"))
+	}
+	text := cleanWhitespace(document.Find("article").First().Text())
+	if text == "" {
+		text = cleanWhitespace(document.Find("main").First().Text())
+	}
+	if text == "" {
+		text = cleanWhitespace(document.Find("body").Text())
+	}
+	if summary != "" && !strings.Contains(text, summary) {
+		text = summary + "\n" + text
+	}
+	page.Summary = safeSummary(text, 2500)
+	page.Links = extractAgentWebLinks(document, sourceURL, 8)
+	return page
+}
+
+func firstMetaContent(document *goquery.Document, attr string, value string) string {
+	content, _ := document.Find(fmt.Sprintf("meta[%s='%s']", attr, value)).First().Attr("content")
+	return content
+}
+
+func extractAgentWebLinks(document *goquery.Document, sourceURL string, limit int) []agentWebSearchResult {
+	base, _ := url.Parse(sourceURL)
+	links := make([]agentWebSearchResult, 0, limit)
+	seen := map[string]struct{}{}
+	document.Find("a[href]").EachWithBreak(func(_ int, selection *goquery.Selection) bool {
+		if len(links) >= limit {
+			return false
+		}
+		title := cleanWhitespace(selection.Text())
+		href, _ := selection.Attr("href")
+		if href == "" || strings.HasPrefix(href, "#") {
+			return true
+		}
+		parsed, err := url.Parse(href)
+		if err != nil {
+			return true
+		}
+		if base != nil {
+			parsed = base.ResolveReference(parsed)
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return true
+		}
+		normalized := parsed.String()
+		if _, ok := seen[normalized]; ok {
+			return true
+		}
+		seen[normalized] = struct{}{}
+		if title == "" {
+			title = normalized
+		}
+		links = append(links, agentWebSearchResult{Title: safeSummary(title, 120), URL: normalized})
+		return true
+	})
+	return links
+}
+
+func formatWebSearchResult(query string, source string, statusCode int, contentType string, fetchedAt time.Time, results []agentWebSearchResult) string {
+	var builder strings.Builder
+	builder.WriteString("工具：web.search\n查询：")
+	builder.WriteString(query)
+	builder.WriteString("\n来源：")
+	builder.WriteString(source)
+	builder.WriteString("\n抓取时间：")
+	builder.WriteString(fetchedAt.UTC().Format(time.RFC3339))
+	builder.WriteString("\nHTTP 状态：")
+	builder.WriteString(strconv.Itoa(statusCode))
+	builder.WriteString("\n内容类型：")
+	builder.WriteString(contentType)
+	builder.WriteString("\n结果：\n")
+	for index, result := range results {
+		builder.WriteString(strconv.Itoa(index + 1))
+		builder.WriteString(". ")
+		builder.WriteString(result.Title)
+		builder.WriteString("\nURL：")
+		builder.WriteString(result.URL)
+		if result.Snippet != "" {
+			builder.WriteString("\n摘要：")
+			builder.WriteString(result.Snippet)
+		}
+		builder.WriteString("\n")
+	}
+	if len(results) == 0 {
+		builder.WriteString("没有解析到候选结果。\n")
+	}
+	return builder.String()
+}
+
+func formatWebFetchResult(source string, statusCode int, contentType string, fetchedAt time.Time, body []byte) string {
+	return fmt.Sprintf(
+		"工具：web.fetch_page\n来源：%s\n抓取时间：%s\nHTTP 状态：%d\n内容类型：%s\n字节数：%d\n正文片段：\n%s",
+		source,
+		fetchedAt.UTC().Format(time.RFC3339),
+		statusCode,
+		contentType,
+		len(body),
+		safeSummary(string(body), 4000),
+	)
+}
+
+func formatWebExtractResult(source string, statusCode int, contentType string, fetchedAt time.Time, page agentWebExtractedPage) string {
+	var builder strings.Builder
+	builder.WriteString("工具：web.extract_page\n来源：")
+	builder.WriteString(source)
+	builder.WriteString("\n抓取时间：")
+	builder.WriteString(fetchedAt.UTC().Format(time.RFC3339))
+	builder.WriteString("\nHTTP 状态：")
+	builder.WriteString(strconv.Itoa(statusCode))
+	builder.WriteString("\n内容类型：")
+	builder.WriteString(contentType)
+	builder.WriteString("\n标题：")
+	builder.WriteString(page.Title)
+	if page.SiteName != "" {
+		builder.WriteString("\n站点：")
+		builder.WriteString(page.SiteName)
+	}
+	if page.Author != "" {
+		builder.WriteString("\n作者：")
+		builder.WriteString(page.Author)
+	}
+	if page.PublishedAt != "" {
+		builder.WriteString("\n发布时间：")
+		builder.WriteString(page.PublishedAt)
+	}
+	builder.WriteString("\n正文摘要：\n")
+	builder.WriteString(page.Summary)
+	builder.WriteString("\n主要链接：\n")
+	for index, link := range page.Links {
+		builder.WriteString(strconv.Itoa(index + 1))
+		builder.WriteString(". ")
+		builder.WriteString(link.Title)
+		builder.WriteString("\nURL：")
+		builder.WriteString(link.URL)
+		builder.WriteString("\n")
+	}
+	if len(page.Links) == 0 {
+		builder.WriteString("没有解析到主要链接。\n")
+	}
+	return builder.String()
+}
+
+func cleanWhitespace(value string) string {
+	fields := strings.Fields(strings.TrimSpace(value))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Join(fields, " ")
 }
 
 func (p agentConversationMemoryProvider) currentTime() time.Time {

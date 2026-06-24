@@ -95,6 +95,45 @@ func TestTurnRunnerSystemPromptGuidesScheduledMessageConfirmation(t *testing.T) 
 	}
 }
 
+func TestTurnRunnerRejectsToolOutsideCurrentScope(t *testing.T) {
+	chat := &runnerFakeChatClient{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "web__search", Arguments: `{"query":"messageFeed"}`},
+				},
+			},
+		},
+	}
+	toolExecutor := &runnerFakeToolExecutor{}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		ToolExecutor: toolExecutor,
+		ToolKeys:     []string{"conversation.query_history"},
+		LLMClient:    chat,
+		SystemPrompt: "系统提示",
+	})
+
+	_, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:  1,
+		Session: domain.AgentSession{ID: 10, UserID: 1},
+		Turn:    domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage: domain.AgentInboundMessage{
+			ID:     30,
+			UserID: 1,
+		},
+		MessageType: "text",
+		MessageText: "联网搜索 messageFeed",
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want scope error")
+	}
+	if toolExecutor.input.Capability.Key != "" {
+		t.Fatalf("tool was executed outside scope: %#v", toolExecutor.input)
+	}
+}
+
 type runnerFakeChatClient struct {
 	calls     int
 	requests  []llm.ChatRequest
