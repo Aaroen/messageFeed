@@ -682,7 +682,7 @@ func TestAgentConversationServiceScheduleMessageCreatesNotificationJobWhenConfir
 				Provider: "openai_compatible",
 				Model:    "custom-model",
 				ToolCalls: []llm.ToolCall{
-					{ID: "call-1", Name: "agent__schedule_message", Arguments: `{"task_type":"reminder","content":"检查部署状态","time_hint":"明天上午9点","confirmed":true}`},
+					{ID: "call-1", Name: "agent__schedule_message", Arguments: `{"task_type":"reminder","content":"检查部署状态","scheduled_at":"2026-06-25T09:00:00+08:00","time_hint":"明天上午9点","confirmed":true}`},
 				},
 			},
 			{Provider: "openai_compatible", Model: "custom-model", Content: "已创建提醒。"},
@@ -721,6 +721,56 @@ func TestAgentConversationServiceScheduleMessageCreatesNotificationJobWhenConfir
 	wantScheduledAt := time.Date(2026, 6, 25, 1, 0, 0, 0, time.UTC)
 	if !job.ScheduledAt.Equal(wantScheduledAt) {
 		t.Fatalf("scheduled_at = %s, want %s", job.ScheduledAt, wantScheduledAt)
+	}
+}
+
+func TestAgentConversationServiceScheduleMessageCreatesFromNormalizedConfirmation(t *testing.T) {
+	now := time.Date(2026, 6, 24, 13, 54, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	notificationStore := &fakeAgentNotificationJobStore{}
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "agent__schedule_message", Arguments: `{"task_type":"reminder","content":"到点了","scheduled_at":"2026-06-24T21:55:00+08:00","time_hint":"今天晚上9点55","confirmed":true}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "已创建提醒。"},
+		},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNotificationJobStore(notificationStore),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	if _, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-schedule-normalized-confirm",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "是的",
+	}); err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if len(notificationStore.jobs) != 1 {
+		t.Fatalf("notification job count = %d, want 1", len(notificationStore.jobs))
+	}
+	job := notificationStore.jobs[0]
+	wantScheduledAt := time.Date(2026, 6, 24, 13, 55, 0, 0, time.UTC)
+	if !job.ScheduledAt.Equal(wantScheduledAt) {
+		t.Fatalf("scheduled_at = %s, want %s", job.ScheduledAt, wantScheduledAt)
+	}
+	if job.Payload["content"] != "到点了" || job.Payload["scheduled_at"] != "2026-06-24T13:55:00Z" {
+		t.Fatalf("job payload = %#v", job.Payload)
 	}
 }
 

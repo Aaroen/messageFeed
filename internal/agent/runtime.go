@@ -98,7 +98,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 	registry.Register(Capability{
 		Key:         "agent.schedule_message",
 		Name:        "定时发送消息",
-		Description: "创建当前企微用户的定时提醒或定时发送消息任务。默认需要用户明确确认后才能创建。",
+		Description: "创建当前企微用户的定时提醒或定时发送消息任务。模型负责把自然语言时间归一化为 scheduled_at；后端只做校验和写入。默认需要用户明确确认后才能创建。",
 		Mode:        CapabilityModeDeferred,
 		Risk:        CapabilityRiskMedium,
 		Parameters: map[string]any{
@@ -113,9 +113,17 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 					"type":        "string",
 					"description": "到时发送给当前企微用户的文本内容。",
 				},
+				"scheduled_at": map[string]any{
+					"type":        "string",
+					"description": "模型归一化后的明确发送时间，优先使用 RFC3339，例如 2026-06-24T21:55:00+08:00。创建任务时优先填写该字段。",
+				},
 				"time_hint": map[string]any{
 					"type":        "string",
-					"description": "自然语言时间表达，例如明天上午9点、2026-06-25 18:30。",
+					"description": "原始自然语言时间表达，仅作为辅助证据，例如今天晚上9点55、明天上午9点。",
+				},
+				"time_zone": map[string]any{
+					"type":        "string",
+					"description": "用于解释 scheduled_at 或 time_hint 的时区，默认 Asia/Shanghai。",
 				},
 				"importance": map[string]any{
 					"type":        "string",
@@ -124,10 +132,10 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 				},
 				"confirmed": map[string]any{
 					"type":        "boolean",
-					"description": "仅当用户已经明确确认创建该定时任务时才为 true。",
+					"description": "仅当用户已经明确确认创建该定时任务时才为 true。用户回复确认上一轮待创建提醒时，必须重新调用本工具并设为 true。",
 				},
 			},
-			"required": []string{"task_type", "content", "time_hint"},
+			"required": []string{"task_type", "content"},
 		},
 	})
 	registry.Register(Capability{

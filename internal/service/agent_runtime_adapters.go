@@ -322,11 +322,13 @@ type conversationHistoryToolArgs struct {
 }
 
 type scheduleMessageToolArgs struct {
-	TaskType   string `json:"task_type"`
-	Content    string `json:"content"`
-	TimeHint   string `json:"time_hint"`
-	Importance string `json:"importance"`
-	Confirmed  bool   `json:"confirmed"`
+	TaskType    string `json:"task_type"`
+	Content     string `json:"content"`
+	ScheduledAt string `json:"scheduled_at"`
+	TimeHint    string `json:"time_hint"`
+	TimeZone    string `json:"time_zone"`
+	Importance  string `json:"importance"`
+	Confirmed   bool   `json:"confirmed"`
 }
 
 func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
@@ -496,22 +498,22 @@ func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input ag
 		observation.Summary = "wechat work recipient is missing"
 		return agent.ToolExecuteResult{Content: "无法确定当前企微接收人，不能创建定时消息。", Observation: observation}, nil
 	}
-	scheduledAt, parseResult := parseScheduleInstant(args.TimeHint, e.currentTime())
+	scheduledAt, parseResult := parseScheduleInstant(args.ScheduledAt, args.TimeHint, args.TimeZone, e.currentTime())
 	if scheduledAt.IsZero() {
 		observation.Status = "failed"
 		observation.Summary = "scheduled time is ambiguous"
-		return agent.ToolExecuteResult{Content: "没有识别出明确发送时间。请让用户补充具体时间，例如明天上午9点或 2026-06-25 18:30。", Observation: observation}, nil
+		return agent.ToolExecuteResult{Content: "工具状态：requires_clarification\n原因：没有明确的 scheduled_at，且 time_hint 无法被后端校验为具体时间点。请结合当前时间和最近上下文，让用户补充日期、上午/下午/晚上，或由模型归一化为 RFC3339 scheduled_at 后再次调用工具。", Observation: observation}, nil
 	}
 	if scheduledAt.Before(e.currentTime().Add(-time.Minute)) {
 		observation.Status = "failed"
 		observation.Summary = "scheduled time is in the past"
-		return agent.ToolExecuteResult{Content: "定时发送时间已经过去，不能创建任务。", Observation: observation}, nil
+		return agent.ToolExecuteResult{Content: "工具状态：failed\n原因：scheduled_at 已经过期，不能创建定时消息。", Observation: observation}, nil
 	}
 	if !args.Confirmed {
 		observation.Status = "requires_confirmation"
 		observation.Summary = "scheduled message requires user confirmation"
 		return agent.ToolExecuteResult{
-			Content:     fmt.Sprintf("该操作会在 %s 创建企微定时消息：%s。需要用户明确确认后才能创建。", scheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), content),
+			Content:     fmt.Sprintf("工具状态：requires_confirmation\n计划时间：%s\n提醒内容：%s\n说明：需要用户明确确认后才能创建；用户确认后必须再次调用 agent.schedule_message，并传 confirmed=true。", scheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), content),
 			Observation: observation,
 		}, nil
 	}
@@ -530,6 +532,7 @@ func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input ag
 			"task_type":        args.TaskType,
 			"content":          content,
 			"to_user":          strings.TrimSpace(input.ExternalUserID),
+			"scheduled_at":     scheduledAt.UTC().Format(time.RFC3339),
 			"time_hint":        args.TimeHint,
 			"time_zone":        parseResult.TimeZone,
 			"importance":       normalizedScheduleImportance(args.Importance),
@@ -555,7 +558,7 @@ func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input ag
 	observation.Status = "succeeded"
 	observation.Summary = fmt.Sprintf("scheduled notification job %d", created.ID)
 	return agent.ToolExecuteResult{
-		Content:     fmt.Sprintf("已创建定时消息任务，将在 %s 发送。任务 ID：%d。", created.ScheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), created.ID),
+		Content:     fmt.Sprintf("工具状态：created\n任务 ID：%d\n计划时间：%s\n提醒内容：%s", created.ID, created.ScheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), content),
 		Observation: observation,
 	}, nil
 }
@@ -592,7 +595,9 @@ func parseScheduleMessageToolArgs(raw string) scheduleMessageToolArgs {
 	}
 	args.TaskType = strings.TrimSpace(args.TaskType)
 	args.Content = strings.TrimSpace(args.Content)
+	args.ScheduledAt = strings.TrimSpace(args.ScheduledAt)
 	args.TimeHint = strings.TrimSpace(args.TimeHint)
+	args.TimeZone = strings.TrimSpace(args.TimeZone)
 	args.Importance = strings.TrimSpace(args.Importance)
 	return args
 }
@@ -766,8 +771,31 @@ func agentTimeLocation() *time.Location {
 	return location
 }
 
-func parseScheduleInstant(timeHint string, now time.Time) (time.Time, timeintent.Result) {
-	location := agentTimeLocation()
+func parseScheduleInstant(scheduledAt string, timeHint string, timeZone string, now time.Time) (time.Time, timeintent.Result) {
+	location := scheduleTimeLocation(timeZone)
+	scheduledAt = strings.TrimSpace(scheduledAt)
+	if scheduledAt != "" {
+		if parsed, err := time.Parse(time.RFC3339, scheduledAt); err == nil {
+			return parsed.UTC(), timeintent.Result{
+				Kind:       timeintent.KindInstant,
+				InstantAt:  parsed.In(location),
+				TimeZone:   location.String(),
+				Confidence: "model_normalized",
+				Matched:    scheduledAt,
+			}
+		}
+		for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02 15:04", "2006/01/02 15:04:05", "2006/01/02 15:04"} {
+			if parsed, err := time.ParseInLocation(layout, scheduledAt, location); err == nil {
+				return parsed.UTC(), timeintent.Result{
+					Kind:       timeintent.KindInstant,
+					InstantAt:  parsed,
+					TimeZone:   location.String(),
+					Confidence: "model_normalized",
+					Matched:    scheduledAt,
+				}
+			}
+		}
+	}
 	parsed := timeintent.Parse(timeHint, now, location)
 	if parsed.HasInstant() {
 		return parsed.InstantAt.UTC(), parsed
@@ -776,6 +804,18 @@ func parseScheduleInstant(timeHint string, now time.Time) (time.Time, timeintent
 		return parsed.StartAt.UTC(), parsed
 	}
 	return time.Time{}, parsed
+}
+
+func scheduleTimeLocation(timeZone string) *time.Location {
+	timeZone = strings.TrimSpace(timeZone)
+	if timeZone == "" {
+		return agentTimeLocation()
+	}
+	location, err := time.LoadLocation(timeZone)
+	if err != nil {
+		return agentTimeLocation()
+	}
+	return location
 }
 
 func normalizedScheduleImportance(value string) string {

@@ -74,6 +74,27 @@ func TestTurnRunnerExecutesToolCallAndContinuesChat(t *testing.T) {
 	}
 }
 
+func TestTurnRunnerSystemPromptGuidesScheduledMessageConfirmation(t *testing.T) {
+	now := time.Date(2026, 6, 24, 13, 55, 0, 0, time.UTC)
+	runner := NewTurnRunner(TurnRunnerOptions{
+		ToolExecutor: &runnerFakeToolExecutor{},
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	prompt := runner.buildSystemPrompt(ContextSnapshot{})
+	for _, required := range []string{
+		"当前时间：2026-06-24 21:55:00 Asia/Shanghai",
+		"归一化为 scheduled_at",
+		"再次调用 agent.schedule_message",
+		"confirmed=true",
+	} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("prompt missing %q: %s", required, prompt)
+		}
+	}
+}
+
 type runnerFakeChatClient struct {
 	calls     int
 	requests  []llm.ChatRequest
