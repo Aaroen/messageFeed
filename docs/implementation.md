@@ -12,7 +12,7 @@
 | P0 | Agent 上下文追溯 | 待实现 | executor 的完整模型可见上下文、工具上下文和输出可追溯 |
 | P0 | 阶段二收尾 | 待完成 | Web 条目状态操作、筛选、分页、阅读偏好完整绑定 |
 | P0 | 阶段三收尾 | 待完成 | 完整 Compose 环境端到端观测验收 |
-| P1 | 阶段四收尾 | 待完成 | 源目录健康检查、许可状态、热度和更多过滤维度 |
+| P1 | 阶段四收尾 | 已完成 | 源目录健康检查、许可状态、热度和更多过滤维度；Web 源目录 UI 改造按用户要求排除 |
 | P1 | Agent 计划与审批 | 待实现 | 结构化 plan、plan step、影响评估、确认策略和通用执行器 |
 | P1 | Agent 记忆与历史查询 | 待实现 | 企微短期窗口、历史原文查询、冷热归档索引和回忆预算 |
 | P1 | 联网信息获取 | 待实现 | web/repo 信息获取 capability |
@@ -20,27 +20,27 @@
 
 ## 2. 当前第一实施包
 
-当前第一实施包以 `docs/nowdoit/agent-controller-executor-implementation-plan.md` 为准。
+上一实施包 `docs/nowdoit/stage-four-source-catalog-governance-plan.md` 已完成并归档到 `docs/nowdoit/archive/stage-four-source-catalog-governance-plan-implemented-2026-06-25.md`。
+
+当前第一实施包以 `docs/nowdoit/agent-plan-approval-execution-plan.md` 为准。
 
 目标：
 
 ```text
-ControllerAgent 唯一主控
-ExecutorAgentRun 即用即丢
-CapabilityRegistry 统一复用
-ContextTraceStore 完整追溯
+结构化 plan、plan step、影响评估和确认策略
+计划批准、拒绝、过期和二次校验流程
+统一执行器与 capability scope 约束
 ```
 
 必须先完成：
 
-1. 新增或调整 `agent_runs`，支持 `parent_run_id`、`role`、`capability_scope_json`、`context_trace_ref`。
-2. 新增 `agent_run_context_traces`，保存模型实际可见上下文投影视图。
-3. 新增 `agent_observations` 和 `agent_artifacts`。
-4. 实现 `RunManager.CreateControllerRun` 和 `RunManager.CreateExecutorRun`。
-5. 实现 `ContextTraceStore`。
-6. 实现最小 `CapabilityRegistry`。
-7. 让 controller 创建一个只读 executor 完成一次企业微信请求。
-8. 提供按 `run_id` 查询 controller、executor、context trace、observation 和 artifact 的接口。
+1. 梳理现有 Agent session、turn、run、approval、context trace 和 handler 实现。
+2. 新增或扩展计划、计划步骤和审批关联的数据模型与迁移。
+3. 实现 plan service，负责创建计划、状态流转和审批约束。
+4. 将 controller run 的输出接入结构化计划生成。
+5. 实现 executor task 与 plan step 的绑定和 capability scope 校验。
+6. 扩展 Handler 与 OpenAPI，提供计划查询、审批提交和状态查询。
+7. 运行 `go test ./...`、`go vet ./...`、`npm --prefix web run type-check` 和前端构建。
 
 ## 3. Agent 剩余实施步骤
 
@@ -114,11 +114,11 @@ ContextTraceStore 完整追溯
 
 ### 4.3 阶段四收尾
 
-- [ ] 源目录自动健康检查。
-- [ ] 许可状态治理。
-- [ ] 热度字段。
-- [ ] 最近校验时间更新流程。
-- [ ] 语言、国家、健康状态等过滤维度。
+- [x] 源目录自动健康检查。
+- [x] 许可状态治理。
+- [x] 热度字段。
+- [x] 最近校验时间更新流程。
+- [x] 语言、国家、健康状态等过滤维度。
 
 ## 5. 后续阶段
 
