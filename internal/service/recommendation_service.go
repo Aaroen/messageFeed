@@ -553,8 +553,12 @@ func (s *RecommendationService) materializeRecommendationItems(ctx context.Conte
 		item.ID = upsertedItem.ID
 		item.SourceID = entry.ID
 		item.SourceName = entry.Name
-		item.CreatedAt = upsertedItem.CreatedAt
-		item.UpdatedAt = upsertedItem.UpdatedAt
+		if !upsertedItem.CreatedAt.IsZero() {
+			item.CreatedAt = upsertedItem.CreatedAt
+		}
+		if !upsertedItem.UpdatedAt.IsZero() {
+			item.UpdatedAt = upsertedItem.UpdatedAt
+		}
 		materialized = append(materialized, item)
 	}
 	return materialized
