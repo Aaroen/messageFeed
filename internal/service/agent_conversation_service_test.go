@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/notifier"
@@ -774,6 +775,55 @@ func TestAgentConversationServiceScheduleMessageCreatesFromNormalizedConfirmatio
 	}
 }
 
+func TestAgentConversationServiceSendsFallbackWhenScheduleCreationFails(t *testing.T) {
+	now := time.Date(2026, 6, 24, 14, 7, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	notificationStore := &fakeAgentNotificationJobStore{err: errors.New("repository write failed")}
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	sender := &fakeAgentConversationSender{}
+	llmClient := &fakeAgentConversationLLM{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "agent__schedule_message", Arguments: `{"task_type":"reminder","content":"到点了","scheduled_at":"2026-06-24T22:10:00+08:00","time_hint":"今天晚上10点10分","confirmed":true}`},
+				},
+			},
+		},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNotificationJobStore(notificationStore),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-schedule-write-failed",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "再在今晚10点10分提醒我到点了，我已经确认",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if !strings.Contains(result.Reply, "没有设置成功") {
+		t.Fatalf("fallback reply = %q", result.Reply)
+	}
+	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "没有设置成功") {
+		t.Fatalf("sent fallback = %#v", sender.sent)
+	}
+	if len(repository.transcripts) < 2 || !strings.Contains(repository.transcripts[len(repository.transcripts)-1].Content, "没有设置成功") {
+		t.Fatalf("transcripts = %#v", repository.transcripts)
+	}
+}
+
 type fakeAgentConversationRepository struct {
 	nextID         int64
 	forceDuplicate bool
@@ -943,9 +993,13 @@ func (r *fakeAgentConversationRepository) QueryTranscriptEntries(_ context.Conte
 
 type fakeAgentNotificationJobStore struct {
 	jobs []domain.NotificationJob
+	err  error
 }
 
 func (s *fakeAgentNotificationJobStore) CreateJob(_ context.Context, job domain.NotificationJob) (domain.NotificationJob, error) {
+	if s.err != nil {
+		return domain.NotificationJob{}, s.err
+	}
 	job.ID = int64(len(s.jobs) + 1)
 	s.jobs = append(s.jobs, job)
 	return job, nil

@@ -28,11 +28,11 @@ func NewNotificationRepository(db *gorm.DB) *NotificationRepository {
 type notificationJobModel struct {
 	ID               int64 `gorm:"primaryKey"`
 	UserID           int64 `gorm:"not null"`
-	AlertCandidateID int64
-	AlertRuleID      int64
-	AIAnalysisJobID  int64
-	SourceID         int64
-	ItemID           int64
+	AlertCandidateID *int64
+	AlertRuleID      *int64
+	AIAnalysisJobID  *int64
+	SourceID         *int64
+	ItemID           *int64
 	Status           string
 	Channel          string
 	PolicyDecision   domain.AlertPolicyDecision `gorm:"column:policy_decision_json;serializer:json;type:jsonb;not null"`
@@ -310,11 +310,11 @@ func notificationJobModelFromDomain(job domain.NotificationJob) notificationJobM
 	return notificationJobModel{
 		ID:               job.ID,
 		UserID:           job.UserID,
-		AlertCandidateID: job.AlertCandidateID,
-		AlertRuleID:      job.AlertRuleID,
-		AIAnalysisJobID:  job.AIAnalysisJobID,
-		SourceID:         job.SourceID,
-		ItemID:           job.ItemID,
+		AlertCandidateID: int64PtrOrNil(job.AlertCandidateID),
+		AlertRuleID:      int64PtrOrNil(job.AlertRuleID),
+		AIAnalysisJobID:  int64PtrOrNil(job.AIAnalysisJobID),
+		SourceID:         int64PtrOrNil(job.SourceID),
+		ItemID:           int64PtrOrNil(job.ItemID),
 		Status:           string(job.Status),
 		Channel:          string(job.Channel),
 		PolicyDecision:   cloneAlertPolicyDecision(job.PolicyDecision),
@@ -339,11 +339,11 @@ func notificationJobModelToDomain(model notificationJobModel) domain.Notificatio
 	return domain.NotificationJob{
 		ID:               model.ID,
 		UserID:           model.UserID,
-		AlertCandidateID: model.AlertCandidateID,
-		AlertRuleID:      model.AlertRuleID,
-		AIAnalysisJobID:  model.AIAnalysisJobID,
-		SourceID:         model.SourceID,
-		ItemID:           model.ItemID,
+		AlertCandidateID: int64ValueOrZero(model.AlertCandidateID),
+		AlertRuleID:      int64ValueOrZero(model.AlertRuleID),
+		AIAnalysisJobID:  int64ValueOrZero(model.AIAnalysisJobID),
+		SourceID:         int64ValueOrZero(model.SourceID),
+		ItemID:           int64ValueOrZero(model.ItemID),
 		Status:           domain.NotificationJobStatus(model.Status),
 		Channel:          domain.NotificationChannel(model.Channel),
 		PolicyDecision:   cloneAlertPolicyDecision(model.PolicyDecision),
@@ -362,6 +362,20 @@ func notificationJobModelToDomain(model notificationJobModel) domain.Notificatio
 		CreatedAt:        model.CreatedAt,
 		UpdatedAt:        model.UpdatedAt,
 	}
+}
+
+func int64PtrOrNil(value int64) *int64 {
+	if value <= 0 {
+		return nil
+	}
+	return &value
+}
+
+func int64ValueOrZero(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func notificationDeliveryModelFromDomain(delivery domain.NotificationDelivery) notificationDeliveryModel {

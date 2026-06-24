@@ -490,7 +490,7 @@ func (s *AgentConversationService) processTurn(
 	})
 	if err != nil {
 		opErr = err
-		return ReceiveWeChatWorkAppMessageResult{Turn: runResult.Turn}, err
+		return s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, err), nil
 	}
 	reply := runResult.Reply
 	observations := runResult.Context.Observations
@@ -558,6 +558,80 @@ func (s *AgentConversationService) processTurn(
 		Reply:           reply,
 		SendResult:      sendResult,
 	}, nil
+}
+
+func (s *AgentConversationService) sendTurnFailureFeedback(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	inbound domain.AgentInboundMessage,
+	session domain.AgentSession,
+	originalTurn domain.AgentTurn,
+	failedTurn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	cause error,
+) ReceiveWeChatWorkAppMessageResult {
+	if failedTurn.ID == 0 {
+		failedTurn = originalTurn
+	}
+	reply := agentTurnFailureFeedback(input.TextContent)
+	sendResult := notifier.WeChatWorkSendResult{}
+	sendCount := 0
+	sendStatus := "skipped"
+	if s.sender != nil {
+		var sendErr error
+		sendResult, sendCount, sendErr = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
+		if sendErr != nil {
+			sendStatus = "failed"
+		} else {
+			sendStatus = "succeeded"
+		}
+	}
+	now := s.now().UTC()
+	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
+		SessionID: session.ID,
+		TurnID:    failedTurn.ID,
+		UserID:    account.UserID,
+		Role:      domain.AgentTranscriptRoleAssistant,
+		Content:   reply,
+		Metadata: domain.AgentJSON{
+			"fallback":       true,
+			"failure_reason": truncateError(cause.Error(), 500),
+			"send_status":    sendStatus,
+		},
+		CreatedAt: now,
+	})
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: session.ID,
+		TurnID:    failedTurn.ID,
+		UserID:    account.UserID,
+		EventType: "agent.turn_failure_feedback",
+		Status:    sendStatus,
+		Message:   "agent turn failed and fallback feedback was generated",
+		Metadata: domain.AgentJSON{
+			"provider_message_id": input.ProviderMessageID,
+			"send_count":          sendCount,
+			"failure_reason":      truncateError(cause.Error(), 500),
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: now,
+	})
+	return ReceiveWeChatWorkAppMessageResult{
+		ExternalAccount: account,
+		InboundMessage:  inbound,
+		Session:         session,
+		Turn:            failedTurn,
+		Reply:           reply,
+		SendResult:      sendResult,
+	}
+}
+
+func agentTurnFailureFeedback(text string) string {
+	normalized := strings.TrimSpace(text)
+	if strings.Contains(normalized, "提醒") || strings.Contains(normalized, "定时") {
+		return "没有设置成功，后台创建提醒时出错。请稍后再试，或重新发送提醒时间和内容。"
+	}
+	return "这次处理没有成功，请稍后再试。"
 }
 
 func (s *AgentConversationService) sessionLock(sessionID int64) *sync.Mutex {

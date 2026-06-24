@@ -67,6 +67,27 @@ func TestNotificationJobModelRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNotificationJobModelUsesNullForOptionalForeignKeys(t *testing.T) {
+	job := domain.NotificationJob{
+		UserID:      1,
+		Status:      domain.NotificationJobStatusQueued,
+		Channel:     domain.NotificationChannelWeChatWork,
+		Payload:     domain.NotificationPayload{"content": "到点了"},
+		DedupeKey:   "agent_scheduled_message:test",
+		ScheduledAt: time.Date(2026, 6, 24, 14, 10, 0, 0, time.UTC),
+		MaxAttempts: 3,
+	}
+
+	model := notificationJobModelFromDomain(job)
+	if model.AlertCandidateID != nil || model.AlertRuleID != nil || model.AIAnalysisJobID != nil || model.SourceID != nil || model.ItemID != nil {
+		t.Fatalf("optional foreign keys should be nil: %#v", model)
+	}
+	converted := notificationJobModelToDomain(model)
+	if converted.AlertCandidateID != 0 || converted.AlertRuleID != 0 || converted.AIAnalysisJobID != 0 || converted.SourceID != 0 || converted.ItemID != 0 {
+		t.Fatalf("optional foreign keys should convert to zero: %#v", converted)
+	}
+}
+
 func TestNotificationDeliveryModelRoundTrip(t *testing.T) {
 	now := time.Date(2026, 6, 24, 12, 30, 0, 0, time.UTC)
 	responseStatus := 200
