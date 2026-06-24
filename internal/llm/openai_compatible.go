@@ -25,24 +25,42 @@ const openAICompatibleChatOperation = "chat_completions"
 const openAICompatibleExternalHTTPOperation = "llm_chat_completions"
 
 type ChatMessage struct {
-	Role    string
-	Content string
+	Role       string
+	Content    string
+	Name       string
+	ToolCallID string
+	ToolCalls  []ToolCall
 }
 
 type ChatRequest struct {
 	Messages    []ChatMessage
+	Tools       []ToolDefinition
+	ToolChoice  string
 	Temperature float64
 	MaxTokens   int
 }
 
 type ChatResponse struct {
-	Provider string
-	Model    string
-	Content  string
+	Provider  string
+	Model     string
+	Content   string
+	ToolCalls []ToolCall
 }
 
 type Client interface {
 	Chat(ctx context.Context, request ChatRequest) (ChatResponse, error)
+}
+
+type ToolDefinition struct {
+	Name        string
+	Description string
+	Parameters  map[string]any
+}
+
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments string
 }
 
 type OpenAICompatibleConfig struct {
@@ -64,13 +82,40 @@ type OpenAICompatibleClient struct {
 type chatCompletionRequest struct {
 	Model       string                  `json:"model"`
 	Messages    []chatCompletionMessage `json:"messages"`
+	Tools       []chatCompletionTool    `json:"tools,omitempty"`
+	ToolChoice  any                     `json:"tool_choice,omitempty"`
 	Temperature float64                 `json:"temperature,omitempty"`
 	MaxTokens   int                     `json:"max_tokens,omitempty"`
 }
 
 type chatCompletionMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string                   `json:"role"`
+	Content    string                   `json:"content,omitempty"`
+	Name       string                   `json:"name,omitempty"`
+	ToolCallID string                   `json:"tool_call_id,omitempty"`
+	ToolCalls  []chatCompletionToolCall `json:"tool_calls,omitempty"`
+}
+
+type chatCompletionTool struct {
+	Type     string                     `json:"type"`
+	Function chatCompletionToolFunction `json:"function"`
+}
+
+type chatCompletionToolFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+type chatCompletionToolCall struct {
+	ID       string                         `json:"id"`
+	Type     string                         `json:"type"`
+	Function chatCompletionToolCallFunction `json:"function"`
+}
+
+type chatCompletionToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 type chatCompletionResponse struct {
@@ -162,14 +207,33 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request ChatRequest) 
 	for _, message := range request.Messages {
 		role := strings.TrimSpace(message.Role)
 		content := strings.TrimSpace(message.Content)
-		if role == "" || content == "" {
+		name := strings.TrimSpace(message.Name)
+		toolCallID := strings.TrimSpace(message.ToolCallID)
+		toolCalls := chatCompletionToolCallsFromDomain(message.ToolCalls)
+		if role == "" {
 			continue
 		}
-		payload.Messages = append(payload.Messages, chatCompletionMessage{Role: role, Content: content})
+		if content == "" && len(toolCalls) == 0 {
+			continue
+		}
+		if role == "tool" {
+			name = ""
+		}
+		payload.Messages = append(payload.Messages, chatCompletionMessage{
+			Role:       role,
+			Content:    content,
+			Name:       name,
+			ToolCallID: toolCallID,
+			ToolCalls:  toolCalls,
+		})
 	}
 	if len(payload.Messages) == 0 {
 		chatErr = domain.NewAppError(domain.ErrorKindInvalidInput, "llm_empty_messages", "llm messages must not be empty", "llm.openai_compatible.chat", false, nil)
 		return ChatResponse{}, chatErr
+	}
+	payload.Tools = chatCompletionToolsFromDomain(request.Tools)
+	if strings.TrimSpace(request.ToolChoice) != "" {
+		payload.ToolChoice = strings.TrimSpace(request.ToolChoice)
 	}
 
 	body, err := json.Marshal(payload)
@@ -216,7 +280,13 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request ChatRequest) 
 		chatErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_provider_error", message, "llm.openai_compatible.chat", true, nil)
 		return ChatResponse{}, chatErr
 	}
-	if len(decoded.Choices) == 0 || strings.TrimSpace(decoded.Choices[0].Message.Content) == "" {
+	if len(decoded.Choices) == 0 {
+		chatErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "llm.openai_compatible.chat", true, nil)
+		return ChatResponse{}, chatErr
+	}
+	content := strings.TrimSpace(decoded.Choices[0].Message.Content)
+	toolCalls := domainToolCallsFromChatCompletion(decoded.Choices[0].Message.ToolCalls)
+	if content == "" && len(toolCalls) == 0 {
 		chatErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "llm.openai_compatible.chat", true, nil)
 		return ChatResponse{}, chatErr
 	}
@@ -234,10 +304,78 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request ChatRequest) 
 		)
 	}
 	return ChatResponse{
-		Provider: c.provider,
-		Model:    c.model,
-		Content:  strings.TrimSpace(decoded.Choices[0].Message.Content),
+		Provider:  c.provider,
+		Model:     c.model,
+		Content:   content,
+		ToolCalls: toolCalls,
 	}, nil
+}
+
+func chatCompletionToolsFromDomain(tools []ToolDefinition) []chatCompletionTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	output := make([]chatCompletionTool, 0, len(tools))
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			continue
+		}
+		parameters := tool.Parameters
+		if parameters == nil {
+			parameters = map[string]any{"type": "object", "properties": map[string]any{}}
+		}
+		output = append(output, chatCompletionTool{
+			Type: "function",
+			Function: chatCompletionToolFunction{
+				Name:        name,
+				Description: strings.TrimSpace(tool.Description),
+				Parameters:  parameters,
+			},
+		})
+	}
+	return output
+}
+
+func chatCompletionToolCallsFromDomain(calls []ToolCall) []chatCompletionToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	output := make([]chatCompletionToolCall, 0, len(calls))
+	for _, call := range calls {
+		name := strings.TrimSpace(call.Name)
+		if name == "" {
+			continue
+		}
+		output = append(output, chatCompletionToolCall{
+			ID:   strings.TrimSpace(call.ID),
+			Type: "function",
+			Function: chatCompletionToolCallFunction{
+				Name:      name,
+				Arguments: strings.TrimSpace(call.Arguments),
+			},
+		})
+	}
+	return output
+}
+
+func domainToolCallsFromChatCompletion(calls []chatCompletionToolCall) []ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	output := make([]ToolCall, 0, len(calls))
+	for _, call := range calls {
+		name := strings.TrimSpace(call.Function.Name)
+		if name == "" {
+			continue
+		}
+		output = append(output, ToolCall{
+			ID:        strings.TrimSpace(call.ID),
+			Name:      name,
+			Arguments: strings.TrimSpace(call.Function.Arguments),
+		})
+	}
+	return output
 }
 
 func recordLLMExternalHTTPRequest(operation string, host string, status string, duration time.Duration) {

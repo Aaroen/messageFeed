@@ -364,6 +364,119 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextWithoutPublishi
 	}
 }
 
+func TestAgentConversationServiceInjectsRecentConversationWindowWithoutCurrentTurn(t *testing.T) {
+	now := time.Date(2026, 6, 24, 19, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 100, UserID: 1, Provider: domain.AgentProviderWeChatWorkApp, ChannelSessionKey: "corp-a:1000002:zhangsan"}
+	repository.transcripts = []domain.AgentTranscriptEntry{
+		{ID: 11, SessionID: 100, TurnID: 1, UserID: 1, Role: domain.AgentTranscriptRoleUser, Content: "我想关注 Go 官方博客", CreatedAt: now.Add(-2 * time.Minute)},
+		{ID: 12, SessionID: 100, TurnID: 1, UserID: 1, Role: domain.AgentTranscriptRoleAssistant, Content: "已理解。", CreatedAt: now.Add(-time.Minute)},
+	}
+	repository.nextID = 101
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		response: llm.ChatResponse{Provider: "openai_compatible", Model: "custom-model", Content: "Go 官方博客最近有工具链更新。"},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	_, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-recent-window",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "刚才 Go 官方博客 最近有什么",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	messages := llmClient.lastRequest.Messages
+	if len(messages) != 4 {
+		t.Fatalf("llm message count = %d, want 4: %#v", len(messages), messages)
+	}
+	if messages[1].Role != "user" || messages[1].Content != "我想关注 Go 官方博客" {
+		t.Fatalf("recent user message = %#v", messages[1])
+	}
+	if messages[2].Role != "assistant" || messages[2].Content != "已理解。" {
+		t.Fatalf("recent assistant message = %#v", messages[2])
+	}
+	if messages[3].Role != "user" || messages[3].Content != "刚才 Go 官方博客 最近有什么" {
+		t.Fatalf("current message = %#v", messages[3])
+	}
+	if len(repository.recalls) != 0 {
+		t.Fatalf("recall count = %d, want 0", len(repository.recalls))
+	}
+}
+
+func TestAgentConversationServiceExecutesConversationHistoryToolCall(t *testing.T) {
+	now := time.Date(2026, 6, 24, 20, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 200, UserID: 1, Provider: domain.AgentProviderWeChatWorkApp, ChannelSessionKey: "corp-a:1000002:zhangsan"}
+	repository.transcripts = []domain.AgentTranscriptEntry{
+		{ID: 21, SessionID: 200, TurnID: 1, UserID: 1, Role: domain.AgentTranscriptRoleUser, Content: "我的偏好是关注 Go 和 AI 基础设施。", CreatedAt: now.Add(-24 * time.Hour)},
+	}
+	repository.nextID = 201
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "conversation__query_history", Arguments: `{"keyword":"偏好","limit":3}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "你之前说过偏好关注 Go 和 AI 基础设施。"},
+		},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-tool-history",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "查一下我的偏好",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Reply != "你之前说过偏好关注 Go 和 AI 基础设施。" {
+		t.Fatalf("Reply = %q", result.Reply)
+	}
+	if llmClient.calls != 2 {
+		t.Fatalf("llm calls = %d, want 2", llmClient.calls)
+	}
+	if len(llmClient.lastRequest.Messages) < 3 {
+		t.Fatalf("final llm messages = %#v", llmClient.lastRequest.Messages)
+	}
+	toolMessage := llmClient.lastRequest.Messages[len(llmClient.lastRequest.Messages)-1]
+	if toolMessage.Role != "tool" || !strings.Contains(toolMessage.Content, "我的偏好是关注 Go 和 AI 基础设施") {
+		t.Fatalf("tool message = %#v", toolMessage)
+	}
+	if len(repository.recalls) != 1 {
+		t.Fatalf("recall count = %d, want 1", len(repository.recalls))
+	}
+	if repository.recalls[0].Reason != "model_tool_call" {
+		t.Fatalf("recall reason = %q", repository.recalls[0].Reason)
+	}
+}
+
 type fakeAgentConversationRepository struct {
 	nextID         int64
 	forceDuplicate bool
@@ -372,6 +485,7 @@ type fakeAgentConversationRepository struct {
 	session        domain.AgentSession
 	turns          []domain.AgentTurn
 	transcripts    []domain.AgentTranscriptEntry
+	recalls        []domain.AgentRecallEvent
 	audits         []domain.AgentAuditLog
 }
 
@@ -436,10 +550,72 @@ func (r *fakeAgentConversationRepository) AppendTranscriptEntry(_ context.Contex
 	return entry, nil
 }
 
+func (r *fakeAgentConversationRepository) ListRecentTranscriptEntries(_ context.Context, options domain.AgentTranscriptListOptions) ([]domain.AgentTranscriptEntry, error) {
+	entries := make([]domain.AgentTranscriptEntry, 0, len(r.transcripts))
+	for _, entry := range r.transcripts {
+		if entry.SessionID != options.SessionID || entry.UserID != options.UserID {
+			continue
+		}
+		if options.BeforeTurnID > 0 && entry.TurnID >= options.BeforeTurnID {
+			continue
+		}
+		if len(options.Roles) > 0 && !fakeTranscriptRoleAllowed(entry.Role, options.Roles) {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	if options.Limit > 0 && len(entries) > options.Limit {
+		entries = entries[len(entries)-options.Limit:]
+	}
+	return entries, nil
+}
+
+func (r *fakeAgentConversationRepository) QueryTranscriptEntries(_ context.Context, options domain.AgentTranscriptQueryOptions) ([]domain.AgentTranscriptEntry, error) {
+	entries := make([]domain.AgentTranscriptEntry, 0, len(r.transcripts))
+	keyword := strings.ToLower(strings.TrimSpace(options.Keyword))
+	for _, entry := range r.transcripts {
+		if entry.SessionID != options.SessionID || entry.UserID != options.UserID {
+			continue
+		}
+		if options.BeforeTurnID > 0 && entry.TurnID >= options.BeforeTurnID {
+			continue
+		}
+		if options.BeforeEntryID > 0 && entry.ID >= options.BeforeEntryID {
+			continue
+		}
+		if len(options.Roles) > 0 && !fakeTranscriptRoleAllowed(entry.Role, options.Roles) {
+			continue
+		}
+		if keyword != "" && !strings.Contains(strings.ToLower(entry.Content), keyword) {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	if options.Limit > 0 && len(entries) > options.Limit {
+		entries = entries[len(entries)-options.Limit:]
+	}
+	return entries, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateRecallEvent(_ context.Context, event domain.AgentRecallEvent) (domain.AgentRecallEvent, error) {
+	event.ID = r.id()
+	r.recalls = append(r.recalls, event)
+	return event, nil
+}
+
 func (r *fakeAgentConversationRepository) CreateAuditLog(_ context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error) {
 	log.ID = r.id()
 	r.audits = append(r.audits, log)
 	return log, nil
+}
+
+func fakeTranscriptRoleAllowed(role domain.AgentTranscriptRole, roles []domain.AgentTranscriptRole) bool {
+	for _, allowed := range roles {
+		if role == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeAgentExternalAccountResolver struct {
@@ -494,6 +670,7 @@ type fakeAgentConversationLLM struct {
 	calls       int
 	lastRequest llm.ChatRequest
 	response    llm.ChatResponse
+	responses   []llm.ChatResponse
 	err         error
 	started     chan struct{}
 	release     chan struct{}
@@ -511,6 +688,13 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 	}
 	if f.err != nil {
 		return llm.ChatResponse{}, f.err
+	}
+	if len(f.responses) > 0 {
+		index := f.calls - 1
+		if index >= len(f.responses) {
+			index = len(f.responses) - 1
+		}
+		return f.responses[index], nil
 	}
 	return f.response, nil
 }

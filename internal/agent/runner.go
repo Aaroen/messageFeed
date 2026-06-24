@@ -25,6 +25,10 @@ type AuditLogger interface {
 	Record(ctx context.Context, event AuditEvent) error
 }
 
+type ToolExecutor interface {
+	ExecuteTool(ctx context.Context, input ToolExecuteInput) (ToolExecuteResult, error)
+}
+
 type ContextBuilder interface {
 	Build(ctx context.Context, input ContextBuildInput) (ContextSnapshot, error)
 }
@@ -40,8 +44,10 @@ type ContextBuildInput struct {
 }
 
 type ContextSnapshot struct {
-	Blocks       []ContextBlock
-	Observations []CapabilityObservation
+	Blocks          []ContextBlock
+	Messages        []ContextMessage
+	Observations    []CapabilityObservation
+	HistoryNeedHint HistoryNeedHint
 }
 
 type ContextBlock struct {
@@ -52,6 +58,14 @@ type ContextBlock struct {
 	Truncated     bool
 	GeneratedAt   time.Time
 	TrustLevel    string
+}
+
+type ContextMessage struct {
+	Role              domain.AgentTranscriptRole
+	Content           string
+	TranscriptEntryID int64
+	TurnID            int64
+	CreatedAt         time.Time
 }
 
 type CapabilityObservation struct {
@@ -74,21 +88,44 @@ type AuditEvent struct {
 	CreatedAt time.Time
 }
 
+type ToolExecuteInput struct {
+	Capability   Capability
+	UserID       int64
+	SessionID    int64
+	TurnID       int64
+	Message      string
+	ToolCallID   string
+	RawArguments string
+	RequestID    string
+	TraceID      string
+}
+
+type ToolExecuteResult struct {
+	Content     string
+	Observation CapabilityObservation
+}
+
 type TurnRunner struct {
 	store          TurnStore
 	auditLogger    AuditLogger
 	contextBuilder ContextBuilder
+	toolExecutor   ToolExecutor
+	toolRegistry   *CapabilityRegistry
 	llmClient      ChatClient
 	now            func() time.Time
 	systemPrompt   string
 	maxTokens      int
 	temperature    float64
+	toolKeys       []string
 }
 
 type TurnRunnerOptions struct {
 	Store          TurnStore
 	AuditLogger    AuditLogger
 	ContextBuilder ContextBuilder
+	ToolExecutor   ToolExecutor
+	ToolRegistry   *CapabilityRegistry
+	ToolKeys       []string
 	LLMClient      ChatClient
 	Now            func() time.Time
 	SystemPrompt   string
@@ -105,15 +142,22 @@ func NewTurnRunner(options TurnRunnerOptions) *TurnRunner {
 	if temperature == 0 {
 		temperature = 0.2
 	}
+	registry := options.ToolRegistry
+	if registry == nil {
+		registry = NewP0CapabilityRegistry()
+	}
 	return &TurnRunner{
 		store:          options.Store,
 		auditLogger:    options.AuditLogger,
 		contextBuilder: options.ContextBuilder,
+		toolExecutor:   options.ToolExecutor,
+		toolRegistry:   registry,
 		llmClient:      options.LLMClient,
 		now:            now,
 		systemPrompt:   strings.TrimSpace(options.SystemPrompt),
 		maxTokens:      options.MaxTokens,
 		temperature:    temperature,
+		toolKeys:       append([]string(nil), options.ToolKeys...),
 	}
 }
 
@@ -237,18 +281,134 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 	}
 
 	systemPrompt := r.buildSystemPrompt(snapshot)
-	response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
-		Messages: []llm.ChatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: input.MessageText},
-		},
-		Temperature: r.temperature,
-		MaxTokens:   r.maxTokens,
-	})
+	messages := r.buildChatMessages(systemPrompt, snapshot, input.MessageText)
+	response, snapshot, err := r.chatWithTools(ctx, input, snapshot, messages)
 	if err != nil {
 		return "", "", "", snapshot, err
 	}
 	return response.Content, response.Provider, response.Model, snapshot, nil
+}
+
+func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, error) {
+	tools := r.buildToolDefinitions()
+	const maxToolRounds = 2
+	for round := 0; round <= maxToolRounds; round++ {
+		response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
+			Messages:    messages,
+			Tools:       tools,
+			ToolChoice:  toolChoiceForDefinitions(tools),
+			Temperature: r.temperature,
+			MaxTokens:   r.maxTokens,
+		})
+		if err != nil {
+			return llm.ChatResponse{}, snapshot, err
+		}
+		if len(response.ToolCalls) == 0 {
+			return response, snapshot, nil
+		}
+		if r.toolExecutor == nil {
+			if strings.TrimSpace(response.Content) != "" {
+				return response, snapshot, nil
+			}
+			return llm.ChatResponse{}, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_executor_unavailable", "agent tool executor is unavailable", "agent.turn_runner.tools", true, nil)
+		}
+
+		messages = append(messages, llm.ChatMessage{
+			Role:      "assistant",
+			Content:   response.Content,
+			ToolCalls: response.ToolCalls,
+		})
+		for _, call := range response.ToolCalls {
+			result, err := r.executeToolCall(ctx, input, call)
+			if err != nil {
+				return llm.ChatResponse{}, snapshot, err
+			}
+			observation := result.Observation
+			if observation.Capability == "" {
+				observation.Capability = capabilityKeyForToolName(call.Name)
+			}
+			if observation.Decision == "" {
+				observation.Decision = string(PolicyDecisionAllow)
+			}
+			if observation.Status == "" {
+				observation.Status = "succeeded"
+			}
+			snapshot.Observations = append(snapshot.Observations, observation)
+			content := strings.TrimSpace(result.Content)
+			if content == "" {
+				content = "工具没有返回内容。"
+			}
+			messages = append(messages, llm.ChatMessage{
+				Role:       "tool",
+				ToolCallID: call.ID,
+				Name:       call.Name,
+				Content:    content,
+			})
+		}
+	}
+	return llm.ChatResponse{}, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_round_limit", "agent tool call round limit exceeded", "agent.turn_runner.tools", true, nil)
+}
+
+func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, call llm.ToolCall) (ToolExecuteResult, error) {
+	key := capabilityKeyForToolName(call.Name)
+	capability, ok := r.toolRegistry.Get(key)
+	if !ok {
+		return ToolExecuteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_unknown_tool", "agent tool is not registered", "agent.turn_runner.tools", false, nil)
+	}
+	if capability.Mutates || capability.Risk == CapabilityRiskHigh {
+		return ToolExecuteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_tool_not_allowed", "agent tool is not allowed in current policy", "agent.turn_runner.tools", false, nil)
+	}
+	return r.toolExecutor.ExecuteTool(ctx, ToolExecuteInput{
+		Capability:   capability,
+		UserID:       input.UserID,
+		SessionID:    input.Session.ID,
+		TurnID:       input.Turn.ID,
+		Message:      input.MessageText,
+		ToolCallID:   call.ID,
+		RawArguments: call.Arguments,
+		RequestID:    input.RequestID,
+		TraceID:      input.TraceID,
+	})
+}
+
+func (r *TurnRunner) buildToolDefinitions() []llm.ToolDefinition {
+	if r == nil || r.toolRegistry == nil || r.toolExecutor == nil {
+		return nil
+	}
+	keys := append([]string(nil), r.toolKeys...)
+	if len(keys) == 0 {
+		keys = []string{"conversation.query_history"}
+	}
+	definitions := make([]llm.ToolDefinition, 0, len(keys))
+	for _, key := range keys {
+		capability, ok := r.toolRegistry.Get(key)
+		if !ok || capability.Mutates || capability.Risk == CapabilityRiskHigh {
+			continue
+		}
+		definitions = append(definitions, llm.ToolDefinition{
+			Name:        toolNameForCapabilityKey(capability.Key),
+			Description: capability.Description,
+			Parameters:  capability.Parameters,
+		})
+	}
+	return definitions
+}
+
+func (r *TurnRunner) buildChatMessages(systemPrompt string, snapshot ContextSnapshot, currentMessage string) []llm.ChatMessage {
+	messages := []llm.ChatMessage{{Role: "system", Content: systemPrompt}}
+	for _, message := range snapshot.Messages {
+		role := strings.TrimSpace(string(message.Role))
+		content := strings.TrimSpace(message.Content)
+		if content == "" {
+			continue
+		}
+		if role != string(domain.AgentTranscriptRoleUser) && role != string(domain.AgentTranscriptRoleAssistant) {
+			continue
+		}
+		messages = append(messages, llm.ChatMessage{Role: role, Content: content})
+	}
+	messages = append(messages, llm.ChatMessage{Role: "user", Content: strings.TrimSpace(currentMessage)})
+	return messages
 }
 
 func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot) string {
@@ -268,11 +428,40 @@ func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot) string {
 		builder.WriteString("：\n")
 		builder.WriteString(content)
 	}
+	if snapshot.HistoryNeedHint != "" {
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString("历史查询策略：\n")
+		builder.WriteString(historyNeedPrompt(snapshot.HistoryNeedHint))
+	}
 	if builder.Len() > 0 {
 		builder.WriteString("\n\n")
 	}
 	builder.WriteString("能力边界：P0 仅允许只读查询、文本总结、写入 transcript 和审计。新增订阅、停用来源、通知配置、画像写入、金融告警或其他状态变更必须拒绝直接执行，并说明需要后续确认流程。")
+	if r.toolExecutor != nil {
+		builder.WriteString("\n可用工具：如需查询更早企微聊天原文，只能调用 conversation.query_history；若最近聊天窗口已有明确证据，不要调用历史查询工具。")
+	}
 	return builder.String()
+}
+
+func toolChoiceForDefinitions(tools []llm.ToolDefinition) string {
+	if len(tools) == 0 {
+		return ""
+	}
+	return "auto"
+}
+
+func toolNameForCapabilityKey(key string) string {
+	return strings.ReplaceAll(strings.TrimSpace(key), ".", "__")
+}
+
+func capabilityKeyForToolName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if strings.Contains(trimmed, ".") {
+		return trimmed
+	}
+	return strings.ReplaceAll(trimmed, "__", ".")
 }
 
 func (r *TurnRunner) failTurn(ctx context.Context, input TurnRunInput, cause error) domain.AgentTurn {

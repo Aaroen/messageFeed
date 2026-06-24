@@ -36,6 +36,7 @@ type Capability struct {
 	Mode        CapabilityMode
 	Risk        CapabilityRisk
 	Mutates     bool
+	Parameters  map[string]any
 }
 
 type CapabilityRegistry struct {
@@ -57,6 +58,37 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description: "按来源名称或来源 ID 读取最新条目。",
 		Mode:        CapabilityModeCore,
 		Risk:        CapabilityRiskLow,
+	})
+	registry.Register(Capability{
+		Key:         "conversation.query_history",
+		Name:        "查询历史聊天",
+		Description: "按关键词、时间和角色读取当前用户企微长期会话的历史聊天原文。",
+		Mode:        CapabilityModeCore,
+		Risk:        CapabilityRiskLow,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"keyword": map[string]any{
+					"type":        "string",
+					"description": "用于匹配历史聊天原文的关键词。若用户在询问整体偏好或过往决定，可使用偏好、关注、决定等词。",
+				},
+				"role": map[string]any{
+					"type":        "string",
+					"description": "可选角色过滤，允许 user 或 assistant。",
+					"enum":        []string{"user", "assistant"},
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "返回历史原文条数，默认 8，最大 20。",
+					"minimum":     1,
+					"maximum":     20,
+				},
+				"before_entry_id": map[string]any{
+					"type":        "integer",
+					"description": "只查询该 transcript entry 之前的历史。",
+				},
+			},
+		},
 	})
 	registry.Register(Capability{
 		Key:         "content.summarize_text",

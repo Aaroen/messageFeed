@@ -3,12 +3,36 @@ package agent
 import (
 	"context"
 	"fmt"
+	"messagefeed/internal/domain"
 	"strings"
 	"time"
 )
 
+const (
+	conversationRecentLimit = 12
+)
+
+type HistoryNeedHint string
+
+const (
+	HistoryNeedNone     HistoryNeedHint = "none"
+	HistoryNeedPossible HistoryNeedHint = "possible"
+	HistoryNeedRequired HistoryNeedHint = "required"
+)
+
 type UserContextProvider interface {
 	BuildUserContextBlock(ctx context.Context, userID int64) (ContextBlock, error)
+}
+
+type ConversationMemoryProvider interface {
+	BuildConversationMemory(ctx context.Context, input ContextBuildInput) (ConversationMemory, error)
+}
+
+type ConversationMemory struct {
+	Messages        []ContextMessage
+	HistoryNeedHint HistoryNeedHint
+	HistoryQueried  bool
+	HistoryResults  []ContextMessage
 }
 
 type CapabilityExecutor interface {
@@ -32,6 +56,7 @@ type DefaultContextBuilder struct {
 	registry            *CapabilityRegistry
 	policy              *PolicyEngine
 	userContextProvider UserContextProvider
+	conversationMemory  ConversationMemoryProvider
 	executor            CapabilityExecutor
 	capabilityKeys      []string
 	now                 func() time.Time
@@ -41,6 +66,7 @@ type DefaultContextBuilderOptions struct {
 	Registry            *CapabilityRegistry
 	Policy              *PolicyEngine
 	UserContextProvider UserContextProvider
+	ConversationMemory  ConversationMemoryProvider
 	Executor            CapabilityExecutor
 	CapabilityKeys      []string
 	Now                 func() time.Time
@@ -67,6 +93,7 @@ func NewDefaultContextBuilder(options DefaultContextBuilderOptions) *DefaultCont
 		registry:            registry,
 		policy:              policy,
 		userContextProvider: options.UserContextProvider,
+		conversationMemory:  options.ConversationMemory,
 		executor:            options.Executor,
 		capabilityKeys:      capabilityKeys,
 		now:                 now,
@@ -74,12 +101,13 @@ func NewDefaultContextBuilder(options DefaultContextBuilderOptions) *DefaultCont
 }
 
 func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInput) (ContextSnapshot, error) {
+	if b == nil {
+		return ContextSnapshot{}, nil
+	}
 	snapshot := ContextSnapshot{
 		Blocks:       make([]ContextBlock, 0, len(b.capabilityKeys)+2),
+		Messages:     []ContextMessage{},
 		Observations: make([]CapabilityObservation, 0, len(b.capabilityKeys)+1),
-	}
-	if b == nil {
-		return snapshot, nil
 	}
 
 	if b.userContextProvider != nil {
@@ -100,6 +128,45 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 				Decision:   string(PolicyDecisionAllow),
 				Status:     "succeeded",
 				Summary:    "loaded user context",
+			})
+		}
+	}
+
+	if b.conversationMemory != nil {
+		memory, err := b.conversationMemory.BuildConversationMemory(ctx, input)
+		if err != nil {
+			return snapshot, err
+		}
+		snapshot.Messages = append(snapshot.Messages, memory.Messages...)
+		snapshot.HistoryNeedHint = memory.HistoryNeedHint
+		snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
+			Capability: "conversation.query_recent",
+			Decision:   string(PolicyDecisionAllow),
+			Status:     "succeeded",
+			Summary:    fmt.Sprintf("loaded %d recent conversation messages", len(memory.Messages)),
+		})
+		if memory.HistoryQueried {
+			status := "succeeded"
+			summary := fmt.Sprintf("loaded %d history messages", len(memory.HistoryResults))
+			content := FormatContextMessages(memory.HistoryResults)
+			if strings.TrimSpace(content) == "" {
+				status = "empty"
+				summary = "no matching history messages"
+				content = "没有查到明确历史聊天记录。"
+			}
+			snapshot.Blocks = append(snapshot.Blocks, ContextBlock{
+				Name:          "历史聊天查询结果",
+				CapabilityKey: "conversation.query_history",
+				Content:       content,
+				ItemCount:     len(memory.HistoryResults),
+				GeneratedAt:   b.now().UTC(),
+				TrustLevel:    "transcript",
+			})
+			snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
+				Capability: "conversation.query_history",
+				Decision:   string(PolicyDecisionAllow),
+				Status:     status,
+				Summary:    summary,
 			})
 		}
 	}
@@ -178,6 +245,149 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 		TrustLevel:    "system",
 	})
 	return snapshot, nil
+}
+
+func ClassifyHistoryNeed(text string) HistoryNeedHint {
+	normalized := strings.TrimSpace(text)
+	if normalized == "" {
+		return HistoryNeedNone
+	}
+	requiredTerms := []string{"之前", "以前", "上次", "上回", "我说过", "你说过", "还记得", "记得我", "历史记录"}
+	for _, term := range requiredTerms {
+		if strings.Contains(normalized, term) {
+			return HistoryNeedRequired
+		}
+	}
+	possibleTerms := []string{"继续", "刚才", "刚刚", "那个", "前面", "前文", "刚提到", "按之前", "接着"}
+	for _, term := range possibleTerms {
+		if strings.Contains(normalized, term) {
+			return HistoryNeedPossible
+		}
+	}
+	return HistoryNeedNone
+}
+
+func ShouldQueryConversationHistory(hint HistoryNeedHint, message string, recent []ContextMessage) bool {
+	switch hint {
+	case HistoryNeedRequired:
+		return !recentWindowHasEvidence(message, recent, true)
+	case HistoryNeedPossible:
+		return !recentWindowHasEvidence(message, recent, false)
+	default:
+		return false
+	}
+}
+
+func recentWindowHasEvidence(message string, recent []ContextMessage, requireKeyword bool) bool {
+	if len(recent) == 0 {
+		return false
+	}
+	keywords := historySearchKeywords(message)
+	if len(keywords) == 0 {
+		return !requireKeyword
+	}
+	for _, recentMessage := range recent {
+		content := strings.ToLower(recentMessage.Content)
+		for _, keyword := range keywords {
+			if strings.Contains(content, strings.ToLower(keyword)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func HistorySearchKeyword(message string) string {
+	keywords := historySearchKeywords(message)
+	if len(keywords) == 0 {
+		return ""
+	}
+	return keywords[0]
+}
+
+func historySearchKeywords(message string) []string {
+	replacer := strings.NewReplacer(
+		"之前", " ", "以前", " ", "上次", " ", "上回", " ", "我说过", " ", "你说过", " ", "还记得", " ", "记得我", " ",
+		"继续", " ", "刚才", " ", "刚刚", " ", "那个", " ", "前面", " ", "前文", " ", "刚提到", " ", "按之前", " ", "接着", " ",
+		"什么", " ", "哪些", " ", "哪个", " ", "怎么", " ", "吗", " ", "呢", " ", "的", " ", "了", " ",
+	)
+	cleaned := replacer.Replace(strings.TrimSpace(message))
+	fields := strings.FieldsFunc(cleaned, func(r rune) bool {
+		switch {
+		case r >= '0' && r <= '9':
+			return false
+		case r >= 'a' && r <= 'z':
+			return false
+		case r >= 'A' && r <= 'Z':
+			return false
+		case r >= '\u4e00' && r <= '\u9fff':
+			return false
+		default:
+			return true
+		}
+	})
+	keywords := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if len([]rune(field)) < 2 {
+			continue
+		}
+		keywords = append(keywords, field)
+	}
+	return keywords
+}
+
+func FormatContextMessages(messages []ContextMessage) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	for i, message := range messages {
+		content := strings.TrimSpace(message.Content)
+		if content == "" {
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString(formatContextMessageTime(message.CreatedAt))
+		builder.WriteString(" ")
+		builder.WriteString(formatContextMessageRole(message.Role))
+		builder.WriteString("：")
+		builder.WriteString(content)
+		if i >= conversationRecentLimit-1 {
+			break
+		}
+	}
+	return builder.String()
+}
+
+func formatContextMessageRole(role domain.AgentTranscriptRole) string {
+	if role == domain.AgentTranscriptRoleAssistant {
+		return "Agent"
+	}
+	if role == domain.AgentTranscriptRoleUser {
+		return "用户"
+	}
+	return string(role)
+}
+
+func formatContextMessageTime(value time.Time) string {
+	if value.IsZero() {
+		return "时间未知"
+	}
+	return value.UTC().Format("2006-01-02 15:04")
+}
+
+func historyNeedPrompt(hint HistoryNeedHint) string {
+	switch hint {
+	case HistoryNeedRequired:
+		return "用户明确要求回忆较早聊天。若最近聊天窗口和历史聊天查询结果均无明确原文证据，必须说明没有查到明确记录，不得凭印象编造。"
+	case HistoryNeedPossible:
+		return "用户可能在指代最近上下文。优先使用最近聊天窗口；若证据不足，才依据历史聊天查询结果回答。"
+	default:
+		return "通常不需要查询历史聊天。若回答依赖更早对话且当前上下文没有证据，必须说明需要查询历史，不能编造。"
+	}
 }
 
 func (b *DefaultContextBuilder) capabilityBoundaryText() string {

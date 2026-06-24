@@ -170,6 +170,94 @@ type AgentTranscriptEntry struct {
 	CreatedAt time.Time
 }
 
+type AgentTranscriptArchiveStatus string
+
+const (
+	AgentTranscriptArchiveStatusHot  AgentTranscriptArchiveStatus = "hot"
+	AgentTranscriptArchiveStatusWarm AgentTranscriptArchiveStatus = "warm"
+	AgentTranscriptArchiveStatusCold AgentTranscriptArchiveStatus = "cold"
+)
+
+func (s AgentTranscriptArchiveStatus) Valid() bool {
+	switch s {
+	case AgentTranscriptArchiveStatusHot, AgentTranscriptArchiveStatusWarm, AgentTranscriptArchiveStatusCold:
+		return true
+	default:
+		return false
+	}
+}
+
+type AgentMemoryKind string
+
+const (
+	AgentMemoryKindPreference AgentMemoryKind = "preference"
+	AgentMemoryKindTask       AgentMemoryKind = "task"
+	AgentMemoryKindFact       AgentMemoryKind = "fact"
+	AgentMemoryKindDecision   AgentMemoryKind = "decision"
+	AgentMemoryKindCasual     AgentMemoryKind = "casual"
+	AgentMemoryKindUnknown    AgentMemoryKind = "unknown"
+)
+
+func (k AgentMemoryKind) Valid() bool {
+	switch k {
+	case AgentMemoryKindPreference, AgentMemoryKindTask, AgentMemoryKindFact, AgentMemoryKindDecision, AgentMemoryKindCasual, AgentMemoryKindUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+type AgentTranscriptArchiveIndex struct {
+	ID                int64
+	TranscriptEntryID int64
+	SessionID         int64
+	UserID            int64
+	ArchiveStatus     AgentTranscriptArchiveStatus
+	MemoryKind        AgentMemoryKind
+	Importance        int
+	Keywords          []string
+	LastAccessedAt    *time.Time
+	AccessCount       int
+	Metadata          AgentJSON
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type AgentRecallEvent struct {
+	ID           int64
+	SessionID    int64
+	TurnID       int64
+	UserID       int64
+	Query        string
+	QueryParams  AgentJSON
+	RecalledRefs AgentJSON
+	Reason       string
+	BudgetChars  int
+	CreatedAt    time.Time
+}
+
+type AgentTranscriptListOptions struct {
+	SessionID    int64
+	UserID       int64
+	BeforeTurnID int64
+	Roles        []AgentTranscriptRole
+	Limit        int
+}
+
+type AgentTranscriptQueryOptions struct {
+	SessionID     int64
+	UserID        int64
+	Keyword       string
+	Roles         []AgentTranscriptRole
+	ArchiveStatus AgentTranscriptArchiveStatus
+	MemoryKind    AgentMemoryKind
+	BeforeEntryID int64
+	BeforeTurnID  int64
+	After         *time.Time
+	Before        *time.Time
+	Limit         int
+}
+
 type AgentAuditLog struct {
 	ID        int64
 	SessionID int64

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
@@ -41,7 +42,82 @@ func (p agentUserContextBlockProvider) BuildUserContextBlock(ctx context.Context
 	}, nil
 }
 
+type agentConversationMemoryProvider struct {
+	repository AgentConversationRepository
+	now        func() time.Time
+}
+
+func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Context, input agent.ContextBuildInput) (agent.ConversationMemory, error) {
+	hint := agent.ClassifyHistoryNeed(input.MessageText)
+	memory := agent.ConversationMemory{HistoryNeedHint: hint}
+	if p.repository == nil || input.UserID == 0 || input.SessionID == 0 {
+		return memory, nil
+	}
+
+	recent, err := p.repository.ListRecentTranscriptEntries(ctx, domain.AgentTranscriptListOptions{
+		SessionID:    input.SessionID,
+		UserID:       input.UserID,
+		BeforeTurnID: input.TurnID,
+		Roles: []domain.AgentTranscriptRole{
+			domain.AgentTranscriptRoleUser,
+			domain.AgentTranscriptRoleAssistant,
+		},
+		Limit: 12,
+	})
+	if err != nil {
+		return memory, err
+	}
+	memory.Messages = transcriptEntriesToContextMessages(recent)
+	if !agent.ShouldQueryConversationHistory(hint, input.MessageText, memory.Messages) {
+		return memory, nil
+	}
+
+	keyword := agent.HistorySearchKeyword(input.MessageText)
+	beforeEntryID := earliestTranscriptEntryID(recent)
+	results, err := p.repository.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{
+		SessionID:     input.SessionID,
+		UserID:        input.UserID,
+		Keyword:       keyword,
+		Roles:         []domain.AgentTranscriptRole{domain.AgentTranscriptRoleUser, domain.AgentTranscriptRoleAssistant},
+		BeforeEntryID: beforeEntryID,
+		BeforeTurnID:  input.TurnID,
+		Limit:         8,
+	})
+	if err != nil {
+		return memory, err
+	}
+	memory.HistoryQueried = true
+	memory.HistoryResults = transcriptEntriesToContextMessages(results)
+
+	_, err = p.repository.CreateRecallEvent(ctx, domain.AgentRecallEvent{
+		SessionID: input.SessionID,
+		TurnID:    input.TurnID,
+		UserID:    input.UserID,
+		Query:     keyword,
+		QueryParams: domain.AgentJSON{
+			"message":           input.MessageText,
+			"history_need_hint": string(hint),
+			"keyword":           keyword,
+			"before_entry_id":   beforeEntryID,
+			"before_turn_id":    input.TurnID,
+			"limit":             8,
+			"roles":             []string{string(domain.AgentTranscriptRoleUser), string(domain.AgentTranscriptRoleAssistant)},
+		},
+		RecalledRefs: domain.AgentJSON{
+			"transcript_entry_ids": transcriptEntryIDs(results),
+		},
+		Reason:      historyRecallReason(hint),
+		BudgetChars: transcriptEntriesContentLength(results),
+		CreatedAt:   p.currentTime(),
+	})
+	if err != nil {
+		return memory, err
+	}
+	return memory, nil
+}
+
 type agentP0CapabilityExecutor struct {
+	repository     AgentConversationRepository
 	recentItems    AgentRecentItemsProvider
 	sourceProvider AgentSourceProvider
 	now            func() time.Time
@@ -60,6 +136,23 @@ func (e agentP0CapabilityExecutor) Execute(ctx context.Context, input agent.Capa
 				Decision:   string(agent.PolicyDecisionForbidden),
 				Status:     "skipped",
 				Summary:    "capability executor does not support this capability",
+			},
+		}, nil
+	}
+}
+
+func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	switch input.Capability.Key {
+	case "conversation.query_history":
+		return e.queryConversationHistory(ctx, input)
+	default:
+		return agent.ToolExecuteResult{
+			Content: "当前工具执行器不支持该能力。",
+			Observation: agent.CapabilityObservation{
+				Capability: input.Capability.Key,
+				Decision:   string(agent.PolicyDecisionForbidden),
+				Status:     "skipped",
+				Summary:    "tool executor does not support this capability",
 			},
 		}, nil
 	}
@@ -172,6 +265,183 @@ func (e agentP0CapabilityExecutor) currentTime() time.Time {
 		return e.now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+type conversationHistoryToolArgs struct {
+	Keyword       string `json:"keyword"`
+	Role          string `json:"role"`
+	Limit         int    `json:"limit"`
+	BeforeEntryID int64  `json:"before_entry_id"`
+}
+
+func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	observation := agent.CapabilityObservation{
+		Capability: input.Capability.Key,
+		Decision:   string(agent.PolicyDecisionAllow),
+	}
+	if e.repository == nil {
+		observation.Status = "skipped"
+		observation.Summary = "conversation repository is unavailable"
+		return agent.ToolExecuteResult{Content: "历史聊天查询能力暂不可用。", Observation: observation}, nil
+	}
+
+	args := parseConversationHistoryToolArgs(input.RawArguments)
+	keyword := strings.TrimSpace(args.Keyword)
+	if keyword == "" {
+		keyword = agent.HistorySearchKeyword(input.Message)
+	}
+	limit := args.Limit
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 20 {
+		limit = 20
+	}
+	roles := []domain.AgentTranscriptRole{domain.AgentTranscriptRoleUser, domain.AgentTranscriptRoleAssistant}
+	switch strings.TrimSpace(args.Role) {
+	case string(domain.AgentTranscriptRoleUser):
+		roles = []domain.AgentTranscriptRole{domain.AgentTranscriptRoleUser}
+	case string(domain.AgentTranscriptRoleAssistant):
+		roles = []domain.AgentTranscriptRole{domain.AgentTranscriptRoleAssistant}
+	}
+
+	entries, err := e.repository.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{
+		SessionID:     input.SessionID,
+		UserID:        input.UserID,
+		Keyword:       keyword,
+		Roles:         roles,
+		BeforeEntryID: args.BeforeEntryID,
+		BeforeTurnID:  input.TurnID,
+		Limit:         limit,
+	})
+	if err != nil {
+		return agent.ToolExecuteResult{}, err
+	}
+
+	contextMessages := transcriptEntriesToContextMessages(entries)
+	content := agent.FormatContextMessages(contextMessages)
+	if strings.TrimSpace(content) == "" {
+		content = "没有查到明确历史聊天记录。"
+		observation.Status = "empty"
+		observation.Summary = "no matching history messages"
+	} else {
+		observation.Status = "succeeded"
+		observation.Summary = fmt.Sprintf("loaded %d history messages", len(contextMessages))
+	}
+
+	_, err = e.repository.CreateRecallEvent(ctx, domain.AgentRecallEvent{
+		SessionID: input.SessionID,
+		TurnID:    input.TurnID,
+		UserID:    input.UserID,
+		Query:     keyword,
+		QueryParams: domain.AgentJSON{
+			"tool_call_id":    input.ToolCallID,
+			"raw_arguments":   input.RawArguments,
+			"keyword":         keyword,
+			"role":            args.Role,
+			"limit":           limit,
+			"before_entry_id": args.BeforeEntryID,
+			"before_turn_id":  input.TurnID,
+			"trigger_message": input.Message,
+			"capability_key":  input.Capability.Key,
+			"request_id":      input.RequestID,
+			"trace_id":        input.TraceID,
+		},
+		RecalledRefs: domain.AgentJSON{
+			"transcript_entry_ids": transcriptEntryIDs(entries),
+		},
+		Reason:      "model_tool_call",
+		BudgetChars: transcriptEntriesContentLength(entries),
+		CreatedAt:   e.currentTime(),
+	})
+	if err != nil {
+		return agent.ToolExecuteResult{}, err
+	}
+	return agent.ToolExecuteResult{Content: content, Observation: observation}, nil
+}
+
+func parseConversationHistoryToolArgs(raw string) conversationHistoryToolArgs {
+	var args conversationHistoryToolArgs
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return args
+	}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return conversationHistoryToolArgs{}
+	}
+	args.Keyword = strings.TrimSpace(args.Keyword)
+	args.Role = strings.TrimSpace(args.Role)
+	return args
+}
+
+func (p agentConversationMemoryProvider) currentTime() time.Time {
+	if p.now != nil {
+		return p.now().UTC()
+	}
+	return time.Now().UTC()
+}
+
+func transcriptEntriesToContextMessages(entries []domain.AgentTranscriptEntry) []agent.ContextMessage {
+	messages := make([]agent.ContextMessage, 0, len(entries))
+	for _, entry := range entries {
+		content := strings.TrimSpace(entry.Content)
+		if content == "" {
+			continue
+		}
+		if entry.Role != domain.AgentTranscriptRoleUser && entry.Role != domain.AgentTranscriptRoleAssistant {
+			continue
+		}
+		messages = append(messages, agent.ContextMessage{
+			Role:              entry.Role,
+			Content:           content,
+			TranscriptEntryID: entry.ID,
+			TurnID:            entry.TurnID,
+			CreatedAt:         entry.CreatedAt,
+		})
+	}
+	return messages
+}
+
+func earliestTranscriptEntryID(entries []domain.AgentTranscriptEntry) int64 {
+	var earliest int64
+	for _, entry := range entries {
+		if entry.ID <= 0 {
+			continue
+		}
+		if earliest == 0 || entry.ID < earliest {
+			earliest = entry.ID
+		}
+	}
+	return earliest
+}
+
+func transcriptEntryIDs(entries []domain.AgentTranscriptEntry) []int64 {
+	ids := make([]int64, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ID > 0 {
+			ids = append(ids, entry.ID)
+		}
+	}
+	return ids
+}
+
+func transcriptEntriesContentLength(entries []domain.AgentTranscriptEntry) int {
+	total := 0
+	for _, entry := range entries {
+		total += len([]rune(strings.TrimSpace(entry.Content)))
+	}
+	return total
+}
+
+func historyRecallReason(hint agent.HistoryNeedHint) string {
+	switch hint {
+	case agent.HistoryNeedRequired:
+		return "required_history_recent_window_insufficient"
+	case agent.HistoryNeedPossible:
+		return "possible_history_recent_window_insufficient"
+	default:
+		return "history_query_requested"
+	}
 }
 
 func formatRecentItemsBlock(items []domain.Item) string {

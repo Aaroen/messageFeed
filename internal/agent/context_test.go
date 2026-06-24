@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"messagefeed/internal/domain"
 	"testing"
 	"time"
 )
@@ -60,6 +61,29 @@ func TestDefaultContextBuilderSkipsUnregisteredCapability(t *testing.T) {
 	}
 	if snapshot.Observations[0].Decision != string(PolicyDecisionForbidden) {
 		t.Fatalf("decision = %q, want forbidden", snapshot.Observations[0].Decision)
+	}
+}
+
+func TestHistoryNeedClassificationAndRecentEvidence(t *testing.T) {
+	if got := ClassifyHistoryNeed("我之前说过关注什么吗"); got != HistoryNeedRequired {
+		t.Fatalf("required hint = %q", got)
+	}
+	if got := ClassifyHistoryNeed("刚才 Go 官方博客 那个继续"); got != HistoryNeedPossible {
+		t.Fatalf("possible hint = %q", got)
+	}
+	if got := ClassifyHistoryNeed("最近有什么更新"); got != HistoryNeedNone {
+		t.Fatalf("none hint = %q", got)
+	}
+
+	recent := []ContextMessage{
+		{Role: domain.AgentTranscriptRoleUser, Content: "我想关注 Go 官方博客"},
+		{Role: domain.AgentTranscriptRoleAssistant, Content: "已理解。"},
+	}
+	if ShouldQueryConversationHistory(HistoryNeedPossible, "刚才 Go 官方博客 那个继续", recent) {
+		t.Fatal("possible history should not query when recent window has evidence")
+	}
+	if !ShouldQueryConversationHistory(HistoryNeedRequired, "我之前说过什么偏好吗", recent) {
+		t.Fatal("required history should query when recent window lacks evidence")
 	}
 }
 

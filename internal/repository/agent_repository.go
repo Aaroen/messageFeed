@@ -96,6 +96,35 @@ type agentTranscriptEntryModel struct {
 	CreatedAt time.Time
 }
 
+type agentTranscriptArchiveIndexModel struct {
+	ID                int64 `gorm:"primaryKey"`
+	TranscriptEntryID int64 `gorm:"not null"`
+	SessionID         int64 `gorm:"not null"`
+	UserID            int64 `gorm:"not null"`
+	ArchiveStatus     string
+	MemoryKind        string
+	Importance        int
+	Keywords          []string         `gorm:"column:keywords_json;serializer:json;type:jsonb;not null"`
+	LastAccessedAt    *time.Time       `gorm:"column:last_accessed_at"`
+	AccessCount       int              `gorm:"not null"`
+	Metadata          domain.AgentJSON `gorm:"column:metadata_json;serializer:json;type:jsonb;not null"`
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type agentRecallEventModel struct {
+	ID           int64 `gorm:"primaryKey"`
+	SessionID    int64
+	TurnID       int64
+	UserID       int64            `gorm:"not null"`
+	Query        string           `gorm:"column:query_text"`
+	QueryParams  domain.AgentJSON `gorm:"column:query_json;serializer:json;type:jsonb;not null"`
+	RecalledRefs domain.AgentJSON `gorm:"column:recalled_refs_json;serializer:json;type:jsonb;not null"`
+	Reason       string
+	BudgetChars  int
+	CreatedAt    time.Time
+}
+
 type agentAuditLogModel struct {
 	ID        int64 `gorm:"primaryKey"`
 	SessionID int64
@@ -115,7 +144,11 @@ func (agentInboundMessageModel) TableName() string  { return "agent_inbound_mess
 func (agentSessionModel) TableName() string         { return "agent_sessions" }
 func (agentTurnModel) TableName() string            { return "agent_turns" }
 func (agentTranscriptEntryModel) TableName() string { return "agent_transcript_entries" }
-func (agentAuditLogModel) TableName() string        { return "agent_audit_logs" }
+func (agentTranscriptArchiveIndexModel) TableName() string {
+	return "agent_transcript_archive_index"
+}
+func (agentRecallEventModel) TableName() string { return "agent_recall_events" }
+func (agentAuditLogModel) TableName() string    { return "agent_audit_logs" }
 
 func (r *AgentRepository) EnsureExternalAccount(ctx context.Context, account domain.ExternalAccount) (domain.ExternalAccount, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.external_account.ensure", "upsert", "external_accounts")
@@ -301,7 +334,90 @@ func (r *AgentRepository) AppendTranscriptEntry(ctx context.Context, entry domai
 		opErr = mapRepositoryError(err)
 		return domain.AgentTranscriptEntry{}, opErr
 	}
-	return agentTranscriptEntryModelToDomain(model), nil
+	persisted := agentTranscriptEntryModelToDomain(model)
+	_ = r.ensureTranscriptArchiveIndex(ctx, persisted)
+	return persisted, nil
+}
+
+func (r *AgentRepository) ListRecentTranscriptEntries(ctx context.Context, options domain.AgentTranscriptListOptions) ([]domain.AgentTranscriptEntry, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.transcript.list_recent", "select", "agent_transcript_entries")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	options = normalizeTranscriptListOptions(options)
+	query := r.db.WithContext(ctx).Model(&agentTranscriptEntryModel{}).
+		Where("session_id = ? AND user_id = ?", options.SessionID, options.UserID)
+	if options.BeforeTurnID > 0 {
+		query = query.Where("turn_id < ?", options.BeforeTurnID)
+	}
+	if len(options.Roles) > 0 {
+		query = query.Where("role IN ?", transcriptRoleStrings(options.Roles))
+	}
+	var models []agentTranscriptEntryModel
+	if err := query.Order("created_at DESC, id DESC").Limit(options.Limit).Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	return transcriptModelsToChronologicalDomain(models), nil
+}
+
+func (r *AgentRepository) QueryTranscriptEntries(ctx context.Context, options domain.AgentTranscriptQueryOptions) ([]domain.AgentTranscriptEntry, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.transcript.query", "select", "agent_transcript_entries")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	options = normalizeTranscriptQueryOptions(options)
+	query := r.db.WithContext(ctx).Table("agent_transcript_entries").
+		Where("agent_transcript_entries.session_id = ? AND agent_transcript_entries.user_id = ?", options.SessionID, options.UserID)
+	if len(options.Roles) > 0 {
+		query = query.Where("agent_transcript_entries.role IN ?", transcriptRoleStrings(options.Roles))
+	}
+	if options.Keyword != "" {
+		query = query.Where("agent_transcript_entries.content ILIKE ? ESCAPE '\\'", "%"+escapeLike(options.Keyword)+"%")
+	}
+	if options.BeforeEntryID > 0 {
+		query = query.Where("agent_transcript_entries.id < ?", options.BeforeEntryID)
+	}
+	if options.BeforeTurnID > 0 {
+		query = query.Where("agent_transcript_entries.turn_id < ?", options.BeforeTurnID)
+	}
+	if options.After != nil {
+		query = query.Where("agent_transcript_entries.created_at >= ?", options.After.UTC())
+	}
+	if options.Before != nil {
+		query = query.Where("agent_transcript_entries.created_at <= ?", options.Before.UTC())
+	}
+	if options.ArchiveStatus.Valid() || options.MemoryKind.Valid() {
+		query = query.Joins("JOIN agent_transcript_archive_index ON agent_transcript_archive_index.transcript_entry_id = agent_transcript_entries.id")
+		if options.ArchiveStatus.Valid() {
+			query = query.Where("agent_transcript_archive_index.archive_status = ?", string(options.ArchiveStatus))
+		}
+		if options.MemoryKind.Valid() {
+			query = query.Where("agent_transcript_archive_index.memory_kind = ?", string(options.MemoryKind))
+		}
+	}
+
+	var models []agentTranscriptEntryModel
+	if err := query.Select("agent_transcript_entries.*").Order("agent_transcript_entries.created_at DESC, agent_transcript_entries.id DESC").Limit(options.Limit).Scan(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	entries := transcriptModelsToChronologicalDomain(models)
+	r.touchTranscriptArchiveIndexes(ctx, entries)
+	return entries, nil
+}
+
+func (r *AgentRepository) CreateRecallEvent(ctx context.Context, event domain.AgentRecallEvent) (domain.AgentRecallEvent, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.recall.create", "insert", "agent_recall_events")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	model := agentRecallEventModelFromDomain(normalizeRecallEvent(event))
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentRecallEvent{}, opErr
+	}
+	return agentRecallEventModelToDomain(model), nil
 }
 
 func (r *AgentRepository) CreateAuditLog(ctx context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error) {
@@ -384,6 +500,61 @@ func normalizeTranscriptEntry(entry domain.AgentTranscriptEntry) domain.AgentTra
 		entry.Role = domain.AgentTranscriptRoleSystem
 	}
 	return entry
+}
+
+func normalizeTranscriptListOptions(options domain.AgentTranscriptListOptions) domain.AgentTranscriptListOptions {
+	if options.Limit <= 0 {
+		options.Limit = 12
+	}
+	if options.Limit > 50 {
+		options.Limit = 50
+	}
+	return options
+}
+
+func normalizeTranscriptQueryOptions(options domain.AgentTranscriptQueryOptions) domain.AgentTranscriptQueryOptions {
+	options.Keyword = strings.TrimSpace(options.Keyword)
+	if options.Limit <= 0 {
+		options.Limit = 8
+	}
+	if options.Limit > 50 {
+		options.Limit = 50
+	}
+	return options
+}
+
+func normalizeTranscriptArchiveIndex(index domain.AgentTranscriptArchiveIndex) domain.AgentTranscriptArchiveIndex {
+	if !index.ArchiveStatus.Valid() {
+		index.ArchiveStatus = domain.AgentTranscriptArchiveStatusHot
+	}
+	if !index.MemoryKind.Valid() {
+		index.MemoryKind = domain.AgentMemoryKindUnknown
+	}
+	if index.Importance < 0 {
+		index.Importance = 0
+	}
+	if index.Importance > 100 {
+		index.Importance = 100
+	}
+	if index.Metadata == nil {
+		index.Metadata = domain.AgentJSON{}
+	}
+	return index
+}
+
+func normalizeRecallEvent(event domain.AgentRecallEvent) domain.AgentRecallEvent {
+	event.Query = strings.TrimSpace(event.Query)
+	event.Reason = strings.TrimSpace(event.Reason)
+	if event.QueryParams == nil {
+		event.QueryParams = domain.AgentJSON{}
+	}
+	if event.RecalledRefs == nil {
+		event.RecalledRefs = domain.AgentJSON{}
+	}
+	if event.BudgetChars < 0 {
+		event.BudgetChars = 0
+	}
+	return event
 }
 
 func normalizeAuditLog(log domain.AgentAuditLog) domain.AgentAuditLog {
@@ -572,6 +743,211 @@ func agentTranscriptEntryModelToDomain(model agentTranscriptEntryModel) domain.A
 		Metadata:  cloneAgentJSON(model.Metadata),
 		CreatedAt: model.CreatedAt,
 	}
+}
+
+func agentTranscriptArchiveIndexModelFromDomain(index domain.AgentTranscriptArchiveIndex) agentTranscriptArchiveIndexModel {
+	index = normalizeTranscriptArchiveIndex(index)
+	return agentTranscriptArchiveIndexModel{
+		ID:                index.ID,
+		TranscriptEntryID: index.TranscriptEntryID,
+		SessionID:         index.SessionID,
+		UserID:            index.UserID,
+		ArchiveStatus:     string(index.ArchiveStatus),
+		MemoryKind:        string(index.MemoryKind),
+		Importance:        index.Importance,
+		Keywords:          append([]string(nil), index.Keywords...),
+		LastAccessedAt:    index.LastAccessedAt,
+		AccessCount:       index.AccessCount,
+		Metadata:          cloneAgentJSON(index.Metadata),
+		CreatedAt:         index.CreatedAt,
+		UpdatedAt:         index.UpdatedAt,
+	}
+}
+
+func agentTranscriptArchiveIndexModelToDomain(model agentTranscriptArchiveIndexModel) domain.AgentTranscriptArchiveIndex {
+	return domain.AgentTranscriptArchiveIndex{
+		ID:                model.ID,
+		TranscriptEntryID: model.TranscriptEntryID,
+		SessionID:         model.SessionID,
+		UserID:            model.UserID,
+		ArchiveStatus:     domain.AgentTranscriptArchiveStatus(model.ArchiveStatus),
+		MemoryKind:        domain.AgentMemoryKind(model.MemoryKind),
+		Importance:        model.Importance,
+		Keywords:          append([]string(nil), model.Keywords...),
+		LastAccessedAt:    model.LastAccessedAt,
+		AccessCount:       model.AccessCount,
+		Metadata:          cloneAgentJSON(model.Metadata),
+		CreatedAt:         model.CreatedAt,
+		UpdatedAt:         model.UpdatedAt,
+	}
+}
+
+func agentRecallEventModelFromDomain(event domain.AgentRecallEvent) agentRecallEventModel {
+	event = normalizeRecallEvent(event)
+	return agentRecallEventModel{
+		ID:           event.ID,
+		SessionID:    event.SessionID,
+		TurnID:       event.TurnID,
+		UserID:       event.UserID,
+		Query:        event.Query,
+		QueryParams:  cloneAgentJSON(event.QueryParams),
+		RecalledRefs: cloneAgentJSON(event.RecalledRefs),
+		Reason:       event.Reason,
+		BudgetChars:  event.BudgetChars,
+		CreatedAt:    event.CreatedAt,
+	}
+}
+
+func agentRecallEventModelToDomain(model agentRecallEventModel) domain.AgentRecallEvent {
+	return domain.AgentRecallEvent{
+		ID:           model.ID,
+		SessionID:    model.SessionID,
+		TurnID:       model.TurnID,
+		UserID:       model.UserID,
+		Query:        model.Query,
+		QueryParams:  cloneAgentJSON(model.QueryParams),
+		RecalledRefs: cloneAgentJSON(model.RecalledRefs),
+		Reason:       model.Reason,
+		BudgetChars:  model.BudgetChars,
+		CreatedAt:    model.CreatedAt,
+	}
+}
+
+func (r *AgentRepository) ensureTranscriptArchiveIndex(ctx context.Context, entry domain.AgentTranscriptEntry) error {
+	if r == nil || r.db == nil || entry.ID == 0 || entry.SessionID == 0 || entry.UserID == 0 {
+		return nil
+	}
+	index := agentTranscriptArchiveIndexModelFromDomain(domain.AgentTranscriptArchiveIndex{
+		TranscriptEntryID: entry.ID,
+		SessionID:         entry.SessionID,
+		UserID:            entry.UserID,
+		ArchiveStatus:     domain.AgentTranscriptArchiveStatusHot,
+		MemoryKind:        classifyTranscriptMemoryKind(entry.Content),
+		Importance:        transcriptImportance(entry.Content),
+		Keywords:          transcriptIndexKeywords(entry.Content),
+		Metadata:          domain.AgentJSON{},
+	})
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "transcript_entry_id"}},
+			DoNothing: true,
+		}).
+		Create(&index).Error
+}
+
+func (r *AgentRepository) touchTranscriptArchiveIndexes(ctx context.Context, entries []domain.AgentTranscriptEntry) {
+	if r == nil || r.db == nil || len(entries) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ID > 0 {
+			ids = append(ids, entry.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	_ = r.db.WithContext(ctx).
+		Model(&agentTranscriptArchiveIndexModel{}).
+		Where("transcript_entry_id IN ?", ids).
+		Updates(map[string]any{
+			"last_accessed_at": now,
+			"access_count":     gorm.Expr("access_count + ?", 1),
+		}).Error
+}
+
+func transcriptModelsToChronologicalDomain(models []agentTranscriptEntryModel) []domain.AgentTranscriptEntry {
+	entries := make([]domain.AgentTranscriptEntry, 0, len(models))
+	for i := len(models) - 1; i >= 0; i-- {
+		entries = append(entries, agentTranscriptEntryModelToDomain(models[i]))
+	}
+	return entries
+}
+
+func transcriptRoleStrings(roles []domain.AgentTranscriptRole) []string {
+	values := make([]string, 0, len(roles))
+	for _, role := range roles {
+		if role.Valid() {
+			values = append(values, string(role))
+		}
+	}
+	return values
+}
+
+func escapeLike(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	value = strings.ReplaceAll(value, `_`, `\_`)
+	return value
+}
+
+func classifyTranscriptMemoryKind(content string) domain.AgentMemoryKind {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return domain.AgentMemoryKindUnknown
+	}
+	for _, term := range []string{"偏好", "喜欢", "不喜欢", "关注", "优先", "以后", "记住"} {
+		if strings.Contains(content, term) {
+			return domain.AgentMemoryKindPreference
+		}
+	}
+	for _, term := range []string{"任务", "计划", "待办", "执行", "确认"} {
+		if strings.Contains(content, term) {
+			return domain.AgentMemoryKindTask
+		}
+	}
+	return domain.AgentMemoryKindCasual
+}
+
+func transcriptImportance(content string) int {
+	switch classifyTranscriptMemoryKind(content) {
+	case domain.AgentMemoryKindPreference:
+		return 70
+	case domain.AgentMemoryKindTask:
+		return 60
+	default:
+		return 20
+	}
+}
+
+func transcriptIndexKeywords(content string) []string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(content, func(r rune) bool {
+		switch {
+		case r >= '0' && r <= '9':
+			return false
+		case r >= 'a' && r <= 'z':
+			return false
+		case r >= 'A' && r <= 'Z':
+			return false
+		case r >= '\u4e00' && r <= '\u9fff':
+			return false
+		default:
+			return true
+		}
+	})
+	keywords := make([]string, 0, 5)
+	seen := map[string]struct{}{}
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if len([]rune(field)) < 2 {
+			continue
+		}
+		if _, ok := seen[field]; ok {
+			continue
+		}
+		seen[field] = struct{}{}
+		keywords = append(keywords, field)
+		if len(keywords) >= 5 {
+			break
+		}
+	}
+	return keywords
 }
 
 func agentAuditLogModelFromDomain(log domain.AgentAuditLog) agentAuditLogModel {

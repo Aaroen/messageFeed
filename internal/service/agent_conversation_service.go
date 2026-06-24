@@ -28,6 +28,9 @@ type AgentConversationRepository interface {
 	CreateTurn(ctx context.Context, turn domain.AgentTurn) (domain.AgentTurn, error)
 	UpdateTurn(ctx context.Context, turn domain.AgentTurn) (domain.AgentTurn, error)
 	AppendTranscriptEntry(ctx context.Context, entry domain.AgentTranscriptEntry) (domain.AgentTranscriptEntry, error)
+	ListRecentTranscriptEntries(ctx context.Context, options domain.AgentTranscriptListOptions) ([]domain.AgentTranscriptEntry, error)
+	QueryTranscriptEntries(ctx context.Context, options domain.AgentTranscriptQueryOptions) ([]domain.AgentTranscriptEntry, error)
+	CreateRecallEvent(ctx context.Context, event domain.AgentRecallEvent) (domain.AgentRecallEvent, error)
 	CreateAuditLog(ctx context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error)
 }
 
@@ -170,7 +173,12 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 			provider: s.userCtx,
 			now:      s.now,
 		},
+		ConversationMemory: agentConversationMemoryProvider{
+			repository: s.repository,
+			now:        s.now,
+		},
 		Executor: agentP0CapabilityExecutor{
+			repository:     s.repository,
 			recentItems:    s.recentItems,
 			sourceProvider: s.sourceProvider,
 			now:            s.now,
@@ -181,11 +189,19 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 		Store:          s.repository,
 		AuditLogger:    s,
 		ContextBuilder: contextBuilder,
-		LLMClient:      s.llmClient,
-		Now:            s.now,
-		SystemPrompt:   llm.MessageFeedAgentSystemPrompt,
-		MaxTokens:      agentReplyMaxTokens,
-		Temperature:    0.2,
+		ToolExecutor: agentP0CapabilityExecutor{
+			repository:     s.repository,
+			recentItems:    s.recentItems,
+			sourceProvider: s.sourceProvider,
+			now:            s.now,
+		},
+		ToolRegistry: s.capabilityRegistry,
+		ToolKeys:     []string{"conversation.query_history"},
+		LLMClient:    s.llmClient,
+		Now:          s.now,
+		SystemPrompt: llm.MessageFeedAgentSystemPrompt,
+		MaxTokens:    agentReplyMaxTokens,
+		Temperature:  0.2,
 	})
 }
 
