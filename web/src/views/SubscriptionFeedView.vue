@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { storeToRefs } from 'pinia'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { formatAPIError } from '@/api/client'
@@ -23,7 +22,6 @@ import { useRefreshNoticeSequence } from '@/composables/useRefreshNoticeSequence
 import { useRequestToken } from '@/composables/useRequestToken'
 import { useTimedNotice } from '@/composables/useTimedNotice'
 import { useFeedInteractionStore } from '@/stores/feedInteraction'
-import { type HiddenFilter, type TriStateFilter, useFeedFiltersStore } from '@/stores/feedFilters'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
 
 type FeedMode = 'subscriptions' | 'recommendations' | 'source' | 'favorites' | 'history'
@@ -77,17 +75,7 @@ const emit = defineEmits<{
 }>()
 
 const feedInteraction = useFeedInteractionStore()
-const feedFilters = useFeedFiltersStore()
 const feedListCache = useFeedListCacheStore()
-const {
-  selectedSourceID,
-  readFilter,
-  favoriteFilter,
-  hiddenFilter,
-  sources,
-  loading: filtersLoading,
-  error: filterError,
-} = storeToRefs(feedFilters)
 const motionTimings = useMotionTimings()
 const items = ref<FeedItem[]>([])
 const loading = ref(false)
@@ -136,19 +124,8 @@ let topPullStartedNotified = false
 let disposed = false
 let loadMoreObserver: IntersectionObserver | null = null
 
-const filterKey = computed(() => {
-  if (props.mode !== 'subscriptions') {
-    return 'filter:none'
-  }
-  return [
-    `source=${selectedSourceID.value}`,
-    `read=${readFilter.value}`,
-    `favorite=${favoriteFilter.value}`,
-    `hidden=${hiddenFilter.value}`,
-  ].join(';')
-})
 const viewKey = computed(
-  () => `${props.mode}:${props.sourceKind}:${props.sourceId}:${props.sourceTimelineId}:${filterKey.value}`,
+  () => `${props.mode}:${props.sourceKind}:${props.sourceId}:${props.sourceTimelineId}`,
 )
 const cacheRevision = computed(() => feedListCache.revisions[viewKey.value] ?? 0)
 const hasItems = computed(() => items.value.length > 0)
@@ -234,8 +211,6 @@ const pullStatusText = computed(() => {
 })
 const pullStatusMeta = computed(() => (lastUpdatedAt.value ? `最近更新 ${lastUpdatedAt.value}` : '尚未更新'))
 const errorMessage = computed(() => error.value.trim())
-const filterErrorMessage = computed(() => filterError.value.trim())
-const filtersVisible = computed(() => props.mode === 'subscriptions' && !isSourceMode.value)
 const pageClass = computed(() => ({
   'feed-list-page--pulling': pullActive.value,
   'feed-list-page--empty': !hasItems.value && !loading.value,
@@ -314,26 +289,6 @@ function itemSummary(item: FeedItem) {
   return plainPreviewText(item.summary, item.content_snippet, item.content_text, item.content_html) || '暂无摘要。'
 }
 
-function triStateBool(value: TriStateFilter) {
-  if (value === 'true') {
-    return true
-  }
-  if (value === 'false') {
-    return false
-  }
-  return undefined
-}
-
-function hiddenFilterParams(value: HiddenFilter) {
-  if (value === 'hidden') {
-    return { is_hidden: true, include_hidden: true }
-  }
-  if (value === 'all') {
-    return { include_hidden: true }
-  }
-  return { is_hidden: false }
-}
-
 function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
 }
@@ -370,26 +325,6 @@ function currentFiltersMatch(item: FeedItem) {
   }
   if (isHistoryMode.value) {
     return item.is_read && !item.is_hidden
-  }
-  if (!filtersVisible.value) {
-    return true
-  }
-  if (selectedSourceID.value > 0 && item.source_id !== selectedSourceID.value) {
-    return false
-  }
-  const isRead = triStateBool(readFilter.value)
-  if (typeof isRead === 'boolean' && item.is_read !== isRead) {
-    return false
-  }
-  const isFavorite = triStateBool(favoriteFilter.value)
-  if (typeof isFavorite === 'boolean' && item.is_favorite !== isFavorite) {
-    return false
-  }
-  if (hiddenFilter.value === 'visible' && item.is_hidden) {
-    return false
-  }
-  if (hiddenFilter.value === 'hidden' && !item.is_hidden) {
-    return false
   }
   return true
 }
@@ -669,14 +604,6 @@ async function loadItems(
       limit: pageSize,
       offset: requestOffset,
       order: 'desc' as const,
-      ...(filtersVisible.value && selectedSourceID.value > 0 ? { source_id: selectedSourceID.value } : {}),
-      ...(filtersVisible.value && typeof triStateBool(readFilter.value) === 'boolean'
-        ? { is_read: triStateBool(readFilter.value) }
-        : {}),
-      ...(filtersVisible.value && typeof triStateBool(favoriteFilter.value) === 'boolean'
-        ? { is_favorite: triStateBool(favoriteFilter.value) }
-        : {}),
-      ...(filtersVisible.value ? hiddenFilterParams(hiddenFilter.value) : {}),
       ...(isFavoritesMode.value ? { is_favorite: true, is_hidden: false } : {}),
       ...(isHistoryMode.value ? { is_read: true, is_hidden: false } : {}),
       ...(isRefresh && isSourceMode.value && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
@@ -1095,9 +1022,6 @@ function handleTouchCancel() {
 }
 
 onMounted(() => {
-  if (filtersVisible.value) {
-    void feedFilters.loadSources()
-  }
   loadInitialItems()
   window.addEventListener('focus', refreshStaleCacheInBackground)
   document.addEventListener('visibilitychange', handleVisibilityRefresh)
@@ -1149,19 +1073,10 @@ watch(
       pullOwnerViewKey: previousViewKey,
     })
     if (props.active) {
-      if (filtersVisible.value) {
-        void feedFilters.loadSources()
-      }
       loadInitialItems()
     }
   },
 )
-
-watch(filtersVisible, (visible) => {
-  if (visible) {
-    void feedFilters.loadSources()
-  }
-})
 
 watch(
   cacheRevision,
@@ -1252,48 +1167,6 @@ watch(
     </Teleport>
 
     <div ref="feedBodyRef" class="feed-list-body" :style="feedBodyStyle">
-      <section v-if="filtersVisible" class="feed-filter-bar" aria-label="时间线筛选">
-        <label class="feed-filter-bar__field">
-          <span>来源</span>
-          <select v-model.number="selectedSourceID" :disabled="filtersLoading">
-            <option :value="0">全部来源</option>
-            <option v-for="source in sources" :key="source.id" :value="source.id">
-              {{ source.name }}
-            </option>
-          </select>
-        </label>
-        <label class="feed-filter-bar__field">
-          <span>阅读</span>
-          <select v-model="readFilter">
-            <option value="all">全部</option>
-            <option value="false">未读</option>
-            <option value="true">已读</option>
-          </select>
-        </label>
-        <label class="feed-filter-bar__field">
-          <span>收藏</span>
-          <select v-model="favoriteFilter">
-            <option value="all">全部</option>
-            <option value="true">已收藏</option>
-            <option value="false">未收藏</option>
-          </select>
-        </label>
-        <label class="feed-filter-bar__field">
-          <span>隐藏</span>
-          <select v-model="hiddenFilter">
-            <option value="visible">可见</option>
-            <option value="all">全部</option>
-            <option value="hidden">已隐藏</option>
-          </select>
-        </label>
-      </section>
-      <a-alert
-        v-if="filterErrorMessage"
-        class="feed-alert"
-        type="warning"
-        :content="filterErrorMessage"
-        show-icon
-      />
       <a-alert v-if="errorMessage" class="feed-alert" type="warning" :content="errorMessage" show-icon />
 
       <section v-if="loading && !hasItems" class="empty-surface">
