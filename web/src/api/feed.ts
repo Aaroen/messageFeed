@@ -75,11 +75,35 @@ export interface FeedItem {
   is_hidden: boolean
 }
 
+export interface UserItemState {
+  id: number
+  user_id: number
+  item_id: number
+  is_read: boolean
+  read_at?: string
+  is_favorite: boolean
+  favorited_at?: string
+  is_hidden: boolean
+  hidden_at?: string
+  created_at: string
+  updated_at: string
+}
+
 export interface FeedItemList {
   items: FeedItem[]
   total: number
   limit: number
   offset: number
+}
+
+export type FeedViewMode = 'timeline' | 'recommendations'
+
+export interface FeedViewPreference {
+  id?: number
+  user_id: number
+  view_mode: FeedViewMode
+  created_at: string
+  updated_at: string
 }
 
 export interface ImportSourcesResult {
@@ -254,8 +278,50 @@ export async function getFeedItem(id: number) {
   return response.data.data
 }
 
+export async function setItemRead(id: number, isRead: boolean) {
+  const response = await apiClient.post<APIEnvelope<UserItemState>>(`/api/v1/items/${id}/read`, {
+    is_read: isRead,
+  })
+  return response.data.data
+}
+
+export async function setItemFavorite(id: number, isFavorite: boolean) {
+  const response = await apiClient.post<APIEnvelope<UserItemState>>(`/api/v1/items/${id}/favorite`, {
+    is_favorite: isFavorite,
+  })
+  return response.data.data
+}
+
+export async function setItemHidden(id: number, isHidden: boolean) {
+  const response = await apiClient.post<APIEnvelope<UserItemState>>(`/api/v1/items/${id}/hide`, {
+    is_hidden: isHidden,
+  })
+  return response.data.data
+}
+
+export async function getFeedViewMode() {
+  const response = await apiClient.get<APIEnvelope<FeedViewPreference>>('/api/v1/feed/view-mode')
+  return response.data.data
+}
+
+export async function saveFeedViewMode(viewMode: FeedViewMode) {
+  const response = await apiClient.put<APIEnvelope<FeedViewPreference>>('/api/v1/feed/view-mode', {
+    view_mode: viewMode,
+  })
+  return response.data.data
+}
+
 export async function listTimelineItems(
-  params: { limit?: number; offset?: number; source_id?: number; order?: 'asc' | 'desc' } = {},
+  params: {
+    limit?: number
+    offset?: number
+    source_id?: number
+    is_read?: boolean
+    is_favorite?: boolean
+    is_hidden?: boolean
+    include_hidden?: boolean
+    order?: 'asc' | 'desc'
+  } = {},
 ) {
   const response = await apiClient.get<APIEnvelope<FeedItemList>>('/api/v1/feed/timeline', {
     params: {

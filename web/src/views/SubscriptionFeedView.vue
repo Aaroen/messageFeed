@@ -5,9 +5,15 @@ import { formatAPIError } from '@/api/client'
 import {
   fetchSource,
   type FeedItem,
+  type Source,
+  listSources,
   listRecommendationItems,
   listTimelineItems,
+  setItemFavorite,
+  setItemHidden,
+  setItemRead,
 } from '@/api/feed'
+import ActionBar from '@/components/ActionBar.vue'
 import { clampProgress, feedVisibleContentTopOffset } from '@/composables/feedChromeMetrics'
 import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRefreshCompletionAction'
 import { useGestureDirection } from '@/composables/useGestureDirection'
@@ -24,6 +30,9 @@ type FeedMode = 'subscriptions' | 'recommendations' | 'source'
 type SourceKind = 'subscriptions' | 'recommendations'
 type FeedNoticeType = 'success' | 'warning'
 type FeedNotice = { type: FeedNoticeType; message: string }
+type TriStateFilter = 'all' | 'true' | 'false'
+type HiddenFilter = 'visible' | 'all' | 'hidden'
+type ItemStateKey = 'read' | 'favorite' | 'hidden'
 
 const props = withDefaults(
   defineProps<{
@@ -73,9 +82,12 @@ const feedInteraction = useFeedInteractionStore()
 const feedListCache = useFeedListCacheStore()
 const motionTimings = useMotionTimings()
 const items = ref<FeedItem[]>([])
+const sources = ref<Source[]>([])
 const loading = ref(false)
 const loadingMore = ref(false)
+const filtersLoading = ref(false)
 const error = ref('')
+const filterError = ref('')
 const backgroundRefreshing = ref(false)
 const lastUpdatedAt = ref('')
 const totalCount = ref(0)
@@ -83,6 +95,11 @@ const nextOffset = ref(0)
 const reachedEnd = ref(false)
 const feedPageRef = ref<HTMLElement | null>(null)
 const feedBodyRef = ref<HTMLElement | null>(null)
+const selectedSourceID = ref(0)
+const readFilter = ref<TriStateFilter>('all')
+const favoriteFilter = ref<TriStateFilter>('all')
+const hiddenFilter = ref<HiddenFilter>('visible')
+const itemActionBusy = ref<Record<number, ItemStateKey | ''>>({})
 
 const pullThreshold = 76
 const pullMaxOffset = 116
@@ -118,7 +135,20 @@ let topPullStartedNotified = false
 let disposed = false
 let loadMoreObserver: IntersectionObserver | null = null
 
-const viewKey = computed(() => `${props.mode}:${props.sourceKind}:${props.sourceId}:${props.sourceTimelineId}`)
+const filterKey = computed(() => {
+  if (props.mode !== 'subscriptions') {
+    return 'filter:none'
+  }
+  return [
+    `source=${selectedSourceID.value}`,
+    `read=${readFilter.value}`,
+    `favorite=${favoriteFilter.value}`,
+    `hidden=${hiddenFilter.value}`,
+  ].join(';')
+})
+const viewKey = computed(
+  () => `${props.mode}:${props.sourceKind}:${props.sourceId}:${props.sourceTimelineId}:${filterKey.value}`,
+)
 const cacheRevision = computed(() => feedListCache.revisions[viewKey.value] ?? 0)
 const hasItems = computed(() => items.value.length > 0)
 const canLoadMore = computed(
@@ -185,6 +215,8 @@ const pullStatusText = computed(() => {
 })
 const pullStatusMeta = computed(() => (lastUpdatedAt.value ? `最近更新 ${lastUpdatedAt.value}` : '尚未更新'))
 const errorMessage = computed(() => error.value.trim())
+const filterErrorMessage = computed(() => filterError.value.trim())
+const filtersVisible = computed(() => props.mode === 'subscriptions' && !isSourceMode.value)
 const pageClass = computed(() => ({
   'feed-list-page--pulling': pullActive.value,
   'feed-list-page--empty': !hasItems.value && !loading.value,
@@ -263,6 +295,26 @@ function itemSummary(item: FeedItem) {
   return plainPreviewText(item.summary, item.content_snippet, item.content_text, item.content_html) || '暂无摘要。'
 }
 
+function triStateBool(value: TriStateFilter) {
+  if (value === 'true') {
+    return true
+  }
+  if (value === 'false') {
+    return false
+  }
+  return undefined
+}
+
+function hiddenFilterParams(value: HiddenFilter) {
+  if (value === 'hidden') {
+    return { is_hidden: true, include_hidden: true }
+  }
+  if (value === 'all') {
+    return { include_hidden: true }
+  }
+  return { is_hidden: false }
+}
+
 function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
 }
@@ -291,6 +343,30 @@ function mergeItems(currentItems: FeedItem[], nextItems: FeedItem[]) {
     itemMap.set(item.id, item)
   }
   return sortItemsDescending(Array.from(itemMap.values()))
+}
+
+function currentFiltersMatch(item: FeedItem) {
+  if (!filtersVisible.value) {
+    return true
+  }
+  if (selectedSourceID.value > 0 && item.source_id !== selectedSourceID.value) {
+    return false
+  }
+  const isRead = triStateBool(readFilter.value)
+  if (typeof isRead === 'boolean' && item.is_read !== isRead) {
+    return false
+  }
+  const isFavorite = triStateBool(favoriteFilter.value)
+  if (typeof isFavorite === 'boolean' && item.is_favorite !== isFavorite) {
+    return false
+  }
+  if (hiddenFilter.value === 'visible' && item.is_hidden) {
+    return false
+  }
+  if (hiddenFilter.value === 'hidden' && !item.is_hidden) {
+    return false
+  }
+  return true
 }
 
 function cacheEntryIsFresh(entry: FeedListCacheEntry) {
@@ -334,6 +410,21 @@ function resetListState() {
   nextOffset.value = 0
   reachedEnd.value = false
   lastUpdatedAt.value = ''
+}
+
+async function loadFilterSources() {
+  if (!filtersVisible.value || sources.value.length || filtersLoading.value) {
+    return
+  }
+  filtersLoading.value = true
+  filterError.value = ''
+  try {
+    sources.value = (await listSources()).filter((source) => source.status === 'active')
+  } catch (err) {
+    filterError.value = `筛选项加载失败：${formatAPIError(err)}`
+  } finally {
+    filtersLoading.value = false
+  }
 }
 
 function loadInitialItems() {
@@ -568,6 +659,14 @@ async function loadItems(
       limit: pageSize,
       offset: requestOffset,
       order: 'desc' as const,
+      ...(filtersVisible.value && selectedSourceID.value > 0 ? { source_id: selectedSourceID.value } : {}),
+      ...(filtersVisible.value && typeof triStateBool(readFilter.value) === 'boolean'
+        ? { is_read: triStateBool(readFilter.value) }
+        : {}),
+      ...(filtersVisible.value && typeof triStateBool(favoriteFilter.value) === 'boolean'
+        ? { is_favorite: triStateBool(favoriteFilter.value) }
+        : {}),
+      ...(filtersVisible.value ? hiddenFilterParams(hiddenFilter.value) : {}),
       ...(isRefresh && isSourceMode.value && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
       ...(isSourceMode.value && effectiveSourceId.value > 0 ? { source_id: effectiveSourceId.value } : {}),
     }
@@ -640,6 +739,78 @@ async function loadItems(
         ? () => releaseRefreshLayoutAfterSettled(releaseRefreshLayoutFreeze)
         : releaseRefreshLayoutFreeze,
     })
+  }
+}
+
+function updateCachedItemState(itemID: number, patch: Partial<Pick<FeedItem, 'is_read' | 'is_favorite' | 'is_hidden'>>) {
+  const previousLength = items.value.length
+  const nextItems = items.value
+    .map((item) => (item.id === itemID ? { ...item, ...patch } : item))
+    .filter(currentFiltersMatch)
+  items.value = sortItemsDescending(nextItems)
+  nextOffset.value = items.value.length
+  if (items.value.length < previousLength) {
+    totalCount.value = Math.max(items.value.length, totalCount.value - (previousLength - items.value.length))
+  }
+  writeItemsToCache()
+}
+
+function restoreCachedItemState(
+  item: FeedItem,
+  patch: Partial<Pick<FeedItem, 'is_read' | 'is_favorite' | 'is_hidden'>>,
+) {
+  const restoredItem = { ...item, ...patch }
+  let restored = false
+  const nextItems = items.value.map((current) => {
+    if (current.id !== item.id) {
+      return current
+    }
+    restored = true
+    return restoredItem
+  })
+  if (!restored && currentFiltersMatch(restoredItem)) {
+    nextItems.push(restoredItem)
+  }
+  items.value = sortItemsDescending(nextItems.filter(currentFiltersMatch))
+  nextOffset.value = items.value.length
+  totalCount.value = Math.max(totalCount.value, items.value.length)
+  writeItemsToCache()
+}
+
+async function updateItemState(item: FeedItem, key: ItemStateKey) {
+  if (itemActionBusy.value[item.id]) {
+    return
+  }
+  itemActionBusy.value = { ...itemActionBusy.value, [item.id]: key }
+  const previousState = {
+    is_read: item.is_read,
+    is_favorite: item.is_favorite,
+    is_hidden: item.is_hidden,
+  }
+  try {
+    if (key === 'read') {
+      const nextValue = !item.is_read
+      updateCachedItemState(item.id, { is_read: nextValue })
+      const state = await setItemRead(item.id, nextValue)
+      updateCachedItemState(item.id, { is_read: state.is_read })
+      return
+    }
+    if (key === 'favorite') {
+      const nextValue = !item.is_favorite
+      updateCachedItemState(item.id, { is_favorite: nextValue })
+      const state = await setItemFavorite(item.id, nextValue)
+      updateCachedItemState(item.id, { is_favorite: state.is_favorite })
+      return
+    }
+    const nextValue = !item.is_hidden
+    updateCachedItemState(item.id, { is_hidden: nextValue })
+    const state = await setItemHidden(item.id, nextValue)
+    updateCachedItemState(item.id, { is_hidden: state.is_hidden })
+  } catch (err) {
+    restoreCachedItemState(item, previousState)
+    showFeedNotice('warning', `状态更新失败：${formatAPIError(err)}`)
+  } finally {
+    itemActionBusy.value = { ...itemActionBusy.value, [item.id]: '' }
   }
 }
 
@@ -912,6 +1083,7 @@ function handleTouchCancel() {
 }
 
 onMounted(() => {
+  void loadFilterSources()
   loadInitialItems()
   window.addEventListener('focus', refreshStaleCacheInBackground)
   document.addEventListener('visibilitychange', handleVisibilityRefresh)
@@ -963,10 +1135,17 @@ watch(
       pullOwnerViewKey: previousViewKey,
     })
     if (props.active) {
+      void loadFilterSources()
       loadInitialItems()
     }
   },
 )
+
+watch(filtersVisible, (visible) => {
+  if (visible) {
+    void loadFilterSources()
+  }
+})
 
 watch(
   cacheRevision,
@@ -1057,6 +1236,48 @@ watch(
     </Teleport>
 
     <div ref="feedBodyRef" class="feed-list-body" :style="feedBodyStyle">
+      <section v-if="filtersVisible" class="feed-filter-bar" aria-label="时间线筛选">
+        <label class="feed-filter-bar__field">
+          <span>来源</span>
+          <select v-model.number="selectedSourceID" :disabled="filtersLoading">
+            <option :value="0">全部来源</option>
+            <option v-for="source in sources" :key="source.id" :value="source.id">
+              {{ source.name }}
+            </option>
+          </select>
+        </label>
+        <label class="feed-filter-bar__field">
+          <span>阅读</span>
+          <select v-model="readFilter">
+            <option value="all">全部</option>
+            <option value="false">未读</option>
+            <option value="true">已读</option>
+          </select>
+        </label>
+        <label class="feed-filter-bar__field">
+          <span>收藏</span>
+          <select v-model="favoriteFilter">
+            <option value="all">全部</option>
+            <option value="true">已收藏</option>
+            <option value="false">未收藏</option>
+          </select>
+        </label>
+        <label class="feed-filter-bar__field">
+          <span>隐藏</span>
+          <select v-model="hiddenFilter">
+            <option value="visible">可见</option>
+            <option value="all">全部</option>
+            <option value="hidden">已隐藏</option>
+          </select>
+        </label>
+      </section>
+      <a-alert
+        v-if="filterErrorMessage"
+        class="feed-alert"
+        type="warning"
+        :content="filterErrorMessage"
+        show-icon
+      />
       <a-alert v-if="errorMessage" class="feed-alert" type="warning" :content="errorMessage" show-icon />
 
       <section v-if="loading && !hasItems" class="empty-surface">
@@ -1095,7 +1316,22 @@ watch(
             <h2>{{ item.title }}</h2>
             <p>{{ itemSummary(item) }}</p>
           </button>
-          <div class="feed-item__actions" :style="feedItemPreviewStyle(item)">
+          <div
+            class="feed-item__actions"
+            :style="feedItemPreviewStyle(item)"
+            @pointerdown.stop
+            @touchstart.stop
+          >
+            <ActionBar
+              compact
+              :is-read="item.is_read"
+              :is-favorite="item.is_favorite"
+              :is-hidden="item.is_hidden"
+              :busy-key="itemActionBusy[item.id]"
+              @toggle-read="updateItemState(item, 'read')"
+              @toggle-favorite="updateItemState(item, 'favorite')"
+              @toggle-hidden="updateItemState(item, 'hidden')"
+            />
             <a :href="item.url" target="_blank" rel="noreferrer">阅读原文</a>
           </div>
         </article>
