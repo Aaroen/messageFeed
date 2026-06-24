@@ -9,9 +9,11 @@ import (
 
 func TestAgentApprovalServiceGetAndApprove(t *testing.T) {
 	now := time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
+	planID := int64(22)
 	store := fakeAgentApprovalStore{
 		approval: domain.AgentApproval{
 			ID:                9,
+			PlanID:            &planID,
 			UserID:            1,
 			ApprovalTokenHash: hashSecret("token"),
 			Channel:           "web",
@@ -36,6 +38,9 @@ func TestAgentApprovalServiceGetAndApprove(t *testing.T) {
 	}
 	if decided.Status != "approved" {
 		t.Fatalf("Decide status = %q, want approved", decided.Status)
+	}
+	if store.planID != planID || store.plan != domain.AgentPlanStatusApproved {
+		t.Fatalf("plan status = (%d, %q), want (%d, approved)", store.planID, store.plan, planID)
 	}
 }
 
@@ -64,6 +69,8 @@ func TestAgentApprovalServiceMarksExpiredDetail(t *testing.T) {
 
 type fakeAgentApprovalStore struct {
 	approval domain.AgentApproval
+	planID   int64
+	plan     domain.AgentPlanStatus
 }
 
 func (s *fakeAgentApprovalStore) GetByTokenHash(ctx context.Context, userID int64, tokenHash string) (domain.AgentApproval, error) {
@@ -83,4 +90,13 @@ func (s *fakeAgentApprovalStore) Decide(ctx context.Context, userID int64, token
 	s.approval.Status = status
 	s.approval.DecidedAt = &now
 	return s.approval, nil
+}
+
+func (s *fakeAgentApprovalStore) UpdateAgentPlanStatusForApproval(_ context.Context, userID int64, planID int64, status domain.AgentPlanStatus, _ time.Time) error {
+	if s.approval.UserID != userID || s.approval.PlanID == nil || *s.approval.PlanID != planID {
+		return domain.ErrNotFound
+	}
+	s.planID = planID
+	s.plan = status
+	return nil
 }

@@ -20,6 +20,8 @@ type agentSessionService interface {
 	ListTranscripts(ctx context.Context, auth service.CurrentAuth, sessionID int64, beforeEntryID int64, limit int) (service.AgentTranscriptListResult, error)
 	ListRunsByTurn(ctx context.Context, auth service.CurrentAuth, turnID int64) (service.AgentRunListResult, error)
 	GetRunDetail(ctx context.Context, auth service.CurrentAuth, runID int64) (service.AgentRunDetailResult, error)
+	ListPlans(ctx context.Context, auth service.CurrentAuth, sessionID int64, turnID int64, limit int) (service.AgentPlanListResult, error)
+	GetPlanDetail(ctx context.Context, auth service.CurrentAuth, planID int64) (service.AgentPlanDetailResult, error)
 }
 
 type authPasswordVerifier interface {
@@ -48,10 +50,46 @@ func registerAgentSessionRoutes(router *gin.RouterGroup, sessionService agentSes
 	agent.GET("/sessions/:id/transcripts", handler.transcripts)
 	agent.GET("/turns/:turn_id/runs", handler.turnRuns)
 	agent.GET("/runs/:run_id", handler.runDetail)
+	agent.GET("/plans", handler.plans)
+	agent.GET("/plans/:plan_id", handler.planDetail)
 	agent.POST("/sessions/:id/select", handler.selectSession)
 	agent.POST("/sessions/:id/rebuild-context", handler.rebuildContext)
 	agent.DELETE("/sessions/:id/context", handler.clearContext)
 	agent.DELETE("/sessions/:id", handler.deleteSession)
+}
+
+func (h agentSessionHandler) plans(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	sessionID, _ := strconv.ParseInt(c.DefaultQuery("session_id", "0"), 10, 64)
+	turnID, _ := strconv.ParseInt(c.DefaultQuery("turn_id", "0"), 10, 64)
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	result, err := h.service.ListPlans(c.Request.Context(), currentAuth(c), sessionID, turnID, limit)
+	if err != nil {
+		RenderError(c, err, "load agent plans failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) planDetail(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	planID, err := strconv.ParseInt(c.Param("plan_id"), 10, 64)
+	if err != nil || planID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid agent plan id")
+		return
+	}
+	result, err := h.service.GetPlanDetail(c.Request.Context(), currentAuth(c), planID)
+	if err != nil {
+		RenderError(c, err, "load agent plan failed")
+		return
+	}
+	Success(c, result)
 }
 
 func (h agentSessionHandler) turnRuns(c *gin.Context) {

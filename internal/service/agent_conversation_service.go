@@ -39,6 +39,9 @@ type AgentConversationRepository interface {
 	CreateAgentRunContextTrace(ctx context.Context, trace domain.AgentRunContextTrace) (domain.AgentRunContextTrace, error)
 	CreateAgentObservation(ctx context.Context, observation domain.AgentObservation) (domain.AgentObservation, error)
 	CreateAgentArtifact(ctx context.Context, artifact domain.AgentArtifact) (domain.AgentArtifact, error)
+	CreateAgentPlan(ctx context.Context, plan domain.AgentPlan, steps []domain.AgentPlanStep) (domain.AgentPlan, error)
+	CreateAgentApproval(ctx context.Context, approval domain.AgentApproval) (domain.AgentApproval, error)
+	CreateAgentCapabilityAuditLog(ctx context.Context, log domain.AgentCapabilityAuditLog) (domain.AgentCapabilityAuditLog, error)
 }
 
 type AgentExternalAccountResolver interface {
@@ -80,6 +83,7 @@ type AgentConversationService struct {
 	notificationJobs   AgentNotificationJobStore
 	turnRunner         *agent.TurnRunner
 	runManager         *agent.RunManager
+	planner            *agent.Planner
 	capabilityRegistry *agent.CapabilityRegistry
 	policyEngine       *agent.PolicyEngine
 	now                func() time.Time
@@ -178,6 +182,7 @@ func NewAgentConversationService(repository AgentConversationRepository, options
 		option(service)
 	}
 	service.runManager = agent.NewRunManager(agent.RunManagerOptions{Store: repository, Now: service.now})
+	service.planner = agent.NewPlanner(agent.PlannerOptions{Registry: service.capabilityRegistry, Policy: service.policyEngine, Now: service.now})
 	service.rebuildTurnRunner()
 	return service
 }
@@ -492,6 +497,30 @@ func (s *AgentConversationService) processTurn(
 		opErr = err
 		return ReceiveWeChatWorkAppMessageResult{Turn: turn}, err
 	}
+	plan, approvalToken, err := s.createPlanForTurn(ctx, account, session, turn, controllerRun, input)
+	if err != nil {
+		opErr = err
+		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
+		return ReceiveWeChatWorkAppMessageResult{Turn: turn}, err
+	}
+	if plan.Status == domain.AgentPlanStatusAwaitingApproval {
+		reply := approvalRequiredReply(plan, approvalToken)
+		_, _ = s.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
+			RunID:     controllerRun.ID,
+			TraceKind: "plan_awaiting_approval",
+			ModelKey:  controllerRun.ModelKey,
+			Content: domain.AgentJSON{
+				"plan_id":             plan.ID,
+				"status":              string(plan.Status),
+				"policy_decision":     plan.PolicyDecision,
+				"confirmation_policy": plan.ConfirmationPolicy,
+				"allowed_scopes":      plan.AllowedScopes,
+			},
+			RedactionStatus: "redacted",
+		})
+		_, _ = s.runManager.CompleteRun(ctx, controllerRun, "plan_approval")
+		return s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "awaiting_approval")
+	}
 	runResult, err := s.turnRunner.Run(ctx, agent.TurnRunInput{
 		UserID:          account.UserID,
 		Session:         session,
@@ -569,6 +598,165 @@ func (s *AgentConversationService) processTurn(
 		CreatedAt: finishedAt,
 	})
 
+	return ReceiveWeChatWorkAppMessageResult{
+		ExternalAccount: account,
+		InboundMessage:  inbound,
+		Session:         session,
+		Turn:            turn,
+		Reply:           reply,
+		SendResult:      sendResult,
+	}, nil
+}
+
+func (s *AgentConversationService) createPlanForTurn(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	controllerRun domain.AgentRun,
+	input ReceiveWeChatWorkAppMessageInput,
+) (domain.AgentPlan, string, error) {
+	if s.planner == nil || s.repository == nil {
+		return domain.AgentPlan{}, "", nil
+	}
+	output := s.planner.Build(ctx, agent.PlanInput{
+		UserID:          account.UserID,
+		SessionID:       session.ID,
+		TurnID:          turn.ID,
+		ControllerRunID: controllerRun.ID,
+		Goal:            input.TextContent,
+	})
+	plan, err := s.repository.CreateAgentPlan(ctx, output.Plan, output.Steps)
+	if err != nil {
+		return domain.AgentPlan{}, "", err
+	}
+	for _, step := range plan.Steps {
+		_, _ = s.repository.CreateAgentCapabilityAuditLog(ctx, domain.AgentCapabilityAuditLog{
+			UserID:        account.UserID,
+			SessionID:     session.ID,
+			TurnID:        turn.ID,
+			RunID:         controllerRun.ID,
+			PlanID:        plan.ID,
+			PlanStepID:    step.ID,
+			CapabilityKey: step.CapabilityKey,
+			Decision:      plan.PolicyDecision,
+			Reason:        plan.PolicyReason,
+			InputSummary:  step.InputSummary,
+			Status:        "planned",
+			Metadata: domain.AgentJSON{
+				"capability_scope": step.CapabilityScope,
+				"request_id":       input.RequestID,
+				"trace_id":         input.TraceID,
+			},
+			CreatedAt: s.now().UTC(),
+		})
+	}
+	if plan.Status != domain.AgentPlanStatusAwaitingApproval {
+		return plan, "", nil
+	}
+	token, err := newURLToken()
+	if err != nil {
+		return domain.AgentPlan{}, "", err
+	}
+	now := s.now().UTC()
+	planID := plan.ID
+	externalAccountID := account.ID
+	_, err = s.repository.CreateAgentApproval(ctx, domain.AgentApproval{
+		PlanID:            &planID,
+		UserID:            account.UserID,
+		ExternalAccountID: &externalAccountID,
+		ApprovalTokenHash: hashSecret(token),
+		Channel:           "wechat_work_app",
+		Status:            domain.AgentApprovalStatusPending,
+		ExpiresAt:         now.Add(30 * time.Minute),
+		RequestID:         input.RequestID,
+		TraceID:           input.TraceID,
+		Metadata: domain.AgentJSON{
+			"plan_summary":        plan.Summary,
+			"impact_summary":      plan.ImpactSummary,
+			"risk_level":          plan.RiskLevel,
+			"confirmation_policy": plan.ConfirmationPolicy,
+			"allowed_scopes":      plan.AllowedScopes,
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if err != nil {
+		return domain.AgentPlan{}, "", err
+	}
+	return plan, token, nil
+}
+
+func approvalRequiredReply(plan domain.AgentPlan, token string) string {
+	var builder strings.Builder
+	builder.WriteString("该操作需要确认后才能继续。\n计划：")
+	builder.WriteString(plan.Summary)
+	builder.WriteString("\n影响：")
+	builder.WriteString(plan.ImpactSummary)
+	builder.WriteString("\n审批地址：/agent/approvals/")
+	builder.WriteString(token)
+	return builder.String()
+}
+
+func (s *AgentConversationService) finishTurnWithReply(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	inbound domain.AgentInboundMessage,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	reply string,
+	observations []agent.CapabilityObservation,
+	auditStatus string,
+) (ReceiveWeChatWorkAppMessageResult, error) {
+	now := s.now().UTC()
+	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
+		SessionID: session.ID,
+		TurnID:    turn.ID,
+		UserID:    account.UserID,
+		Role:      domain.AgentTranscriptRoleAssistant,
+		Content:   reply,
+		Metadata: domain.AgentJSON{
+			"observations": agent.ObservationMetadata(observations),
+		},
+		CreatedAt: now,
+	})
+	finishedAt := now
+	turn.Status = domain.AgentTurnStatusSucceeded
+	turn.OutputText = reply
+	turn.FinishedAt = &finishedAt
+	turn, _ = s.repository.UpdateTurn(ctx, turn)
+
+	sendResult := notifier.WeChatWorkSendResult{}
+	sendCount := 0
+	if s.sender != nil {
+		var err error
+		sendResult, sendCount, err = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
+		if err != nil {
+			_, _ = s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusFailed, s.now().UTC())
+			return ReceiveWeChatWorkAppMessageResult{ExternalAccount: account, InboundMessage: inbound, Session: session, Turn: turn, Reply: reply}, err
+		}
+	}
+	inbound, _ = s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusSucceeded, s.now().UTC())
+	if auditStatus == "" {
+		auditStatus = "succeeded"
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: session.ID,
+		TurnID:    turn.ID,
+		UserID:    account.UserID,
+		EventType: "agent.turn_reply",
+		Status:    auditStatus,
+		Message:   "agent turn completed with direct reply",
+		Metadata: domain.AgentJSON{
+			"provider_message_id": input.ProviderMessageID,
+			"send_count":          sendCount,
+			"observations":        agent.ObservationMetadata(observations),
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: s.now().UTC(),
+	})
 	return ReceiveWeChatWorkAppMessageResult{
 		ExternalAccount: account,
 		InboundMessage:  inbound,

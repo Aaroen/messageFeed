@@ -84,6 +84,39 @@ func (r *AgentApprovalRepository) Decide(ctx context.Context, userID int64, toke
 	return agentApprovalModelToDomain(model), nil
 }
 
+func (r *AgentApprovalRepository) UpdateAgentPlanStatusForApproval(ctx context.Context, userID int64, planID int64, status domain.AgentPlanStatus, now time.Time) error {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_approval.update_plan_status", "update", "agent_plans")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	if status != domain.AgentPlanStatusApproved && status != domain.AgentPlanStatusRejected {
+		opErr = domain.ErrInvalidInput
+		return opErr
+	}
+	updates := map[string]any{
+		"status":     string(status),
+		"updated_at": now.UTC(),
+	}
+	if status == domain.AgentPlanStatusApproved {
+		updates["approved_at"] = now.UTC()
+	} else {
+		updates["rejected_at"] = now.UTC()
+	}
+	result := r.db.WithContext(ctx).
+		Model(&agentPlanModel{}).
+		Where("id = ? AND user_id = ? AND status IN ?", planID, userID, []string{string(domain.AgentPlanStatusDraft), string(domain.AgentPlanStatusAwaitingApproval)}).
+		Updates(updates)
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return opErr
+	}
+	return nil
+}
+
 func agentApprovalModelToDomain(model agentApprovalModel) domain.AgentApproval {
 	return domain.AgentApproval{
 		ID:                model.ID,

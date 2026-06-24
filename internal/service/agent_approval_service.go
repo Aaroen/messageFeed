@@ -14,6 +14,7 @@ import (
 type AgentApprovalStore interface {
 	GetByTokenHash(ctx context.Context, userID int64, tokenHash string) (domain.AgentApproval, error)
 	Decide(ctx context.Context, userID int64, tokenHash string, status domain.AgentApprovalStatus, now time.Time) (domain.AgentApproval, error)
+	UpdateAgentPlanStatusForApproval(ctx context.Context, userID int64, planID int64, status domain.AgentPlanStatus, now time.Time) error
 }
 
 type AgentApprovalService struct {
@@ -105,6 +106,16 @@ func (s *AgentApprovalService) Decide(ctx context.Context, userID int64, token s
 		}
 		opErr = err
 		return AgentApprovalDetail{}, err
+	}
+	if approval.PlanID != nil && *approval.PlanID > 0 {
+		planStatus := domain.AgentPlanStatusApproved
+		if status == domain.AgentApprovalStatusRejected {
+			planStatus = domain.AgentPlanStatusRejected
+		}
+		if err := s.store.UpdateAgentPlanStatusForApproval(ctx, userID, *approval.PlanID, planStatus, s.now().UTC()); err != nil {
+			opErr = err
+			return AgentApprovalDetail{}, err
+		}
 	}
 	span.SetAttributes(attribute.Int64("agent.approval_id", approval.ID))
 	return s.detail(approval), nil

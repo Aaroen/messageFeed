@@ -262,6 +262,19 @@ func (r *AgentRepository) CreateAgentCapabilityAuditLog(ctx context.Context, log
 	return agentCapabilityAuditLogModelToDomain(model), nil
 }
 
+func (r *AgentRepository) CreateAgentApproval(ctx context.Context, approval domain.AgentApproval) (domain.AgentApproval, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_approval.create", "insert", "agent_approvals")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	model := agentApprovalModelFromDomain(normalizeAgentApproval(approval))
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentApproval{}, opErr
+	}
+	return agentApprovalModelToDomain(model), nil
+}
+
 func normalizeAgentPlan(plan domain.AgentPlan) domain.AgentPlan {
 	plan.Goal = strings.TrimSpace(plan.Goal)
 	plan.Summary = strings.TrimSpace(plan.Summary)
@@ -326,6 +339,23 @@ func normalizeAgentCapabilityAuditLog(log domain.AgentCapabilityAuditLog) domain
 		log.Metadata = domain.AgentJSON{}
 	}
 	return log
+}
+
+func normalizeAgentApproval(approval domain.AgentApproval) domain.AgentApproval {
+	approval.ApprovalTokenHash = strings.TrimSpace(approval.ApprovalTokenHash)
+	approval.Channel = strings.TrimSpace(approval.Channel)
+	approval.RequestID = strings.TrimSpace(approval.RequestID)
+	approval.TraceID = strings.TrimSpace(approval.TraceID)
+	if approval.Channel == "" {
+		approval.Channel = "web"
+	}
+	if !approval.Status.Valid() {
+		approval.Status = domain.AgentApprovalStatusPending
+	}
+	if approval.Metadata == nil {
+		approval.Metadata = domain.AgentJSON{}
+	}
+	return approval
 }
 
 func agentPlanModelFromDomain(plan domain.AgentPlan) agentPlanModel {
@@ -475,5 +505,24 @@ func agentCapabilityAuditLogModelToDomain(model agentCapabilityAuditLogModel) do
 		SourceRefs:    append([]string(nil), model.SourceRefs...),
 		Metadata:      cloneAgentJSON(model.Metadata),
 		CreatedAt:     model.CreatedAt,
+	}
+}
+
+func agentApprovalModelFromDomain(approval domain.AgentApproval) agentApprovalModel {
+	return agentApprovalModel{
+		ID:                approval.ID,
+		PlanID:            approval.PlanID,
+		UserID:            approval.UserID,
+		ExternalAccountID: approval.ExternalAccountID,
+		ApprovalTokenHash: approval.ApprovalTokenHash,
+		Channel:           approval.Channel,
+		Status:            string(approval.Status),
+		ExpiresAt:         approval.ExpiresAt,
+		DecidedAt:         approval.DecidedAt,
+		RequestID:         approval.RequestID,
+		TraceID:           approval.TraceID,
+		Metadata:          cloneAgentJSON(approval.Metadata),
+		CreatedAt:         approval.CreatedAt,
+		UpdatedAt:         approval.UpdatedAt,
 	}
 }

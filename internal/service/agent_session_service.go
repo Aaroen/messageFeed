@@ -24,6 +24,8 @@ type AgentSessionRepository interface {
 	ListRecentTranscriptEntries(ctx context.Context, options domain.AgentTranscriptListOptions) ([]domain.AgentTranscriptEntry, error)
 	ListAgentRunsByTurn(ctx context.Context, userID int64, turnID int64) ([]domain.AgentRun, error)
 	GetAgentRunDetail(ctx context.Context, userID int64, runID int64) (domain.AgentRun, error)
+	ListAgentPlans(ctx context.Context, userID int64, sessionID int64, turnID int64, limit int) ([]domain.AgentPlan, error)
+	GetAgentPlan(ctx context.Context, userID int64, planID int64) (domain.AgentPlan, error)
 }
 
 type AgentSessionService struct {
@@ -114,6 +116,14 @@ type AgentRunDetailResult struct {
 	Run AgentRunResponse `json:"run"`
 }
 
+type AgentPlanListResult struct {
+	Plans []AgentPlanResponse `json:"plans"`
+}
+
+type AgentPlanDetailResult struct {
+	Plan AgentPlanResponse `json:"plan"`
+}
+
 type AgentRunResponse struct {
 	ID              int64                          `json:"id"`
 	ParentRunID     int64                          `json:"parent_run_id"`
@@ -173,6 +183,69 @@ type AgentArtifactResponse struct {
 	SourceRefs   []string `json:"source_refs"`
 	ContentHash  string   `json:"content_hash"`
 	CreatedAt    string   `json:"created_at"`
+}
+
+type AgentPlanResponse struct {
+	ID                 int64                       `json:"id"`
+	UserID             int64                       `json:"user_id"`
+	SessionID          int64                       `json:"session_id"`
+	TurnID             int64                       `json:"turn_id"`
+	ControllerRunID    int64                       `json:"controller_run_id"`
+	Status             string                      `json:"status"`
+	Goal               string                      `json:"goal"`
+	Summary            string                      `json:"summary"`
+	ImpactSummary      string                      `json:"impact_summary"`
+	RiskLevel          string                      `json:"risk_level"`
+	ConfirmationPolicy string                      `json:"confirmation_policy"`
+	AllowedScopes      []string                    `json:"allowed_scopes"`
+	DedupeKey          string                      `json:"dedupe_key"`
+	PolicyDecision     string                      `json:"policy_decision"`
+	PolicyReason       string                      `json:"policy_reason"`
+	ExpiresAt          string                      `json:"expires_at,omitempty"`
+	ApprovedAt         string                      `json:"approved_at,omitempty"`
+	RejectedAt         string                      `json:"rejected_at,omitempty"`
+	CompletedAt        string                      `json:"completed_at,omitempty"`
+	FailedAt           string                      `json:"failed_at,omitempty"`
+	ErrorMessage       string                      `json:"error_message"`
+	Metadata           domain.AgentJSON            `json:"metadata"`
+	CreatedAt          string                      `json:"created_at"`
+	UpdatedAt          string                      `json:"updated_at"`
+	Steps              []AgentPlanStepResponse     `json:"steps,omitempty"`
+	Approvals          []AgentPlanApprovalResponse `json:"approvals,omitempty"`
+}
+
+type AgentPlanStepResponse struct {
+	ID              int64    `json:"id"`
+	PlanID          int64    `json:"plan_id"`
+	StepOrder       int      `json:"step_order"`
+	Status          string   `json:"status"`
+	CapabilityKey   string   `json:"capability_key"`
+	CapabilityScope []string `json:"capability_scope"`
+	Title           string   `json:"title"`
+	InputSummary    string   `json:"input_summary"`
+	OutputSummary   string   `json:"output_summary"`
+	ExpectedOutput  string   `json:"expected_output"`
+	FailureStrategy string   `json:"failure_strategy"`
+	ExecutorRunID   int64    `json:"executor_run_id"`
+	ObservationRef  string   `json:"observation_ref"`
+	ArtifactRefs    []string `json:"artifact_refs"`
+	ErrorMessage    string   `json:"error_message"`
+	StartedAt       string   `json:"started_at,omitempty"`
+	CompletedAt     string   `json:"completed_at,omitempty"`
+	CreatedAt       string   `json:"created_at"`
+	UpdatedAt       string   `json:"updated_at"`
+}
+
+type AgentPlanApprovalResponse struct {
+	ID        int64            `json:"id"`
+	PlanID    *int64           `json:"plan_id,omitempty"`
+	Channel   string           `json:"channel"`
+	Status    string           `json:"status"`
+	ExpiresAt string           `json:"expires_at"`
+	DecidedAt string           `json:"decided_at,omitempty"`
+	Metadata  domain.AgentJSON `json:"metadata"`
+	CreatedAt string           `json:"created_at"`
+	UpdatedAt string           `json:"updated_at"`
 }
 
 func (s *AgentSessionService) ListSessions(ctx context.Context, auth CurrentAuth) (AgentSessionListResult, error) {
@@ -375,6 +448,41 @@ func (s *AgentSessionService) GetRunDetail(ctx context.Context, auth CurrentAuth
 	return AgentRunDetailResult{Run: agentRunResponse(run, true)}, nil
 }
 
+func (s *AgentSessionService) ListPlans(ctx context.Context, auth CurrentAuth, sessionID int64, turnID int64, limit int) (AgentPlanListResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentPlanListResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_plans_unavailable", "agent plan service is unavailable", "service.agent_session.plans", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return AgentPlanListResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	plans, err := s.repository.ListAgentPlans(ctx, auth.User.ID, sessionID, turnID, limit)
+	if err != nil {
+		return AgentPlanListResult{}, err
+	}
+	responses := make([]AgentPlanResponse, 0, len(plans))
+	for _, plan := range plans {
+		responses = append(responses, agentPlanResponse(plan, false))
+	}
+	return AgentPlanListResult{Plans: responses}, nil
+}
+
+func (s *AgentSessionService) GetPlanDetail(ctx context.Context, auth CurrentAuth, planID int64) (AgentPlanDetailResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentPlanDetailResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_plans_unavailable", "agent plan service is unavailable", "service.agent_session.plan_detail", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return AgentPlanDetailResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	if planID < 1 {
+		return AgentPlanDetailResult{}, fmt.Errorf("%w: plan id is required", domain.ErrInvalidInput)
+	}
+	plan, err := s.repository.GetAgentPlan(ctx, auth.User.ID, planID)
+	if err != nil {
+		return AgentPlanDetailResult{}, err
+	}
+	return AgentPlanDetailResult{Plan: agentPlanResponse(plan, true)}, nil
+}
+
 func manualAgentSessionKey(account domain.ExternalAccount) string {
 	var random [8]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -494,6 +602,75 @@ func agentRunResponse(run domain.AgentRun, includeDetail bool) AgentRunResponse 
 	}
 	for _, child := range run.ChildRuns {
 		response.ChildRuns = append(response.ChildRuns, agentRunResponse(child, false))
+	}
+	return response
+}
+
+func agentPlanResponse(plan domain.AgentPlan, includeDetail bool) AgentPlanResponse {
+	response := AgentPlanResponse{
+		ID:                 plan.ID,
+		UserID:             plan.UserID,
+		SessionID:          plan.SessionID,
+		TurnID:             plan.TurnID,
+		ControllerRunID:    plan.ControllerRunID,
+		Status:             string(plan.Status),
+		Goal:               plan.Goal,
+		Summary:            plan.Summary,
+		ImpactSummary:      plan.ImpactSummary,
+		RiskLevel:          plan.RiskLevel,
+		ConfirmationPolicy: plan.ConfirmationPolicy,
+		AllowedScopes:      append([]string(nil), plan.AllowedScopes...),
+		DedupeKey:          plan.DedupeKey,
+		PolicyDecision:     plan.PolicyDecision,
+		PolicyReason:       plan.PolicyReason,
+		ExpiresAt:          formatOptionalTime(plan.ExpiresAt),
+		ApprovedAt:         formatOptionalTime(plan.ApprovedAt),
+		RejectedAt:         formatOptionalTime(plan.RejectedAt),
+		CompletedAt:        formatOptionalTime(plan.CompletedAt),
+		FailedAt:           formatOptionalTime(plan.FailedAt),
+		ErrorMessage:       plan.ErrorMessage,
+		Metadata:           cloneApprovalMetadata(plan.Metadata),
+		CreatedAt:          formatOptionalTime(&plan.CreatedAt),
+		UpdatedAt:          formatOptionalTime(&plan.UpdatedAt),
+	}
+	if !includeDetail {
+		return response
+	}
+	for _, step := range plan.Steps {
+		response.Steps = append(response.Steps, AgentPlanStepResponse{
+			ID:              step.ID,
+			PlanID:          step.PlanID,
+			StepOrder:       step.StepOrder,
+			Status:          string(step.Status),
+			CapabilityKey:   step.CapabilityKey,
+			CapabilityScope: append([]string(nil), step.CapabilityScope...),
+			Title:           step.Title,
+			InputSummary:    step.InputSummary,
+			OutputSummary:   step.OutputSummary,
+			ExpectedOutput:  step.ExpectedOutput,
+			FailureStrategy: step.FailureStrategy,
+			ExecutorRunID:   step.ExecutorRunID,
+			ObservationRef:  step.ObservationRef,
+			ArtifactRefs:    append([]string(nil), step.ArtifactRefs...),
+			ErrorMessage:    step.ErrorMessage,
+			StartedAt:       formatOptionalTime(step.StartedAt),
+			CompletedAt:     formatOptionalTime(step.CompletedAt),
+			CreatedAt:       formatOptionalTime(&step.CreatedAt),
+			UpdatedAt:       formatOptionalTime(&step.UpdatedAt),
+		})
+	}
+	for _, approval := range plan.Approvals {
+		response.Approvals = append(response.Approvals, AgentPlanApprovalResponse{
+			ID:        approval.ID,
+			PlanID:    approval.PlanID,
+			Channel:   approval.Channel,
+			Status:    string(approval.Status),
+			ExpiresAt: formatOptionalTime(&approval.ExpiresAt),
+			DecidedAt: formatOptionalTime(approval.DecidedAt),
+			Metadata:  cloneApprovalMetadata(approval.Metadata),
+			CreatedAt: formatOptionalTime(&approval.CreatedAt),
+			UpdatedAt: formatOptionalTime(&approval.UpdatedAt),
+		})
 	}
 	return response
 }

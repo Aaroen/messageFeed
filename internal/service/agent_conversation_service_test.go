@@ -861,6 +861,9 @@ type fakeAgentConversationRepository struct {
 	contextTraces  []domain.AgentRunContextTrace
 	observations   []domain.AgentObservation
 	artifacts      []domain.AgentArtifact
+	plans          []domain.AgentPlan
+	approvals      []domain.AgentApproval
+	capabilityLogs []domain.AgentCapabilityAuditLog
 }
 
 func newFakeAgentConversationRepository() *fakeAgentConversationRepository {
@@ -1077,6 +1080,32 @@ func (r *fakeAgentConversationRepository) CreateAgentArtifact(_ context.Context,
 	artifact.ID = r.id()
 	r.artifacts = append(r.artifacts, artifact)
 	return artifact, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentPlan(_ context.Context, plan domain.AgentPlan, steps []domain.AgentPlanStep) (domain.AgentPlan, error) {
+	plan.ID = r.id()
+	for index := range steps {
+		steps[index].ID = r.id()
+		steps[index].PlanID = plan.ID
+		if steps[index].StepOrder == 0 {
+			steps[index].StepOrder = index + 1
+		}
+	}
+	plan.Steps = append([]domain.AgentPlanStep(nil), steps...)
+	r.plans = append(r.plans, plan)
+	return plan, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentApproval(_ context.Context, approval domain.AgentApproval) (domain.AgentApproval, error) {
+	approval.ID = r.id()
+	r.approvals = append(r.approvals, approval)
+	return approval, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentCapabilityAuditLog(_ context.Context, log domain.AgentCapabilityAuditLog) (domain.AgentCapabilityAuditLog, error) {
+	log.ID = r.id()
+	r.capabilityLogs = append(r.capabilityLogs, log)
+	return log, nil
 }
 
 func fakeTranscriptRoleAllowed(role domain.AgentTranscriptRole, roles []domain.AgentTranscriptRole) bool {
