@@ -26,7 +26,7 @@ import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { type HiddenFilter, type TriStateFilter, useFeedFiltersStore } from '@/stores/feedFilters'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
 
-type FeedMode = 'subscriptions' | 'recommendations' | 'source' | 'history'
+type FeedMode = 'subscriptions' | 'recommendations' | 'source' | 'favorites' | 'history'
 type SourceKind = 'subscriptions' | 'recommendations'
 type FeedNoticeType = 'success' | 'warning'
 type FeedNotice = { type: FeedNoticeType; message: string }
@@ -84,6 +84,9 @@ const {
   readFilter,
   favoriteFilter,
   hiddenFilter,
+  sources,
+  loading: filtersLoading,
+  error: filterError,
 } = storeToRefs(feedFilters)
 const motionTimings = useMotionTimings()
 const items = ref<FeedItem[]>([])
@@ -161,6 +164,7 @@ const canLoadMore = computed(
 )
 const isRecommendations = computed(() => props.mode === 'recommendations')
 const isSourceMode = computed(() => props.mode === 'source')
+const isFavoritesMode = computed(() => props.mode === 'favorites')
 const isHistoryMode = computed(() => props.mode === 'history')
 const usesGlobalPullState = computed(() => !props.backgroundRefresh)
 const shouldRefreshVisibleSource = computed(() => isSourceMode.value && !props.backgroundRefresh)
@@ -204,6 +208,14 @@ const copy = computed(() => {
       emptyDescription: '标记已读后的内容会显示在这里。',
     }
   }
+  if (isFavoritesMode.value) {
+    return {
+      mark: '藏',
+      loadingTitle: '正在加载收藏内容',
+      emptyTitle: '暂无收藏内容',
+      emptyDescription: '收藏后的内容会显示在这里。',
+    }
+  }
   return {
     mark: '订',
     loadingTitle: '正在加载订阅内容',
@@ -222,6 +234,7 @@ const pullStatusText = computed(() => {
 })
 const pullStatusMeta = computed(() => (lastUpdatedAt.value ? `最近更新 ${lastUpdatedAt.value}` : '尚未更新'))
 const errorMessage = computed(() => error.value.trim())
+const filterErrorMessage = computed(() => filterError.value.trim())
 const filtersVisible = computed(() => props.mode === 'subscriptions' && !isSourceMode.value)
 const pageClass = computed(() => ({
   'feed-list-page--pulling': pullActive.value,
@@ -352,6 +365,9 @@ function mergeItems(currentItems: FeedItem[], nextItems: FeedItem[]) {
 }
 
 function currentFiltersMatch(item: FeedItem) {
+  if (isFavoritesMode.value) {
+    return item.is_favorite && !item.is_hidden
+  }
   if (isHistoryMode.value) {
     return item.is_read && !item.is_hidden
   }
@@ -661,6 +677,7 @@ async function loadItems(
         ? { is_favorite: triStateBool(favoriteFilter.value) }
         : {}),
       ...(filtersVisible.value ? hiddenFilterParams(hiddenFilter.value) : {}),
+      ...(isFavoritesMode.value ? { is_favorite: true, is_hidden: false } : {}),
       ...(isHistoryMode.value ? { is_read: true, is_hidden: false } : {}),
       ...(isRefresh && isSourceMode.value && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
       ...(isSourceMode.value && effectiveSourceId.value > 0 ? { source_id: effectiveSourceId.value } : {}),
@@ -1078,6 +1095,9 @@ function handleTouchCancel() {
 }
 
 onMounted(() => {
+  if (filtersVisible.value) {
+    void feedFilters.loadSources()
+  }
   loadInitialItems()
   window.addEventListener('focus', refreshStaleCacheInBackground)
   document.addEventListener('visibilitychange', handleVisibilityRefresh)
@@ -1129,10 +1149,19 @@ watch(
       pullOwnerViewKey: previousViewKey,
     })
     if (props.active) {
+      if (filtersVisible.value) {
+        void feedFilters.loadSources()
+      }
       loadInitialItems()
     }
   },
 )
+
+watch(filtersVisible, (visible) => {
+  if (visible) {
+    void feedFilters.loadSources()
+  }
+})
 
 watch(
   cacheRevision,
@@ -1223,6 +1252,48 @@ watch(
     </Teleport>
 
     <div ref="feedBodyRef" class="feed-list-body" :style="feedBodyStyle">
+      <section v-if="filtersVisible" class="feed-filter-bar" aria-label="时间线筛选">
+        <label class="feed-filter-bar__field">
+          <span>来源</span>
+          <select v-model.number="selectedSourceID" :disabled="filtersLoading">
+            <option :value="0">全部来源</option>
+            <option v-for="source in sources" :key="source.id" :value="source.id">
+              {{ source.name }}
+            </option>
+          </select>
+        </label>
+        <label class="feed-filter-bar__field">
+          <span>阅读</span>
+          <select v-model="readFilter">
+            <option value="all">全部</option>
+            <option value="false">未读</option>
+            <option value="true">已读</option>
+          </select>
+        </label>
+        <label class="feed-filter-bar__field">
+          <span>收藏</span>
+          <select v-model="favoriteFilter">
+            <option value="all">全部</option>
+            <option value="true">已收藏</option>
+            <option value="false">未收藏</option>
+          </select>
+        </label>
+        <label class="feed-filter-bar__field">
+          <span>隐藏</span>
+          <select v-model="hiddenFilter">
+            <option value="visible">可见</option>
+            <option value="all">全部</option>
+            <option value="hidden">已隐藏</option>
+          </select>
+        </label>
+      </section>
+      <a-alert
+        v-if="filterErrorMessage"
+        class="feed-alert"
+        type="warning"
+        :content="filterErrorMessage"
+        show-icon
+      />
       <a-alert v-if="errorMessage" class="feed-alert" type="warning" :content="errorMessage" show-icon />
 
       <section v-if="loading && !hasItems" class="empty-surface">

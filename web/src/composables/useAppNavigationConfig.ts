@@ -10,6 +10,7 @@ import {
   IconLock,
   IconMessage,
   IconSettings,
+  IconStar,
   IconStorage,
   IconUser,
   IconUserGroup,
@@ -32,6 +33,7 @@ export type AppFeedTab = {
 export function useAppNavigationConfig() {
   const managementItems: AppManagementItem[] = [
     { key: 'sources', label: '订阅管理', path: '/sources', icon: IconBook },
+    { key: 'favorites', label: '收藏', path: '/favorites', icon: IconStar },
     { key: 'history', label: '阅读历史', path: '/history', icon: IconHistory },
     { key: 'settings-account', label: '账户', path: '/settings/account', icon: IconUser },
     { key: 'settings-profile', label: '资料', path: '/settings/profile', icon: IconIdcard },

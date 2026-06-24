@@ -124,6 +124,13 @@ const router = createRouter({
       meta: { title: '订阅管理', section: 'sources' },
     },
     {
+      path: '/favorites',
+      name: 'favorites',
+      component: SubscriptionFeedView,
+      props: { mode: 'favorites' },
+      meta: { title: '收藏', section: 'favorites' },
+    },
+    {
       path: '/history',
       name: 'history',
       component: SubscriptionFeedView,
