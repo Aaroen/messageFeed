@@ -70,12 +70,16 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 			"properties": map[string]any{
 				"mode": map[string]any{
 					"type":        "string",
-					"description": "查询模式。search 为关键词或普通历史查询；earliest 用于查询当前 session 最早聊天；latest 用于查询当前 session 最新聊天。",
-					"enum":        []string{"search", "earliest", "latest"},
+					"description": "查询模式。search 为关键词或普通历史查询；time_range 为按时间范围查询；earliest 用于查询当前 session 最早聊天；latest 用于查询当前 session 最新聊天。",
+					"enum":        []string{"search", "time_range", "earliest", "latest"},
 				},
-				"keyword": map[string]any{
+				"query": map[string]any{
 					"type":        "string",
-					"description": "用于匹配历史聊天原文的关键词。earliest/latest 模式通常留空。",
+					"description": "自然语言查询或关键词。earliest/latest 模式通常留空。",
+				},
+				"time_hint": map[string]any{
+					"type":        "string",
+					"description": "自然语言时间表达，例如昨天、今天上午、上周、2026-06-23 晚上。仅在需要时间过滤时填写。",
 				},
 				"role": map[string]any{
 					"type":        "string",
@@ -88,25 +92,42 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 					"minimum":     1,
 					"maximum":     20,
 				},
-				"before_entry_id": map[string]any{
-					"type":        "integer",
-					"description": "只查询该 transcript entry 之前的历史。",
-				},
-				"after_entry_id": map[string]any{
-					"type":        "integer",
-					"description": "只查询该 transcript entry 之后的历史。",
-				},
-				"order": map[string]any{
+			},
+		},
+	})
+	registry.Register(Capability{
+		Key:         "agent.schedule_message",
+		Name:        "定时发送消息",
+		Description: "创建当前企微用户的定时提醒或定时发送消息任务。默认需要用户明确确认后才能创建。",
+		Mode:        CapabilityModeDeferred,
+		Risk:        CapabilityRiskMedium,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"task_type": map[string]any{
 					"type":        "string",
-					"description": "返回方向。asc 从早到晚，desc 从晚到早；展示给模型时仍会尽量保持可读顺序。",
-					"enum":        []string{"asc", "desc"},
+					"description": "任务类型，reminder 为提醒，send_message 为定时发送消息。",
+					"enum":        []string{"reminder", "send_message"},
 				},
-				"offset": map[string]any{
-					"type":        "integer",
-					"description": "跳过命中结果数量，用于分页。",
-					"minimum":     0,
+				"content": map[string]any{
+					"type":        "string",
+					"description": "到时发送给当前企微用户的文本内容。",
+				},
+				"time_hint": map[string]any{
+					"type":        "string",
+					"description": "自然语言时间表达，例如明天上午9点、2026-06-25 18:30。",
+				},
+				"importance": map[string]any{
+					"type":        "string",
+					"description": "重要性。",
+					"enum":        []string{"normal", "high"},
+				},
+				"confirmed": map[string]any{
+					"type":        "boolean",
+					"description": "仅当用户已经明确确认创建该定时任务时才为 true。",
 				},
 			},
+			"required": []string{"task_type", "content", "time_hint"},
 		},
 	})
 	registry.Register(Capability{

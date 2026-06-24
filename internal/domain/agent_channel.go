@@ -265,6 +265,7 @@ type AgentTranscriptQueryOptions struct {
 	UserID        int64
 	Mode          string
 	Keyword       string
+	TimeHint      string
 	Roles         []AgentTranscriptRole
 	ArchiveStatus AgentTranscriptArchiveStatus
 	MemoryKind    AgentMemoryKind

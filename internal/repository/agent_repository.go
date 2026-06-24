@@ -863,6 +863,7 @@ func normalizeTranscriptListOptions(options domain.AgentTranscriptListOptions) d
 func normalizeTranscriptQueryOptions(options domain.AgentTranscriptQueryOptions) domain.AgentTranscriptQueryOptions {
 	options.Mode = strings.ToLower(strings.TrimSpace(options.Mode))
 	options.Keyword = strings.TrimSpace(options.Keyword)
+	options.TimeHint = strings.TrimSpace(options.TimeHint)
 	options.Order = strings.ToLower(strings.TrimSpace(options.Order))
 	if options.Order != "asc" {
 		options.Order = "desc"

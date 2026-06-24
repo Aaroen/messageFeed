@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"messagefeed/internal/agent"
+	"messagefeed/internal/agent/timeintent"
 	"messagefeed/internal/domain"
 	"strconv"
 	"strings"
@@ -12,9 +14,10 @@ import (
 )
 
 const (
-	conversationHistoryModeSearch   = "search"
-	conversationHistoryModeEarliest = "earliest"
-	conversationHistoryModeLatest   = "latest"
+	conversationHistoryModeSearch    = "search"
+	conversationHistoryModeTimeRange = "time_range"
+	conversationHistoryModeEarliest  = "earliest"
+	conversationHistoryModeLatest    = "latest"
 )
 
 type agentUserContextBlockProvider struct {
@@ -92,14 +95,18 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 	} else if mode == conversationHistoryModeLatest {
 		limit = 1
 	}
+	timeRange := parseConversationHistoryTimeRange(input.MessageText, "", p.currentTime())
 	results, err := p.repository.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{
 		SessionID:     input.SessionID,
 		UserID:        input.UserID,
 		Mode:          mode,
 		Keyword:       keyword,
+		TimeHint:      strings.TrimSpace(input.MessageText),
 		Roles:         []domain.AgentTranscriptRole{domain.AgentTranscriptRoleUser, domain.AgentTranscriptRoleAssistant},
 		BeforeEntryID: beforeEntryID,
 		BeforeTurnID:  input.TurnID,
+		After:         timeRange.After,
+		Before:        timeRange.Before,
 		Order:         order,
 		Limit:         limit,
 	})
@@ -113,6 +120,7 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 		Scope:        "current_session",
 		Entries:      results,
 		MatchedCount: len(results),
+		TimeRange:    timeRange,
 	})
 
 	_, err = p.repository.CreateRecallEvent(ctx, domain.AgentRecallEvent{
@@ -125,6 +133,7 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 			"history_need_hint": string(hint),
 			"mode":              mode,
 			"keyword":           keyword,
+			"time_range":        timeRange.Metadata(),
 			"order":             order,
 			"before_entry_id":   beforeEntryID,
 			"before_turn_id":    input.TurnID,
@@ -146,10 +155,11 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 }
 
 type agentP0CapabilityExecutor struct {
-	repository     AgentConversationRepository
-	recentItems    AgentRecentItemsProvider
-	sourceProvider AgentSourceProvider
-	now            func() time.Time
+	repository       AgentConversationRepository
+	recentItems      AgentRecentItemsProvider
+	sourceProvider   AgentSourceProvider
+	notificationJobs AgentNotificationJobStore
+	now              func() time.Time
 }
 
 func (e agentP0CapabilityExecutor) Execute(ctx context.Context, input agent.CapabilityExecuteInput) (agent.CapabilityExecuteResult, error) {
@@ -174,6 +184,8 @@ func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.
 	switch input.Capability.Key {
 	case "conversation.query_history":
 		return e.queryConversationHistory(ctx, input)
+	case "agent.schedule_message":
+		return e.scheduleMessage(ctx, input)
 	default:
 		return agent.ToolExecuteResult{
 			Content: "当前工具执行器不支持该能力。",
@@ -297,7 +309,9 @@ func (e agentP0CapabilityExecutor) currentTime() time.Time {
 }
 
 type conversationHistoryToolArgs struct {
+	Query         string `json:"query"`
 	Keyword       string `json:"keyword"`
+	TimeHint      string `json:"time_hint"`
 	Role          string `json:"role"`
 	Mode          string `json:"mode"`
 	Order         string `json:"order"`
@@ -305,6 +319,14 @@ type conversationHistoryToolArgs struct {
 	BeforeEntryID int64  `json:"before_entry_id"`
 	AfterEntryID  int64  `json:"after_entry_id"`
 	Offset        int    `json:"offset"`
+}
+
+type scheduleMessageToolArgs struct {
+	TaskType   string `json:"task_type"`
+	Content    string `json:"content"`
+	TimeHint   string `json:"time_hint"`
+	Importance string `json:"importance"`
+	Confirmed  bool   `json:"confirmed"`
 }
 
 func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
@@ -320,12 +342,27 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 
 	args := parseConversationHistoryToolArgs(input.RawArguments)
 	mode := inferConversationHistoryMode(input.Message, args.Mode)
-	keyword := strings.TrimSpace(args.Keyword)
+	keyword := strings.TrimSpace(args.Query)
+	if keyword == "" {
+		keyword = strings.TrimSpace(args.Keyword)
+	}
 	if keyword == "" && mode == conversationHistoryModeSearch {
 		keyword = agent.HistorySearchKeyword(input.Message)
 	}
 	if mode != conversationHistoryModeSearch {
 		keyword = ""
+	}
+	timeRange := parseConversationHistoryTimeRange(input.Message, args.TimeHint, e.currentTime())
+	if mode == conversationHistoryModeTimeRange && !timeRange.Valid {
+		return agent.ToolExecuteResult{
+			Content: "没有识别出明确时间范围。请让用户补充具体时间，例如昨天上午、上周或 2026-06-23 晚上。",
+			Observation: agent.CapabilityObservation{
+				Capability: input.Capability.Key,
+				Decision:   string(agent.PolicyDecisionAllow),
+				Status:     "empty",
+				Summary:    "time range is ambiguous",
+			},
+		}, nil
 	}
 	limit := args.Limit
 	if limit <= 0 {
@@ -359,10 +396,13 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 		UserID:        input.UserID,
 		Mode:          mode,
 		Keyword:       keyword,
+		TimeHint:      args.TimeHint,
 		Roles:         roles,
 		BeforeEntryID: args.BeforeEntryID,
 		AfterEntryID:  args.AfterEntryID,
 		BeforeTurnID:  input.TurnID,
+		After:         timeRange.After,
+		Before:        timeRange.Before,
 		Order:         order,
 		Offset:        args.Offset,
 		Limit:         limit,
@@ -377,6 +417,7 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 		Scope:        "current_session",
 		Entries:      entries,
 		MatchedCount: len(contextMessages),
+		TimeRange:    timeRange,
 	})
 	if len(contextMessages) == 0 {
 		observation.Status = "empty"
@@ -396,6 +437,9 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 			"raw_arguments":   input.RawArguments,
 			"mode":            mode,
 			"keyword":         keyword,
+			"query":           args.Query,
+			"time_hint":       args.TimeHint,
+			"time_range":      timeRange.Metadata(),
 			"role":            args.Role,
 			"order":           order,
 			"limit":           limit,
@@ -422,6 +466,100 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 	return agent.ToolExecuteResult{Content: content, Observation: observation}, nil
 }
 
+func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	observation := agent.CapabilityObservation{
+		Capability: input.Capability.Key,
+		Decision:   string(agent.PolicyDecisionPrompt),
+	}
+	if e.notificationJobs == nil {
+		observation.Status = "skipped"
+		observation.Summary = "notification job store is unavailable"
+		return agent.ToolExecuteResult{Content: "定时消息能力暂不可用。", Observation: observation}, nil
+	}
+	args := parseScheduleMessageToolArgs(input.RawArguments)
+	if args.TaskType == "" {
+		args.TaskType = "reminder"
+	}
+	if args.TaskType != "reminder" && args.TaskType != "send_message" {
+		observation.Status = "failed"
+		observation.Summary = "unsupported scheduled task type"
+		return agent.ToolExecuteResult{Content: "不支持该定时任务类型。", Observation: observation}, nil
+	}
+	content := strings.TrimSpace(args.Content)
+	if content == "" {
+		observation.Status = "failed"
+		observation.Summary = "scheduled content is empty"
+		return agent.ToolExecuteResult{Content: "定时消息内容不能为空。", Observation: observation}, nil
+	}
+	if strings.TrimSpace(input.ExternalUserID) == "" {
+		observation.Status = "failed"
+		observation.Summary = "wechat work recipient is missing"
+		return agent.ToolExecuteResult{Content: "无法确定当前企微接收人，不能创建定时消息。", Observation: observation}, nil
+	}
+	scheduledAt, parseResult := parseScheduleInstant(args.TimeHint, e.currentTime())
+	if scheduledAt.IsZero() {
+		observation.Status = "failed"
+		observation.Summary = "scheduled time is ambiguous"
+		return agent.ToolExecuteResult{Content: "没有识别出明确发送时间。请让用户补充具体时间，例如明天上午9点或 2026-06-25 18:30。", Observation: observation}, nil
+	}
+	if scheduledAt.Before(e.currentTime().Add(-time.Minute)) {
+		observation.Status = "failed"
+		observation.Summary = "scheduled time is in the past"
+		return agent.ToolExecuteResult{Content: "定时发送时间已经过去，不能创建任务。", Observation: observation}, nil
+	}
+	if !args.Confirmed {
+		observation.Status = "requires_confirmation"
+		observation.Summary = "scheduled message requires user confirmation"
+		return agent.ToolExecuteResult{
+			Content:     fmt.Sprintf("该操作会在 %s 创建企微定时消息：%s。需要用户明确确认后才能创建。", scheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), content),
+			Observation: observation,
+		}, nil
+	}
+	now := e.currentTime()
+	job := domain.NotificationJob{
+		UserID:  input.UserID,
+		Status:  domain.NotificationJobStatusQueued,
+		Channel: domain.NotificationChannelWeChatWork,
+		PolicyDecision: domain.AlertPolicyDecision{
+			Status:     domain.AlertPolicyDecisionStatusAllow,
+			AutoNotify: true,
+			Reasons:    []string{"agent scheduled message confirmed by user"},
+			Channel:    string(domain.NotificationChannelWeChatWork),
+		},
+		Payload: domain.NotificationPayload{
+			"task_type":        args.TaskType,
+			"content":          content,
+			"to_user":          strings.TrimSpace(input.ExternalUserID),
+			"time_hint":        args.TimeHint,
+			"time_zone":        parseResult.TimeZone,
+			"importance":       normalizedScheduleImportance(args.Importance),
+			"source":           "agent.schedule_message",
+			"session_id":       input.SessionID,
+			"turn_id":          input.TurnID,
+			"trigger_message":  input.Message,
+			"requires_confirm": false,
+		},
+		RequestID:   input.RequestID,
+		TraceID:     input.TraceID,
+		DedupeKey:   scheduledMessageDedupeKey(input.UserID, input.ExternalUserID, args.TaskType, content, scheduledAt),
+		ScheduledAt: scheduledAt.UTC(),
+		MaxAttempts: 3,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	created, err := e.notificationJobs.CreateJob(ctx, job)
+	if err != nil {
+		return agent.ToolExecuteResult{}, err
+	}
+	observation.Decision = string(agent.PolicyDecisionAllow)
+	observation.Status = "succeeded"
+	observation.Summary = fmt.Sprintf("scheduled notification job %d", created.ID)
+	return agent.ToolExecuteResult{
+		Content:     fmt.Sprintf("已创建定时消息任务，将在 %s 发送。任务 ID：%d。", created.ScheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), created.ID),
+		Observation: observation,
+	}, nil
+}
+
 func parseConversationHistoryToolArgs(raw string) conversationHistoryToolArgs {
 	var args conversationHistoryToolArgs
 	raw = strings.TrimSpace(raw)
@@ -432,6 +570,8 @@ func parseConversationHistoryToolArgs(raw string) conversationHistoryToolArgs {
 		return conversationHistoryToolArgs{}
 	}
 	args.Keyword = strings.TrimSpace(args.Keyword)
+	args.Query = strings.TrimSpace(args.Query)
+	args.TimeHint = strings.TrimSpace(args.TimeHint)
 	args.Role = strings.TrimSpace(args.Role)
 	args.Mode = strings.TrimSpace(args.Mode)
 	args.Order = strings.TrimSpace(args.Order)
@@ -441,11 +581,28 @@ func parseConversationHistoryToolArgs(raw string) conversationHistoryToolArgs {
 	return args
 }
 
+func parseScheduleMessageToolArgs(raw string) scheduleMessageToolArgs {
+	var args scheduleMessageToolArgs
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return args
+	}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return scheduleMessageToolArgs{}
+	}
+	args.TaskType = strings.TrimSpace(args.TaskType)
+	args.Content = strings.TrimSpace(args.Content)
+	args.TimeHint = strings.TrimSpace(args.TimeHint)
+	args.Importance = strings.TrimSpace(args.Importance)
+	return args
+}
+
 type conversationHistoryResultInput struct {
 	Mode         string
 	Scope        string
 	Entries      []domain.AgentTranscriptEntry
 	MatchedCount int
+	TimeRange    conversationHistoryTimeRange
 }
 
 func formatConversationHistoryResult(input conversationHistoryResultInput) string {
@@ -468,6 +625,15 @@ func formatConversationHistoryResult(input conversationHistoryResultInput) strin
 	builder.WriteString(formatHistoryBool(metadata["has_newer"]))
 	builder.WriteString("\n命中条数：")
 	builder.WriteString(strconv.Itoa(input.MatchedCount))
+	if input.TimeRange.Valid {
+		builder.WriteString("\n时间范围：")
+		builder.WriteString(input.TimeRange.After.UTC().Format(time.RFC3339))
+		builder.WriteString(" 至 ")
+		builder.WriteString(input.TimeRange.Before.UTC().Format(time.RFC3339))
+		builder.WriteString("（")
+		builder.WriteString(input.TimeRange.TimeZone)
+		builder.WriteString("）")
+	}
 	if len(input.Entries) == 0 {
 		builder.WriteString("\n没有查到符合条件的历史聊天原文。")
 		if mode == conversationHistoryModeEarliest {
@@ -525,7 +691,7 @@ func formatHistoryBool(value any) string {
 func inferConversationHistoryMode(message string, requested string) string {
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	switch requested {
-	case conversationHistoryModeEarliest, conversationHistoryModeLatest, conversationHistoryModeSearch:
+	case conversationHistoryModeEarliest, conversationHistoryModeLatest, conversationHistoryModeSearch, conversationHistoryModeTimeRange:
 		return requested
 	}
 	message = strings.TrimSpace(message)
@@ -534,6 +700,9 @@ func inferConversationHistoryMode(message string, requested string) string {
 	}
 	if containsAny(message, []string{"最后一条", "最新一条", "最近一条", "末尾"}) {
 		return conversationHistoryModeLatest
+	}
+	if containsAny(message, []string{"昨天", "前天", "今天", "今日", "明天", "后天", "上周", "本周", "这周", "下周", "本月", "这个月", "上午", "下午", "晚上", "凌晨"}) {
+		return conversationHistoryModeTimeRange
 	}
 	return conversationHistoryModeSearch
 }
@@ -545,6 +714,88 @@ func containsAny(value string, terms []string) bool {
 		}
 	}
 	return false
+}
+
+type conversationHistoryTimeRange struct {
+	Valid    bool
+	After    *time.Time
+	Before   *time.Time
+	TimeZone string
+	Matched  string
+}
+
+func (r conversationHistoryTimeRange) Metadata() domain.AgentJSON {
+	if !r.Valid {
+		return domain.AgentJSON{"valid": false}
+	}
+	return domain.AgentJSON{
+		"valid":     true,
+		"after":     r.After.UTC().Format(time.RFC3339),
+		"before":    r.Before.UTC().Format(time.RFC3339),
+		"time_zone": r.TimeZone,
+		"matched":   r.Matched,
+	}
+}
+
+func parseConversationHistoryTimeRange(message string, timeHint string, now time.Time) conversationHistoryTimeRange {
+	text := strings.TrimSpace(timeHint)
+	if text == "" {
+		text = strings.TrimSpace(message)
+	}
+	location := agentTimeLocation()
+	parsed := timeintent.Parse(text, now, location)
+	if !parsed.HasRange() {
+		return conversationHistoryTimeRange{}
+	}
+	after := parsed.StartAt.UTC()
+	before := parsed.EndAt.UTC()
+	return conversationHistoryTimeRange{
+		Valid:    true,
+		After:    &after,
+		Before:   &before,
+		TimeZone: parsed.TimeZone,
+		Matched:  parsed.Matched,
+	}
+}
+
+func agentTimeLocation() *time.Location {
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.Local
+	}
+	return location
+}
+
+func parseScheduleInstant(timeHint string, now time.Time) (time.Time, timeintent.Result) {
+	location := agentTimeLocation()
+	parsed := timeintent.Parse(timeHint, now, location)
+	if parsed.HasInstant() {
+		return parsed.InstantAt.UTC(), parsed
+	}
+	if parsed.HasRange() {
+		return parsed.StartAt.UTC(), parsed
+	}
+	return time.Time{}, parsed
+}
+
+func normalizedScheduleImportance(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "high" {
+		return "high"
+	}
+	return "normal"
+}
+
+func scheduledMessageDedupeKey(userID int64, toUser string, taskType string, content string, scheduledAt time.Time) string {
+	raw := strings.Join([]string{
+		strconv.FormatInt(userID, 10),
+		strings.TrimSpace(toUser),
+		strings.TrimSpace(taskType),
+		strings.TrimSpace(content),
+		scheduledAt.UTC().Format(time.RFC3339),
+	}, "|")
+	sum := sha256.Sum256([]byte(raw))
+	return fmt.Sprintf("agent_scheduled_message:%x", sum[:16])
 }
 
 func (p agentConversationMemoryProvider) currentTime() time.Time {

@@ -366,7 +366,7 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextWithoutPublishi
 }
 
 func TestAgentConversationServiceUsesSelectedActiveSession(t *testing.T) {
-	now := time.Date(2026, 6, 24, 20, 30, 0, 0, time.UTC)
+	now := time.Date(2026, 6, 24, 12, 30, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
 	repository.session = domain.AgentSession{
 		ID:                300,
@@ -524,7 +524,7 @@ func TestAgentConversationServiceExecutesConversationHistoryToolCall(t *testing.
 }
 
 func TestAgentConversationServiceHistoryToolReturnsEarliestBoundary(t *testing.T) {
-	now := time.Date(2026, 6, 24, 20, 30, 0, 0, time.UTC)
+	now := time.Date(2026, 6, 24, 12, 30, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
 	repository.session = domain.AgentSession{ID: 210, UserID: 1, Provider: domain.AgentProviderWeChatWorkApp, ChannelSessionKey: "corp-a:1000002:zhangsan"}
 	repository.transcripts = []domain.AgentTranscriptEntry{
@@ -579,6 +579,148 @@ func TestAgentConversationServiceHistoryToolReturnsEarliestBoundary(t *testing.T
 	}
 	if got := repository.recalls[len(repository.recalls)-1].QueryParams["mode"]; got != conversationHistoryModeEarliest {
 		t.Fatalf("recall mode = %#v", got)
+	}
+}
+
+func TestAgentConversationServiceHistoryToolUsesTimeRange(t *testing.T) {
+	now := time.Date(2026, 6, 24, 12, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 220, UserID: 1, Provider: domain.AgentProviderWeChatWorkApp, ChannelSessionKey: "corp-a:1000002:zhangsan"}
+	repository.transcripts = []domain.AgentTranscriptEntry{
+		{ID: 41, SessionID: 220, TurnID: 1, UserID: 1, Role: domain.AgentTranscriptRoleUser, Content: "昨天的记录", CreatedAt: time.Date(2026, 6, 23, 2, 30, 0, 0, time.UTC)},
+		{ID: 42, SessionID: 220, TurnID: 2, UserID: 1, Role: domain.AgentTranscriptRoleUser, Content: "今天的记录", CreatedAt: time.Date(2026, 6, 24, 2, 30, 0, 0, time.UTC)},
+	}
+	repository.nextID = 221
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "conversation__query_history", Arguments: `{"mode":"time_range","time_hint":"昨天","limit":5}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "昨天你说过：昨天的记录。"},
+		},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	if _, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-time-range-history",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "查一下昨天的聊天",
+	}); err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	toolMessage := llmClient.lastRequest.Messages[len(llmClient.lastRequest.Messages)-1]
+	if !strings.Contains(toolMessage.Content, "查询模式：time_range") || !strings.Contains(toolMessage.Content, "昨天的记录") || strings.Contains(toolMessage.Content, "今天的记录") {
+		t.Fatalf("tool message = %q", toolMessage.Content)
+	}
+}
+
+func TestAgentConversationServiceScheduleMessageRequiresConfirmation(t *testing.T) {
+	now := time.Date(2026, 6, 24, 12, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	notificationStore := &fakeAgentNotificationJobStore{}
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "agent__schedule_message", Arguments: `{"task_type":"reminder","content":"检查部署状态","time_hint":"明天上午9点","confirmed":false}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "需要你确认后我才能创建该提醒。"},
+		},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNotificationJobStore(notificationStore),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	if _, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-schedule-confirm",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "明天上午9点提醒我检查部署状态",
+	}); err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if len(notificationStore.jobs) != 0 {
+		t.Fatalf("notification jobs = %#v, want none", notificationStore.jobs)
+	}
+}
+
+func TestAgentConversationServiceScheduleMessageCreatesNotificationJobWhenConfirmed(t *testing.T) {
+	now := time.Date(2026, 6, 24, 12, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	notificationStore := &fakeAgentNotificationJobStore{}
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "agent__schedule_message", Arguments: `{"task_type":"reminder","content":"检查部署状态","time_hint":"明天上午9点","confirmed":true}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "已创建提醒。"},
+		},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNotificationJobStore(notificationStore),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	if _, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-schedule-create",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "确认创建明天上午9点提醒我检查部署状态",
+	}); err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if len(notificationStore.jobs) != 1 {
+		t.Fatalf("notification job count = %d, want 1", len(notificationStore.jobs))
+	}
+	job := notificationStore.jobs[0]
+	if job.Status != domain.NotificationJobStatusQueued || job.Channel != domain.NotificationChannelWeChatWork {
+		t.Fatalf("job = %#v", job)
+	}
+	if job.Payload["content"] != "检查部署状态" || job.Payload["to_user"] != "zhangsan" {
+		t.Fatalf("job payload = %#v", job.Payload)
+	}
+	wantScheduledAt := time.Date(2026, 6, 25, 1, 0, 0, 0, time.UTC)
+	if !job.ScheduledAt.Equal(wantScheduledAt) {
+		t.Fatalf("scheduled_at = %s, want %s", job.ScheduledAt, wantScheduledAt)
 	}
 }
 
@@ -700,6 +842,12 @@ func (r *fakeAgentConversationRepository) QueryTranscriptEntries(_ context.Conte
 		if options.BeforeTurnID > 0 && entry.TurnID >= options.BeforeTurnID {
 			continue
 		}
+		if options.After != nil && entry.CreatedAt.Before(options.After.UTC()) {
+			continue
+		}
+		if options.Before != nil && entry.CreatedAt.After(options.Before.UTC()) {
+			continue
+		}
 		if options.BeforeEntryID > 0 && entry.ID >= options.BeforeEntryID {
 			continue
 		}
@@ -741,6 +889,16 @@ func (r *fakeAgentConversationRepository) QueryTranscriptEntries(_ context.Conte
 		}
 	}
 	return entries, nil
+}
+
+type fakeAgentNotificationJobStore struct {
+	jobs []domain.NotificationJob
+}
+
+func (s *fakeAgentNotificationJobStore) CreateJob(_ context.Context, job domain.NotificationJob) (domain.NotificationJob, error) {
+	job.ID = int64(len(s.jobs) + 1)
+	s.jobs = append(s.jobs, job)
+	return job, nil
 }
 
 func (r *fakeAgentConversationRepository) CreateRecallEvent(_ context.Context, event domain.AgentRecallEvent) (domain.AgentRecallEvent, error) {

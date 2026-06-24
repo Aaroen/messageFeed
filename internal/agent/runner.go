@@ -89,15 +89,16 @@ type AuditEvent struct {
 }
 
 type ToolExecuteInput struct {
-	Capability   Capability
-	UserID       int64
-	SessionID    int64
-	TurnID       int64
-	Message      string
-	ToolCallID   string
-	RawArguments string
-	RequestID    string
-	TraceID      string
+	Capability     Capability
+	UserID         int64
+	SessionID      int64
+	TurnID         int64
+	Message        string
+	ExternalUserID string
+	ToolCallID     string
+	RawArguments   string
+	RequestID      string
+	TraceID        string
 }
 
 type ToolExecuteResult struct {
@@ -359,15 +360,16 @@ func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, ca
 		return ToolExecuteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_tool_not_allowed", "agent tool is not allowed in current policy", "agent.turn_runner.tools", false, nil)
 	}
 	return r.toolExecutor.ExecuteTool(ctx, ToolExecuteInput{
-		Capability:   capability,
-		UserID:       input.UserID,
-		SessionID:    input.Session.ID,
-		TurnID:       input.Turn.ID,
-		Message:      input.MessageText,
-		ToolCallID:   call.ID,
-		RawArguments: call.Arguments,
-		RequestID:    input.RequestID,
-		TraceID:      input.TraceID,
+		Capability:     capability,
+		UserID:         input.UserID,
+		SessionID:      input.Session.ID,
+		TurnID:         input.Turn.ID,
+		Message:        input.MessageText,
+		ExternalUserID: input.InboundMessage.ExternalUserID,
+		ToolCallID:     call.ID,
+		RawArguments:   call.Arguments,
+		RequestID:      input.RequestID,
+		TraceID:        input.TraceID,
 	})
 }
 
@@ -440,7 +442,7 @@ func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot) string {
 	}
 	builder.WriteString("能力边界：P0 仅允许只读查询、文本总结、写入 transcript 和审计。新增订阅、停用来源、通知配置、画像写入、金融告警或其他状态变更必须拒绝直接执行，并说明需要后续确认流程。")
 	if r.toolExecutor != nil {
-		builder.WriteString("\n可用工具：如需查询更早企微聊天原文，只能调用 conversation.query_history；询问第一条、最早或最开始消息时使用 earliest 模式；若工具返回 has_older=false 且有命中记录，应确认该记录就是当前 session 起点。若最近聊天窗口已有明确证据且不需要确认会话边界，不要调用历史查询工具。")
+		builder.WriteString("\n可用工具：如需查询更早企微聊天原文，只能调用 conversation.query_history；询问第一条、最早或最开始消息时使用 earliest 模式；按时间查询历史时使用 time_range 模式和 time_hint。若工具返回 has_older=false 且有命中记录，应确认该记录就是当前 session 起点。若最近聊天窗口已有明确证据且不需要确认会话边界，不要调用历史查询工具。需要创建定时消息或提醒时使用 agent.schedule_message；除非用户已经明确确认创建，否则 confirmed 必须为 false。")
 	}
 	return builder.String()
 }

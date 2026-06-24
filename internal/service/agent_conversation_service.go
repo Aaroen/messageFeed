@@ -60,6 +60,10 @@ type AgentSourceProvider interface {
 	ListSources(ctx context.Context, userID int64) ([]domain.Source, error)
 }
 
+type AgentNotificationJobStore interface {
+	CreateJob(ctx context.Context, job domain.NotificationJob) (domain.NotificationJob, error)
+}
+
 type AgentConversationService struct {
 	repository         AgentConversationRepository
 	llmClient          AgentConversationLLM
@@ -68,6 +72,7 @@ type AgentConversationService struct {
 	userCtx            AgentUserContextProvider
 	recentItems        AgentRecentItemsProvider
 	sourceProvider     AgentSourceProvider
+	notificationJobs   AgentNotificationJobStore
 	turnRunner         *agent.TurnRunner
 	capabilityRegistry *agent.CapabilityRegistry
 	policyEngine       *agent.PolicyEngine
@@ -114,6 +119,12 @@ func WithAgentConversationRecentItemsProvider(provider AgentRecentItemsProvider)
 func WithAgentConversationSourceProvider(provider AgentSourceProvider) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		service.sourceProvider = provider
+	}
+}
+
+func WithAgentConversationNotificationJobStore(store AgentNotificationJobStore) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.notificationJobs = store
 	}
 }
 
@@ -180,10 +191,11 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 			now:        s.now,
 		},
 		Executor: agentP0CapabilityExecutor{
-			repository:     s.repository,
-			recentItems:    s.recentItems,
-			sourceProvider: s.sourceProvider,
-			now:            s.now,
+			repository:       s.repository,
+			recentItems:      s.recentItems,
+			sourceProvider:   s.sourceProvider,
+			notificationJobs: s.notificationJobs,
+			now:              s.now,
 		},
 		Now: s.now,
 	})
@@ -192,13 +204,14 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 		AuditLogger:    s,
 		ContextBuilder: contextBuilder,
 		ToolExecutor: agentP0CapabilityExecutor{
-			repository:     s.repository,
-			recentItems:    s.recentItems,
-			sourceProvider: s.sourceProvider,
-			now:            s.now,
+			repository:       s.repository,
+			recentItems:      s.recentItems,
+			sourceProvider:   s.sourceProvider,
+			notificationJobs: s.notificationJobs,
+			now:              s.now,
 		},
 		ToolRegistry: s.capabilityRegistry,
-		ToolKeys:     []string{"conversation.query_history"},
+		ToolKeys:     []string{"conversation.query_history", "agent.schedule_message"},
 		LLMClient:    s.llmClient,
 		Now:          s.now,
 		SystemPrompt: llm.MessageFeedAgentSystemPrompt,

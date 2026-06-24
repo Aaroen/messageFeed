@@ -80,6 +80,7 @@ func main() {
 	var authService *service.AuthService
 	var agentApprovalService *service.AgentApprovalService
 	var agentSessionService *service.AgentSessionService
+	var notificationWorkerService *service.NotificationWorkerService
 	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
 	if cfg.WeChatWork.Enabled() {
@@ -164,6 +165,7 @@ func main() {
 		feedViewPreferenceRepository := repository.NewFeedViewPreferenceRepository(database)
 		sourceFetchJobRepository := repository.NewSourceFetchJobRepository(database)
 		itemEventRepository := repository.NewItemEventRepository(database)
+		notificationRepository := repository.NewNotificationRepository(database)
 		taskLockRepository := repository.NewTaskLockRepository(database)
 		agentRepository := repository.NewAgentRepository(database)
 		authRepository := repository.NewAuthRepository(database)
@@ -208,6 +210,9 @@ func main() {
 		)
 		agentApprovalService = service.NewAgentApprovalService(agentApprovalRepository)
 		agentSessionService = service.NewAgentSessionService(agentRepository)
+		if weChatWorkSender != nil {
+			notificationWorkerService = service.NewNotificationWorkerService(notificationRepository, weChatWorkSender)
+		}
 		if weChatWorkAppCallback != nil {
 			agentConversationService = service.NewAgentConversationService(
 				agentRepository,
@@ -217,12 +222,14 @@ func main() {
 				service.WithAgentConversationUserContextProvider(authService),
 				service.WithAgentConversationRecentItemsProvider(timelineService),
 				service.WithAgentConversationSourceProvider(sourceService),
+				service.WithAgentConversationNotificationJobStore(notificationRepository),
 			)
 		}
 
 		// 启动数据库连接池指标采集器
 		go collectDatabaseMetrics(database, logger)
 		go runSourceSyncWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, sourceSyncService)
+		go runNotificationWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, notificationWorkerService)
 	} else {
 		logger.Warn("database not configured, running in database-less mode")
 	}
@@ -331,6 +338,43 @@ func runSourceSyncWorker(ctx context.Context, logger *slog.Logger, workerID stri
 				"claimed", result.ClaimedCount,
 				"success", result.SuccessCount,
 				"failed", result.FailureCount,
+				"retry", result.RetryCount,
+			)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func runNotificationWorker(ctx context.Context, logger *slog.Logger, workerID string, notificationWorkerService *service.NotificationWorkerService) {
+	if notificationWorkerService == nil {
+		return
+	}
+	if workerID == "" {
+		workerID = "api"
+	}
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		result, err := notificationWorkerService.RunOnce(runCtx, service.RunNotificationWorkerOnceInput{
+			WorkerID: workerID,
+			Limit:    20,
+		})
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			logger.Warn("notification worker run failed", "error", err)
+		} else if result.ClaimedCount > 0 {
+			logger.Info(
+				"notification worker run completed",
+				"claimed", result.ClaimedCount,
+				"success", result.SucceededCount,
+				"failed", result.FailedCount,
 				"retry", result.RetryCount,
 			)
 		}
