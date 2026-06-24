@@ -723,6 +723,12 @@ func (r *AgentRepository) DeleteAgentSession(ctx context.Context, userID int64, 
 	defer func() { finish(opErr) }()
 
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var inboundIDs []int64
+		if err := tx.Model(&agentTurnModel{}).
+			Where("user_id = ? AND session_id = ?", userID, sessionID).
+			Pluck("inbound_message_id", &inboundIDs).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("user_id = ? AND session_id = ?", userID, sessionID).Delete(&agentRecallEventModel{}).Error; err != nil {
 			return err
 		}
@@ -732,6 +738,11 @@ func (r *AgentRepository) DeleteAgentSession(ctx context.Context, userID int64, 
 		}
 		if result.RowsAffected == 0 {
 			return domain.ErrNotFound
+		}
+		if len(inboundIDs) > 0 {
+			if err := tx.Where("user_id = ? AND id IN ?", userID, inboundIDs).Delete(&agentInboundMessageModel{}).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})

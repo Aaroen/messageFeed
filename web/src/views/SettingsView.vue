@@ -324,6 +324,7 @@ async function loadUserContext() {
 
 async function loadAgentSessions() {
   agentSessionsLoading.value = true
+  authError.value = ''
   try {
     const result = await listAgentSessions()
     agentAccounts.value = result.accounts
@@ -347,6 +348,7 @@ async function loadAgentSessions() {
 async function loadAgentTranscripts(sessionID: number) {
   selectedAgentSessionID.value = sessionID
   agentTranscriptsLoading.value = true
+  authError.value = ''
   try {
     agentTranscripts.value = await listAgentTranscripts(sessionID, { limit: 80 })
   } catch (error) {
@@ -357,6 +359,7 @@ async function loadAgentTranscripts(sessionID: number) {
 }
 
 async function createNewAgentSession() {
+  authError.value = ''
   if (!newAgentSessionAccountID.value) {
     authError.value = '请选择企业微信绑定账号'
     return
@@ -381,6 +384,7 @@ async function createNewAgentSession() {
 async function selectCurrentAgentSession(id: number) {
   agentSessionActionID.value = id
   agentSessionResult.value = ''
+  authError.value = ''
   try {
     await selectAgentSession(id)
     agentSessionResult.value = '当前企微 session 已切换'
@@ -395,6 +399,7 @@ async function selectCurrentAgentSession(id: number) {
 async function rebuildAgentContext(id: number) {
   agentSessionActionID.value = id
   agentSessionResult.value = ''
+  authError.value = ''
   try {
     await rebuildAgentSessionContext(id)
     agentSessionResult.value = '上下文索引已重建'
@@ -409,6 +414,7 @@ async function rebuildAgentContext(id: number) {
 async function clearAgentContext(id: number) {
   agentSessionActionID.value = id
   agentSessionResult.value = ''
+  authError.value = ''
   try {
     await clearAgentSessionContext(id)
     agentSessionResult.value = '上下文索引已清空，原文 transcript 保留'
@@ -424,13 +430,20 @@ function prepareDeleteAgentSession(id: number) {
   agentSessionDeleteID.value = id
   agentSessionDeletePassword.value = ''
   agentSessionResult.value = ''
+  authError.value = ''
 }
 
 async function confirmDeleteAgentSession() {
   if (!agentSessionDeleteID.value) {
     return
   }
+  if (!agentSessionDeletePassword.value.trim()) {
+    authError.value = '请输入当前登录密码'
+    return
+  }
   agentSessionActionID.value = agentSessionDeleteID.value
+  agentSessionResult.value = ''
+  authError.value = ''
   try {
     await deleteAgentSession(agentSessionDeleteID.value, { current_password: agentSessionDeletePassword.value })
     agentSessionResult.value = 'session 已删除'

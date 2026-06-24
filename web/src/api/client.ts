@@ -65,6 +65,9 @@ function friendlyErrorMessage(message: string) {
   if (normalized === 'owner account cannot be deleted from this endpoint') {
     return '管理员账号不能在此处删除'
   }
+  if (normalized === 'current password is invalid') {
+    return '当前登录密码不正确'
+  }
   if (normalized === 'invalid request body') {
     return '提交内容不完整，请检查后重试'
   }
