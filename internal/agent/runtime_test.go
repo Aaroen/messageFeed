@@ -21,7 +21,7 @@ func TestP0CapabilityRegistryContainsReadOnlyCapabilities(t *testing.T) {
 
 func TestP0CapabilityRegistryContainsWebCapabilities(t *testing.T) {
 	registry := NewP0CapabilityRegistry()
-	for _, key := range []string{"web.search", "web.fetch_page", "web.extract_page"} {
+	for _, key := range []string{"web.search", "web.fetch_page", "web.extract_page", "repo.search", "repo.inspect_remote"} {
 		capability, ok := registry.Get(key)
 		if !ok {
 			t.Fatalf("%s was not registered", key)

@@ -140,6 +140,12 @@ func (p *Planner) selectCapabilities(goal string) []string {
 			keys = append(keys, "web.fetch_page", "web.extract_page")
 		}
 	}
+	if looksLikeRepoRequest(text) {
+		keys = append(keys, "repo.search")
+		if containsRepoRef(text) {
+			keys = append(keys, "repo.inspect_remote")
+		}
+	}
 	return uniqueStrings(keys)
 }
 
@@ -164,6 +170,28 @@ func containsURL(text string) bool {
 		}
 	}
 	return strings.Contains(text, "http://") || strings.Contains(text, "https://")
+}
+
+func looksLikeRepoRequest(text string) bool {
+	for _, keyword := range []string{"github", "仓库", "repo", "repository", "代码库", "开源项目"} {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsRepoRef(text string) bool {
+	if strings.Contains(text, "github.com/") {
+		return true
+	}
+	for _, field := range strings.Fields(text) {
+		parts := strings.Split(strings.Trim(field, "，。,. "), "/")
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregatePolicy(results []PolicyResult) (PolicyDecision, string) {
@@ -225,6 +253,10 @@ func expectedCapabilityOutput(key string) string {
 		return "title, site, publication metadata, summary and links"
 	case "agent.schedule_message":
 		return "confirmation request or queued notification job reference"
+	case "repo.search":
+		return "repository candidates with URL, description, language, license and update time"
+	case "repo.inspect_remote":
+		return "remote repository metadata, README summary and license without local clone"
 	default:
 		return "structured observation and user-visible summary"
 	}
@@ -238,7 +270,7 @@ func impactSummary(capabilityKeys []string) string {
 	if containsString(capabilityKeys, "agent.schedule_message") {
 		return "may create a scheduled outbound notification after explicit confirmation"
 	}
-	if containsString(capabilityKeys, "web.search") || containsString(capabilityKeys, "web.fetch_page") || containsString(capabilityKeys, "web.extract_page") {
+	if containsString(capabilityKeys, "web.search") || containsString(capabilityKeys, "web.fetch_page") || containsString(capabilityKeys, "web.extract_page") || containsString(capabilityKeys, "repo.search") || containsString(capabilityKeys, "repo.inspect_remote") {
 		return "performs bounded external HTTP reads and records sources"
 	}
 	return "read-only local context and feed query"

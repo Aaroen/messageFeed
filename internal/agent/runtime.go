@@ -204,6 +204,48 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		},
 	})
 	registry.Register(Capability{
+		Key:            "repo.search",
+		Name:           "搜索参考仓库",
+		Description:    "根据查询词返回远端仓库候选，输出仓库 URL、描述、语言、许可和更新时间。",
+		Mode:           CapabilityModeDeferred,
+		Risk:           CapabilityRiskLow,
+		ExternalAccess: true,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{
+					"type":        "string",
+					"description": "仓库搜索关键词。",
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "候选仓库数量，默认 5，最大 8。",
+					"minimum":     1,
+					"maximum":     8,
+				},
+			},
+			"required": []string{"query"},
+		},
+	})
+	registry.Register(Capability{
+		Key:            "repo.inspect_remote",
+		Name:           "检查远端仓库",
+		Description:    "只读检查 GitHub 远端仓库 README、license、默认分支和基础元数据，不克隆到本地。",
+		Mode:           CapabilityModeDeferred,
+		Risk:           CapabilityRiskLow,
+		ExternalAccess: true,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"repo": map[string]any{
+					"type":        "string",
+					"description": "GitHub 仓库 URL 或 owner/repo。",
+				},
+			},
+			"required": []string{"repo"},
+		},
+	})
+	registry.Register(Capability{
 		Key:         "content.summarize_text",
 		Name:        "总结文本",
 		Description: "对用户输入或条目摘要生成简短总结。",

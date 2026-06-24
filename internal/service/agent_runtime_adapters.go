@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -200,6 +201,10 @@ func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.
 		return e.webFetchPage(ctx, input)
 	case "web.extract_page":
 		return e.webExtractPage(ctx, input)
+	case "repo.search":
+		return e.repoSearch(ctx, input)
+	case "repo.inspect_remote":
+		return e.repoInspectRemote(ctx, input)
 	default:
 		return agent.ToolExecuteResult{
 			Content: "当前工具执行器不支持该能力。",
@@ -352,6 +357,15 @@ type webSearchToolArgs struct {
 
 type webURLToolArgs struct {
 	URL string `json:"url"`
+}
+
+type repoSearchToolArgs struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit"`
+}
+
+type repoInspectToolArgs struct {
+	Repo string `json:"repo"`
 }
 
 func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
@@ -682,6 +696,77 @@ func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input age
 	}, nil
 }
 
+func (e agentP0CapabilityExecutor) repoSearch(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	args := parseRepoSearchToolArgs(input.RawArguments)
+	if args.Query == "" {
+		args.Query = strings.TrimSpace(input.Message)
+	}
+	limit := args.Limit
+	if limit < 1 {
+		limit = 5
+	}
+	if limit > 8 {
+		limit = 8
+	}
+	observation := agent.CapabilityObservation{Capability: input.Capability.Key, Decision: string(agent.PolicyDecisionAllow)}
+	if args.Query == "" {
+		observation.Status = "failed"
+		observation.Summary = "repo search query is empty"
+		return agent.ToolExecuteResult{Content: "repo.search 需要非空 query。", Observation: observation}, nil
+	}
+	endpoint := "https://api.github.com/search/repositories?" + url.Values{
+		"q":        []string{args.Query},
+		"per_page": []string{strconv.Itoa(limit)},
+	}.Encode()
+	body, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, endpoint)
+	if err != nil {
+		observation.Status = "failed"
+		observation.Summary = safeSummary(err.Error(), 300)
+		return agent.ToolExecuteResult{Content: "repo.search 执行失败：" + err.Error(), Observation: observation}, nil
+	}
+	results := parseGitHubRepoSearchResults(body, limit)
+	observation.Status = "succeeded"
+	observation.Summary = fmt.Sprintf("loaded %d repository results", len(results))
+	if len(results) == 0 {
+		observation.Status = "empty"
+		observation.Summary = "no repository result parsed"
+	}
+	return agent.ToolExecuteResult{
+		Content:     formatRepoSearchResult(args.Query, finalURL, statusCode, contentType, e.currentTime(), results),
+		Observation: observation,
+	}, nil
+}
+
+func (e agentP0CapabilityExecutor) repoInspectRemote(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	args := parseRepoInspectToolArgs(input.RawArguments)
+	if args.Repo == "" {
+		args.Repo = extractRepoRef(input.Message)
+	}
+	observation := agent.CapabilityObservation{Capability: input.Capability.Key, Decision: string(agent.PolicyDecisionAllow)}
+	owner, repo, ok := parseGitHubRepoRef(args.Repo)
+	if !ok {
+		observation.Status = "failed"
+		observation.Summary = "github repository reference is invalid"
+		return agent.ToolExecuteResult{Content: "repo.inspect_remote 需要 GitHub URL 或 owner/repo。", Observation: observation}, nil
+	}
+	metaURL := fmt.Sprintf("https://api.github.com/repos/%s/%s", url.PathEscape(owner), url.PathEscape(repo))
+	metaBody, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, metaURL)
+	if err != nil {
+		observation.Status = "failed"
+		observation.Summary = safeSummary(err.Error(), 300)
+		return agent.ToolExecuteResult{Content: "repo.inspect_remote 执行失败：" + err.Error(), Observation: observation}, nil
+	}
+	meta := parseGitHubRepoMetadata(metaBody)
+	readme := fetchGitHubReadmeSummary(ctx, owner, repo)
+	license := fetchGitHubLicenseSummary(ctx, owner, repo)
+	observation.Status = "succeeded"
+	observation.Summary = fmt.Sprintf("inspected remote repository %s/%s", owner, repo)
+	return agent.ToolExecuteResult{
+		Content:     formatRepoInspectResult(finalURL, statusCode, contentType, e.currentTime(), meta, readme, license),
+		Observation: observation,
+	}, nil
+}
+
 func parseConversationHistoryToolArgs(raw string) conversationHistoryToolArgs {
 	var args conversationHistoryToolArgs
 	raw = strings.TrimSpace(raw)
@@ -744,6 +829,32 @@ func parseWebURLToolArgs(raw string) webURLToolArgs {
 		return webURLToolArgs{}
 	}
 	args.URL = strings.TrimSpace(args.URL)
+	return args
+}
+
+func parseRepoSearchToolArgs(raw string) repoSearchToolArgs {
+	var args repoSearchToolArgs
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return args
+	}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return repoSearchToolArgs{}
+	}
+	args.Query = strings.TrimSpace(args.Query)
+	return args
+}
+
+func parseRepoInspectToolArgs(raw string) repoInspectToolArgs {
+	var args repoInspectToolArgs
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return args
+	}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return repoInspectToolArgs{}
+	}
+	args.Repo = strings.TrimSpace(args.Repo)
 	return args
 }
 
@@ -996,6 +1107,34 @@ type agentWebExtractedPage struct {
 	PublishedAt string
 	Author      string
 	Links       []agentWebSearchResult
+}
+
+type agentRepoSearchResult struct {
+	FullName    string
+	URL         string
+	Description string
+	Language    string
+	License     string
+	Stars       int
+	UpdatedAt   string
+}
+
+type agentRepoMetadata struct {
+	FullName      string
+	URL           string
+	Description   string
+	DefaultBranch string
+	Language      string
+	License       string
+	Stars         int
+	Forks         int
+	UpdatedAt     string
+}
+
+type agentRepoDocumentSummary struct {
+	Source  string
+	Summary string
+	Error   string
 }
 
 func fetchAgentWebURL(ctx context.Context, rawURL string) ([]byte, string, int, string, error) {
@@ -1289,6 +1428,244 @@ func cleanWhitespace(value string) string {
 		return ""
 	}
 	return strings.Join(fields, " ")
+}
+
+func parseGitHubRepoSearchResults(body []byte, limit int) []agentRepoSearchResult {
+	var decoded struct {
+		Items []struct {
+			FullName    string `json:"full_name"`
+			HTMLURL     string `json:"html_url"`
+			Description string `json:"description"`
+			Language    string `json:"language"`
+			Stars       int    `json:"stargazers_count"`
+			UpdatedAt   string `json:"updated_at"`
+			License     *struct {
+				Name string `json:"name"`
+			} `json:"license"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return nil
+	}
+	results := make([]agentRepoSearchResult, 0, limit)
+	for _, item := range decoded.Items {
+		if len(results) >= limit {
+			break
+		}
+		licenseName := ""
+		if item.License != nil {
+			licenseName = item.License.Name
+		}
+		results = append(results, agentRepoSearchResult{
+			FullName:    item.FullName,
+			URL:         item.HTMLURL,
+			Description: cleanWhitespace(item.Description),
+			Language:    item.Language,
+			License:     licenseName,
+			Stars:       item.Stars,
+			UpdatedAt:   item.UpdatedAt,
+		})
+	}
+	return results
+}
+
+func parseGitHubRepoMetadata(body []byte) agentRepoMetadata {
+	var decoded struct {
+		FullName      string `json:"full_name"`
+		HTMLURL       string `json:"html_url"`
+		Description   string `json:"description"`
+		DefaultBranch string `json:"default_branch"`
+		Language      string `json:"language"`
+		Stars         int    `json:"stargazers_count"`
+		Forks         int    `json:"forks_count"`
+		UpdatedAt     string `json:"updated_at"`
+		License       *struct {
+			Name string `json:"name"`
+		} `json:"license"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return agentRepoMetadata{}
+	}
+	licenseName := ""
+	if decoded.License != nil {
+		licenseName = decoded.License.Name
+	}
+	return agentRepoMetadata{
+		FullName:      decoded.FullName,
+		URL:           decoded.HTMLURL,
+		Description:   cleanWhitespace(decoded.Description),
+		DefaultBranch: decoded.DefaultBranch,
+		Language:      decoded.Language,
+		License:       licenseName,
+		Stars:         decoded.Stars,
+		Forks:         decoded.Forks,
+		UpdatedAt:     decoded.UpdatedAt,
+	}
+}
+
+func fetchGitHubReadmeSummary(ctx context.Context, owner string, repo string) agentRepoDocumentSummary {
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/readme", url.PathEscape(owner), url.PathEscape(repo))
+	body, finalURL, _, _, err := fetchAgentWebURL(ctx, endpoint)
+	if err != nil {
+		return agentRepoDocumentSummary{Source: endpoint, Error: err.Error()}
+	}
+	content, err := decodeGitHubContent(body)
+	if err != nil {
+		return agentRepoDocumentSummary{Source: finalURL, Error: err.Error()}
+	}
+	return agentRepoDocumentSummary{Source: finalURL, Summary: safeSummary(cleanWhitespace(content), 1600)}
+}
+
+func fetchGitHubLicenseSummary(ctx context.Context, owner string, repo string) agentRepoDocumentSummary {
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/%s/license", url.PathEscape(owner), url.PathEscape(repo))
+	body, finalURL, _, _, err := fetchAgentWebURL(ctx, endpoint)
+	if err != nil {
+		return agentRepoDocumentSummary{Source: endpoint, Error: err.Error()}
+	}
+	content, err := decodeGitHubContent(body)
+	if err != nil {
+		return agentRepoDocumentSummary{Source: finalURL, Error: err.Error()}
+	}
+	return agentRepoDocumentSummary{Source: finalURL, Summary: safeSummary(cleanWhitespace(content), 800)}
+}
+
+func decodeGitHubContent(body []byte) (string, error) {
+	var decoded struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return "", err
+	}
+	if decoded.Encoding != "base64" {
+		return "", fmt.Errorf("unsupported GitHub content encoding")
+	}
+	raw := strings.ReplaceAll(decoded.Content, "\n", "")
+	payload, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return "", err
+	}
+	return string(payload), nil
+}
+
+func parseGitHubRepoRef(value string) (string, string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", "", false
+	}
+	if strings.Contains(value, "github.com/") {
+		parsed, err := url.Parse(value)
+		if err != nil {
+			return "", "", false
+		}
+		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+		if len(parts) >= 2 {
+			return strings.TrimSpace(parts[0]), strings.TrimSuffix(strings.TrimSpace(parts[1]), ".git"), true
+		}
+	}
+	parts := strings.Split(strings.Trim(value, "/"), "/")
+	if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+		return strings.TrimSpace(parts[0]), strings.TrimSuffix(strings.TrimSpace(parts[1]), ".git"), true
+	}
+	return "", "", false
+}
+
+func extractRepoRef(message string) string {
+	for _, field := range strings.Fields(message) {
+		field = strings.Trim(field, "，。,. ")
+		if _, _, ok := parseGitHubRepoRef(field); ok {
+			return field
+		}
+	}
+	return ""
+}
+
+func formatRepoSearchResult(query string, source string, statusCode int, contentType string, fetchedAt time.Time, results []agentRepoSearchResult) string {
+	var builder strings.Builder
+	builder.WriteString("工具：repo.search\n查询：")
+	builder.WriteString(query)
+	builder.WriteString("\n来源：")
+	builder.WriteString(source)
+	builder.WriteString("\n抓取时间：")
+	builder.WriteString(fetchedAt.UTC().Format(time.RFC3339))
+	builder.WriteString("\nHTTP 状态：")
+	builder.WriteString(strconv.Itoa(statusCode))
+	builder.WriteString("\n内容类型：")
+	builder.WriteString(contentType)
+	builder.WriteString("\n结果：\n")
+	for index, result := range results {
+		builder.WriteString(strconv.Itoa(index + 1))
+		builder.WriteString(". ")
+		builder.WriteString(result.FullName)
+		builder.WriteString("\nURL：")
+		builder.WriteString(result.URL)
+		if result.Description != "" {
+			builder.WriteString("\n摘要：")
+			builder.WriteString(result.Description)
+		}
+		builder.WriteString("\n语言：")
+		builder.WriteString(result.Language)
+		builder.WriteString("\n许可：")
+		builder.WriteString(result.License)
+		builder.WriteString("\nStars：")
+		builder.WriteString(strconv.Itoa(result.Stars))
+		builder.WriteString("\n更新时间：")
+		builder.WriteString(result.UpdatedAt)
+		builder.WriteString("\n")
+	}
+	if len(results) == 0 {
+		builder.WriteString("没有解析到仓库候选。\n")
+	}
+	return builder.String()
+}
+
+func formatRepoInspectResult(source string, statusCode int, contentType string, fetchedAt time.Time, meta agentRepoMetadata, readme agentRepoDocumentSummary, license agentRepoDocumentSummary) string {
+	var builder strings.Builder
+	builder.WriteString("工具：repo.inspect_remote\n来源：")
+	builder.WriteString(source)
+	builder.WriteString("\n抓取时间：")
+	builder.WriteString(fetchedAt.UTC().Format(time.RFC3339))
+	builder.WriteString("\nHTTP 状态：")
+	builder.WriteString(strconv.Itoa(statusCode))
+	builder.WriteString("\n内容类型：")
+	builder.WriteString(contentType)
+	builder.WriteString("\n仓库：")
+	builder.WriteString(meta.FullName)
+	builder.WriteString("\nURL：")
+	builder.WriteString(meta.URL)
+	builder.WriteString("\n描述：")
+	builder.WriteString(meta.Description)
+	builder.WriteString("\n默认分支：")
+	builder.WriteString(meta.DefaultBranch)
+	builder.WriteString("\n语言：")
+	builder.WriteString(meta.Language)
+	builder.WriteString("\n许可：")
+	builder.WriteString(meta.License)
+	builder.WriteString("\nStars：")
+	builder.WriteString(strconv.Itoa(meta.Stars))
+	builder.WriteString("\nForks：")
+	builder.WriteString(strconv.Itoa(meta.Forks))
+	builder.WriteString("\n更新时间：")
+	builder.WriteString(meta.UpdatedAt)
+	builder.WriteString("\nREADME 来源：")
+	builder.WriteString(readme.Source)
+	builder.WriteString("\nREADME 摘要：")
+	if readme.Error != "" {
+		builder.WriteString("读取失败：")
+		builder.WriteString(readme.Error)
+	} else {
+		builder.WriteString(readme.Summary)
+	}
+	builder.WriteString("\nLicense 来源：")
+	builder.WriteString(license.Source)
+	builder.WriteString("\nLicense 摘要：")
+	if license.Error != "" {
+		builder.WriteString("读取失败：")
+		builder.WriteString(license.Error)
+	} else {
+		builder.WriteString(license.Summary)
+	}
+	return builder.String()
 }
 
 func (p agentConversationMemoryProvider) currentTime() time.Time {
