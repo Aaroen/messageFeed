@@ -78,7 +78,7 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	if len(repository.transcripts) != 2 {
 		t.Fatalf("transcript count = %d, want 2", len(repository.transcripts))
 	}
-	if len(repository.audits) != 2 || repository.audits[1].Status != "succeeded" {
+	if len(repository.audits) != 3 || repository.audits[2].Status != "succeeded" {
 		t.Fatalf("audits = %#v", repository.audits)
 	}
 	if len(llmClient.lastRequest.Messages) != 2 {
@@ -361,7 +361,7 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextAndPublishesAIF
 	if !strings.Contains(systemPrompt, "最近条目") || !strings.Contains(systemPrompt, "Go 1.26 发布") {
 		t.Fatalf("system prompt missing recent items context: %q", systemPrompt)
 	}
-	if !strings.Contains(systemPrompt, "匹配来源 Go 官方博客") || !strings.Contains(systemPrompt, "Go 工具链说明") {
+	if !strings.Contains(systemPrompt, "匹配来源最新条目") || !strings.Contains(systemPrompt, "Go 官方博客") || !strings.Contains(systemPrompt, "Go 工具链说明") {
 		t.Fatalf("system prompt missing source latest context: %q", systemPrompt)
 	}
 	if len(aiFeed.entries) != 1 {

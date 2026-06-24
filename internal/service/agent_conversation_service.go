@@ -9,7 +9,6 @@ import (
 	"messagefeed/internal/metrics"
 	"messagefeed/internal/notifier"
 	"messagefeed/internal/observability"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +69,7 @@ type AgentConversationService struct {
 	recentItems        AgentRecentItemsProvider
 	sourceProvider     AgentSourceProvider
 	aiFeedPublisher    AgentAIFeedPublisher
+	turnRunner         *agent.TurnRunner
 	capabilityRegistry *agent.CapabilityRegistry
 	policyEngine       *agent.PolicyEngine
 	now                func() time.Time
@@ -167,7 +167,38 @@ func NewAgentConversationService(repository AgentConversationRepository, options
 	for _, option := range options {
 		option(service)
 	}
+	service.rebuildTurnRunner()
 	return service
+}
+
+func (s *AgentConversationService) rebuildTurnRunner() {
+	if s == nil {
+		return
+	}
+	contextBuilder := agent.NewDefaultContextBuilder(agent.DefaultContextBuilderOptions{
+		Registry: s.capabilityRegistry,
+		Policy:   s.policyEngine,
+		UserContextProvider: agentUserContextBlockProvider{
+			provider: s.userCtx,
+			now:      s.now,
+		},
+		Executor: agentP0CapabilityExecutor{
+			recentItems:    s.recentItems,
+			sourceProvider: s.sourceProvider,
+			now:            s.now,
+		},
+		Now: s.now,
+	})
+	s.turnRunner = agent.NewTurnRunner(agent.TurnRunnerOptions{
+		Store:          s.repository,
+		AuditLogger:    s,
+		ContextBuilder: contextBuilder,
+		LLMClient:      s.llmClient,
+		Now:            s.now,
+		SystemPrompt:   agentSystemPrompt,
+		MaxTokens:      agentReplyMaxTokens,
+		Temperature:    0.2,
+	})
 }
 
 type ReceiveWeChatWorkAppMessageInput struct {
@@ -409,32 +440,33 @@ func (s *AgentConversationService) processTurn(
 	var opErr error
 	defer func() { observability.EndSpan(span, opErr) }()
 
-	reply, modelProvider, model, observations, err := s.generateReply(ctx, account.UserID, input)
+	if s.turnRunner == nil {
+		opErr = domain.NewAppError(domain.ErrorKindUnavailable, "agent_runner_unavailable", "agent turn runner is unavailable", "service.agent.process_turn", true, nil)
+		return ReceiveWeChatWorkAppMessageResult{Turn: turn}, opErr
+	}
+	runResult, err := s.turnRunner.Run(ctx, agent.TurnRunInput{
+		UserID:         account.UserID,
+		Session:        session,
+		Turn:           turn,
+		InboundMessage: inbound,
+		MessageType:    input.MsgType,
+		MessageText:    input.TextContent,
+		RequestID:      input.RequestID,
+		TraceID:        input.TraceID,
+	})
 	if err != nil {
 		opErr = err
-		_, _ = s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusFailed, s.now().UTC())
-		return s.failTurn(ctx, account.UserID, session.ID, turn, input, err)
+		return ReceiveWeChatWorkAppMessageResult{Turn: runResult.Turn}, err
 	}
+	reply := runResult.Reply
+	observations := runResult.Context.Observations
+	turn = runResult.Turn
 	span.SetAttributes(
-		attribute.String("llm.provider", modelProvider),
-		attribute.String("llm.model", model),
+		attribute.String("llm.provider", runResult.ModelProvider),
+		attribute.String("llm.model", runResult.Model),
 		attribute.Int("agent.reply_bytes", len([]byte(reply))),
 		attribute.Int("agent.observation_count", len(observations)),
 	)
-
-	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
-		SessionID: session.ID,
-		TurnID:    turn.ID,
-		UserID:    account.UserID,
-		Role:      domain.AgentTranscriptRoleAssistant,
-		Content:   reply,
-		Metadata: domain.AgentJSON{
-			"model_provider": modelProvider,
-			"model":          model,
-			"observations":   observationMetadata(observations),
-		},
-		CreatedAt: s.now().UTC(),
-	})
 
 	sendResult := notifier.WeChatWorkSendResult{}
 	sendCount := 0
@@ -445,23 +477,25 @@ func (s *AgentConversationService) processTurn(
 			metrics.AgentReplyBytes.WithLabelValues(input.Provider, "failed").Observe(float64(len([]byte(reply))))
 			metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "failed").Add(float64(sendCount))
 			_, _ = s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusFailed, s.now().UTC())
-			return s.failTurn(ctx, account.UserID, session.ID, turn, input, err)
+			_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+				SessionID: session.ID,
+				TurnID:    turn.ID,
+				UserID:    account.UserID,
+				EventType: "wechat_work.reply_failed",
+				Status:    "failed",
+				Message:   err.Error(),
+				Metadata:  domain.AgentJSON{"provider_message_id": input.ProviderMessageID},
+				RequestID: input.RequestID,
+				TraceID:   input.TraceID,
+				CreatedAt: s.now().UTC(),
+			})
+			return ReceiveWeChatWorkAppMessageResult{Turn: turn}, err
 		}
 	}
 	metrics.AgentReplyBytes.WithLabelValues(input.Provider, "succeeded").Observe(float64(len([]byte(reply))))
 	metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "succeeded").Add(float64(sendCount))
 
 	finishedAt := s.now().UTC()
-	turn.Status = domain.AgentTurnStatusSucceeded
-	turn.OutputText = reply
-	turn.ModelProvider = modelProvider
-	turn.Model = model
-	turn.FinishedAt = &finishedAt
-	turn, err = s.repository.UpdateTurn(ctx, turn)
-	if err != nil {
-		opErr = err
-		return ReceiveWeChatWorkAppMessageResult{}, err
-	}
 	inbound, _ = s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusSucceeded, finishedAt)
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
@@ -475,7 +509,7 @@ func (s *AgentConversationService) processTurn(
 			"wechat_msgid":        sendResult.MessageID,
 			"invalid_user":        sendResult.InvalidUser,
 			"send_count":          sendCount,
-			"observations":        observationMetadata(observations),
+			"observations":        agent.ObservationMetadata(observations),
 		},
 		RequestID: input.RequestID,
 		TraceID:   input.TraceID,
@@ -507,224 +541,23 @@ func (s *AgentConversationService) sessionLock(sessionID int64) *sync.Mutex {
 	return lock
 }
 
-type agentCapabilityObservation struct {
-	Capability string
-	Decision   string
-	Status     string
-	Summary    string
-}
-
-func (s *AgentConversationService) generateReply(ctx context.Context, userID int64, input ReceiveWeChatWorkAppMessageInput) (string, string, string, []agentCapabilityObservation, error) {
-	ctx, span := observability.StartSpan(ctx, "service.agent.generate_reply",
-		attribute.String("agent.provider", input.Provider),
-		attribute.String("message.type", input.MsgType),
-		attribute.Int64("auth.user_id", userID),
-	)
-	var replyErr error
-	defer func() {
-		status := "success"
-		if replyErr != nil {
-			status = "failed"
-		}
-		span.SetAttributes(attribute.String("agent.reply_generation.status", status))
-		observability.EndSpan(span, replyErr)
-	}()
-
-	if input.MsgType != "text" {
-		return "当前仅支持文本消息。", "", "", nil, nil
+func (s *AgentConversationService) Record(ctx context.Context, event agent.AuditEvent) error {
+	if s == nil || s.repository == nil {
+		return nil
 	}
-	if s.llmClient == nil {
-		return "已收到：" + input.TextContent, "", "", nil, nil
-	}
-	systemPrompt := agentSystemPrompt
-	if s.userCtx != nil {
-		userContext, err := s.userCtx.BuildAgentUserContext(ctx, userID)
-		if err != nil {
-			replyErr = err
-			return "", "", "", nil, err
-		}
-		if strings.TrimSpace(userContext.Prompt.PlainText) != "" {
-			systemPrompt += "\n\n用户上下文：\n" + userContext.Prompt.PlainText
-		}
-	}
-	toolContext, observations := s.buildP0CapabilityContext(ctx, userID, input)
-	if strings.TrimSpace(toolContext) != "" {
-		systemPrompt += "\n\n只读工具结果：\n" + toolContext
-	}
-	systemPrompt += "\n\n能力边界：P0 仅允许只读查询、文本总结、写入 transcript 和审计。新增订阅、停用来源、通知配置、画像写入、金融告警或其他状态变更必须拒绝直接执行，并说明需要后续确认流程。"
-	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
-		Messages: []llm.ChatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: input.TextContent},
-		},
-		Temperature: 0.2,
-		MaxTokens:   agentReplyMaxTokens,
+	_, err := s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: event.SessionID,
+		TurnID:    event.TurnID,
+		UserID:    event.UserID,
+		EventType: event.EventType,
+		Status:    event.Status,
+		Message:   event.Message,
+		Metadata:  event.Metadata,
+		RequestID: event.RequestID,
+		TraceID:   event.TraceID,
+		CreatedAt: event.CreatedAt,
 	})
-	if err != nil {
-		replyErr = err
-		return "", "", "", observations, err
-	}
-	span.SetAttributes(
-		attribute.String("llm.provider", response.Provider),
-		attribute.String("llm.model", response.Model),
-		attribute.Int("agent.reply_bytes", len([]byte(response.Content))),
-	)
-	return response.Content, response.Provider, response.Model, observations, nil
-}
-
-func (s *AgentConversationService) buildP0CapabilityContext(ctx context.Context, userID int64, input ReceiveWeChatWorkAppMessageInput) (string, []agentCapabilityObservation) {
-	observations := make([]agentCapabilityObservation, 0, 2)
-	var builder strings.Builder
-	recentSummary, recentObservation := s.executeRecentItemsCapability(ctx, userID)
-	if recentObservation.Capability != "" {
-		observations = append(observations, recentObservation)
-	}
-	if recentSummary != "" {
-		builder.WriteString(recentSummary)
-	}
-	sourceSummary, sourceObservation := s.executeSourceLatestItemsCapability(ctx, userID, input.TextContent)
-	if sourceObservation.Capability != "" {
-		observations = append(observations, sourceObservation)
-	}
-	if sourceSummary != "" {
-		if builder.Len() > 0 {
-			builder.WriteString("\n")
-		}
-		builder.WriteString(sourceSummary)
-	}
-	return builder.String(), observations
-}
-
-func (s *AgentConversationService) executeRecentItemsCapability(ctx context.Context, userID int64) (string, agentCapabilityObservation) {
-	capability, ok := s.capabilityRegistry.Get("feed.query_recent_items")
-	if !ok {
-		return "", agentCapabilityObservation{Capability: "feed.query_recent_items", Decision: string(agent.PolicyDecisionForbidden), Status: "skipped", Summary: "capability is not registered"}
-	}
-	decision := s.policyEngine.Decide(ctx, agent.PolicyInput{Capability: capability, UserID: userID})
-	observation := agentCapabilityObservation{Capability: capability.Key, Decision: string(decision.Decision)}
-	if decision.Decision != agent.PolicyDecisionAllow {
-		observation.Status = "blocked"
-		observation.Summary = decision.Reason
-		return "", observation
-	}
-	if s.recentItems == nil {
-		observation.Status = "skipped"
-		observation.Summary = "recent items provider is unavailable"
-		return "", observation
-	}
-	result, err := s.recentItems.ListItems(ctx, ListItemsInput{
-		UserID:        userID,
-		Limit:         5,
-		Offset:        0,
-		IncludeHidden: false,
-		Order:         string(domain.ItemSortOrderDesc),
-	})
-	if err != nil {
-		observation.Status = "failed"
-		observation.Summary = err.Error()
-		return "", observation
-	}
-	observation.Status = "succeeded"
-	observation.Summary = fmt.Sprintf("loaded %d recent items", len(result.Items))
-	if len(result.Items) == 0 {
-		return "最近条目：暂无可用条目。", observation
-	}
-	var builder strings.Builder
-	builder.WriteString("最近条目：")
-	for i, item := range result.Items {
-		builder.WriteString("\n")
-		builder.WriteString(strconv.Itoa(i + 1))
-		builder.WriteString(". ")
-		builder.WriteString(item.Title)
-		if item.SourceName != "" {
-			builder.WriteString("（")
-			builder.WriteString(item.SourceName)
-			builder.WriteString("）")
-		}
-		if item.Summary != "" {
-			builder.WriteString("：")
-			builder.WriteString(truncateError(item.Summary, 160))
-		}
-	}
-	return builder.String(), observation
-}
-
-func (s *AgentConversationService) executeSourceLatestItemsCapability(ctx context.Context, userID int64, text string) (string, agentCapabilityObservation) {
-	capability, ok := s.capabilityRegistry.Get("source.query_latest_items")
-	if !ok {
-		return "", agentCapabilityObservation{Capability: "source.query_latest_items", Decision: string(agent.PolicyDecisionForbidden), Status: "skipped", Summary: "capability is not registered"}
-	}
-	decision := s.policyEngine.Decide(ctx, agent.PolicyInput{Capability: capability, UserID: userID})
-	observation := agentCapabilityObservation{Capability: capability.Key, Decision: string(decision.Decision)}
-	if decision.Decision != agent.PolicyDecisionAllow {
-		observation.Status = "blocked"
-		observation.Summary = decision.Reason
-		return "", observation
-	}
-	if s.sourceProvider == nil || s.recentItems == nil {
-		observation.Status = "skipped"
-		observation.Summary = "source or item provider is unavailable"
-		return "", observation
-	}
-	source, found, err := s.matchSourceByText(ctx, userID, text)
-	if err != nil {
-		observation.Status = "failed"
-		observation.Summary = err.Error()
-		return "", observation
-	}
-	if !found {
-		observation.Status = "skipped"
-		observation.Summary = "no source name matched user input"
-		return "", observation
-	}
-	result, err := s.recentItems.ListItems(ctx, ListItemsInput{
-		UserID:        userID,
-		SourceID:      source.ID,
-		Limit:         3,
-		Offset:        0,
-		IncludeHidden: false,
-		Order:         string(domain.ItemSortOrderDesc),
-	})
-	if err != nil {
-		observation.Status = "failed"
-		observation.Summary = err.Error()
-		return "", observation
-	}
-	observation.Status = "succeeded"
-	observation.Summary = fmt.Sprintf("loaded %d latest items for source %s", len(result.Items), source.Name)
-	var builder strings.Builder
-	builder.WriteString("匹配来源 ")
-	builder.WriteString(source.Name)
-	builder.WriteString(" 的最新条目：")
-	if len(result.Items) == 0 {
-		builder.WriteString("暂无可用条目。")
-		return builder.String(), observation
-	}
-	for i, item := range result.Items {
-		builder.WriteString("\n")
-		builder.WriteString(strconv.Itoa(i + 1))
-		builder.WriteString(". ")
-		builder.WriteString(item.Title)
-	}
-	return builder.String(), observation
-}
-
-func (s *AgentConversationService) matchSourceByText(ctx context.Context, userID int64, text string) (domain.Source, bool, error) {
-	sources, err := s.sourceProvider.ListSources(ctx, userID)
-	if err != nil {
-		return domain.Source{}, false, err
-	}
-	text = strings.ToLower(strings.TrimSpace(text))
-	if text == "" {
-		return domain.Source{}, false, nil
-	}
-	for _, source := range sources {
-		name := strings.ToLower(strings.TrimSpace(source.Name))
-		if name != "" && strings.Contains(text, name) {
-			return source, true, nil
-		}
-	}
-	return domain.Source{}, false, nil
+	return err
 }
 
 func (s *AgentConversationService) sendWeChatWorkReply(ctx context.Context, toUser string, reply string) (notifier.WeChatWorkSendResult, int, error) {
@@ -782,7 +615,7 @@ func (s *AgentConversationService) failTurn(ctx context.Context, userID int64, s
 	return ReceiveWeChatWorkAppMessageResult{Turn: turn}, cause
 }
 
-func (s *AgentConversationService) publishTurnReport(ctx context.Context, userID int64, input ReceiveWeChatWorkAppMessageInput, reply string, observations []agentCapabilityObservation, now time.Time) {
+func (s *AgentConversationService) publishTurnReport(ctx context.Context, userID int64, input ReceiveWeChatWorkAppMessageInput, reply string, observations []agent.CapabilityObservation, now time.Time) {
 	if s == nil || s.aiFeedPublisher == nil || userID < 1 {
 		return
 	}
@@ -800,7 +633,7 @@ func (s *AgentConversationService) publishTurnReport(ctx context.Context, userID
 	})
 }
 
-func buildTurnReportContent(input ReceiveWeChatWorkAppMessageInput, reply string, observations []agentCapabilityObservation) string {
+func buildTurnReportContent(input ReceiveWeChatWorkAppMessageInput, reply string, observations []agent.CapabilityObservation) string {
 	var builder strings.Builder
 	builder.WriteString("输入：")
 	builder.WriteString(input.TextContent)
@@ -822,22 +655,6 @@ func buildTurnReportContent(input ReceiveWeChatWorkAppMessageInput, reply string
 		}
 	}
 	return builder.String()
-}
-
-func observationMetadata(observations []agentCapabilityObservation) []domain.AgentJSON {
-	if len(observations) == 0 {
-		return nil
-	}
-	output := make([]domain.AgentJSON, 0, len(observations))
-	for _, observation := range observations {
-		output = append(output, domain.AgentJSON{
-			"capability": observation.Capability,
-			"decision":   observation.Decision,
-			"status":     observation.Status,
-			"summary":    observation.Summary,
-		})
-	}
-	return output
 }
 
 func splitUTF8Bytes(value string, limit int) []string {
