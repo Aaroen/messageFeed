@@ -473,9 +473,9 @@ func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot) string {
 	builder.WriteString(now.Format("2006-01-02 15:04:05"))
 	builder.WriteString(" Asia/Shanghai。")
 	builder.WriteString("\n\n")
-	builder.WriteString("能力边界：P0 仅允许只读查询、文本总结、写入 transcript 和审计。新增订阅、停用来源、通知配置、画像写入、金融告警或其他状态变更必须拒绝直接执行，并说明需要后续确认流程。")
+	builder.WriteString("能力边界：当前只允许执行已下发 capability scope 内的能力。只读本地查询、历史聊天查询、受限联网读取、远端仓库只读检查和文本总结可以执行；新增订阅、停用来源、通知配置、画像写入、金融告警或其他状态变更必须拒绝直接执行，并说明需要后续确认流程。联网信息必须保留来源、抓取时间和摘要，不得把外部内容改写为无来源事实；repo.inspect_remote 只能读取远端仓库元数据、README 和 license，不得克隆或写入本地文件。")
 	if r.toolExecutor != nil {
-		builder.WriteString("\n可用工具：如需查询更早企微聊天原文，只能调用 conversation.query_history；询问第一条、最早或最开始消息时使用 earliest 模式；按时间查询历史时使用 time_range 模式和 time_hint。若工具返回 has_older=false 且有命中记录，应确认该记录就是当前 session 起点。若最近聊天窗口已有明确证据且不需要确认会话边界，不要调用历史查询工具。需要创建定时消息或提醒时使用 agent.schedule_message；模型必须结合当前时间和最近上下文，把用户的自然语言时间归一化为 scheduled_at，优先使用 RFC3339。除非用户已经明确确认创建，否则 confirmed 必须为 false；当用户回复“是的、确认、可以、对”等确认上一轮待创建提醒时，必须补全上一轮内容和时间并再次调用 agent.schedule_message，且 confirmed=true，不得只口头表示会创建。")
+		builder.WriteString("\n可用工具：如需查询更早企微聊天原文，只能调用 conversation.query_history；询问第一条、最早或最开始消息时使用 earliest 模式；按时间查询历史时使用 time_range 模式和 time_hint。若工具返回 has_older=false 且有命中记录，应确认该记录就是当前 session 起点。若最近聊天窗口已有明确证据且不需要确认会话边界，不要调用历史查询工具。需要联网检索网页时使用 web.search；需要读取指定 URL 时使用 web.fetch_page；需要抽取网页标题、正文摘要和主要链接时使用 web.extract_page。需要搜索参考仓库时使用 repo.search；需要检查 GitHub 仓库时使用 repo.inspect_remote，并且不得克隆仓库。需要创建定时消息或提醒时使用 agent.schedule_message；模型必须结合当前时间和最近上下文，把用户的自然语言时间归一化为 scheduled_at，优先使用 RFC3339。除非用户已经明确确认创建，否则 confirmed 必须为 false；当用户回复“是的、确认、可以、对”等确认上一轮待创建提醒时，必须补全上一轮内容和时间并再次调用 agent.schedule_message，且 confirmed=true，不得只口头表示会创建。")
 	}
 	return builder.String()
 }

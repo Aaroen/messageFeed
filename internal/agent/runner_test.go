@@ -85,6 +85,13 @@ func TestTurnRunnerSystemPromptGuidesScheduledMessageConfirmation(t *testing.T) 
 	prompt := runner.buildSystemPrompt(ContextSnapshot{})
 	for _, required := range []string{
 		"当前时间：2026-06-24 21:55:00 Asia/Shanghai",
+		"web.search",
+		"web.fetch_page",
+		"web.extract_page",
+		"repo.search",
+		"repo.inspect_remote",
+		"不得克隆仓库",
+		"来源、抓取时间和摘要",
 		"归一化为 scheduled_at",
 		"再次调用 agent.schedule_message",
 		"confirmed=true",
