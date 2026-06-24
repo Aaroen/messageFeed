@@ -1247,6 +1247,73 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/agent/plans:
+    get:
+      summary: List Agent plans
+      parameters:
+        - name: session_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+        - name: turn_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Agent plans
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          plans:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/AgentPlan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/agent/plans/{plan_id}:
+    get:
+      summary: Get Agent plan detail
+      parameters:
+        - name: plan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Agent plan detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          plan:
+                            $ref: '#/components/schemas/AgentPlan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/agent/runs/{run_id}:
     get:
       summary: Get Agent run trace detail
@@ -1960,6 +2027,193 @@ components:
         metadata:
           type: object
           additionalProperties: true
+    AgentPlan:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        session_id:
+          type: integer
+          format: int64
+        turn_id:
+          type: integer
+          format: int64
+        controller_run_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum:
+            - draft
+            - awaiting_approval
+            - approved
+            - rejected
+            - expired
+            - executing
+            - completed
+            - failed
+        goal:
+          type: string
+        summary:
+          type: string
+        impact_summary:
+          type: string
+        risk_level:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+        confirmation_policy:
+          type: string
+          enum:
+            - auto
+            - prompt
+            - forbidden
+        allowed_scopes:
+          type: array
+          items:
+            type: string
+        dedupe_key:
+          type: string
+        policy_decision:
+          type: string
+          enum:
+            - allow
+            - prompt
+            - forbidden
+        policy_reason:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        approved_at:
+          type: string
+          format: date-time
+        rejected_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        failed_at:
+          type: string
+          format: date-time
+        error_message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentPlanStep'
+        approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentPlanApproval'
+    AgentPlanStep:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        plan_id:
+          type: integer
+          format: int64
+        step_order:
+          type: integer
+        status:
+          type: string
+          enum:
+            - pending
+            - approved
+            - executing
+            - completed
+            - failed
+            - skipped
+        capability_key:
+          type: string
+        capability_scope:
+          type: array
+          items:
+            type: string
+        title:
+          type: string
+        input_summary:
+          type: string
+        output_summary:
+          type: string
+        expected_output:
+          type: string
+        failure_strategy:
+          type: string
+        executor_run_id:
+          type: integer
+          format: int64
+        observation_ref:
+          type: string
+        artifact_refs:
+          type: array
+          items:
+            type: string
+        error_message:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    AgentPlanApproval:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        plan_id:
+          type: integer
+          format: int64
+        channel:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - approved
+            - rejected
+            - expired
+        expires_at:
+          type: string
+          format: date-time
+        decided_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     AgentRun:
       type: object
       properties:
