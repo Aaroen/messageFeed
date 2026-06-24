@@ -1,6 +1,6 @@
 # messageFeed 剩余实施计划
 
-**最后更新**：2026-06-24
+**最后更新**：2026-06-25
 
 已实现内容已归档到 `docs/nowdoit/archive/implementation-implemented-summary-2026-06-24.md`。本文件只保留后续未完成事项和当前落地顺序。
 
@@ -13,36 +13,39 @@
 | P0 | 阶段二收尾 | 待完成 | Web 条目状态操作、筛选、分页、阅读偏好完整绑定 |
 | P0 | 阶段三收尾 | 待完成 | 完整 Compose 环境端到端观测验收 |
 | P1 | 阶段四收尾 | 已完成 | 源目录健康检查、许可状态、热度和更多过滤维度；Web 源目录 UI 改造按用户要求排除 |
-| P1 | Agent 计划与审批 | 待实现 | 结构化 plan、plan step、影响评估、确认策略和通用执行器 |
-| P1 | Agent 记忆与历史查询 | 待实现 | 企微短期窗口、历史原文查询、冷热归档索引和回忆预算 |
-| P1 | 联网信息获取 | 待实现 | web/repo 信息获取 capability |
-| P2 | 调度、通知、推荐、金融和工程化增强 | 待实现 | 在 Agent 运行时闭环上逐步扩展 |
+| P1 | Agent 原子闭环 | 当前实施包 | 入口、会话、controller、context trace、plan、approval、executor、capability、memory、web/repo、schedule、eval 的最小闭环 |
+| P1 | Agent 记忆与历史查询 | 纳入当前实施包 | 企微短期窗口、历史原文查询、冷热归档索引和回忆预算 |
+| P1 | 联网信息获取 | 纳入当前实施包 | web/repo 信息获取 capability |
+| P2 | 调度、通知、推荐、金融和工程化增强 | 部分纳入当前实施包 | 定时任务和评测进入 Agent 闭环；推荐、金融和工程化增强后续扩展 |
 
 ## 2. 当前第一实施包
 
 上一实施包 `docs/nowdoit/stage-four-source-catalog-governance-plan.md` 已完成并归档到 `docs/nowdoit/archive/stage-four-source-catalog-governance-plan-implemented-2026-06-25.md`。
 
-当前第一实施包以 `docs/nowdoit/agent-plan-approval-execution-plan.md` 为准。
+当前第一实施包以 `docs/nowdoit/agent-plan-approval-execution-plan.md` 为准。该文档已从单点计划审批扩展为 Agent 原子闭环长程实施包。
 
 目标：
 
 ```text
-结构化 plan、plan step、影响评估和确认策略
-计划批准、拒绝、过期和二次校验流程
-统一执行器与 capability scope 约束
+入口消息、session / turn、controller run 和 context trace 归档
+结构化 plan、policy、approval、executor task 和 capability scope 约束
+memory、web/repo 信息获取、schedule、observation、artifact、eval 和安全审计闭环
 ```
 
 必须先完成：
 
 1. 梳理现有 Agent session、turn、run、approval、context trace 和 handler 实现。
-2. 新增或扩展计划、计划步骤和审批关联的数据模型与迁移。
-3. 实现 plan service，负责创建计划、状态流转和审批约束。
-4. 将 controller run 的输出接入结构化计划生成。
-5. 实现 executor task 与 plan step 的绑定和 capability scope 校验。
-6. 扩展 Handler 与 OpenAPI，提供计划查询、审批提交和状态查询。
-7. 运行 `go test ./...`、`go vet ./...`、`npm --prefix web run type-check` 和前端构建。
+2. 修正或补齐当前 P0 Agent run 相关未提交实现，使其成为稳定基线。
+3. 新增 plan、plan step、approval 关联、capability audit、scheduled task 和 eval 相关模型与迁移。
+4. 实现 `AgentCapabilityRegistry`、`ContextBudgetManager`、`ContextTraceStore`、`AgentPlanner`、`PolicyEngine` 和 plan service。
+5. 实现 executor task 与 plan step 的绑定、capability scope 二次校验和 observation / artifact 回写。
+6. 接入企业微信与 Web 查询审批面，形成 controller -> plan -> approval -> executor -> observation -> response 链路。
+7. 接入 memory、web/repo 信息获取、定时任务和评测安全能力。
+8. 运行 `go test ./...`、`go vet ./...`、`npm --prefix web run type-check`、前端构建和 Compose 冒烟验证。
 
 ## 3. Agent 剩余实施步骤
+
+以下 3.1 至 3.6 不再作为相互独立的短程实施包处理，当前长程任务必须按 `docs/nowdoit/agent-plan-approval-execution-plan.md` 将其收敛为同一个 Agent 原子闭环。
 
 ### 3.1 运行时
 
