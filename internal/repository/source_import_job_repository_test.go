@@ -74,6 +74,17 @@ func TestSourceImportJobModelCopiesErrorDetails(t *testing.T) {
 	}
 }
 
+func TestSourceImportJobModelUsesEmptyErrorDetailsArray(t *testing.T) {
+	model := sourceImportJobModelFromDomain(domain.SourceImportJob{})
+
+	if model.ErrorDetails == nil {
+		t.Fatal("ErrorDetails is nil, want empty slice for JSONB []")
+	}
+	if got, want := len(model.ErrorDetails), 0; got != want {
+		t.Fatalf("ErrorDetails length = %d, want %d", got, want)
+	}
+}
+
 func TestNormalizeSourceImportJobListOptions(t *testing.T) {
 	tests := []struct {
 		name    string

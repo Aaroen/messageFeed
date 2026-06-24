@@ -111,9 +111,7 @@ func (r *ItemRepository) ListByUser(ctx context.Context, options domain.ItemList
 	defer func() { finish(opErr) }()
 
 	query := itemViewBaseQuery(r.db.WithContext(ctx), options.UserID)
-	if options.SourceID > 0 {
-		query = query.Where("items.source_id = ?", options.SourceID)
-	}
+	query = applyItemSourceFilters(query, options)
 	query = applyItemStateFilters(query, options)
 
 	var total int64
@@ -125,6 +123,43 @@ func (r *ItemRepository) ListByUser(ctx context.Context, options domain.ItemList
 	var models []itemViewModel
 	if err := query.
 		Select(itemViewSelectColumns()).
+		Order(itemListOrderClause(options.SortOrder)).
+		Limit(options.Limit).
+		Offset(options.Offset).
+		Scan(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.ItemListResult{}, opErr
+	}
+
+	items := make([]domain.Item, 0, len(models))
+	for _, model := range models {
+		items = append(items, itemViewModelToDomain(model))
+	}
+	return domain.ItemListResult{
+		Items:  items,
+		Total:  total,
+		Limit:  options.Limit,
+		Offset: options.Offset,
+	}, nil
+}
+
+func (r *ItemRepository) ListPublic(ctx context.Context, options domain.ItemListOptions) (domain.ItemListResult, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.item.list_public", "select", "items")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	query := itemPublicBaseQuery(r.db.WithContext(ctx))
+	query = applyItemSourceFilters(query, options)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.ItemListResult{}, opErr
+	}
+
+	var models []itemViewModel
+	if err := query.
+		Select(itemPublicViewSelectColumns()).
 		Order(itemListOrderClause(options.SortOrder)).
 		Limit(options.Limit).
 		Offset(options.Offset).
@@ -166,12 +201,37 @@ func (r *ItemRepository) GetByIDForUser(ctx context.Context, userID int64, itemI
 	return itemViewModelToDomain(model), nil
 }
 
+func (r *ItemRepository) GetByIDPublic(ctx context.Context, itemID int64) (domain.Item, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.item.get_by_id_public", "select", "items")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model itemViewModel
+	if err := itemPublicBaseQuery(r.db.WithContext(ctx)).
+		Select(itemPublicViewSelectColumns()).
+		Where("items.id = ?", itemID).
+		Limit(1).
+		Scan(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.Item{}, opErr
+	}
+	if model.ID == 0 {
+		opErr = domain.ErrNotFound
+		return domain.Item{}, opErr
+	}
+	return itemViewModelToDomain(model), nil
+}
+
 func itemViewBaseQuery(db *gorm.DB, userID int64) *gorm.DB {
 	return db.Table("items").
 		Joins("JOIN sources ON sources.id = items.source_id").
 		Joins("LEFT JOIN user_item_states ON user_item_states.item_id = items.id AND user_item_states.user_id = ?", userID).
-		Where("sources.user_id = ?", userID).
-		Where(activeSourceStatusFilter, string(domain.SourceStatusActive))
+		Where("sources.user_id = ?", userID)
+}
+
+func itemPublicBaseQuery(db *gorm.DB) *gorm.DB {
+	return db.Table("items").
+		Joins("JOIN sources ON sources.id = items.source_id")
 }
 
 func itemViewSelectColumns() string {
@@ -199,6 +259,31 @@ func itemViewSelectColumns() string {
 		items.updated_at`
 }
 
+func itemPublicViewSelectColumns() string {
+	return `
+		items.id,
+		items.source_id,
+		sources.name AS source_name,
+		items.title,
+		items.url,
+		items.normalized_url,
+		items.raw_guid,
+		items.content_hash,
+		items.summary,
+		items.content_snippet,
+		items.author,
+		items.published_at,
+		items.fetched_at,
+		false AS is_read,
+		NULL::timestamp with time zone AS read_at,
+		false AS is_favorite,
+		NULL::timestamp with time zone AS favorited_at,
+		false AS is_hidden,
+		NULL::timestamp with time zone AS hidden_at,
+		items.created_at,
+		items.updated_at`
+}
+
 func itemListOrderClause(order domain.ItemSortOrder) string {
 	if order == domain.ItemSortOrderAsc {
 		return "items.published_at ASC NULLS LAST, items.fetched_at ASC, items.id ASC"
@@ -219,6 +304,20 @@ func applyItemStateFilters(query *gorm.DB, options domain.ItemListOptions) *gorm
 		query = query.Where("COALESCE(user_item_states.is_hidden, false) = false")
 	}
 	return query
+}
+
+func applyItemSourceFilters(query *gorm.DB, options domain.ItemListOptions) *gorm.DB {
+	if options.SourceID > 0 {
+		return query.Where("items.source_id = ?", options.SourceID)
+	}
+	if !itemSourceFilterRequiresActive(options) {
+		return query
+	}
+	return query.Where(activeSourceStatusFilter, string(domain.SourceStatusActive))
+}
+
+func itemSourceFilterRequiresActive(options domain.ItemListOptions) bool {
+	return options.SourceID <= 0
 }
 
 func upsertItem(ctx context.Context, db *gorm.DB, item domain.Item) (domain.Item, bool, error) {

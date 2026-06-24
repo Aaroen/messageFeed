@@ -11,8 +11,10 @@
   },
   "dependencies": {
     "@arco-design/web-vue": "^2.57.0",
+    "@types/qrcode": "^1.5.6",
     "axios": "^1.7.9",
     "pinia": "^2.3.1",
+    "qrcode": "^1.5.4",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"
   },

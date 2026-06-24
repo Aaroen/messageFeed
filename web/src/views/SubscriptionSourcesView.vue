@@ -369,6 +369,22 @@ function importNoticeMessage(prefix: string, result: ImportSourcesResult, fetchS
   return parts.join('，')
 }
 
+function importFailureDetail(result: ImportSourcesResult, fallbackName: string) {
+  const details = result.errors
+    .map((item) => {
+      const name = item.reference?.trim() || fallbackName
+      const message = item.message?.trim()
+      return message ? `${name}：${message}` : name
+    })
+    .filter(Boolean)
+    .slice(0, 3)
+  if (!details.length) {
+    return '服务未返回具体错误原因'
+  }
+  const overflow = result.errors.length > details.length ? `；另有 ${result.errors.length - details.length} 个失败来源` : ''
+  return `${details.join('；')}${overflow}`
+}
+
 async function handleImportURLs() {
   if (pageBusy.value) {
     return
@@ -562,13 +578,14 @@ async function toggleCatalogSource(entry: SourceCatalogEntry) {
       return
     }
     const imported = result.sources[0]
-    sourceStatusUpdated = Boolean(imported || result.success_count > 0)
+    if (!imported || result.success_count <= 0) {
+      throw new Error(importFailureDetail(result, entry.name))
+    }
+    sourceStatusUpdated = true
     let fetchResult: FetchNowResult = { success: true }
-    if (imported) {
-      fetchResult = await fetchNow(imported, token)
-      if (!pageRequestIsCurrent(token)) {
-        return
-      }
+    fetchResult = await fetchNow(imported, token)
+    if (!pageRequestIsCurrent(token)) {
+      return
     }
     invalidateSubscriptionFeedCaches(imported ? [imported.id] : [])
     const noticeType = !fetchResult.success ? 'warning' : 'success'

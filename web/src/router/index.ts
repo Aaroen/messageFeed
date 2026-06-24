@@ -60,13 +60,13 @@ const router = createRouter({
       path: '/subscriptions',
       name: 'subscriptions',
       component: SubscriptionFeedView,
-      meta: { title: '订阅', section: 'subscriptions' },
+      meta: { title: '订阅', section: 'subscriptions', public: true },
     },
     {
       path: '/recommendations',
       name: 'recommendations',
       component: SubscriptionFeedView,
-      meta: { title: '推荐', section: 'recommendations' },
+      meta: { title: '推荐', section: 'recommendations', public: true },
     },
     {
       path: '/sources',

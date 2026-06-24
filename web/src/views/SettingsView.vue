@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import QRCode from 'qrcode'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -17,6 +18,7 @@ import {
   listUsers,
   logout,
   revokeSession,
+  restoreUser,
   updateUserProfile,
   type AdminUser,
   type CurrentAuth,
@@ -83,6 +85,7 @@ const userContext = ref<UserContext | null>(null)
 const users = ref<AdminUser[]>([])
 const usersLoading = ref(false)
 const userDeletingID = ref<number | null>(null)
+const userRestoringID = ref<number | null>(null)
 const invites = ref<InviteCode[]>([])
 const invitesLoading = ref(false)
 const inviteCreating = ref(false)
@@ -102,6 +105,10 @@ const wechatWorkContent = ref('messageFeed 管理后台测试消息')
 const wechatWorkTesting = ref(false)
 const wechatWorkTestResult = ref<AdminWeChatWorkTestResult | null>(null)
 const wechatWorkTestError = ref('')
+const wechatBindLoading = ref(false)
+const wechatBindURL = ref('')
+const wechatBindQRCode = ref('')
+const wechatBindExpiresAt = ref('')
 let inviteCopyTimer: number | undefined
 
 const isOwner = computed(() => authStatus.value?.user?.role === 'owner')
@@ -148,7 +155,7 @@ function ensureActiveSettingsSection() {
 }
 
 function sectionNeedsAdminConfig(section = activeSettingsSection.value) {
-  return section === 'overview' || section === 'runtime' || section === 'tests'
+  return section === 'overview' || section === 'wechat' || section === 'runtime' || section === 'tests'
 }
 
 const statusCards = computed(() => {
@@ -394,13 +401,36 @@ async function runWeChatWorkTest() {
 }
 
 async function bindWeChatWork() {
+  wechatBindLoading.value = true
   authError.value = ''
+  wechatBindURL.value = ''
+  wechatBindQRCode.value = ''
+  wechatBindExpiresAt.value = ''
   try {
     const result = await getWeChatWorkOAuthURL({ redirect: '/settings', purpose: 'bind' })
-    window.location.assign(result.url)
+    wechatBindURL.value = result.url
+    wechatBindExpiresAt.value = result.expires_at
+    wechatBindQRCode.value = await QRCode.toDataURL(result.url, {
+      width: 224,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#111827',
+        light: '#ffffff',
+      },
+    })
   } catch (error) {
     authError.value = formatAPIError(error)
+  } finally {
+    wechatBindLoading.value = false
   }
+}
+
+function openWeChatWorkBindURL() {
+  if (!wechatBindURL.value) {
+    return
+  }
+  window.location.assign(wechatBindURL.value)
 }
 
 async function disableBinding(id: number) {
@@ -485,13 +515,30 @@ async function deleteUser(id: number) {
   userDeletingID.value = id
   authError.value = ''
   try {
-    await deactivateUser(id)
-    await loadUsers()
+    const deleted = await deactivateUser(id)
+    replaceUserInList(deleted)
   } catch (error) {
     authError.value = formatAPIError(error)
   } finally {
     userDeletingID.value = null
   }
+}
+
+async function restoreDeletedUser(id: number) {
+  userRestoringID.value = id
+  authError.value = ''
+  try {
+    const restored = await restoreUser(id)
+    replaceUserInList(restored)
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    userRestoringID.value = null
+  }
+}
+
+function replaceUserInList(nextUser: AdminUser) {
+  users.value = users.value.map((user) => (user.id === nextUser.id ? nextUser : user))
 }
 
 async function createInviteCode() {
@@ -558,6 +605,49 @@ function formatTime(value: string | undefined) {
     return '尚未检查'
   }
   return new Date(value).toLocaleString('zh-CN', { hour12: false })
+}
+
+function parseOAuthRedirectURL(value: string) {
+  try {
+    const parsed = new URL(value)
+    return parsed.searchParams.get('redirect_uri') || ''
+  } catch {
+    return ''
+  }
+}
+
+function localURLWarning(value: string) {
+  const target = parseOAuthRedirectURL(value) || value
+  if (!target) {
+    return ''
+  }
+  try {
+    const parsed = new URL(target)
+    const host = parsed.hostname.toLowerCase()
+    if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host.endsWith('.local')) {
+      return `当前回调地址为 ${target}，手机扫码无法回到该本机地址`
+    }
+  } catch {
+    return ''
+  }
+  return ''
+}
+
+const wechatBindWarning = computed(() => localURLWarning(wechatBindURL.value || configStatus.value?.wechat_work.oauth_callback_url || ''))
+
+function userStatusLabel(status: string) {
+  if (status === 'deleted') {
+    return 'delete'
+  }
+  return status || 'unknown'
+}
+
+function userMeta(user: AdminUser) {
+  const base = `${user.role} / ${user.display_name || '无显示名'} / ${user.email || '无邮箱'}`
+  if (user.status !== 'deleted') {
+    return base
+  }
+  return `${base} / 删除于 ${formatTime(user.deleted_at)} / 恢复截止 ${formatTime(user.restore_expires_at)}`
 }
 
 onMounted(() => {
@@ -795,14 +885,54 @@ defineExpose({ refreshPage })
             <button
               class="settings-action-button"
               type="button"
-              :disabled="authLoading || !authStatus?.wechat_work_oauth_enabled"
+              :disabled="authLoading || wechatBindLoading || !authStatus?.wechat_work_oauth_enabled"
               @click="bindWeChatWork"
             >
-              绑定
+              {{ wechatBindLoading ? '生成中' : '生成二维码' }}
             </button>
           </div>
           <div v-if="!authStatus?.wechat_work_oauth_enabled" class="settings-inline-alert settings-inline-alert--warning">
             企业微信网页授权尚未就绪
+          </div>
+          <dl v-if="isOwner && configStatus" class="settings-description-list">
+            <div>
+              <dt>CorpID</dt>
+              <dd>{{ configStatus.wechat_work.corp_id_masked || '未配置' }}</dd>
+            </div>
+            <div>
+              <dt>AgentID</dt>
+              <dd>{{ configStatus.wechat_work.agent_id || '未配置' }}</dd>
+            </div>
+            <div>
+              <dt>OAuth</dt>
+              <dd>{{ statusLabel(configStatus.wechat_work.oauth_configured) }}</dd>
+            </div>
+            <div>
+              <dt>网页授权回调</dt>
+              <dd class="settings-mono">{{ configStatus.wechat_work.oauth_callback_url || '未配置' }}</dd>
+            </div>
+            <div>
+              <dt>消息回调</dt>
+              <dd class="settings-mono">{{ configStatus.wechat_work.callback_url || '未配置' }}</dd>
+            </div>
+          </dl>
+          <div v-if="wechatBindWarning" class="settings-inline-alert settings-inline-alert--warning">
+            {{ wechatBindWarning }}
+          </div>
+          <div v-if="wechatBindQRCode" class="settings-wechat-qr">
+            <img class="settings-wechat-qr__image" :src="wechatBindQRCode" alt="企业微信绑定二维码" />
+            <div class="settings-wechat-qr__body">
+              <div class="settings-binding-row__title">企业微信扫码绑定</div>
+              <div class="settings-binding-row__meta">有效至 {{ formatTime(wechatBindExpiresAt) }}</div>
+              <div class="settings-wechat-qr__actions">
+                <button class="settings-action-button" type="button" @click="openWeChatWorkBindURL">
+                  当前浏览器打开
+                </button>
+                <button class="settings-action-button" type="button" :disabled="authLoading" @click="refreshPage">
+                  刷新绑定状态
+                </button>
+              </div>
+            </div>
           </div>
           <div class="settings-bindings">
             <div v-for="binding in authStatus?.bindings || []" :key="binding.id" class="settings-binding-row">
@@ -930,9 +1060,9 @@ defineExpose({ refreshPage })
           <div class="settings-bindings">
             <div v-for="user in users" :key="user.id" class="settings-binding-row">
               <div>
-                <div class="settings-binding-row__title">{{ user.username }} / {{ user.status }}</div>
+                <div class="settings-binding-row__title">{{ user.username }} / {{ userStatusLabel(user.status) }}</div>
                 <div class="settings-binding-row__meta">
-                  {{ user.role }} / {{ user.display_name || '无显示名' }} / {{ user.email || '无邮箱' }}
+                  {{ userMeta(user) }}
                 </div>
               </div>
               <button
@@ -943,6 +1073,15 @@ defineExpose({ refreshPage })
                 @click="deleteUser(user.id)"
               >
                 {{ userDeletingID === user.id ? '删除中' : '删除' }}
+              </button>
+              <button
+                v-else-if="user.role !== 'owner' && user.restorable"
+                class="settings-action-button"
+                type="button"
+                :disabled="userRestoringID === user.id"
+                @click="restoreDeletedUser(user.id)"
+              >
+                {{ userRestoringID === user.id ? '恢复中' : '恢复' }}
               </button>
             </div>
             <div v-if="!users.length" class="settings-panel__meta">暂无用户</div>

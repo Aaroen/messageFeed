@@ -23,7 +23,10 @@ func TestAdminConfigServiceStatusMasksSecretsAndBuildsEndpoints(t *testing.T) {
 	if status.WeChatWork.CallbackURL != "https://example.test/api/v1/channels/wechat-work/app/callback" {
 		t.Fatalf("CallbackURL = %q", status.WeChatWork.CallbackURL)
 	}
-	if !status.WeChatWork.Enabled || !status.WeChatWork.CallbackConfigured {
+	if status.WeChatWork.OAuthCallbackURL != "https://example.test/api/v1/auth/wechat-work/callback" {
+		t.Fatalf("OAuthCallbackURL = %q", status.WeChatWork.OAuthCallbackURL)
+	}
+	if !status.WeChatWork.Enabled || !status.WeChatWork.OAuthConfigured || !status.WeChatWork.CallbackConfigured {
 		t.Fatalf("wechat work status = %#v", status.WeChatWork)
 	}
 	if !status.LLM.Enabled || status.LLM.APIKeyPresent != true {

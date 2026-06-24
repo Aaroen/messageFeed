@@ -114,11 +114,13 @@ type AdminAuthConfigStatus struct {
 
 type AdminWeChatWorkConfigStatus struct {
 	Enabled            bool   `json:"enabled"`
+	OAuthConfigured    bool   `json:"oauth_configured"`
 	CallbackConfigured bool   `json:"callback_configured"`
 	SenderConfigured   bool   `json:"sender_configured"`
 	CorpIDMasked       string `json:"corp_id_masked,omitempty"`
 	AgentID            string `json:"agent_id,omitempty"`
 	CallbackURL        string `json:"callback_url,omitempty"`
+	OAuthCallbackURL   string `json:"oauth_callback_url,omitempty"`
 }
 
 type AdminLLMConfigStatus struct {
@@ -197,6 +199,7 @@ func (s *AdminConfigService) Status(ctx context.Context) (AdminConfigStatus, err
 
 	publicBaseURL := strings.TrimRight(s.cfg.Runtime.PublicBaseURL, "/")
 	callbackURL := joinPublicURL(publicBaseURL, "/api/v1/channels/wechat-work/app/callback")
+	oauthCallbackURL := joinPublicURL(publicBaseURL, "/api/v1/auth/wechat-work/callback")
 	status := AdminConfigStatus{
 		UpdatedAt: s.now().UTC(),
 		Runtime: AdminRuntimeConfigStatus{
@@ -220,11 +223,13 @@ func (s *AdminConfigService) Status(ctx context.Context) (AdminConfigStatus, err
 		},
 		WeChatWork: AdminWeChatWorkConfigStatus{
 			Enabled:            s.cfg.WeChatWork.Enabled(),
+			OAuthConfigured:    s.weChatWorkOAuthConfigured(),
 			CallbackConfigured: s.weChatWorkCallback,
 			SenderConfigured:   s.weChatWorkSender != nil,
 			CorpIDMasked:       maskConfigValue(s.cfg.WeChatWork.CorpID),
 			AgentID:            s.cfg.WeChatWork.AgentID,
 			CallbackURL:        callbackURL,
+			OAuthCallbackURL:   oauthCallbackURL,
 		},
 		LLM: AdminLLMConfigStatus{
 			Enabled:       s.cfg.LLM.Enabled(),
@@ -285,6 +290,16 @@ func (s *AdminConfigService) Status(ctx context.Context) (AdminConfigStatus, err
 		attribute.Bool("admin_config.llm.enabled", status.LLM.Enabled),
 	)
 	return status, nil
+}
+
+func (s *AdminConfigService) weChatWorkOAuthConfigured() bool {
+	if s == nil {
+		return false
+	}
+	return strings.TrimSpace(s.cfg.WeChatWork.CorpID) != "" &&
+		strings.TrimSpace(s.cfg.WeChatWork.AgentID) != "" &&
+		strings.TrimSpace(s.cfg.WeChatWork.Secret) != "" &&
+		strings.TrimSpace(s.cfg.Runtime.PublicBaseURL) != ""
 }
 
 func (s *AdminConfigService) TestLLM(ctx context.Context, input AdminLLMTestInput) (AdminLLMTestResult, error) {

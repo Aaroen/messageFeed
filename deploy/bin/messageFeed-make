@@ -2,6 +2,12 @@
 set -eu
 
 PROJECT_DIR="/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed"
+
+if [ -r /etc/messagefeed/messagefeed.env ]; then
+	# shellcheck disable=SC1091
+	. /etc/messagefeed/messagefeed.env
+fi
+
 PORT="${GATEWAY_HTTPS_PORT:-8443}"
 DOMAIN="${MESSAGEFEED_DOMAIN:-}"
 PUBLIC_HOST="${MESSAGEFEED_PUBLIC_HOST:-${DOMAIN:-localhost}}"
@@ -38,6 +44,7 @@ export GATEWAY_SITE_ADDRESS
 export GATEWAY_DEFAULT_SNI
 export VITE_HMR_CLIENT_PORT
 export VITE_HMR_HOST
+export CLOUDFLARED_TUNNEL_TOKEN="${CLOUDFLARED_TUNNEL_TOKEN:-}"
 
 case "${1:-up}" in
 	up|start)
@@ -54,7 +61,7 @@ case "${1:-up}" in
 			printf '%s\n' "CLOUDFLARED_TUNNEL_TOKEN is required." >&2
 			exit 2
 		fi
-		run_compose --profile dev --profile cloudflare up -d api-dev web-dev gateway-dev cloudflared
+		run_compose --profile dev --profile cloudflare-dev up -d api-dev web-dev gateway-dev cloudflared-dev
 		printf '%s\n' "messageFeed Cloudflare development mode is running."
 		printf '%s\n' "Web/API: ${PUBLIC_BASE_URL}"
 		if [ -n "$DOMAIN" ]; then
@@ -80,7 +87,7 @@ case "${1:-up}" in
 		run_compose --profile dev restart gateway-dev
 		;;
 	stop)
-		run_compose --profile dev --profile cloudflare stop cloudflared gateway-dev web-dev api-dev
+		run_compose --profile dev --profile cloudflare-dev stop cloudflared-dev gateway-dev web-dev api-dev
 		;;
 	*)
 		printf '%s\n' "Usage: messageFeed-make [up|cloudflare|watch|logs|status|reload-api|reload-web|reload-gateway|stop]" >&2

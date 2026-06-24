@@ -142,12 +142,13 @@ docker-run: ## 运行 Docker 容器（需要先构建镜像）
 .PHONY: compose-up
 compose-up: ## 启动 Docker Compose 服务
 	@echo "启动 Docker Compose 服务..."
-	@$(DOCKER_COMPOSE) up -d --build
+	@GATEWAY_HTTPS_PORT="$(GATEWAY_HTTPS_PORT)" PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" GATEWAY_SITE_ADDRESS="$(GATEWAY_SITE_ADDRESS)" GATEWAY_DEFAULT_SNI="$(GATEWAY_DEFAULT_SNI)" $(DOCKER_COMPOSE) up -d --build
 	@echo "✅ 服务已启动"
 	@echo ""
 	@echo "服务地址："
+	@echo "  Web/API: $(PUBLIC_BASE_URL)"
 	@echo "  API: http://localhost:60001"
-	@echo "  健康检查: http://localhost:60001/healthz"
+	@echo "  健康检查: $(PUBLIC_BASE_URL)/healthz"
 	@echo "  Grafana: http://localhost:3000"
 	@echo "  Prometheus: http://localhost:9090"
 	@echo ""

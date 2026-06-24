@@ -96,6 +96,8 @@ func normalizeSourceImportJobListOptions(options domain.SourceImportJobListOptio
 }
 
 func sourceImportJobModelFromDomain(job domain.SourceImportJob) sourceImportJobModel {
+	errorDetails := make([]domain.SourceImportJobError, 0, len(job.ErrorDetails))
+	errorDetails = append(errorDetails, job.ErrorDetails...)
 	return sourceImportJobModel{
 		ID:             job.ID,
 		UserID:         job.UserID,
@@ -104,7 +106,7 @@ func sourceImportJobModelFromDomain(job domain.SourceImportJob) sourceImportJobM
 		RequestedCount: job.RequestedCount,
 		SuccessCount:   job.SuccessCount,
 		FailureCount:   job.FailureCount,
-		ErrorDetails:   append([]domain.SourceImportJobError(nil), job.ErrorDetails...),
+		ErrorDetails:   errorDetails,
 		CreatedAt:      job.CreatedAt,
 		UpdatedAt:      job.UpdatedAt,
 	}

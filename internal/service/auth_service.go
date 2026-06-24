@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"messagefeed/internal/config"
 	"messagefeed/internal/domain"
@@ -29,6 +30,7 @@ const (
 	defaultInviteTTL          = 7 * 24 * time.Hour
 	authAttemptLimit          = 10
 	authAttemptWindowDuration = time.Hour
+	deletedUserRetention      = 72 * time.Hour
 )
 
 type AuthRepository interface {
@@ -39,6 +41,8 @@ type AuthRepository interface {
 	UpdateUserInfo(ctx context.Context, userID int64, displayName string, email string, now time.Time) (domain.User, error)
 	UpdateUserPassword(ctx context.Context, userID int64, passwordHash string, now time.Time) (domain.User, error)
 	DeactivateUser(ctx context.Context, userID int64, now time.Time) (domain.User, error)
+	RestoreUser(ctx context.Context, userID int64, now time.Time) (domain.User, error)
+	PurgeDeletedUsers(ctx context.Context, cutoff time.Time) (int64, error)
 	GetUserProfile(ctx context.Context, userID int64) (domain.UserProfile, error)
 	UpsertUserProfile(ctx context.Context, profile domain.UserProfile) (domain.UserProfile, error)
 	CreateSession(ctx context.Context, session domain.UserSession) (domain.UserSession, error)
@@ -262,6 +266,9 @@ type AdminUserResponse struct {
 	Role               string `json:"role"`
 	Status             string `json:"status"`
 	PasswordConfigured bool   `json:"password_configured"`
+	DeletedAt          string `json:"deleted_at,omitempty"`
+	RestoreExpiresAt   string `json:"restore_expires_at,omitempty"`
+	Restorable         bool   `json:"restorable"`
 	CreatedAt          string `json:"created_at"`
 	UpdatedAt          string `json:"updated_at"`
 }
@@ -313,11 +320,11 @@ type CreateInviteResult struct {
 	Code   string             `json:"code"`
 }
 
-func (s *AuthService) checkAuthAttempt(operation string, remoteAddress string) error {
+func (s *AuthService) checkAuthAttempt(operation string, remoteAddress string, identity string) error {
 	if s == nil {
 		return nil
 	}
-	key := authAttemptKey(operation, remoteAddress)
+	key := authAttemptKey(operation, remoteAddress, identity)
 	now := s.now().UTC()
 	s.rateMu.Lock()
 	defer s.rateMu.Unlock()
@@ -345,6 +352,16 @@ func (s *AuthService) checkAuthAttempt(operation string, remoteAddress string) e
 	return nil
 }
 
+func (s *AuthService) clearAuthAttempts(operation string, remoteAddress string, identity string) {
+	if s == nil {
+		return
+	}
+	key := authAttemptKey(operation, remoteAddress, identity)
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+	delete(s.rateWindows, key)
+}
+
 func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (AuthSessionResult, error) {
 	if s == nil || s.repository == nil {
 		return AuthSessionResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.login", false, nil)
@@ -353,13 +370,13 @@ func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (Au
 	var opErr error
 	defer func() { observability.EndSpan(span, opErr) }()
 
-	if err := s.checkAuthAttempt("login", input.RemoteAddress); err != nil {
+	username := strings.TrimSpace(input.Username)
+	password := strings.TrimSpace(input.Password)
+	if err := s.checkAuthAttempt("login", input.RemoteAddress, username); err != nil {
 		opErr = err
 		return AuthSessionResult{}, err
 	}
 
-	username := strings.TrimSpace(input.Username)
-	password := strings.TrimSpace(input.Password)
 	if username == "" || password == "" {
 		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_login_required", "username and password are required", "service.auth.login", false, domain.ErrInvalidInput)
 		return AuthSessionResult{}, opErr
@@ -380,6 +397,7 @@ func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (Au
 				opErr = err
 				return AuthSessionResult{}, err
 			}
+			s.clearAuthAttempts("login", input.RemoteAddress, username)
 			span.SetAttributes(attribute.Int64("auth.user_id", user.ID))
 			return result, nil
 		}
@@ -414,6 +432,7 @@ func (s *AuthService) LocalLogin(ctx context.Context, input LocalLoginInput) (Au
 		opErr = err
 		return AuthSessionResult{}, err
 	}
+	s.clearAuthAttempts("login", input.RemoteAddress, username)
 	span.SetAttributes(attribute.Int64("auth.user_id", user.ID))
 	return result, nil
 }
@@ -426,7 +445,7 @@ func (s *AuthService) RegisterWithInvite(ctx context.Context, input RegisterWith
 	var opErr error
 	defer func() { observability.EndSpan(span, opErr) }()
 
-	if err := s.checkAuthAttempt("register", input.RemoteAddress); err != nil {
+	if err := s.checkAuthAttempt("register", input.RemoteAddress, input.Username); err != nil {
 		opErr = err
 		return AuthSessionResult{}, err
 	}
@@ -459,6 +478,10 @@ func (s *AuthService) RegisterWithInvite(ctx context.Context, input RegisterWith
 		return AuthSessionResult{}, err
 	}
 	now := s.now().UTC()
+	if err := s.purgeExpiredDeletedUsers(ctx, now); err != nil {
+		opErr = err
+		return AuthSessionResult{}, err
+	}
 	user, _, err := s.repository.CreateUserWithInvite(ctx, hashSecret(inviteCode), domain.User{
 		Username:     username,
 		Email:        strings.TrimSpace(input.Email),
@@ -470,12 +493,12 @@ func (s *AuthService) RegisterWithInvite(ctx context.Context, input RegisterWith
 		UserAgentHash: hashSecret(strings.TrimSpace(input.UserAgent)),
 	}, now)
 	if err != nil {
+		if appErr := normalizeRegisterError(err); appErr != nil {
+			opErr = appErr
+			return AuthSessionResult{}, appErr
+		}
 		if domain.ClassifyError(err) == domain.ErrorKindConflict {
-			if existing, lookupErr := s.repository.GetUserByUsername(ctx, username); lookupErr == nil && existing.ID > 0 {
-				opErr = domain.NewAppError(domain.ErrorKindConflict, "auth_username_exists", "username already exists", "service.auth.register", false, err)
-				return AuthSessionResult{}, opErr
-			}
-			opErr = domain.NewAppError(domain.ErrorKindConflict, "auth_invite_unavailable", "invite code is invalid, expired or already used", "service.auth.register", false, err)
+			opErr = domain.NewAppError(domain.ErrorKindConflict, "auth_register_conflict", "registration conflict", "service.auth.register", false, err)
 			return AuthSessionResult{}, opErr
 		}
 		opErr = err
@@ -486,6 +509,7 @@ func (s *AuthService) RegisterWithInvite(ctx context.Context, input RegisterWith
 		opErr = err
 		return AuthSessionResult{}, err
 	}
+	s.clearAuthAttempts("register", input.RemoteAddress, username)
 	span.SetAttributes(attribute.Int64("auth.user_id", user.ID))
 	return result, nil
 }
@@ -744,13 +768,17 @@ func (s *AuthService) ListUsers(ctx context.Context, auth CurrentAuth) ([]AdminU
 	if !auth.Authenticated || auth.User.Role != domain.UserRoleOwner {
 		return nil, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_required", "owner role is required", "service.auth.list_users", false, nil)
 	}
+	now := s.now().UTC()
+	if err := s.purgeExpiredDeletedUsers(ctx, now); err != nil {
+		return nil, err
+	}
 	users, err := s.repository.ListUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
 	responses := make([]AdminUserResponse, 0, len(users))
 	for _, user := range users {
-		responses = append(responses, adminUserResponse(user))
+		responses = append(responses, adminUserResponse(user, now))
 	}
 	return responses, nil
 }
@@ -775,11 +803,46 @@ func (s *AuthService) DeactivateUser(ctx context.Context, auth CurrentAuth, user
 	if user.Role == domain.UserRoleOwner {
 		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_deactivate_denied", "owner account cannot be deleted from this endpoint", "service.auth.deactivate_user", false, nil)
 	}
-	user, err = s.repository.DeactivateUser(ctx, userID, s.now().UTC())
+	now := s.now().UTC()
+	user, err = s.repository.DeactivateUser(ctx, userID, now)
 	if err != nil {
 		return AdminUserResponse{}, err
 	}
-	return adminUserResponse(user), nil
+	return adminUserResponse(user, now), nil
+}
+
+func (s *AuthService) RestoreUser(ctx context.Context, auth CurrentAuth, userID int64) (AdminUserResponse, error) {
+	if s == nil || s.repository == nil {
+		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.restore_user", false, nil)
+	}
+	if !auth.Authenticated || auth.User.Role != domain.UserRoleOwner {
+		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_required", "owner role is required", "service.auth.restore_user", false, nil)
+	}
+	if userID < 1 {
+		return AdminUserResponse{}, fmt.Errorf("%w: user id is required", domain.ErrInvalidInput)
+	}
+	now := s.now().UTC()
+	if err := s.purgeExpiredDeletedUsers(ctx, now); err != nil {
+		return AdminUserResponse{}, err
+	}
+	user, err := s.repository.GetUserByID(ctx, userID)
+	if err != nil {
+		return AdminUserResponse{}, err
+	}
+	if user.Role == domain.UserRoleOwner {
+		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindInvalidInput, "auth_owner_restore_denied", "owner account cannot be restored from this endpoint", "service.auth.restore_user", false, nil)
+	}
+	if user.Status != domain.UserStatusDeleted {
+		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindConflict, "auth_user_not_deleted", "user is not deleted", "service.auth.restore_user", false, domain.ErrConflict)
+	}
+	if !userCanBeRestored(user, now) {
+		return AdminUserResponse{}, domain.NewAppError(domain.ErrorKindConflict, "auth_user_restore_expired", "user restore window has expired", "service.auth.restore_user", false, domain.ErrConflict)
+	}
+	user, err = s.repository.RestoreUser(ctx, userID, now)
+	if err != nil {
+		return AdminUserResponse{}, err
+	}
+	return adminUserResponse(user, now), nil
 }
 
 func (s *AuthService) ResolveExternalAccount(ctx context.Context, provider string, corpID string, agentID string, externalUserID string) (domain.ExternalAccount, error) {
@@ -881,7 +944,7 @@ func (s *AuthService) HandleWeChatWorkOAuthCallback(ctx context.Context, input W
 		return WeChatWorkOAuthCallbackResult{}, err
 	}
 	if strings.TrimSpace(wechatUser.UserID) == "" {
-		opErr = domain.NewAppError(domain.ErrorKindUnavailable, "auth_wechat_work_user_missing", "wechat work oauth did not return userid", "service.auth.wechat_work.callback", true, nil)
+		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_wechat_work_user_missing", weChatWorkOAuthMissingUserIDMessage(wechatUser), "service.auth.wechat_work.callback", false, nil)
 		return WeChatWorkOAuthCallbackResult{}, opErr
 	}
 	verifiedAt := now
@@ -1069,8 +1132,18 @@ func (s *AuthService) buildWeChatWorkOAuthAuthorizeURL(state string) (string, er
 	values.Set("redirect_uri", callbackURL)
 	values.Set("response_type", "code")
 	values.Set("scope", "snsapi_base")
+	if agentID := strings.TrimSpace(s.cfg.WeChatWork.AgentID); agentID != "" {
+		values.Set("agentid", agentID)
+	}
 	values.Set("state", state)
 	return "https://open.weixin.qq.com/connect/oauth2/authorize?" + values.Encode() + "#wechat_redirect", nil
+}
+
+func weChatWorkOAuthMissingUserIDMessage(user WeChatWorkOAuthUser) string {
+	if strings.TrimSpace(user.OpenID) != "" {
+		return "wechat work oauth returned openid instead of userid; please scan with a member account in WeCom and ensure the member is in the application visible scope"
+	}
+	return "wechat work oauth did not return userid; please scan with a WeCom member account in the application visible scope"
 }
 
 func sanitizeRedirectPath(path string) string {
@@ -1143,6 +1216,14 @@ func (s *AuthService) getOrCreateUserProfile(ctx context.Context, user domain.Us
 	})
 }
 
+func (s *AuthService) purgeExpiredDeletedUsers(ctx context.Context, now time.Time) error {
+	if s == nil || s.repository == nil {
+		return nil
+	}
+	_, err := s.repository.PurgeDeletedUsers(ctx, now.UTC().Add(-deletedUserRetention))
+	return err
+}
+
 func userResponse(user domain.User) *AuthUserResponse {
 	return &AuthUserResponse{
 		ID:                 user.ID,
@@ -1154,8 +1235,8 @@ func userResponse(user domain.User) *AuthUserResponse {
 	}
 }
 
-func adminUserResponse(user domain.User) AdminUserResponse {
-	return AdminUserResponse{
+func adminUserResponse(user domain.User, now time.Time) AdminUserResponse {
+	response := AdminUserResponse{
 		ID:                 user.ID,
 		Username:           user.Username,
 		DisplayName:        user.DisplayName,
@@ -1166,6 +1247,20 @@ func adminUserResponse(user domain.User) AdminUserResponse {
 		CreatedAt:          user.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:          user.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+	if user.Status == domain.UserStatusDeleted && user.DeletedAt != nil {
+		expiresAt := user.DeletedAt.UTC().Add(deletedUserRetention)
+		response.DeletedAt = user.DeletedAt.UTC().Format(time.RFC3339)
+		response.RestoreExpiresAt = expiresAt.Format(time.RFC3339)
+		response.Restorable = !now.UTC().After(expiresAt)
+	}
+	return response
+}
+
+func userCanBeRestored(user domain.User, now time.Time) bool {
+	if user.Status != domain.UserStatusDeleted || user.DeletedAt == nil {
+		return false
+	}
+	return !now.UTC().After(user.DeletedAt.UTC().Add(deletedUserRetention))
 }
 
 func profileResponse(user domain.User, profile domain.UserProfile) UserProfileResponse {
@@ -1176,10 +1271,10 @@ func profileResponse(user domain.User, profile domain.UserProfile) UserProfileRe
 		Language:               profile.Language,
 		Region:                 profile.Region,
 		Bio:                    profile.Bio,
-		FocusTopics:            append([]string(nil), profile.FocusTopics...),
-		BlockedTopics:          append([]string(nil), profile.BlockedTopics...),
-		MarketFocus:            append([]string(nil), profile.MarketFocus...),
-		InstrumentFocus:        append([]string(nil), profile.InstrumentFocus...),
+		FocusTopics:            append([]string{}, profile.FocusTopics...),
+		BlockedTopics:          append([]string{}, profile.BlockedTopics...),
+		MarketFocus:            append([]string{}, profile.MarketFocus...),
+		InstrumentFocus:        append([]string{}, profile.InstrumentFocus...),
 		RiskPreference:         profile.RiskPreference,
 		NotificationQuietHours: profile.NotificationQuietHours,
 		AgentNotes:             profile.AgentNotes,
@@ -1269,6 +1364,29 @@ func inviteResponse(invite domain.AuthInviteCode) InviteCodeResponse {
 	return response
 }
 
+func normalizeRegisterError(err error) *domain.AppError {
+	var appErr *domain.AppError
+	if !errors.As(err, &appErr) {
+		return nil
+	}
+	switch appErr.Code {
+	case "auth_invite_not_found":
+		return domain.NewAppError(domain.ErrorKindNotFound, "auth_invite_not_found", "invite code does not exist", "service.auth.register", false, err)
+	case "auth_invite_revoked":
+		return domain.NewAppError(domain.ErrorKindConflict, "auth_invite_revoked", "invite code has been revoked", "service.auth.register", false, err)
+	case "auth_invite_expired":
+		return domain.NewAppError(domain.ErrorKindConflict, "auth_invite_expired", "invite code has expired", "service.auth.register", false, err)
+	case "auth_invite_used":
+		return domain.NewAppError(domain.ErrorKindConflict, "auth_invite_used", "invite code has already been used", "service.auth.register", false, err)
+	case "auth_username_exists":
+		return domain.NewAppError(domain.ErrorKindConflict, "auth_username_exists", "username already exists", "service.auth.register", false, err)
+	case "auth_user_sequence_invalid":
+		return domain.NewAppError(domain.ErrorKindInternal, "auth_user_sequence_invalid", "user id sequence is out of sync", "service.auth.register", false, err)
+	default:
+		return nil
+	}
+}
+
 func bindingResponses(accounts []domain.ExternalAccount) []AuthBindingResponse {
 	responses := make([]AuthBindingResponse, 0, len(accounts))
 	for _, account := range accounts {
@@ -1353,7 +1471,7 @@ func validatePassword(password string) error {
 	return nil
 }
 
-func authAttemptKey(operation string, remoteAddress string) string {
+func authAttemptKey(operation string, remoteAddress string, identity string) string {
 	operation = strings.TrimSpace(operation)
 	if operation == "" {
 		operation = "auth"
@@ -1362,7 +1480,11 @@ func authAttemptKey(operation string, remoteAddress string) string {
 	if remoteAddress == "" {
 		remoteAddress = "unknown"
 	}
-	return operation + ":" + remoteAddress
+	identity = strings.ToLower(strings.TrimSpace(identity))
+	if identity == "" {
+		identity = "unknown"
+	}
+	return operation + ":" + remoteAddress + ":" + identity
 }
 
 func hashPassword(password string) (string, error) {

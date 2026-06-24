@@ -38,11 +38,13 @@ export interface AdminConfigStatus {
   }
   wechat_work: {
     enabled: boolean
+    oauth_configured: boolean
     callback_configured: boolean
     sender_configured: boolean
     corp_id_masked?: string
     agent_id?: string
     callback_url?: string
+    oauth_callback_url?: string
   }
   llm: {
     enabled: boolean

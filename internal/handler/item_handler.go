@@ -38,12 +38,16 @@ type itemHandler struct {
 	itemService           itemStateService
 }
 
-func registerItemRoutes(router *gin.RouterGroup, timelineService timelineService, itemService itemStateService, recommendationService recommendationService) {
-	handler := itemHandler{timelineService: timelineService, itemService: itemService, recommendationService: recommendationService}
+func registerPublicItemRoutes(router *gin.RouterGroup, timelineService timelineService, recommendationService recommendationService) {
+	handler := itemHandler{timelineService: timelineService, recommendationService: recommendationService}
 	router.GET("/items", handler.listItems)
 	router.GET("/items/:id", handler.getItem)
 	router.GET("/feed/timeline", handler.listItems)
 	router.GET("/feed/recommendations", handler.listRecommendations)
+}
+
+func registerProtectedItemRoutes(router *gin.RouterGroup, itemService itemStateService) {
+	handler := itemHandler{itemService: itemService}
 	router.POST("/items/:id/read", handler.markRead)
 	router.POST("/items/:id/favorite", handler.setFavorite)
 	router.POST("/items/:id/hide", handler.setHidden)
@@ -168,7 +172,7 @@ func (h itemHandler) listItems(c *gin.Context) {
 
 	items := make([]itemResponse, 0, len(result.Items))
 	for _, item := range result.Items {
-		items = append(items, itemResponseFromDomain(item))
+		items = append(items, itemResponseFromDomainForAuth(item, currentAuth(c).Authenticated))
 	}
 	Success(c, itemListResponse{
 		Items:  items,
@@ -220,7 +224,7 @@ func (h itemHandler) listRecommendations(c *gin.Context) {
 
 	items := make([]itemResponse, 0, len(result.Items))
 	for _, item := range result.Items {
-		items = append(items, itemResponseFromDomain(item))
+		items = append(items, itemResponseFromDomainForAuth(item, currentAuth(c).Authenticated))
 	}
 	Success(c, itemListResponse{
 		Items:  items,
@@ -248,7 +252,7 @@ func (h itemHandler) getItem(c *gin.Context) {
 		writeItemError(c, err)
 		return
 	}
-	Success(c, itemResponseFromDomain(item))
+	Success(c, itemResponseFromDomainForAuth(item, currentAuth(c).Authenticated))
 }
 
 func (h itemHandler) markRead(c *gin.Context) {
@@ -394,6 +398,18 @@ func writeItemError(c *gin.Context, err error) {
 }
 
 func itemResponseFromDomain(item domain.Item) itemResponse {
+	return itemResponseFromDomainForAuth(item, true)
+}
+
+func itemResponseFromDomainForAuth(item domain.Item, authenticated bool) itemResponse {
+	if !authenticated {
+		item.IsRead = false
+		item.ReadAt = nil
+		item.IsFavorite = false
+		item.FavoritedAt = nil
+		item.IsHidden = false
+		item.HiddenAt = nil
+	}
 	return itemResponse{
 		ID:             item.ID,
 		SourceID:       item.SourceID,

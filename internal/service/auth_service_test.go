@@ -76,6 +76,75 @@ func TestAuthServiceRateLimitsLocalLoginAttempts(t *testing.T) {
 	}
 }
 
+func TestAuthServiceLoginRateLimitIsScopedByUsername(t *testing.T) {
+	now := time.Date(2026, 6, 23, 10, 35, 0, 0, time.UTC)
+	service := NewAuthService(newFakeAuthRepository(now), testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	for i := 0; i < authAttemptLimit; i++ {
+		_, err := service.LocalLogin(context.Background(), LocalLoginInput{
+			Username:      "other",
+			Password:      "wrong",
+			RemoteAddress: "127.0.0.1",
+		})
+		if domain.ClassifyError(err) != domain.ErrorKindInvalidInput {
+			t.Fatalf("attempt %d error kind = %s, want invalid_input", i+1, domain.ClassifyError(err))
+		}
+	}
+
+	_, err := service.LocalLogin(context.Background(), LocalLoginInput{
+		Username:      "owner",
+		Password:      "secret",
+		RemoteAddress: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("owner LocalLogin() error = %v", err)
+	}
+}
+
+func TestAuthServiceSuccessfulLoginClearsAttemptWindow(t *testing.T) {
+	now := time.Date(2026, 6, 23, 10, 40, 0, 0, time.UTC)
+	service := NewAuthService(newFakeAuthRepository(now), testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	for i := 0; i < authAttemptLimit-1; i++ {
+		_, err := service.LocalLogin(context.Background(), LocalLoginInput{
+			Username:      "owner",
+			Password:      "wrong",
+			RemoteAddress: "127.0.0.1",
+		})
+		if domain.ClassifyError(err) != domain.ErrorKindInvalidInput {
+			t.Fatalf("attempt %d error kind = %s, want invalid_input", i+1, domain.ClassifyError(err))
+		}
+	}
+
+	if _, err := service.LocalLogin(context.Background(), LocalLoginInput{
+		Username:      "owner",
+		Password:      "secret",
+		RemoteAddress: "127.0.0.1",
+	}); err != nil {
+		t.Fatalf("successful LocalLogin() error = %v", err)
+	}
+
+	for i := 0; i < authAttemptLimit; i++ {
+		_, err := service.LocalLogin(context.Background(), LocalLoginInput{
+			Username:      "owner",
+			Password:      "wrong",
+			RemoteAddress: "127.0.0.1",
+		})
+		if domain.ClassifyError(err) != domain.ErrorKindInvalidInput {
+			t.Fatalf("post-success attempt %d error kind = %s, want invalid_input", i+1, domain.ClassifyError(err))
+		}
+	}
+
+	_, err := service.LocalLogin(context.Background(), LocalLoginInput{
+		Username:      "owner",
+		Password:      "wrong",
+		RemoteAddress: "127.0.0.1",
+	})
+	if domain.ClassifyError(err) != domain.ErrorKindRateLimited {
+		t.Fatalf("error kind = %s, want rate_limited", domain.ClassifyError(err))
+	}
+}
+
 func TestAuthServiceDefaultOwnerMigrationPasswordHash(t *testing.T) {
 	const migrationHash = "$2a$10$DTKcuvnsad7405UJYtMIxOQDrpO6PN5bQJGgwgJDlJz8AIkcYicYO"
 	if err := verifyPassword(migrationHash, "***REMOVED-FROM-GIT-HISTORY***"); err != nil {
@@ -107,6 +176,9 @@ func TestAuthServiceWeChatWorkOAuthBind(t *testing.T) {
 	if !strings.Contains(oauthURL.URL, "state=fixed-token") {
 		t.Fatalf("oauth url does not contain state: %s", oauthURL.URL)
 	}
+	if !strings.Contains(oauthURL.URL, "agentid=1000002") {
+		t.Fatalf("oauth url does not contain agentid: %s", oauthURL.URL)
+	}
 
 	result, err := service.HandleWeChatWorkOAuthCallback(context.Background(), WeChatWorkOAuthCallbackInput{
 		Code:  "oauth-code",
@@ -120,6 +192,37 @@ func TestAuthServiceWeChatWorkOAuthBind(t *testing.T) {
 	}
 	if result.RedirectPath != "/settings" {
 		t.Fatalf("RedirectPath = %q, want /settings", result.RedirectPath)
+	}
+}
+
+func TestAuthServiceWeChatWorkOAuthRejectsOpenIDOnly(t *testing.T) {
+	now := time.Date(2026, 6, 23, 11, 30, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	service := NewAuthService(
+		repository,
+		testAuthConfig(),
+		WithAuthNow(func() time.Time { return now }),
+		WithAuthRandomToken(func() (string, error) { return "fixed-token", nil }),
+		WithAuthWeChatWorkOAuth(fakeWeChatWorkOAuth{user: WeChatWorkOAuthUser{OpenID: "openid-only"}}),
+	)
+
+	if _, err := service.BuildWeChatWorkOAuthURL(context.Background(), WeChatWorkOAuthURLInput{
+		UserID:       1,
+		Purpose:      "bind",
+		RedirectPath: "/settings",
+	}); err != nil {
+		t.Fatalf("BuildWeChatWorkOAuthURL() error = %v", err)
+	}
+
+	_, err := service.HandleWeChatWorkOAuthCallback(context.Background(), WeChatWorkOAuthCallbackInput{
+		Code:  "oauth-code",
+		State: "fixed-token",
+	})
+	if domain.ClassifyError(err) != domain.ErrorKindInvalidInput {
+		t.Fatalf("error kind = %s, want invalid_input; err = %v", domain.ClassifyError(err), err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "openid") {
+		t.Fatalf("error = %v, want openid guidance", err)
 	}
 }
 
@@ -383,6 +486,51 @@ func TestAuthServiceDeactivateAccountRejectsOwner(t *testing.T) {
 	}
 }
 
+func TestAuthServiceAdminDeleteAndRestoreUser(t *testing.T) {
+	now := time.Date(2026, 6, 23, 16, 30, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	repository.user = domain.User{
+		ID:          2,
+		Username:    "member",
+		DisplayName: "member",
+		Role:        domain.UserRoleUser,
+		Status:      domain.UserStatusActive,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+	auth := CurrentAuth{
+		Authenticated: true,
+		User: domain.User{
+			ID:     1,
+			Role:   domain.UserRoleOwner,
+			Status: domain.UserStatusActive,
+		},
+	}
+
+	deleted, err := service.DeactivateUser(context.Background(), auth, 2)
+	if err != nil {
+		t.Fatalf("DeactivateUser() error = %v", err)
+	}
+	if deleted.Status != string(domain.UserStatusDeleted) {
+		t.Fatalf("deleted.Status = %q, want deleted", deleted.Status)
+	}
+	if deleted.DeletedAt == "" || deleted.RestoreExpiresAt == "" || !deleted.Restorable {
+		t.Fatalf("deleted response missing restore window: %#v", deleted)
+	}
+
+	restored, err := service.RestoreUser(context.Background(), auth, 2)
+	if err != nil {
+		t.Fatalf("RestoreUser() error = %v", err)
+	}
+	if restored.Status != string(domain.UserStatusActive) {
+		t.Fatalf("restored.Status = %q, want active", restored.Status)
+	}
+	if restored.DeletedAt != "" || restored.RestoreExpiresAt != "" || restored.Restorable {
+		t.Fatalf("restored response retains delete metadata: %#v", restored)
+	}
+}
+
 func TestAuthServiceResolveExternalAccount(t *testing.T) {
 	now := time.Date(2026, 6, 23, 17, 0, 0, 0, time.UTC)
 	repository := newFakeAuthRepository(now)
@@ -483,20 +631,23 @@ func (r *fakeAuthRepository) EnsureOwner(ctx context.Context, username string) (
 }
 
 func (r *fakeAuthRepository) GetUserByID(ctx context.Context, userID int64) (domain.User, error) {
-	if r.user.ID == userID {
+	if r.user.ID > 0 && r.user.ID == userID {
 		return r.user, nil
 	}
 	return domain.User{}, domain.ErrNotFound
 }
 
 func (r *fakeAuthRepository) GetUserByUsername(ctx context.Context, username string) (domain.User, error) {
-	if r.user.Username == username {
+	if r.user.ID > 0 && r.user.Username == username {
 		return r.user, nil
 	}
 	return domain.User{}, domain.ErrNotFound
 }
 
 func (r *fakeAuthRepository) ListUsers(ctx context.Context) ([]domain.User, error) {
+	if r.user.ID == 0 {
+		return []domain.User{}, nil
+	}
 	return []domain.User{r.user}, nil
 }
 
@@ -523,7 +674,9 @@ func (r *fakeAuthRepository) DeactivateUser(ctx context.Context, userID int64, n
 	if r.user.ID != userID {
 		return domain.User{}, domain.ErrNotFound
 	}
+	deletedAt := now
 	r.user.Status = domain.UserStatusDeleted
+	r.user.DeletedAt = &deletedAt
 	r.user.UpdatedAt = now
 	for tokenHash, session := range r.sessions {
 		if session.UserID == userID && session.RevokedAt == nil {
@@ -532,6 +685,27 @@ func (r *fakeAuthRepository) DeactivateUser(ctx context.Context, userID int64, n
 		}
 	}
 	return r.user, nil
+}
+
+func (r *fakeAuthRepository) RestoreUser(ctx context.Context, userID int64, now time.Time) (domain.User, error) {
+	if r.user.ID != userID || r.user.Status != domain.UserStatusDeleted {
+		return domain.User{}, domain.ErrNotFound
+	}
+	r.user.Status = domain.UserStatusActive
+	r.user.DeletedAt = nil
+	r.user.UpdatedAt = now
+	return r.user, nil
+}
+
+func (r *fakeAuthRepository) PurgeDeletedUsers(ctx context.Context, cutoff time.Time) (int64, error) {
+	if r.user.ID == 0 || r.user.Role == domain.UserRoleOwner || r.user.Status != domain.UserStatusDeleted || r.user.DeletedAt == nil {
+		return 0, nil
+	}
+	if r.user.DeletedAt.After(cutoff) {
+		return 0, nil
+	}
+	r.user = domain.User{}
+	return 1, nil
 }
 
 func (r *fakeAuthRepository) GetUserProfile(ctx context.Context, userID int64) (domain.UserProfile, error) {

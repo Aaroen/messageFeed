@@ -97,6 +97,9 @@ export interface AdminUser {
   role: string
   status: string
   password_configured: boolean
+  deleted_at?: string
+  restore_expires_at?: string
+  restorable: boolean
   created_at: string
   updated_at: string
 }
@@ -255,5 +258,10 @@ export async function listUsers() {
 
 export async function deactivateUser(id: number) {
   const response = await apiClient.delete<APIEnvelope<AdminUser>>(`/api/v1/admin/users/${id}`)
+  return response.data.data
+}
+
+export async function restoreUser(id: number) {
+  const response = await apiClient.post<APIEnvelope<AdminUser>>(`/api/v1/admin/users/${id}/restore`)
   return response.data.data
 }

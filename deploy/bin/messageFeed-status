@@ -29,11 +29,17 @@ probe() {
 
 cd "$PROJECT_DIR"
 
+prod_containers="$(run_compose ps --services --filter status=running 2>/dev/null | awk '/^(api|web|gateway)$/ { print }' | wc -l | tr -d ' ')"
 dev_containers="$(run_compose --profile dev ps --services --filter status=running 2>/dev/null | awk '/^(api-dev|web-dev|gateway-dev)$/ { print }' | wc -l | tr -d ' ')"
 standard_api="$(run_compose ps --services --filter status=running 2>/dev/null | awk '$0 == "api" { print }' | wc -l | tr -d ' ')"
-cloudflare_tunnel="$(run_compose --profile dev --profile cloudflare ps --services --filter status=running 2>/dev/null | awk '$0 == "cloudflared" { print }' | wc -l | tr -d ' ')"
+cloudflare_tunnel="$(run_compose --profile cloudflare ps --services --filter status=running 2>/dev/null | awk '$0 == "cloudflared" { print }' | wc -l | tr -d ' ')"
+cloudflare_dev_tunnel="$(run_compose --profile dev --profile cloudflare-dev ps --services --filter status=running 2>/dev/null | awk '$0 == "cloudflared-dev" { print }' | wc -l | tr -d ' ')"
 
-if [ "$dev_containers" -ge 3 ] && [ "$cloudflare_tunnel" -ge 1 ]; then
+if [ "$prod_containers" -ge 3 ] && [ "$cloudflare_tunnel" -ge 1 ]; then
+	mode="production + cloudflare"
+elif [ "$prod_containers" -ge 3 ]; then
+	mode="production"
+elif [ "$dev_containers" -ge 3 ] && [ "$cloudflare_dev_tunnel" -ge 1 ]; then
 	mode="development + cloudflare"
 elif [ "$dev_containers" -ge 3 ]; then
 	mode="development"
@@ -85,7 +91,7 @@ fi
 printf '%s\n' ""
 
 printf '%s\n' "Containers:"
-run_compose --profile dev ps
+run_compose --profile dev --profile cloudflare --profile cloudflare-dev ps
 printf '%s\n' ""
 
 printf '%s\n' "Listening ports:"

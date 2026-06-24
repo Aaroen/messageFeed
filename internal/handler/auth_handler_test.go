@@ -109,6 +109,10 @@ func (fakeAuthEndpointService) DeactivateUser(ctx context.Context, auth service.
 	return service.AdminUserResponse{}, nil
 }
 
+func (fakeAuthEndpointService) RestoreUser(ctx context.Context, auth service.CurrentAuth, userID int64) (service.AdminUserResponse, error) {
+	return service.AdminUserResponse{}, nil
+}
+
 func (fakeAuthEndpointService) CookieMaxAge() int {
 	return int(time.Hour.Seconds())
 }

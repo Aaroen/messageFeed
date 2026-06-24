@@ -63,10 +63,14 @@ type weChatWorkOAuthUserInfoResponse struct {
 	ErrCode       int    `json:"errcode"`
 	ErrMsg        string `json:"errmsg"`
 	UserID        string `json:"UserId"`
+	UserIDUpper   string `json:"UserID"`
 	UserIDLower   string `json:"userid"`
+	UserIDSnake   string `json:"user_id"`
 	OpenID        string `json:"OpenId"`
+	OpenIDUpper   string `json:"OpenID"`
 	OpenIDLower   string `json:"openid"`
 	DeviceID      string `json:"DeviceId"`
+	DeviceIDUpper string `json:"DeviceID"`
 	DeviceIDLower string `json:"deviceid"`
 }
 
@@ -163,9 +167,9 @@ func (c *WeChatWorkOAuthClient) ExchangeCode(ctx context.Context, code string) (
 		return WeChatWorkOAuthUser{}, opErr
 	}
 	return WeChatWorkOAuthUser{
-		UserID:   firstNonEmpty(decoded.UserID, decoded.UserIDLower),
-		OpenID:   firstNonEmpty(decoded.OpenID, decoded.OpenIDLower),
-		DeviceID: firstNonEmpty(decoded.DeviceID, decoded.DeviceIDLower),
+		UserID:   firstNonEmpty(decoded.UserID, decoded.UserIDUpper, decoded.UserIDLower, decoded.UserIDSnake),
+		OpenID:   firstNonEmpty(decoded.OpenID, decoded.OpenIDUpper, decoded.OpenIDLower),
+		DeviceID: firstNonEmpty(decoded.DeviceID, decoded.DeviceIDUpper, decoded.DeviceIDLower),
 	}, nil
 }
 

@@ -33,9 +33,26 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-s -w" -trimpath -o messagefeed ./cmd/api
 
+# ==================== Web 构建阶段 ====================
+FROM node:24-alpine AS web-builder
+
+WORKDIR /build/web
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+
+COPY web ./
+RUN npm run build
+
+# ==================== Web 静态服务阶段 ====================
+FROM caddy:2.10.2-alpine AS web
+
+COPY deploy/caddy/Caddyfile.web /etc/caddy/Caddyfile
+COPY --from=web-builder /build/web/dist /usr/share/caddy
+
 # ==================== 运行阶段 ====================
 # 使用最小化基础镜像
-FROM alpine:3.19
+FROM alpine:3.19 AS api
 
 # 安装运行时依赖
 # - ca-certificates: HTTPS 请求所需

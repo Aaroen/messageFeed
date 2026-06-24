@@ -48,6 +48,38 @@ func TestListItemsRejectsInvalidOffset(t *testing.T) {
 	}
 }
 
+func TestListItemsAllowsPublicRead(t *testing.T) {
+	repository := &fakeTimelineRepository{}
+	service := NewTimelineService(repository)
+
+	result, err := service.ListItems(context.Background(), ListItemsInput{Limit: 5})
+	if err != nil {
+		t.Fatalf("ListItems returned error: %v", err)
+	}
+	if !repository.publicList {
+		t.Fatal("repository public list was not used")
+	}
+	if result.Limit != 5 {
+		t.Fatalf("Limit = %d, want 5", result.Limit)
+	}
+}
+
+func TestGetItemAllowsPublicRead(t *testing.T) {
+	repository := &fakeTimelineRepository{}
+	service := NewTimelineService(repository)
+
+	item, err := service.GetItem(context.Background(), GetItemInput{ItemID: 7})
+	if err != nil {
+		t.Fatalf("GetItem returned error: %v", err)
+	}
+	if !repository.publicGet {
+		t.Fatal("repository public get was not used")
+	}
+	if item.ID != 7 {
+		t.Fatalf("item ID = %d, want 7", item.ID)
+	}
+}
+
 func TestGetItemRejectsInvalidItemID(t *testing.T) {
 	service := NewTimelineService(&fakeTimelineRepository{})
 
@@ -61,7 +93,9 @@ func TestGetItemRejectsInvalidItemID(t *testing.T) {
 }
 
 type fakeTimelineRepository struct {
-	options domain.ItemListOptions
+	options    domain.ItemListOptions
+	publicList bool
+	publicGet  bool
 }
 
 func (r *fakeTimelineRepository) ListByUser(_ context.Context, options domain.ItemListOptions) (domain.ItemListResult, error) {
@@ -89,5 +123,35 @@ func (r *fakeTimelineRepository) GetByIDForUser(_ context.Context, userID int64,
 		Title:         "Item",
 		URL:           "https://example.com/item",
 		NormalizedURL: "https://example.com/item",
+	}, nil
+}
+
+func (r *fakeTimelineRepository) ListPublic(_ context.Context, options domain.ItemListOptions) (domain.ItemListResult, error) {
+	r.options = options
+	r.publicList = true
+	return domain.ItemListResult{
+		Items: []domain.Item{
+			{
+				ID:            1,
+				SourceID:      1,
+				Title:         "Public item",
+				URL:           "https://example.com/public",
+				NormalizedURL: "https://example.com/public",
+			},
+		},
+		Total:  1,
+		Limit:  options.Limit,
+		Offset: options.Offset,
+	}, nil
+}
+
+func (r *fakeTimelineRepository) GetByIDPublic(_ context.Context, itemID int64) (domain.Item, error) {
+	r.publicGet = true
+	return domain.Item{
+		ID:            itemID,
+		SourceID:      1,
+		Title:         "Public item",
+		URL:           "https://example.com/public",
+		NormalizedURL: "https://example.com/public",
 	}, nil
 }

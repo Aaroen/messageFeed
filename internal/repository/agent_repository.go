@@ -187,6 +187,35 @@ func (r *AgentRepository) CreateInboundMessage(ctx context.Context, message doma
 	return agentInboundMessageModelToDomain(existing), false, nil
 }
 
+func (r *AgentRepository) UpdateInboundMessageStatus(ctx context.Context, userID int64, id int64, status domain.AgentInboundMessageStatus, now time.Time) (domain.AgentInboundMessage, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.inbound_message.update_status", "update", "agent_inbound_messages")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	result := r.db.WithContext(ctx).
+		Model(&agentInboundMessageModel{}).
+		Where("id = ? AND user_id = ?", id, userID).
+		Updates(map[string]any{
+			"status":     string(status),
+			"updated_at": now.UTC(),
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.AgentInboundMessage{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return domain.AgentInboundMessage{}, opErr
+	}
+
+	var updated agentInboundMessageModel
+	if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", id, userID).First(&updated).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentInboundMessage{}, opErr
+	}
+	return agentInboundMessageModelToDomain(updated), nil
+}
+
 func (r *AgentRepository) GetOrCreateSession(ctx context.Context, session domain.AgentSession) (domain.AgentSession, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.session.get_or_create", "upsert", "agent_sessions")
 	var opErr error

@@ -6,6 +6,7 @@ import (
 	"messagefeed/internal/llm"
 	"messagefeed/internal/notifier"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -30,6 +31,7 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 		WithAgentConversationExternalAccountResolver(resolver),
 		WithAgentConversationUserContextProvider(userContext),
 		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
 	)
 
 	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
@@ -76,7 +78,7 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	if len(repository.transcripts) != 2 {
 		t.Fatalf("transcript count = %d, want 2", len(repository.transcripts))
 	}
-	if len(repository.audits) != 1 || repository.audits[0].Status != "succeeded" {
+	if len(repository.audits) != 2 || repository.audits[1].Status != "succeeded" {
 		t.Fatalf("audits = %#v", repository.audits)
 	}
 	if len(llmClient.lastRequest.Messages) != 2 {
@@ -107,6 +109,7 @@ func TestAgentConversationServiceSplitsLongWeChatWorkReply(t *testing.T) {
 		WithAgentConversationLLM(llmClient),
 		WithAgentConversationSender(sender),
 		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationInlineProcessing(true),
 	)
 
 	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
@@ -149,6 +152,7 @@ func TestAgentConversationServiceDoesNotSendDuplicateInboundMessage(t *testing.T
 		WithAgentConversationLLM(llmClient),
 		WithAgentConversationSender(sender),
 		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationInlineProcessing(true),
 	)
 
 	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
@@ -177,7 +181,12 @@ func TestAgentConversationServiceUsesFallbackReplyWithoutLLM(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(time.Now().UTC())}
 	sender := &fakeAgentConversationSender{}
-	service := NewAgentConversationService(repository, WithAgentConversationSender(sender), WithAgentConversationExternalAccountResolver(resolver))
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationInlineProcessing(true),
+	)
 
 	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
 		ProviderMessageID: "msg-2",
@@ -208,6 +217,7 @@ func TestAgentConversationServiceRequiresWeChatWorkBinding(t *testing.T) {
 		WithAgentConversationLLM(llmClient),
 		WithAgentConversationSender(sender),
 		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationInlineProcessing(true),
 	)
 
 	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
@@ -232,6 +242,136 @@ func TestAgentConversationServiceRequiresWeChatWorkBinding(t *testing.T) {
 	}
 	if len(repository.turns) != 0 {
 		t.Fatalf("turn count = %d, want 0", len(repository.turns))
+	}
+}
+
+func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
+	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(time.Now().UTC())}
+	llmStarted := make(chan struct{})
+	llmRelease := make(chan struct{})
+	sendDone := make(chan struct{})
+	llmClient := &fakeAgentConversationLLM{
+		started: llmStarted,
+		release: llmRelease,
+		response: llm.ChatResponse{
+			Provider: "openai_compatible",
+			Model:    "custom-model",
+			Content:  "异步回复",
+		},
+	}
+	sender := &fakeAgentConversationSender{sentSignal: sendDone}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationProcessTimeout(time.Second),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-async",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "最近有什么更新",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if !result.ProcessingAsync {
+		t.Fatal("ProcessingAsync = false, want true")
+	}
+	if result.Turn.Status != domain.AgentTurnStatusRunning {
+		t.Fatalf("initial turn status = %q, want running", result.Turn.Status)
+	}
+	if sender.calls != 0 {
+		t.Fatalf("sender calls before release = %d, want 0", sender.calls)
+	}
+
+	select {
+	case <-llmStarted:
+	case <-time.After(time.Second):
+		t.Fatal("llm was not started asynchronously")
+	}
+	close(llmRelease)
+	select {
+	case <-sendDone:
+	case <-time.After(time.Second):
+		t.Fatal("async reply was not sent")
+	}
+	if repository.turns[0].Status != domain.AgentTurnStatusSucceeded {
+		t.Fatalf("final turn status = %q", repository.turns[0].Status)
+	}
+	if repository.inbound.Status != domain.AgentInboundMessageStatusSucceeded {
+		t.Fatalf("inbound status = %q", repository.inbound.Status)
+	}
+}
+
+func TestAgentConversationServiceInjectsReadOnlyCapabilityContextAndPublishesAIFeedReport(t *testing.T) {
+	now := time.Date(2026, 6, 24, 18, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	recentItems := &fakeAgentRecentItemsProvider{
+		itemsBySource: map[int64][]domain.Item{
+			0: {
+				{ID: 1, SourceName: "Go 官方博客", Title: "Go 1.26 发布", Summary: "Go 1.26 带来工具链更新。"},
+			},
+			42: {
+				{ID: 2, SourceName: "Go 官方博客", Title: "Go 工具链说明"},
+			},
+		},
+	}
+	sourceProvider := &fakeAgentSourceProvider{
+		sources: []domain.Source{{ID: 42, UserID: 1, Name: "Go 官方博客", Status: domain.SourceStatusActive}},
+	}
+	aiFeed := &fakeAgentAIFeedPublisher{}
+	llmClient := &fakeAgentConversationLLM{
+		response: llm.ChatResponse{
+			Provider: "openai_compatible",
+			Model:    "custom-model",
+			Content:  "基于最近条目，Go 官方博客有工具链更新。",
+		},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationRecentItemsProvider(recentItems),
+		WithAgentConversationSourceProvider(sourceProvider),
+		WithAgentConversationAIFeedPublisher(aiFeed),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	_, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-capability",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "Go 官方博客最近有什么",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	systemPrompt := llmClient.lastRequest.Messages[0].Content
+	if !strings.Contains(systemPrompt, "最近条目") || !strings.Contains(systemPrompt, "Go 1.26 发布") {
+		t.Fatalf("system prompt missing recent items context: %q", systemPrompt)
+	}
+	if !strings.Contains(systemPrompt, "匹配来源 Go 官方博客") || !strings.Contains(systemPrompt, "Go 工具链说明") {
+		t.Fatalf("system prompt missing source latest context: %q", systemPrompt)
+	}
+	if len(aiFeed.entries) != 1 {
+		t.Fatalf("ai feed entries = %d, want 1", len(aiFeed.entries))
+	}
+	if aiFeed.entries[0].Kind != domain.AIFeedEntryKindAgentOperationLog {
+		t.Fatalf("ai feed kind = %q", aiFeed.entries[0].Kind)
+	}
+	if !strings.Contains(aiFeed.entries[0].Content, "feed.query_recent_items") {
+		t.Fatalf("ai feed content missing capability observation: %q", aiFeed.entries[0].Content)
 	}
 }
 
@@ -265,6 +405,15 @@ func (r *fakeAgentConversationRepository) CreateInboundMessage(_ context.Context
 		return r.inbound, false, nil
 	}
 	return r.inbound, true, nil
+}
+
+func (r *fakeAgentConversationRepository) UpdateInboundMessageStatus(_ context.Context, userID int64, id int64, status domain.AgentInboundMessageStatus, now time.Time) (domain.AgentInboundMessage, error) {
+	if r.inbound.ID == id && r.inbound.UserID == userID {
+		r.inbound.Status = status
+		r.inbound.UpdatedAt = now
+		return r.inbound, nil
+	}
+	return domain.AgentInboundMessage{}, domain.ErrNotFound
 }
 
 func (r *fakeAgentConversationRepository) GetOrCreateSession(_ context.Context, session domain.AgentSession) (domain.AgentSession, error) {
@@ -357,11 +506,20 @@ type fakeAgentConversationLLM struct {
 	lastRequest llm.ChatRequest
 	response    llm.ChatResponse
 	err         error
+	started     chan struct{}
+	release     chan struct{}
+	startOnce   sync.Once
 }
 
 func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	f.calls++
 	f.lastRequest = request
+	if f.started != nil {
+		f.startOnce.Do(func() { close(f.started) })
+	}
+	if f.release != nil {
+		<-f.release
+	}
 	if f.err != nil {
 		return llm.ChatResponse{}, f.err
 	}
@@ -374,14 +532,48 @@ type fakeAgentConversationSender struct {
 	sentMessages []notifier.WeChatWorkTextMessage
 	result       notifier.WeChatWorkSendResult
 	err          error
+	sentSignal   chan struct{}
+	sentOnce     sync.Once
 }
 
 func (f *fakeAgentConversationSender) SendText(_ context.Context, message notifier.WeChatWorkTextMessage) (notifier.WeChatWorkSendResult, error) {
 	f.calls++
 	f.sent = message
 	f.sentMessages = append(f.sentMessages, message)
+	if f.sentSignal != nil {
+		f.sentOnce.Do(func() { close(f.sentSignal) })
+	}
 	if f.err != nil {
 		return notifier.WeChatWorkSendResult{}, f.err
 	}
 	return f.result, nil
+}
+
+type fakeAgentRecentItemsProvider struct {
+	itemsBySource map[int64][]domain.Item
+}
+
+func (f *fakeAgentRecentItemsProvider) ListItems(_ context.Context, input ListItemsInput) (ListItemsResult, error) {
+	items := f.itemsBySource[input.SourceID]
+	if len(items) > input.Limit && input.Limit > 0 {
+		items = items[:input.Limit]
+	}
+	return ListItemsResult{Items: items, Total: int64(len(items)), Limit: input.Limit, Offset: input.Offset}, nil
+}
+
+type fakeAgentSourceProvider struct {
+	sources []domain.Source
+}
+
+func (f *fakeAgentSourceProvider) ListSources(_ context.Context, _ int64) ([]domain.Source, error) {
+	return f.sources, nil
+}
+
+type fakeAgentAIFeedPublisher struct {
+	entries []PublishAIFeedEntryInput
+}
+
+func (f *fakeAgentAIFeedPublisher) PublishEntry(_ context.Context, input PublishAIFeedEntryInput) (PublishAIFeedEntryResult, error) {
+	f.entries = append(f.entries, input)
+	return PublishAIFeedEntryResult{}, nil
 }

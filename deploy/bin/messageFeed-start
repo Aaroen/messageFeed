@@ -3,6 +3,26 @@ set -eu
 
 PROJECT_DIR="/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed"
 
+if [ -r /etc/messagefeed/messagefeed.env ]; then
+	# shellcheck disable=SC1091
+	. /etc/messagefeed/messagefeed.env
+fi
+
+PORT="${GATEWAY_HTTPS_PORT:-8443}"
+DOMAIN="${MESSAGEFEED_DOMAIN:-}"
+PUBLIC_HOST="${MESSAGEFEED_PUBLIC_HOST:-${DOMAIN:-localhost}}"
+
+if [ -n "$DOMAIN" ]; then
+	PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://${PUBLIC_HOST}}"
+else
+	PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://${PUBLIC_HOST}:${PORT}}"
+fi
+GATEWAY_DEFAULT_SNI="${GATEWAY_DEFAULT_SNI:-${PUBLIC_HOST}}"
+GATEWAY_SITE_ADDRESS="${GATEWAY_SITE_ADDRESS:-https://localhost:${PORT}}"
+if [ -n "$DOMAIN" ]; then
+	GATEWAY_SITE_ADDRESS="${GATEWAY_SITE_ADDRESS}, https://${DOMAIN}:${PORT}"
+fi
+
 run_compose() {
 	if [ "$(id -u)" -eq 0 ]; then
 		docker compose "$@"
@@ -13,24 +33,43 @@ run_compose() {
 
 cd "$PROJECT_DIR"
 
+export PUBLIC_BASE_URL
+export GATEWAY_HTTPS_PORT="$PORT"
+export GATEWAY_SITE_ADDRESS
+export GATEWAY_DEFAULT_SNI
+export CLOUDFLARED_TUNNEL_TOKEN="${CLOUDFLARED_TUNNEL_TOKEN:-}"
+
 case "${1:-up}" in
 	up|start)
 		run_compose up -d --build
 		printf '%s\n' "messageFeed standard mode is running."
+		printf '%s\n' "Web/API: ${PUBLIC_BASE_URL}"
 		printf '%s\n' "API: http://127.0.0.1:60001"
-		printf '%s\n' "Health: http://127.0.0.1:60001/healthz"
+		printf '%s\n' "Health: ${PUBLIC_BASE_URL}/healthz"
+		;;
+	cloudflare|cf)
+		if [ -z "${CLOUDFLARED_TUNNEL_TOKEN:-}" ]; then
+			printf '%s\n' "CLOUDFLARED_TUNNEL_TOKEN is required." >&2
+			exit 2
+		fi
+		run_compose --profile cloudflare up -d --build api web gateway cloudflared
+		printf '%s\n' "messageFeed production Cloudflare mode is running."
+		printf '%s\n' "Web/API: ${PUBLIC_BASE_URL}"
+		if [ -n "$DOMAIN" ]; then
+			printf '%s\n' "Domain: https://${DOMAIN}"
+		fi
 		;;
 	logs)
-		run_compose logs -f
+		run_compose --profile cloudflare logs -f
 		;;
 	status|ps)
-		run_compose ps
+		run_compose --profile cloudflare ps
 		;;
 	stop)
-		run_compose stop
+		run_compose --profile cloudflare stop
 		;;
 	*)
-		printf '%s\n' "Usage: messageFeed-start [up|logs|status|stop]" >&2
+		printf '%s\n' "Usage: messageFeed-start [up|cloudflare|logs|status|stop]" >&2
 		exit 2
 		;;
 esac

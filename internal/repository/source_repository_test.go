@@ -3,11 +3,13 @@ package repository
 import (
 	"errors"
 	"messagefeed/internal/domain"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 func TestSourceModelRoundTrip(t *testing.T) {
@@ -77,6 +79,20 @@ func TestSourceModelRoundTrip(t *testing.T) {
 	}
 	if converted.FetchPriority != source.FetchPriority {
 		t.Fatalf("FetchPriority = %d, want %d", converted.FetchPriority, source.FetchPriority)
+	}
+}
+
+func TestSourceModelETagColumnName(t *testing.T) {
+	parsed, err := schema.Parse(&sourceModel{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatalf("parse source model schema: %v", err)
+	}
+	field := parsed.LookUpField("ETag")
+	if field == nil {
+		t.Fatal("ETag field not found")
+	}
+	if field.DBName != "etag" {
+		t.Fatalf("ETag DBName = %q, want etag", field.DBName)
 	}
 }
 

@@ -104,19 +104,27 @@ onBeforeUnmount(() => {
       </div>
 
       <label class="settings-field">
-        <span>邀请码（必填）</span>
+        <span class="settings-field__label">邀请码<sup class="settings-required-mark" aria-hidden="true">*</sup></span>
         <input
           v-model="inviteCode"
           class="settings-input"
           type="text"
           autocomplete="one-time-code"
+          required
           aria-required="true"
         />
       </label>
 
       <label class="settings-field">
-        <span>账号</span>
-        <input v-model="username" class="settings-input" type="text" autocomplete="username" aria-required="true" />
+        <span class="settings-field__label">账号<sup class="settings-required-mark" aria-hidden="true">*</sup></span>
+        <input
+          v-model="username"
+          class="settings-input"
+          type="text"
+          autocomplete="username"
+          required
+          aria-required="true"
+        />
       </label>
 
       <label class="settings-field">
@@ -130,13 +138,14 @@ onBeforeUnmount(() => {
       </label>
 
       <label class="settings-field">
-        <span>密码</span>
+        <span class="settings-field__label">密码<sup class="settings-required-mark" aria-hidden="true">*</sup></span>
         <input
           v-model="password"
           class="settings-input"
           type="password"
           minlength="6"
           autocomplete="new-password"
+          required
           aria-required="true"
         />
       </label>

@@ -180,6 +180,109 @@ func TestCORSPreflightAllowsViteOrigin(t *testing.T) {
 	}
 }
 
+func TestPublicReadRoutesAllowAnonymousWhenAuthServiceConfigured(t *testing.T) {
+	fakeItems := &fakeTimelineService{
+		items: []domain.Item{
+			testItem(1, "Public"),
+		},
+	}
+	fakeSources := &fakeSourceService{}
+	router := newTestRouter(t, RouterOptions{
+		AuthService:           fakeAuthEndpointService{},
+		TimelineService:       fakeItems,
+		RecommendationService: fakeItems,
+		SourceService:         fakeSources,
+	})
+
+	timelineRequest := httptest.NewRequest(http.MethodGet, "/api/v1/feed/timeline", nil)
+	timelineRecorder := httptest.NewRecorder()
+	router.ServeHTTP(timelineRecorder, timelineRequest)
+
+	if timelineRecorder.Code != http.StatusOK {
+		t.Fatalf("timeline status code = %d, want %d", timelineRecorder.Code, http.StatusOK)
+	}
+	if fakeItems.input.UserID != 0 {
+		t.Fatalf("anonymous timeline user id = %d, want 0", fakeItems.input.UserID)
+	}
+	var timelineResponse struct {
+		Code int              `json:"code"`
+		Data itemListResponse `json:"data"`
+	}
+	if err := json.NewDecoder(timelineRecorder.Body).Decode(&timelineResponse); err != nil {
+		t.Fatalf("decode timeline response: %v", err)
+	}
+	if got, want := len(timelineResponse.Data.Items), 1; got != want {
+		t.Fatalf("timeline items length = %d, want %d", got, want)
+	}
+	if timelineResponse.Data.Items[0].IsRead {
+		t.Fatal("anonymous timeline IsRead = true, want false")
+	}
+
+	detailRequest := httptest.NewRequest(http.MethodGet, "/api/v1/items/1", nil)
+	detailRecorder := httptest.NewRecorder()
+	router.ServeHTTP(detailRecorder, detailRequest)
+
+	if detailRecorder.Code != http.StatusOK {
+		t.Fatalf("detail status code = %d, want %d", detailRecorder.Code, http.StatusOK)
+	}
+	var detailResponse struct {
+		Code int          `json:"code"`
+		Data itemResponse `json:"data"`
+	}
+	if err := json.NewDecoder(detailRecorder.Body).Decode(&detailResponse); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	if detailResponse.Data.IsRead || detailResponse.Data.IsFavorite || detailResponse.Data.IsHidden {
+		t.Fatalf("anonymous detail user state leaked: %#v", detailResponse.Data)
+	}
+
+	catalogRequest := httptest.NewRequest(http.MethodGet, "/api/v1/source-catalogs", nil)
+	catalogRecorder := httptest.NewRecorder()
+	router.ServeHTTP(catalogRecorder, catalogRequest)
+
+	if catalogRecorder.Code != http.StatusOK {
+		t.Fatalf("catalog status code = %d, want %d", catalogRecorder.Code, http.StatusOK)
+	}
+	if fakeSources.catalogInput.UserID != 0 {
+		t.Fatalf("anonymous catalog user id = %d, want 0", fakeSources.catalogInput.UserID)
+	}
+}
+
+func TestWriteRoutesRequireAuthWhenAuthServiceConfigured(t *testing.T) {
+	router := newTestRouter(t, RouterOptions{
+		AuthService: fakeAuthEndpointService{},
+		ItemService: &fakeItemStateService{},
+		SourceService: &fakeSourceService{
+			sources: []domain.Source{testSource(1, "Existing", "https://example.com/feed.xml")},
+		},
+	})
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "mark read", method: http.MethodPost, path: "/api/v1/items/1/read"},
+		{name: "import catalog", method: http.MethodPost, path: "/api/v1/sources/import/catalog", body: `{"catalog_ids":[1]}`},
+		{name: "toggle source", method: http.MethodPatch, path: "/api/v1/sources/1", body: `{"status":"inactive"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			if tt.body != "" {
+				request.Header.Set("Content-Type", "application/json")
+			}
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusUnauthorized {
+				t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
 func TestSourceRoutesRequireConfiguredService(t *testing.T) {
 	router := newTestRouter(t, RouterOptions{})
 
@@ -549,6 +652,7 @@ type fakeSourceService struct {
 	nextID              int64
 	sources             []domain.Source
 	importJobs          []domain.SourceImportJob
+	catalogInput        service.ListSourceCatalogInput
 	listImportJobsInput service.ListSourceImportJobsInput
 }
 
@@ -631,6 +735,7 @@ func (s *fakeSourceService) GetFetchStatus(_ context.Context, _ service.SourceFe
 }
 
 func (s *fakeSourceService) ListSourceCatalog(_ context.Context, input service.ListSourceCatalogInput) (service.ListSourceCatalogResult, error) {
+	s.catalogInput = input
 	return service.ListSourceCatalogResult{
 		Entries: nil,
 		Total:   0,

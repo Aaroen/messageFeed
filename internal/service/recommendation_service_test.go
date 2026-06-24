@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestListRecommendationsRefreshBypassesCache(t *testing.T) {
+func TestListRecommendationsRefreshReturnsCacheAndUpdatesAsync(t *testing.T) {
 	now := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
 	catalogRepository := &fakeRecommendationCatalogRepository{
 		entries: []domain.SourceCatalogEntry{
@@ -31,20 +31,16 @@ func TestListRecommendationsRefreshBypassesCache(t *testing.T) {
 			return now
 		}),
 	)
-
-	first, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
-		UserID: 1,
-		Limit:  10,
-		Order:  string(domain.ItemSortOrderAsc),
-	})
-	if err != nil {
-		t.Fatalf("ListRecommendations returned error: %v", err)
+	cacheKey := recommendationCacheKey{
+		userID: 1,
+		order:  domain.ItemSortOrderAsc,
+		day:    recommendationCacheDay(now),
 	}
-	if got, want := first.Items[0].Title, "Fetched item 1"; got != want {
-		t.Fatalf("first title = %q, want %q", got, want)
-	}
+	service.setRecommendationCache(cacheKey, []domain.Item{
+		recommendationTestItem(1, "Cached item", 1),
+	}, now)
 
-	second, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
+	result, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
 		UserID:  1,
 		Limit:   10,
 		Order:   string(domain.ItemSortOrderAsc),
@@ -53,24 +49,11 @@ func TestListRecommendationsRefreshBypassesCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh ListRecommendations returned error: %v", err)
 	}
-	if got, want := second.Items[0].Title, "Fetched item 2"; got != want {
+	if got, want := result.Items[0].Title, "Cached item"; got != want {
 		t.Fatalf("refresh title = %q, want %q", got, want)
 	}
 
-	third, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
-		UserID: 1,
-		Limit:  10,
-		Order:  string(domain.ItemSortOrderAsc),
-	})
-	if err != nil {
-		t.Fatalf("cached ListRecommendations returned error: %v", err)
-	}
-	if got, want := third.Items[0].Title, "Fetched item 2"; got != want {
-		t.Fatalf("cached title = %q, want %q", got, want)
-	}
-	if got, want := feedFetcher.calls, 2; got != want {
-		t.Fatalf("fetch calls = %d, want %d", got, want)
-	}
+	waitForRecommendationCache(t, service, cacheKey, now, "Fetched item 1")
 }
 
 func TestRecommendationRefreshShuffleSeedUsesInstant(t *testing.T) {
@@ -103,6 +86,12 @@ func TestListRecommendationsPaginatesCachedItems(t *testing.T) {
 			return now
 		}),
 	)
+	cacheKey := recommendationCacheKey{
+		userID: 1,
+		order:  domain.ItemSortOrderDesc,
+		day:    recommendationCacheDay(now),
+	}
+	service.setRecommendationCache(cacheKey, recommendationTestItems(1, 15), now)
 
 	first, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
 		UserID: 1,
@@ -132,7 +121,7 @@ func TestListRecommendationsPaginatesCachedItems(t *testing.T) {
 	if got, want := second.Total, int64(15); got != want {
 		t.Fatalf("second page total = %d, want %d", got, want)
 	}
-	if got, want := feedFetcher.calls, 5; got != want {
+	if got, want := feedFetcher.calls, 0; got != want {
 		t.Fatalf("fetch calls = %d, want %d", got, want)
 	}
 
@@ -162,6 +151,13 @@ func TestListRecommendationsPaginatesSourceItemsBeyondRecommendationCap(t *testi
 			return now
 		}),
 	)
+	cacheKey := recommendationCacheKey{
+		userID:   1,
+		sourceID: 1,
+		order:    domain.ItemSortOrderDesc,
+		day:      recommendationCacheDay(now),
+	}
+	service.setRecommendationCache(cacheKey, recommendationTestItems(1, 12), now)
 
 	first, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
 		UserID:   1,
@@ -193,8 +189,47 @@ func TestListRecommendationsPaginatesSourceItemsBeyondRecommendationCap(t *testi
 	if got, want := second.Total, int64(12); got != want {
 		t.Fatalf("second page total = %d, want %d", got, want)
 	}
-	if got, want := feedFetcher.calls, 1; got != want {
+	if got, want := feedFetcher.calls, 0; got != want {
 		t.Fatalf("fetch calls = %d, want %d", got, want)
+	}
+}
+
+func TestListRecommendationsColdCacheReturnsLocalHistory(t *testing.T) {
+	now := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
+	catalogRepository := &fakeRecommendationCatalogRepository{
+		entries: []domain.SourceCatalogEntry{
+			recommendationCatalogEntry(1),
+			recommendationCatalogEntry(2),
+		},
+	}
+	feedFetcher := &multiItemRecommendationFetcher{itemsPerSource: 3}
+	service := NewRecommendationService(
+		catalogRepository,
+		feedFetcher,
+		WithNow(func() time.Time {
+			return now
+		}),
+	)
+	itemRepository := &fakeRecommendationItemRepository{
+		items: recommendationHistoryItems(200, 12),
+	}
+	service.SetLocalHistoryRepositories(nil, itemRepository)
+
+	result, err := service.ListRecommendations(context.Background(), ListRecommendationsInput{
+		UserID: 1,
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("ListRecommendations returned error: %v", err)
+	}
+	if got, want := len(result.Items), 10; got != want {
+		t.Fatalf("items length = %d, want %d", got, want)
+	}
+	if got, want := result.Items[0].Title, "History item 0"; got != want {
+		t.Fatalf("first item title = %q, want %q", got, want)
+	}
+	if got, want := result.Total, int64(12); got != want {
+		t.Fatalf("total = %d, want %d", got, want)
 	}
 }
 
@@ -338,6 +373,46 @@ func recommendationCatalogEntry(id int64) domain.SourceCatalogEntry {
 	}
 }
 
+func recommendationTestItems(sourceID int64, count int) []domain.Item {
+	items := make([]domain.Item, 0, count)
+	for index := 0; index < count; index++ {
+		items = append(items, recommendationTestItem(sourceID, fmt.Sprintf("Cached item %d", index), index))
+	}
+	return items
+}
+
+func recommendationTestItem(sourceID int64, title string, index int) domain.Item {
+	url := fmt.Sprintf("https://example.com/%d/cached/%d", sourceID, index)
+	return domain.Item{
+		ID:            int64(index + 1),
+		SourceID:      sourceID,
+		SourceName:    fmt.Sprintf("Example %d", sourceID),
+		Title:         title,
+		URL:           url,
+		NormalizedURL: url,
+		FetchedAt:     time.Date(2026, 6, 20, 9, 0, index, 0, time.UTC),
+		CreatedAt:     time.Date(2026, 6, 20, 9, 0, index, 0, time.UTC),
+		UpdatedAt:     time.Date(2026, 6, 20, 9, 0, index, 0, time.UTC),
+	}
+}
+
+func waitForRecommendationCache(t *testing.T, service *RecommendationService, key recommendationCacheKey, now time.Time, title string) {
+	t.Helper()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		items, ok := service.getRecommendationCache(key, now)
+		if ok && len(items) > 0 && items[0].Title == title {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	items, ok := service.getRecommendationCache(key, now)
+	if !ok || len(items) == 0 {
+		t.Fatalf("recommendation cache was not refreshed")
+	}
+	t.Fatalf("recommendation cache title = %q, want %q", items[0].Title, title)
+}
+
 type multiItemRecommendationFetcher struct {
 	calls          int
 	itemsPerSource int
@@ -381,9 +456,18 @@ type fakeRecommendationItemRepository struct {
 
 func (r *fakeRecommendationItemRepository) ListByUser(_ context.Context, options domain.ItemListOptions) (domain.ItemListResult, error) {
 	r.options = options
+	return r.list(options)
+}
+
+func (r *fakeRecommendationItemRepository) ListPublic(_ context.Context, options domain.ItemListOptions) (domain.ItemListResult, error) {
+	r.options = options
+	return r.list(options)
+}
+
+func (r *fakeRecommendationItemRepository) list(options domain.ItemListOptions) (domain.ItemListResult, error) {
 	items := make([]domain.Item, 0, len(r.items))
 	for _, item := range r.items {
-		if item.SourceID == options.SourceID {
+		if options.SourceID == 0 || item.SourceID == options.SourceID {
 			items = append(items, item)
 		}
 	}

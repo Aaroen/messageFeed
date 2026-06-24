@@ -32,6 +32,39 @@ function friendlyErrorMessage(message: string) {
   if (normalized === 'invite code is required') {
     return '请输入邀请码'
   }
+  if (normalized === 'invite code does not exist') {
+    return '邀请码不存在'
+  }
+  if (normalized === 'invite code has been revoked') {
+    return '邀请码已撤销'
+  }
+  if (normalized === 'invite code has expired') {
+    return '邀请码已过期'
+  }
+  if (normalized === 'invite code has already been used') {
+    return '邀请码已使用'
+  }
+  if (normalized === 'username already exists') {
+    return '账号已存在'
+  }
+  if (normalized === 'invalid username or password') {
+    return '账号或密码错误'
+  }
+  if (normalized === 'too many authentication attempts; try again later') {
+    return '登录尝试过多，请稍后重试'
+  }
+  if (normalized === 'authentication required') {
+    return '请先登录'
+  }
+  if (normalized === 'user is not deleted') {
+    return '账号未处于删除状态'
+  }
+  if (normalized === 'user restore window has expired') {
+    return '账号恢复期限已过'
+  }
+  if (normalized === 'owner account cannot be deleted from this endpoint') {
+    return '管理员账号不能在此处删除'
+  }
   if (normalized === 'invalid request body') {
     return '提交内容不完整，请检查后重试'
   }

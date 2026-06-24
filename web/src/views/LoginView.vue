@@ -92,17 +92,26 @@ onBeforeUnmount(() => {
       </div>
 
       <label class="settings-field">
-        <span>账号</span>
-        <input v-model="username" class="settings-input" type="text" autocomplete="username" />
+        <span class="settings-field__label">账号<sup class="settings-required-mark" aria-hidden="true">*</sup></span>
+        <input
+          v-model="username"
+          class="settings-input"
+          type="text"
+          autocomplete="username"
+          required
+          aria-required="true"
+        />
       </label>
 
       <label class="settings-field">
-        <span>密码</span>
+        <span class="settings-field__label">密码<sup class="settings-required-mark" aria-hidden="true">*</sup></span>
         <input
           v-model="password"
           class="settings-input"
           type="password"
           autocomplete="current-password"
+          required
+          aria-required="true"
         />
       </label>
 

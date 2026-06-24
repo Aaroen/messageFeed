@@ -41,7 +41,7 @@ type sourceModel struct {
 	LastFetchDurationMS  *int
 	LastFetchItemCount   *int
 	NextFetchAt          *time.Time
-	ETag                 string
+	ETag                 string `gorm:"column:etag"`
 	LastModified         string
 	FetchPriority        int
 	CreatedAt            time.Time

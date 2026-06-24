@@ -48,11 +48,11 @@ func UserContext(authService authService) gin.HandlerFunc {
 func currentUserID(c *gin.Context) int64 {
 	value, ok := c.Get(userIDKey)
 	if !ok {
-		return defaultSingleUserID
+		return 0
 	}
 	userID, ok := value.(int64)
 	if !ok || userID < 1 {
-		return defaultSingleUserID
+		return 0
 	}
 	return userID
 }

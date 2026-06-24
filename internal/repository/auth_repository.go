@@ -2,10 +2,14 @@ package repository
 
 import (
 	"context"
+	"database/sql/driver"
+	"encoding/json"
+	"errors"
 	"messagefeed/internal/domain"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -26,20 +30,21 @@ type userModel struct {
 	PasswordHash string
 	Role         string
 	Status       string
+	DeletedAt    *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
 
 type userProfileModel struct {
-	UserID                 int64 `gorm:"primaryKey"`
-	TimeZone               string
+	UserID                 int64  `gorm:"primaryKey"`
+	TimeZone               string `gorm:"column:timezone"`
 	Language               string
 	Region                 string
 	Bio                    string
-	FocusTopics            []string `gorm:"serializer:json;type:jsonb;not null"`
-	BlockedTopics          []string `gorm:"serializer:json;type:jsonb;not null"`
-	MarketFocus            []string `gorm:"serializer:json;type:jsonb;not null"`
-	InstrumentFocus        []string `gorm:"serializer:json;type:jsonb;not null"`
+	FocusTopics            stringListJSON `gorm:"type:jsonb;not null"`
+	BlockedTopics          stringListJSON `gorm:"type:jsonb;not null"`
+	MarketFocus            stringListJSON `gorm:"type:jsonb;not null"`
+	InstrumentFocus        stringListJSON `gorm:"type:jsonb;not null"`
 	RiskPreference         string
 	NotificationQuietHours string
 	AgentNotes             string
@@ -105,6 +110,53 @@ func (authOAuthStateModel) TableName() string       { return "auth_oauth_states"
 func (authInviteCodeModel) TableName() string       { return "auth_invite_codes" }
 func (authInviteRedemptionModel) TableName() string { return "auth_invite_redemptions" }
 
+type stringListJSON []string
+
+func (values stringListJSON) Value() (driver.Value, error) {
+	if values == nil {
+		values = stringListJSON{}
+	}
+	body, err := json.Marshal([]string(values))
+	if err != nil {
+		return nil, err
+	}
+	return string(body), nil
+}
+
+func (values *stringListJSON) Scan(value any) error {
+	if values == nil {
+		return nil
+	}
+	switch typed := value.(type) {
+	case nil:
+		*values = stringListJSON{}
+		return nil
+	case []byte:
+		return values.scanBytes(typed)
+	case string:
+		return values.scanBytes([]byte(typed))
+	default:
+		body, err := json.Marshal(typed)
+		if err != nil {
+			return err
+		}
+		return values.scanBytes(body)
+	}
+}
+
+func (values *stringListJSON) scanBytes(body []byte) error {
+	if len(body) == 0 {
+		*values = stringListJSON{}
+		return nil
+	}
+	var decoded []string
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return err
+	}
+	*values = stringListJSON(decoded)
+	return nil
+}
+
 func (r *AuthRepository) EnsureOwner(ctx context.Context, username string) (domain.User, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.ensure_owner", "upsert", "users")
 	var opErr error
@@ -133,6 +185,7 @@ func (r *AuthRepository) EnsureOwner(ctx context.Context, username string) (doma
 				"display_name": model.DisplayName,
 				"role":         model.Role,
 				"status":       model.Status,
+				"deleted_at":   nil,
 				"updated_at":   now,
 			}),
 		}).
@@ -253,6 +306,7 @@ func (r *AuthRepository) DeactivateUser(ctx context.Context, userID int64, now t
 	defer func() { finish(opErr) }()
 
 	var model userModel
+	deletedAt := now.UTC()
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.
 			Model(&model).
@@ -260,7 +314,8 @@ func (r *AuthRepository) DeactivateUser(ctx context.Context, userID int64, now t
 			Where("id = ?", userID).
 			Updates(map[string]any{
 				"status":     string(domain.UserStatusDeleted),
-				"updated_at": now.UTC(),
+				"deleted_at": deletedAt,
+				"updated_at": deletedAt,
 			})
 		if result.Error != nil {
 			return mapRepositoryError(result.Error)
@@ -281,6 +336,47 @@ func (r *AuthRepository) DeactivateUser(ctx context.Context, userID int64, now t
 		return domain.User{}, err
 	}
 	return userModelToDomain(model), nil
+}
+
+func (r *AuthRepository) RestoreUser(ctx context.Context, userID int64, now time.Time) (domain.User, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.restore", "update", "users")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model userModel
+	result := r.db.WithContext(ctx).
+		Model(&model).
+		Clauses(clause.Returning{}).
+		Where("id = ? AND status = ?", userID, string(domain.UserStatusDeleted)).
+		Updates(map[string]any{
+			"status":     string(domain.UserStatusActive),
+			"deleted_at": nil,
+			"updated_at": now.UTC(),
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.User{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return domain.User{}, opErr
+	}
+	return userModelToDomain(model), nil
+}
+
+func (r *AuthRepository) PurgeDeletedUsers(ctx context.Context, cutoff time.Time) (int64, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.auth.user.purge_deleted", "delete", "users")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	result := r.db.WithContext(ctx).
+		Where("status = ? AND deleted_at IS NOT NULL AND deleted_at <= ? AND role <> ?", string(domain.UserStatusDeleted), cutoff.UTC(), string(domain.UserRoleOwner)).
+		Delete(&userModel{})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return 0, opErr
+	}
+	return result.RowsAffected, nil
 }
 
 func (r *AuthRepository) GetUserProfile(ctx context.Context, userID int64) (domain.UserProfile, error) {
@@ -669,13 +765,20 @@ func (r *AuthRepository) CreateUserWithInvite(ctx context.Context, codeHash stri
 			Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("code_hash = ?", strings.TrimSpace(codeHash)).
 			First(&inviteModel).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.NewAppError(domain.ErrorKindNotFound, "auth_invite_not_found", "invite code does not exist", "repository.auth.invite.create_user", false, domain.ErrNotFound)
+			}
 			return mapRepositoryError(err)
 		}
 		invite := authInviteCodeModelToDomain(inviteModel)
-		if invite.Status != domain.AuthInviteCodeStatusActive ||
-			invite.UseCount >= invite.MaxUses ||
-			(invite.ExpiresAt != nil && !now.UTC().Before(invite.ExpiresAt.UTC())) {
-			return domain.ErrConflict
+		if invite.Status != domain.AuthInviteCodeStatusActive {
+			return domain.NewAppError(domain.ErrorKindConflict, "auth_invite_revoked", "invite code has been revoked", "repository.auth.invite.create_user", false, domain.ErrConflict)
+		}
+		if invite.UseCount >= invite.MaxUses {
+			return domain.NewAppError(domain.ErrorKindConflict, "auth_invite_used", "invite code has already been used", "repository.auth.invite.create_user", false, domain.ErrConflict)
+		}
+		if invite.ExpiresAt != nil && !now.UTC().Before(invite.ExpiresAt.UTC()) {
+			return domain.NewAppError(domain.ErrorKindConflict, "auth_invite_expired", "invite code has expired", "repository.auth.invite.create_user", false, domain.ErrConflict)
 		}
 
 		user.Role = invite.Role
@@ -687,7 +790,7 @@ func (r *AuthRepository) CreateUserWithInvite(ctx context.Context, codeHash stri
 		userModel.CreatedAt = now.UTC()
 		userModel.UpdatedAt = now.UTC()
 		if err := tx.Create(&userModel).Error; err != nil {
-			return mapRepositoryError(err)
+			return mapCreateUserError(err)
 		}
 
 		if err := tx.Model(&authInviteCodeModel{}).
@@ -723,6 +826,21 @@ func (r *AuthRepository) CreateUserWithInvite(ctx context.Context, codeHash stri
 		return domain.User{}, domain.AuthInviteCode{}, err
 	}
 	return createdUser, usedInvite, nil
+}
+
+func mapCreateUserError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		switch pgErr.ConstraintName {
+		case "users_username_key", "idx_users_username":
+			return domain.NewAppError(domain.ErrorKindConflict, "auth_username_exists", "username already exists", "repository.auth.user.create", false, domain.ErrConflict)
+		case "users_pkey":
+			return domain.NewAppError(domain.ErrorKindInternal, "auth_user_sequence_invalid", "user id sequence is out of sync", "repository.auth.user.create", false, err)
+		default:
+			return domain.NewAppError(domain.ErrorKindConflict, "auth_user_conflict", "user already exists", "repository.auth.user.create", false, domain.ErrConflict)
+		}
+	}
+	return mapRepositoryError(err)
 }
 
 func normalizeUserSession(session domain.UserSession) domain.UserSession {
@@ -835,6 +953,7 @@ func userModelFromDomain(user domain.User) userModel {
 		PasswordHash: user.PasswordHash,
 		Role:         string(user.Role),
 		Status:       string(user.Status),
+		DeletedAt:    user.DeletedAt,
 		CreatedAt:    user.CreatedAt,
 		UpdatedAt:    user.UpdatedAt,
 	}
@@ -849,6 +968,7 @@ func userModelToDomain(model userModel) domain.User {
 		PasswordHash: model.PasswordHash,
 		Role:         domain.UserRole(model.Role),
 		Status:       domain.UserStatus(model.Status),
+		DeletedAt:    model.DeletedAt,
 		CreatedAt:    model.CreatedAt,
 		UpdatedAt:    model.UpdatedAt,
 	}
@@ -861,10 +981,10 @@ func userProfileModelFromDomain(profile domain.UserProfile) userProfileModel {
 		Language:               profile.Language,
 		Region:                 profile.Region,
 		Bio:                    profile.Bio,
-		FocusTopics:            append([]string(nil), profile.FocusTopics...),
-		BlockedTopics:          append([]string(nil), profile.BlockedTopics...),
-		MarketFocus:            append([]string(nil), profile.MarketFocus...),
-		InstrumentFocus:        append([]string(nil), profile.InstrumentFocus...),
+		FocusTopics:            stringListJSON(append([]string(nil), profile.FocusTopics...)),
+		BlockedTopics:          stringListJSON(append([]string(nil), profile.BlockedTopics...)),
+		MarketFocus:            stringListJSON(append([]string(nil), profile.MarketFocus...)),
+		InstrumentFocus:        stringListJSON(append([]string(nil), profile.InstrumentFocus...)),
 		RiskPreference:         profile.RiskPreference,
 		NotificationQuietHours: profile.NotificationQuietHours,
 		AgentNotes:             profile.AgentNotes,
@@ -881,10 +1001,10 @@ func userProfileModelToDomain(model userProfileModel) domain.UserProfile {
 		Language:               model.Language,
 		Region:                 model.Region,
 		Bio:                    model.Bio,
-		FocusTopics:            append([]string(nil), model.FocusTopics...),
-		BlockedTopics:          append([]string(nil), model.BlockedTopics...),
-		MarketFocus:            append([]string(nil), model.MarketFocus...),
-		InstrumentFocus:        append([]string(nil), model.InstrumentFocus...),
+		FocusTopics:            append([]string(nil), []string(model.FocusTopics)...),
+		BlockedTopics:          append([]string(nil), []string(model.BlockedTopics)...),
+		MarketFocus:            append([]string(nil), []string(model.MarketFocus)...),
+		InstrumentFocus:        append([]string(nil), []string(model.InstrumentFocus)...),
 		RiskPreference:         model.RiskPreference,
 		NotificationQuietHours: model.NotificationQuietHours,
 		AgentNotes:             model.AgentNotes,

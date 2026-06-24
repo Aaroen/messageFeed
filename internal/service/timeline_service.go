@@ -11,12 +11,14 @@ import (
 
 const (
 	DefaultItemListLimit = 20
-	MaxItemListLimit     = 100
+	MaxItemListLimit     = 500
 )
 
 type TimelineRepository interface {
 	ListByUser(ctx context.Context, options domain.ItemListOptions) (domain.ItemListResult, error)
 	GetByIDForUser(ctx context.Context, userID int64, itemID int64) (domain.Item, error)
+	ListPublic(ctx context.Context, options domain.ItemListOptions) (domain.ItemListResult, error)
+	GetByIDPublic(ctx context.Context, itemID int64) (domain.Item, error)
 }
 
 type TimelineService struct {
@@ -65,7 +67,12 @@ func (s *TimelineService) ListItems(ctx context.Context, input ListItemsInput) (
 		return ListItemsResult{}, opErr
 	}
 
-	result, err := s.repository.ListByUser(ctx, options)
+	var result domain.ItemListResult
+	if input.UserID < 1 {
+		result, err = s.repository.ListPublic(ctx, options)
+	} else {
+		result, err = s.repository.ListByUser(ctx, options)
+	}
 	if err != nil {
 		opErr = err
 		return ListItemsResult{}, opErr
@@ -96,15 +103,17 @@ func (s *TimelineService) GetItem(ctx context.Context, input GetItemInput) (doma
 		opErr = fmt.Errorf("timeline service is not configured")
 		return domain.Item{}, opErr
 	}
-	if input.UserID < 1 {
-		opErr = fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
-		return domain.Item{}, opErr
-	}
 	if input.ItemID < 1 {
 		opErr = fmt.Errorf("%w: item id must be positive", domain.ErrInvalidInput)
 		return domain.Item{}, opErr
 	}
-	item, err := s.repository.GetByIDForUser(ctx, input.UserID, input.ItemID)
+	var item domain.Item
+	var err error
+	if input.UserID < 1 {
+		item, err = s.repository.GetByIDPublic(ctx, input.ItemID)
+	} else {
+		item, err = s.repository.GetByIDForUser(ctx, input.UserID, input.ItemID)
+	}
 	if err != nil {
 		opErr = err
 		return domain.Item{}, opErr
@@ -118,9 +127,6 @@ type GetItemInput struct {
 }
 
 func normalizeItemListOptions(input ListItemsInput) (domain.ItemListOptions, error) {
-	if input.UserID < 1 {
-		return domain.ItemListOptions{}, fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
-	}
 	if input.SourceID < 0 {
 		return domain.ItemListOptions{}, fmt.Errorf("%w: source_id must be non-negative", domain.ErrInvalidInput)
 	}

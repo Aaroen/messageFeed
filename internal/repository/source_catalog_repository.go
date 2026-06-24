@@ -13,6 +13,11 @@ type SourceCatalogRepository struct {
 	db *gorm.DB
 }
 
+const (
+	defaultSourceCatalogListLimit = 100
+	maxSourceCatalogListLimit     = 500
+)
+
 func NewSourceCatalogRepository(db *gorm.DB) *SourceCatalogRepository {
 	return &SourceCatalogRepository{db: db}
 }
@@ -73,10 +78,10 @@ func (r *SourceCatalogRepository) List(ctx context.Context, options domain.Sourc
 
 	limit := options.Limit
 	if limit <= 0 {
-		limit = 100
+		limit = defaultSourceCatalogListLimit
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > maxSourceCatalogListLimit {
+		limit = maxSourceCatalogListLimit
 	}
 	offset := options.Offset
 	if offset < 0 {

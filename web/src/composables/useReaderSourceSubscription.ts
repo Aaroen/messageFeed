@@ -1,5 +1,6 @@
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
+import { getCurrentAuth } from '@/api/auth'
 import { formatAPIError } from '@/api/client'
 import {
   fetchSource,
@@ -7,6 +8,7 @@ import {
   listSourceCatalog,
   listSources,
   updateSourceStatus,
+  type ImportSourcesResult,
   type Source,
   type SourceCatalogEntry,
 } from '@/api/feed'
@@ -44,6 +46,7 @@ type ReaderSourceSubscriptionOptions = {
 }
 
 export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOptions) {
+  const authenticated = ref(false)
   const motionTimings = useMotionTimings()
   const sourceNoticeRuntime = useTimedNotice<SourceNotice['type']>({
     duration: motionTimings.noticeDuration,
@@ -57,7 +60,7 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     }
     return options.sourceSubscription.value?.status === 'active' ? '关闭' : '开启'
   })
-  const sourceToggleActive = computed(() => options.sourceSubscription.value?.status === 'active')
+  const sourceToggleActive = computed(() => authenticated.value && options.sourceSubscription.value?.status === 'active')
   const sourceToggleDisabled = computed(() => options.sourceSubscriptionLoading.value)
 
   function nextSourceRequestToken() {
@@ -79,6 +82,32 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
 
   function showSourceNotice(type: SourceNotice['type'], message: string, durationMS?: number) {
     sourceNoticeRuntime.show(type, message, durationMS)
+  }
+
+  function importFailureDetail(result: ImportSourcesResult, fallbackName: string) {
+    const details = result.errors
+      .map((item) => {
+        const name = item.reference?.trim() || fallbackName
+        const message = item.message?.trim()
+        return message ? `${name}：${message}` : name
+      })
+      .filter(Boolean)
+      .slice(0, 3)
+    if (!details.length) {
+      return '服务未返回具体错误原因'
+    }
+    const overflow = result.errors.length > details.length ? `；另有 ${result.errors.length - details.length} 个失败来源` : ''
+    return `${details.join('；')}${overflow}`
+  }
+
+  function redirectToLogin() {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const redirect = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    window.setTimeout(() => {
+      window.location.assign(`/auth/login?redirect=${encodeURIComponent(redirect)}`)
+    }, 600)
   }
 
   function resetSourceSubscriptionState() {
@@ -116,10 +145,22 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     }
     options.setSourceSubscriptionLoading(true)
     try {
-      const [sources, catalogResult] = await Promise.all([
-        listSources(),
-        listSourceCatalog({ limit: 200, offset: 0 }),
-      ])
+      const auth = await getCurrentAuth()
+      authenticated.value = auth.authenticated
+      const catalogResult = await listSourceCatalog({ limit: 200, offset: 0 })
+      if (!sourceRequestIsCurrent(token, source)) {
+        return
+      }
+      if (!auth.authenticated) {
+        const catalogEntry =
+          catalogResult.entries.find((entry) => entry.id === source.id) ??
+          catalogResult.entries.find((entry) => entry.name === source.name)
+        options.setSourceCatalogEntry(catalogEntry ?? null)
+        options.setSourceSubscription(null)
+        return
+      }
+
+      const sources = await listSources()
       if (!sourceRequestIsCurrent(token, source)) {
         return
       }
@@ -148,6 +189,14 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
   async function toggleSourceReaderSubscription() {
     const readerSource = options.getReaderSource()
     if (!readerSource || options.sourceSubscriptionLoading.value) {
+      return
+    }
+
+    const auth = await getCurrentAuth({ force: true })
+    authenticated.value = auth.authenticated
+    if (!auth.authenticated) {
+      showSourceNotice('warning', '请先登录后再修改订阅')
+      redirectToLogin()
       return
     }
 
@@ -193,15 +242,16 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
         return
       }
       const imported = result.sources[0]
-      let fetchResult: FetchNowResult = { success: true }
-      if (imported) {
-        options.setSourceSubscription(imported)
-        fetchResult = await fetchNow(imported, token, readerSource)
-        if (!sourceRequestIsCurrent(token, readerSource)) {
-          return
-        }
-        options.onSubscriptionContentChanged?.(imported.id)
+      if (!imported || result.success_count <= 0) {
+        throw new Error(importFailureDetail(result, currentCatalogEntry.name))
       }
+      let fetchResult: FetchNowResult = { success: true }
+      options.setSourceSubscription(imported)
+      fetchResult = await fetchNow(imported, token, readerSource)
+      if (!sourceRequestIsCurrent(token, readerSource)) {
+        return
+      }
+      options.onSubscriptionContentChanged?.(imported.id)
       if (!fetchResult.success) {
         showSourceNotice(
           'warning',

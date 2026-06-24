@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { formatAPIError } from '@/api/client'
 import {
+  fetchSource,
   type FeedItem,
   listRecommendationItems,
   listTimelineItems,
@@ -99,7 +100,8 @@ const pullStartedWithVisibleChrome = pullRefresh.startedWithVisibleChrome
 const trackingPullCandidate = pullRefresh.gestureCandidate
 const trackingPull = pullRefresh.gestureTracking
 const topPullGestureDirection = useGestureDirection({ viewDragThreshold: 8 })
-const pageSize = 10
+const pageSize = 50
+const loadMorePreloadMargin = 240
 const cacheTTLMS = 60 * 1000
 const feedNoticeRuntime = useTimedNotice<FeedNoticeType>({
   duration: motionTimings.noticeDuration,
@@ -129,7 +131,6 @@ const canLoadMore = computed(
     !loadingMore.value &&
     !reachedEnd.value,
 )
-const loadMoreTriggerIndex = computed(() => Math.max(items.value.length - 3, 0))
 const isRecommendations = computed(() => props.mode === 'recommendations')
 const isSourceMode = computed(() => props.mode === 'source')
 const usesGlobalPullState = computed(() => !props.backgroundRefresh)
@@ -467,6 +468,27 @@ function localRefreshNotice(previousItemIDs: Set<number>, nextItems: FeedItem[])
   }
 }
 
+function shouldFetchEmptySubscribedSource(isAppend: boolean, requestOffset: number, nextItems: FeedItem[]) {
+  return (
+    !isAppend &&
+    requestOffset === 0 &&
+    nextItems.length === 0 &&
+    isSourceMode.value &&
+    effectiveSourceKind.value === 'subscriptions' &&
+    effectiveSourceId.value > 0
+  )
+}
+
+function shouldMarkReachedEnd(nextItems: FeedItem[], nextOffsetValue: number, responseTotal: number) {
+  if (nextItems.length < pageSize) {
+    return true
+  }
+  if (!Number.isFinite(responseTotal) || responseTotal <= 0) {
+    return false
+  }
+  return nextOffsetValue >= responseTotal
+}
+
 function scrollRefreshContainerToTop() {
   const root = feedPageRef.value?.closest('.app-content, .reader-overlay__content')
   if (root instanceof HTMLElement) {
@@ -549,9 +571,19 @@ async function loadItems(
       ...(isRefresh && isSourceMode.value && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
       ...(isSourceMode.value && effectiveSourceId.value > 0 ? { source_id: effectiveSourceId.value } : {}),
     }
-    const result = await loader(params)
+    let result = await loader(params)
     if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
       return
+    }
+    if (shouldFetchEmptySubscribedSource(isAppend, requestOffset, result.items)) {
+      await fetchSource(effectiveSourceId.value)
+      if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
+        return
+      }
+      result = await loader(params)
+      if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
+        return
+      }
     }
     const nextItems = result.items
     const nextTotal = result.total
@@ -559,9 +591,7 @@ async function loadItems(
     items.value = isAppend ? mergeItems(items.value, nextItems) : sortItemsDescending(nextItems)
     nextOffset.value = requestOffset + nextItems.length
     totalCount.value = Math.max(nextTotal, nextOffset.value)
-    reachedEnd.value =
-      nextItems.length < pageSize ||
-      (effectiveSourceKind.value !== 'recommendations' && nextOffset.value >= totalCount.value)
+    reachedEnd.value = shouldMarkReachedEnd(nextItems, nextOffset.value, nextTotal)
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     writeItemsToCache(requestViewKey)
     if (sequencesRefreshNotice) {
@@ -646,7 +676,7 @@ function maybeLoadMoreFromTrigger() {
   const triggerRect = trigger.getBoundingClientRect()
   const rootRect = root?.getBoundingClientRect()
   const viewportBottom = rootRect?.bottom ?? window.innerHeight
-  if (triggerRect.top <= viewportBottom) {
+  if (triggerRect.top <= viewportBottom + loadMorePreloadMargin) {
     void loadItems({ append: true })
   }
 }
@@ -674,6 +704,7 @@ function syncLoadMoreObserver() {
     },
     {
       root: loadMoreRoot(),
+      rootMargin: `${loadMorePreloadMargin}px 0px`,
       threshold: 0.01,
     },
   )
@@ -1042,12 +1073,11 @@ watch(
 
       <div v-else class="feed-item-list">
         <article
-          v-for="(item, index) in items"
+          v-for="item in items"
           :key="item.id"
           class="feed-item"
           :class="{ 'feed-item--morphing': morphingItemId === item.id }"
           :data-feed-item-id="item.id"
-          :data-load-more-trigger="index === loadMoreTriggerIndex ? 'true' : undefined"
           :style="feedItemStyle(item)"
         >
           <div class="feed-item__meta" :style="feedItemPreviewStyle(item)">
@@ -1076,8 +1106,17 @@ watch(
             <span />
           </span>
         </div>
+        <button
+          v-else-if="canLoadMore"
+          class="feed-load-more feed-load-more--button"
+          type="button"
+          data-load-more-trigger="true"
+          @click="loadItems({ append: true })"
+        >
+          加载更多
+        </button>
         <div
-          v-else-if="reachedEnd && hasItems && totalCount > pageSize"
+          v-else-if="reachedEnd && hasItems"
           class="feed-load-more feed-load-more--end"
           role="status"
           aria-live="polite"

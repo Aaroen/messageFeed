@@ -144,11 +144,20 @@ func TestAppendItemUpsertResultTracksCreatedAndUpdatedItems(t *testing.T) {
 	}
 }
 
-func TestItemViewBaseQueryFiltersInactiveSources(t *testing.T) {
+func TestItemSourceFiltersKeepGlobalTimelineActiveOnly(t *testing.T) {
 	if !strings.Contains(activeSourceStatusFilter, "sources.status") {
 		t.Fatalf("active source filter = %q, want sources.status predicate", activeSourceStatusFilter)
 	}
 	if got, want := string(domain.SourceStatusActive), "active"; got != want {
 		t.Fatalf("active source status = %q, want %q", got, want)
+	}
+}
+
+func TestItemSourceSpecificListAllowsInactiveSources(t *testing.T) {
+	if itemSourceFilterRequiresActive(domain.ItemListOptions{SourceID: 7}) {
+		t.Fatal("source-specific item list should not require active source status")
+	}
+	if !itemSourceFilterRequiresActive(domain.ItemListOptions{}) {
+		t.Fatal("global item list should require active source status")
 	}
 }

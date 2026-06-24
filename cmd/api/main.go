@@ -79,6 +79,7 @@ func main() {
 	var adminConfigService *service.AdminConfigService
 	var authService *service.AuthService
 	var agentApprovalService *service.AgentApprovalService
+	var aiFeedService *service.AIFeedService
 	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
 	if cfg.WeChatWork.Enabled() {
@@ -206,6 +207,7 @@ func main() {
 			service.WithAuthWeChatWorkOAuth(weChatWorkOAuth),
 		)
 		agentApprovalService = service.NewAgentApprovalService(agentApprovalRepository)
+		aiFeedService = service.NewAIFeedService(sourceRepository, itemRepository)
 		if weChatWorkAppCallback != nil {
 			agentConversationService = service.NewAgentConversationService(
 				agentRepository,
@@ -213,6 +215,9 @@ func main() {
 				service.WithAgentConversationSender(weChatWorkSender),
 				service.WithAgentConversationExternalAccountResolver(authService),
 				service.WithAgentConversationUserContextProvider(authService),
+				service.WithAgentConversationRecentItemsProvider(timelineService),
+				service.WithAgentConversationSourceProvider(sourceService),
+				service.WithAgentConversationAIFeedPublisher(aiFeedService),
 			)
 		}
 

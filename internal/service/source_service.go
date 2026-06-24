@@ -602,10 +602,6 @@ func (s *SourceService) ListSourceCatalog(ctx context.Context, input ListSourceC
 		opErr = fmt.Errorf("source catalog service is not configured")
 		return ListSourceCatalogResult{}, opErr
 	}
-	if input.UserID < 1 {
-		opErr = fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
-		return ListSourceCatalogResult{}, opErr
-	}
 	result, err := s.catalogRepository.List(ctx, domain.SourceCatalogListOptions{
 		UserID:   input.UserID,
 		Category: strings.TrimSpace(input.Category),

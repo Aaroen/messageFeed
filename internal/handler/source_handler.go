@@ -32,7 +32,13 @@ type sourceHandler struct {
 	service sourceService
 }
 
-func registerSourceRoutes(router *gin.RouterGroup, service sourceService) {
+func registerPublicSourceRoutes(router *gin.RouterGroup, service sourceService) {
+	handler := sourceHandler{service: service}
+	router.GET("/source-catalogs", handler.listSourceCatalog)
+	router.GET("/source-catalogs/search", handler.searchSourceCatalog)
+}
+
+func registerProtectedSourceRoutes(router *gin.RouterGroup, service sourceService) {
 	handler := sourceHandler{service: service}
 	router.POST("/sources", handler.createSource)
 	router.GET("/sources", handler.listSources)
@@ -40,8 +46,6 @@ func registerSourceRoutes(router *gin.RouterGroup, service sourceService) {
 	router.POST("/sources/:id/fetch", handler.fetchSource)
 	router.POST("/source-fetches", handler.fetchActiveSources)
 	router.GET("/source-fetches/status", handler.getSourceFetchStatus)
-	router.GET("/source-catalogs", handler.listSourceCatalog)
-	router.GET("/source-catalogs/search", handler.searchSourceCatalog)
 	router.POST("/sources/import/catalog", handler.importCatalogSources)
 	router.POST("/sources/import/urls", handler.importURLSources)
 	router.POST("/sources/import/opml", handler.importOPMLSources)

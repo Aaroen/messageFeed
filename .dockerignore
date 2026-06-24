@@ -1,0 +1,10 @@
+.git
+.agents
+.codex
+web/node_modules
+web/dist
+node_modules
+coverage.out
+coverage.html
+*.log
+messagefeed

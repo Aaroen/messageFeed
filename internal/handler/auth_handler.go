@@ -34,6 +34,7 @@ type authEndpointService interface {
 	RevokeInvite(ctx context.Context, auth service.CurrentAuth, inviteID int64) (service.InviteCodeResponse, error)
 	ListUsers(ctx context.Context, auth service.CurrentAuth) ([]service.AdminUserResponse, error)
 	DeactivateUser(ctx context.Context, auth service.CurrentAuth, userID int64) (service.AdminUserResponse, error)
+	RestoreUser(ctx context.Context, auth service.CurrentAuth, userID int64) (service.AdminUserResponse, error)
 	CookieMaxAge() int
 	CookieSecure() bool
 }
@@ -116,6 +117,7 @@ func registerAuthRoutes(router *gin.RouterGroup, authService authEndpointService
 	admin.DELETE("/invites/:id", requireAuth(authService), handler.revokeInvite)
 	admin.GET("/users", requireAuth(authService), handler.listUsers)
 	admin.DELETE("/users/:id", requireAuth(authService), handler.deactivateUser)
+	admin.POST("/users/:id/restore", requireAuth(authService), handler.restoreUser)
 }
 
 func (h authHandler) me(c *gin.Context) {
@@ -486,6 +488,24 @@ func (h authHandler) deactivateUser(c *gin.Context) {
 	result, err := h.service.DeactivateUser(c.Request.Context(), currentAuth(c), userID)
 	if err != nil {
 		RenderError(c, err, "delete user failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h authHandler) restoreUser(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "auth service unavailable")
+		return
+	}
+	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || userID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	result, err := h.service.RestoreUser(c.Request.Context(), currentAuth(c), userID)
+	if err != nil {
+		RenderError(c, err, "restore user failed")
 		return
 	}
 	Success(c, result)

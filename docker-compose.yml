@@ -95,7 +95,7 @@ services:
     environment:
       # HTTP 服务配置
       BIND_ADDR: 0.0.0.0:60001
-      PUBLIC_BASE_URL: http://localhost:60001
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://localhost:8443}
 
       # 运行时配置
       APP_NODE_ID: docker-api-1
@@ -157,6 +157,55 @@ services:
 
     # 日志配置
     logging: *default-logging
+
+  # ==================== 生产态 Web 静态服务 ====================
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    image: messagefeed-web:latest
+    container_name: messagefeed-web
+    restart: unless-stopped
+
+    expose:
+      - "8080"
+
+    networks:
+      - messagefeed-network
+
+    logging: *default-logging
+
+  # ==================== 生产态统一入口 ====================
+  gateway:
+    image: caddy:2.10.2-alpine
+    container_name: messagefeed-gateway
+    restart: unless-stopped
+    logging: *default-logging
+
+    environment:
+      GATEWAY_SITE_ADDRESS: ${GATEWAY_SITE_ADDRESS:-https://localhost:8443}
+      GATEWAY_DEFAULT_SNI: ${GATEWAY_DEFAULT_SNI:-localhost}
+
+    volumes:
+      - ./deploy/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - ./deploy/caddy/certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+    ports:
+      - "127.0.0.1:${GATEWAY_HTTPS_PORT:-8443}:8443"
+
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+
+    networks:
+      messagefeed-network:
+        aliases:
+          - gateway-dev
 
   # ==================== 开发态 API 服务 ====================
   api-dev:
@@ -311,6 +360,25 @@ services:
     container_name: messagefeed-cloudflared
     profiles:
       - cloudflare
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      SSL_CERT_FILE: /etc/messagefeed-certs/cloudflared-ca-bundle.crt
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN:-}"]
+    volumes:
+      - ./deploy/caddy/certs:/etc/messagefeed-certs:ro
+    depends_on:
+      gateway:
+        condition: service_started
+    networks:
+      - messagefeed-network
+
+  # ==================== 开发态 Cloudflare Tunnel 入口 ====================
+  cloudflared-dev:
+    image: cloudflare/cloudflared:latest
+    container_name: messagefeed-cloudflared-dev
+    profiles:
+      - cloudflare-dev
     restart: unless-stopped
     logging: *default-logging
     environment:
