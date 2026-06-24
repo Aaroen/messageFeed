@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"math/rand"
@@ -40,12 +41,14 @@ type RecommendationService struct {
 }
 
 type RecommendationSourceRepository interface {
+	Create(ctx context.Context, source domain.Source) (domain.Source, error)
 	ListByUser(ctx context.Context, userID int64) ([]domain.Source, error)
 }
 
 type RecommendationItemRepository interface {
 	ListByUser(ctx context.Context, options domain.ItemListOptions) (domain.ItemListResult, error)
 	ListPublic(ctx context.Context, options domain.ItemListOptions) (domain.ItemListResult, error)
+	UpsertMany(ctx context.Context, items []domain.Item) (domain.ItemUpsertResult, error)
 }
 
 func NewRecommendationService(catalogRepository SourceCatalogRepository, feedFetcher FeedFetcher, options ...SourceServiceOption) *RecommendationService {
@@ -337,12 +340,15 @@ func (s *RecommendationService) fetchRecommendationItems(ctx context.Context, us
 
 			fetchCtx, cancel := context.WithTimeout(ctx, recommendationFetchTimeout)
 			defer cancel()
-			source := recommendationSourceFromCatalog(userID, catalogEntry)
+			source, materialize := s.recommendationSourceForFetch(fetchCtx, userID, catalogEntry)
 			result, err := s.feedFetcher.Fetch(fetchCtx, source)
 			if err != nil || len(result.Items) == 0 {
 				return
 			}
 			items := normalizeRecommendationItems(catalogEntry, result.Items, maxItemsPerSource)
+			if materialize {
+				items = s.materializeRecommendationItems(fetchCtx, catalogEntry, source.ID, items)
+			}
 			if len(items) == 0 {
 				return
 			}
@@ -430,6 +436,66 @@ func recommendationSourceFromCatalog(userID int64, entry domain.SourceCatalogEnt
 	}
 }
 
+func (s *RecommendationService) recommendationSourceForFetch(ctx context.Context, userID int64, entry domain.SourceCatalogEntry) (domain.Source, bool) {
+	if userID < 1 || s.sourceRepository == nil || s.itemRepository == nil {
+		return recommendationSourceFromCatalog(userID, entry), false
+	}
+
+	source, ok, err := s.findRecommendationSource(ctx, userID, entry)
+	if err == nil && ok {
+		return source, true
+	}
+	if err != nil {
+		return recommendationSourceFromCatalog(userID, entry), false
+	}
+
+	source, err = s.createRecommendationCacheSource(ctx, userID, entry)
+	if err == nil {
+		return source, true
+	}
+	if errors.Is(err, domain.ErrConflict) {
+		source, ok, err = s.findRecommendationSource(ctx, userID, entry)
+		if err == nil && ok {
+			return source, true
+		}
+	}
+	return recommendationSourceFromCatalog(userID, entry), false
+}
+
+func (s *RecommendationService) findRecommendationSource(ctx context.Context, userID int64, entry domain.SourceCatalogEntry) (domain.Source, bool, error) {
+	if entry.NormalizedURL == "" {
+		return domain.Source{}, false, nil
+	}
+	sources, err := s.sourceRepository.ListByUser(ctx, userID)
+	if err != nil {
+		return domain.Source{}, false, err
+	}
+	for _, source := range sources {
+		if source.UserID == userID && source.NormalizedURL == entry.NormalizedURL {
+			return source, true, nil
+		}
+	}
+	return domain.Source{}, false, nil
+}
+
+func (s *RecommendationService) createRecommendationCacheSource(ctx context.Context, userID int64, entry domain.SourceCatalogEntry) (domain.Source, error) {
+	sourceType := entry.Type
+	if sourceType == "" {
+		sourceType = domain.SourceTypeRSS
+	}
+	source := domain.Source{
+		UserID:               userID,
+		Name:                 entry.Name,
+		Type:                 sourceType,
+		URL:                  entry.FeedURL,
+		NormalizedURL:        entry.NormalizedURL,
+		Status:               domain.SourceStatusInactive,
+		FetchIntervalSeconds: DefaultSourceFetchIntervalSeconds,
+		Tags:                 append([]string(nil), entry.Tags...),
+	}
+	return s.sourceRepository.Create(ctx, source)
+}
+
 func normalizeRecommendationItems(entry domain.SourceCatalogEntry, items []domain.Item, maxItems int) []domain.Item {
 	normalized := make([]domain.Item, 0, len(items))
 	for index, item := range items {
@@ -451,6 +517,57 @@ func normalizeRecommendationItems(entry domain.SourceCatalogEntry, items []domai
 		normalized = normalized[:maxItems]
 	}
 	return normalized
+}
+
+func (s *RecommendationService) materializeRecommendationItems(ctx context.Context, entry domain.SourceCatalogEntry, sourceID int64, items []domain.Item) []domain.Item {
+	if s.itemRepository == nil || sourceID < 1 || len(items) == 0 {
+		return nil
+	}
+
+	upsertItems := make([]domain.Item, 0, len(items))
+	for _, item := range items {
+		item.ID = 0
+		item.SourceID = sourceID
+		upsertItems = append(upsertItems, item)
+	}
+	result, err := s.itemRepository.UpsertMany(ctx, upsertItems)
+	if err != nil {
+		return nil
+	}
+
+	upserted := make(map[string]domain.Item, len(result.CreatedItems)+len(result.UpdatedItems))
+	for _, item := range result.CreatedItems {
+		upserted[recommendationMaterializedItemKey(item.SourceID, item)] = item
+	}
+	for _, item := range result.UpdatedItems {
+		upserted[recommendationMaterializedItemKey(item.SourceID, item)] = item
+	}
+
+	materialized := make([]domain.Item, 0, len(items))
+	for _, item := range items {
+		key := recommendationMaterializedItemKey(sourceID, item)
+		upsertedItem, ok := upserted[key]
+		if !ok || upsertedItem.ID < 1 {
+			continue
+		}
+		item.ID = upsertedItem.ID
+		item.SourceID = entry.ID
+		item.SourceName = entry.Name
+		item.CreatedAt = upsertedItem.CreatedAt
+		item.UpdatedAt = upsertedItem.UpdatedAt
+		materialized = append(materialized, item)
+	}
+	return materialized
+}
+
+func recommendationMaterializedItemKey(sourceID int64, item domain.Item) string {
+	if item.RawGUID != "" {
+		return fmt.Sprintf("%d:guid:%s", sourceID, item.RawGUID)
+	}
+	if item.NormalizedURL != "" {
+		return fmt.Sprintf("%d:url:%s", sourceID, item.NormalizedURL)
+	}
+	return fmt.Sprintf("%d:url:%s", sourceID, item.URL)
 }
 
 func interleaveRecommendationItems(sourceItems []recommendationSourceItems, limit int) []domain.Item {

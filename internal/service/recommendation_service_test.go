@@ -304,6 +304,56 @@ func TestListRecommendationsSourceUsesSubscribedHistoryWhenAvailable(t *testing.
 	}
 }
 
+func TestBuildRecommendationItemsMaterializesFetchedItems(t *testing.T) {
+	now := time.Date(2026, 6, 20, 9, 0, 0, 0, time.UTC)
+	entry := domain.SourceCatalogEntry{
+		ID:            10,
+		Name:          "Catalog source",
+		FeedURL:       "https://example.com/feed.xml",
+		NormalizedURL: "https://example.com/feed.xml",
+		Type:          domain.SourceTypeRSS,
+		Official:      true,
+		HealthStatus:  domain.SourceCatalogHealthHealthy,
+	}
+	service := NewRecommendationService(
+		&fakeRecommendationCatalogRepository{entries: []domain.SourceCatalogEntry{entry}},
+		&sequencedRecommendationFetcher{},
+		WithNow(func() time.Time {
+			return now
+		}),
+	)
+	sourceRepository := &fakeRecommendationSourceRepository{nextID: 900}
+	itemRepository := &fakeRecommendationItemRepository{nextID: 7000}
+	service.SetLocalHistoryRepositories(sourceRepository, itemRepository)
+
+	items := service.buildRecommendationItems(
+		context.Background(),
+		1,
+		[]domain.SourceCatalogEntry{entry},
+		domain.ItemSortOrderDesc,
+		maxRecommendationItemsPerSource,
+	)
+
+	if got, want := len(items), 1; got != want {
+		t.Fatalf("items length = %d, want %d", got, want)
+	}
+	if got, want := items[0].ID, int64(7000); got != want {
+		t.Fatalf("materialized item ID = %d, want %d", got, want)
+	}
+	if got, want := items[0].SourceID, entry.ID; got != want {
+		t.Fatalf("response SourceID = %d, want catalog ID %d", got, want)
+	}
+	if got, want := sourceRepository.created[0].Status, domain.SourceStatusInactive; got != want {
+		t.Fatalf("created source status = %q, want %q", got, want)
+	}
+	if got, want := itemRepository.upserted[0].SourceID, int64(900); got != want {
+		t.Fatalf("upsert source ID = %d, want materialized source ID %d", got, want)
+	}
+	if got := itemRepository.upserted[0].ID; got != 0 {
+		t.Fatalf("upsert item ID = %d, want 0", got)
+	}
+}
+
 type fakeRecommendationCatalogRepository struct {
 	entries []domain.SourceCatalogEntry
 }
@@ -437,6 +487,19 @@ func (f *multiItemRecommendationFetcher) Fetch(_ context.Context, source domain.
 
 type fakeRecommendationSourceRepository struct {
 	sources []domain.Source
+	created []domain.Source
+	nextID  int64
+}
+
+func (r *fakeRecommendationSourceRepository) Create(_ context.Context, source domain.Source) (domain.Source, error) {
+	if r.nextID == 0 {
+		r.nextID = int64(len(r.sources) + len(r.created) + 1)
+	}
+	source.ID = r.nextID
+	r.nextID++
+	r.created = append(r.created, source)
+	r.sources = append(r.sources, source)
+	return source, nil
 }
 
 func (r *fakeRecommendationSourceRepository) ListByUser(_ context.Context, userID int64) ([]domain.Source, error) {
@@ -450,8 +513,10 @@ func (r *fakeRecommendationSourceRepository) ListByUser(_ context.Context, userI
 }
 
 type fakeRecommendationItemRepository struct {
-	items   []domain.Item
-	options domain.ItemListOptions
+	items    []domain.Item
+	options  domain.ItemListOptions
+	upserted []domain.Item
+	nextID   int64
 }
 
 func (r *fakeRecommendationItemRepository) ListByUser(_ context.Context, options domain.ItemListOptions) (domain.ItemListResult, error) {
@@ -462,6 +527,28 @@ func (r *fakeRecommendationItemRepository) ListByUser(_ context.Context, options
 func (r *fakeRecommendationItemRepository) ListPublic(_ context.Context, options domain.ItemListOptions) (domain.ItemListResult, error) {
 	r.options = options
 	return r.list(options)
+}
+
+func (r *fakeRecommendationItemRepository) UpsertMany(_ context.Context, items []domain.Item) (domain.ItemUpsertResult, error) {
+	result := domain.ItemUpsertResult{TotalCount: len(items)}
+	for _, item := range items {
+		r.upserted = append(r.upserted, item)
+		if r.nextID == 0 {
+			r.nextID = int64(len(r.items) + 1)
+		}
+		item.ID = r.nextID
+		r.nextID++
+		if item.CreatedAt.IsZero() {
+			item.CreatedAt = item.FetchedAt
+		}
+		if item.UpdatedAt.IsZero() {
+			item.UpdatedAt = item.FetchedAt
+		}
+		result.CreatedCount++
+		result.CreatedItems = append(result.CreatedItems, item)
+		r.items = append(r.items, item)
+	}
+	return result, nil
 }
 
 func (r *fakeRecommendationItemRepository) list(options domain.ItemListOptions) (domain.ItemListResult, error) {
