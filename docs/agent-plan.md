@@ -1,6 +1,6 @@
 # messageFeed AI Agent 阶段重组计划
 
-**最后更新**：2026-06-23
+**最后更新**：2026-06-24
 
 ## 1. 背景与目标
 
@@ -209,24 +209,119 @@ allow/prompt/forbidden -> PolicyEngine decision
 compact prompt       -> context handoff summary template
 ```
 
-### 2.8 最终推导：messageFeed 自有 Agent Runtime 方案
+### 2.8 opencode：会话入队、上下文 epoch、工具注册与输出边界
+
+opencode V2 的可借鉴点是将 prompt admission、可见历史提升、Context Epoch、自动 compaction、工具注册和工具结果 settlement 明确拆开。工具定义有输入输出 codec，执行接收稳定 invocation context，注册有作用域和覆盖规则，输出先保留完整结构化结果，再对模型可见部分做裁剪。
+
+可吸收设计：
+
+- 用户输入先入 durable inbox，再在安全边界提升为模型可见消息。企业微信回调也应先落库，再由 worker 创建或恢复 turn。
+- 系统上下文应有版本化快照。模型可见的系统提示词、当前时间、模型信息、能力边界和用户快照需要记录版本，不能每次隐式漂移。
+- 工具注册与执行必须稳定。能力被 advertised 后，本轮执行应绑定当时的 capability 版本；如果后续能力被替换，旧调用应按 stale call 处理。
+- 工具输出应完整保存，模型可见结果可以裁剪。网页正文、搜索结果和仓库文件列表应保留原始引用，发送给模型的是预算内 projection。
+
+映射到本项目：
+
+```text
+PromptAdmitted      -> agent_inbound_messages / agent_commands
+Context Epoch       -> prompt_version + memory_snapshot_version + capability_version
+ToolRegistry        -> AgentCapabilityRegistry
+Tool settlement     -> Observation + agent_audit_logs
+Output bounding     -> ContextBudgetManager.TrimToolObservation
+```
+
+### 2.9 A2A：Task 生命周期、Agent Card 与外部协作边界
+
+A2A 的关键价值是区分普通 `Message` 与可跟踪 `Task`。简单交互可以直接返回消息；复杂或长时任务应创建 Task，并进入 working、input-required、auth-required、completed、failed、canceled 等状态。Task 终态不可重启，后续修订应创建新 Task 并引用旧 Task。Agent Card 则提供能力发现、认证和服务端点描述。
+
+可吸收设计：
+
+- `AgentRun` 应具备标准 task 状态，而不仅是成功或失败。
+- 需要用户补充信息时应进入 `input_required`，等待用户继续，而不是将其记录为普通失败。
+- 复杂任务的产物应成为 artifact 或 result record，可被后续任务引用。
+- A2A 可作为后续外部 Agent 协作协议边界；阶段五不默认开放外部 Agent 服务。
+
+映射到本项目：
+
+```text
+A2A Task            -> AgentRun
+contextId           -> 企微长期 session / Web 用户会话
+taskId              -> agent_runs.id
+input-required      -> PolicyEngine(prompt) / RunLoop.AskUser
+artifact            -> AI 源报告 / web_snapshot / execution_result
+Agent Card          -> 后续 capability registry 对外只读视图
+```
+
+### 2.10 LangGraph 与 AutoGen：状态图、中断恢复和团队编排
+
+LangGraph 的可借鉴点是 state graph、checkpoint、interrupt/resume 和 retry policy。AutoGen 的可借鉴点是消息驱动 runtime、agent/team 注册、group chat manager、termination condition 和运行队列。它们都说明复杂 Agent 不应只靠一段 prompt 自循环，而应把状态、终止条件、中断和恢复显式建模。
+
+可吸收设计：
+
+- `RunLoop` 应保存 step 状态和 checkpoint，支持失败后查看、恢复或取消。
+- 用户确认、补充信息和授权缺失应使用可恢复中断状态。
+- 执行循环必须有终止条件，包括最大步数、最大工具调用、最大耗时、最大成本和计划完成判定。
+- 多 Agent 协作暂时只作为内部编排模式，不作为普通企业微信对话默认能力。
+
+映射到本项目：
+
+```text
+checkpoint          -> agent_runs / agent_plan_steps 状态快照
+interrupt/resume    -> prompt approval / AskUser / auth-required
+termination         -> execution_budget + finish criteria
+team manager        -> 后续 AgentPlanner 内部子任务编排
+```
+
+### 2.11 browser-use 与深度研究项目：联网研究能力边界
+
+`browser-use` 的价值是把浏览器动作空间、允许域名、历史、文件和模型输出处理拆出边界；`gpt-researcher`、`deep-research` 和 `Khoj` 类项目的共同点是搜索、抓取、筛选、迭代研究、引用来源和报告生成。对本项目而言，阶段五到阶段六应先实现受控联网研究 capability，而不是直接引入完整浏览器 Agent。
+
+联网能力分层：
+
+1. `web.search`：调用搜索 provider 返回候选结果和来源摘要。
+2. `web.fetch_page`：按 URL 获取页面原始响应、状态码、最终 URL、内容类型和大小。
+3. `web.extract_page`：从 HTML 中抽取标题、正文、发布时间、作者、站点名和主要链接。
+4. `web.browse_page`：必要时使用受控浏览器处理 JS 渲染或交互页面，默认需要策略允许或用户确认。
+5. `repo.search`：调用 GitHub 或其他代码平台搜索仓库，返回候选项目、星标、语言、更新时间、license 和 clone URL。
+6. `repo.inspect_remote`：读取远端仓库元数据、README、目录树或指定文件片段，不克隆。
+7. `repo.clone_reference`：浅克隆到受控 `references/` 目录，写入审计和参考来源记录。
+
+安全约束：
+
+- 搜索结果不是事实结论，引用前必须抓取页面或读取仓库证据。
+- 所有外部网页和仓库内容都视为不可信上下文，不得覆盖系统提示词、权限策略和能力边界。
+- `repo.clone_reference` 不得写入产品源码目录，不得自动修改 `go.mod`、构建、测试或部署配置。
+- 浏览器能力应支持 allowed domains、超时、下载限制、截图或文件落点限制，并记录完整审计。
+
+### 2.12 MCP 与能力协议边界
+
+MCP 适合描述 Agent 使用工具和资源，A2A 适合 Agent 与 Agent 之间协作。本项目短期应先实现内部 `AgentCapability` 协议，后续再提供 MCP server 或接入外部 MCP client。原因是当前最重要的是权限、审计、用户确认、业务 service binding 和数据边界，而不是协议兼容性本身。
+
+取舍：
+
+- 内部 capability schema 应尽量接近 MCP tool 的输入输出结构，降低后续桥接成本。
+- 外部 MCP 工具默认进入 `deferred` 或 `hidden`，必须经 `PolicyEngine` 和 adapter 白名单。
+- A2A 作为后续外部 Agent 发现和委托边界，不进入阶段五 P0。
+
+### 2.13 最终推导：messageFeed 自有 Agent Runtime 方案
 
 综合上述项目，本项目最终不做“框架优先”的通用 Agent，也不做“代码执行优先”的 CLI Agent，而是做“业务对象优先”的个人信息 Agent。核心设计如下：
 
 ```text
-用户输入 / 系统事件 / 定时任务
-  -> AgentSessionManager 创建或恢复 session
-  -> AgentTurnRunner 创建 turn，并加载冻结 MemorySnapshot
-  -> AgentInterpreter 解析意图
-  -> AgentCapabilitySearch 检索必要 capability
-  -> AgentPlanner 生成结构化 plan 和 step
+企微消息 / Web 命令 / 系统事件 / 定时任务
+  -> AgentTrigger 判断是否需要唤起 Agent
+  -> AgentRunManager 创建隔离 AgentRun
+  -> TaskPacketBuilder 从原始入口构造任务包
+  -> ModelRouter 根据任务复杂度和模型元数据选择规划模型、执行模型和轻量分类模型
+  -> ContextFitEstimator 预估单上下文可完成性
+  -> ContextBuilder 构建新的空执行上下文，只注入系统提示词、任务包、用户快照、能力边界和必要召回片段
+  -> AgentPlanner 生成本次执行 plan 和 step
   -> PolicyEngine 输出 allow / prompt / forbidden
-  -> 用户确认或系统策略确认
+  -> RunLoop 在受控轮次内执行 step、接收 observation、继续、重规划、追问或失败
   -> AgentExecutor 调用 service-bound capability
-  -> 业务 service 写入 sources/items/profile/notifications/market 等表
-  -> AgentContextManager 记录 transcript、压缩、归档和召回
-  -> AI 源写入报告或执行结果
-  -> AgentAuditLogger 记录审计、trace、成本和状态差异
+  -> ContextBudgetManager 在每次模型调用前后管理 token、工具结果裁剪和上下文投影视图
+  -> Finalizer 生成对话回复、AI 源报告或通知投递
+  -> AgentAuditLogger 记录 transcript、审计、trace、成本、模型选择和状态差异
 ```
 
 自有方案的五个平面：
@@ -238,6 +333,15 @@ compact prompt       -> context handoff summary template
 | 记忆平面 | `MemoryProvider`、`ProfileMemoryProvider`、`ArchiveStore`、`RecallTool` | Hermes、OpenClaw、LangChainGo | 用户画像是长期记忆底座，但保留原始证据和事实层 |
 | 策略平面 | `PolicyEngine`、`ApprovalService`、`RiskClassifier` | Codex、Hermes、Claude Code | 风险等级只参与判定，最终决策为 `allow/prompt/forbidden` |
 | 评估平面 | `AgentEvalHarness`、trace、状态断言、人工复核 | OpenClaw QA、LangSmith 类方法 | 先实现项目内评测表和命令行评测，再考虑外部平台 |
+
+新增运行约束：
+
+- 每次真正唤起 Agent 执行任务时创建新的 `AgentRun`，默认不沿用企微长期聊天窗口。企微长期对话只作为入口、transcript 主事实源和历史查询资料库。
+- `AgentRun` 初始上下文是空执行上下文加结构化任务包，不继承上一轮执行消息。需要历史时通过 `conversation.query_history` 等能力按需取回原文片段。
+- 强模型负责复杂任务规划、能力选择、任务拆解、失败重规划和长上下文判断；普通模型负责简单任务执行、固定提醒、摘要和格式化；轻量模型负责分类、标签、索引和低风险判断。
+- 系统必须维护模型元数据，包括 provider、角色、上下文窗口、最大输出、工具调用支持、结构化输出支持、成本、延迟等级、可靠性和启用状态。模型路由不得依赖硬编码模型名。
+- 执行前必须进行 `ContextFitEstimate`，估算工具次数、工具结果大小、模型轮次、输入输出 token 和是否可在单上下文完成。无法单上下文完成时，应拆分任务、降级范围、转后台多 run 或向用户确认。
+- 上下文压缩只作用于模型可见投影视图，不能替代 `agent_transcript_entries` 原文。工具调用与工具结果不得被拆开；如工具结果被裁剪，必须保留结构化 observation 和原始数据引用。
 
 自有方案的执行模式：
 
@@ -251,6 +355,7 @@ compact prompt       -> context handoff summary template
 - 模型只能生成意图、计划、参数摘要、解释文本和候选证据，不能直接写数据库。
 - 所有状态变更必须通过 capability 调用既有 service 完成。
 - 所有 capability 都必须有输入 schema、输出 schema、风险等级、确认策略、幂等键和审计事件。
+- `agent.schedule_task` 只保存定时契约，包括目标、执行窗口、投递时间、新鲜度策略、允许能力、模型策略和失败策略；到点后创建新的隔离 `AgentRun`，不得另起一套定时执行逻辑。
 - 长期画像写入必须有证据链、置信度、来源和可编辑能力。
 - 主动网络采集必须保留 URL、时间、hash、抽取方法和可信度，搜索结果不能直接作为事实。
 - 金融分析必须区分事实数据、模型推断和风险提示，且不输出确定性投资建议。
@@ -884,18 +989,21 @@ Agent 执行流程：
 
 ```text
 用户自然语言或系统事件
-  -> AgentSessionManager 创建或恢复 session
-  -> AgentTurnRunner 创建 turn 并串行化同一 session 的 active turn
-  -> AgentContextBuilder 组装记忆快照与活动上下文
-  -> AgentInterpreter 解析意图
+  -> AgentTrigger 标准化入口并判断是否唤起 Agent
+  -> AgentRunManager 创建隔离 AgentRun 和 turn
+  -> TaskPacketBuilder 构造任务包
+  -> ModelRouter 选择分类、规划、执行和总结模型
+  -> ContextFitEstimator 判断是否可在单上下文完成
+  -> AgentContextBuilder 构建空执行上下文和冻结快照
   -> AgentCapabilitySearch 检索延迟能力（必要时）
-  -> AgentPlanner 生成结构化计划
+  -> AgentPlanner 生成本次执行计划
   -> PolicyEngine 输出 allow / prompt / forbidden
-  -> 用户确认（prompt 时）
+  -> 用户确认或系统策略确认（prompt 时）
+  -> RunLoop 执行工具调用、接收 observation、继续、重规划、追问或失败
   -> AgentExecutor 调用已注册能力
   -> service 层执行实际变更
-  -> 生成 AI 源条目或通知
-  -> 保存 transcript、审计、指标和 trace
+  -> Finalizer 生成对话回复、AI 源条目或通知
+  -> 保存 transcript、审计、指标、模型选择、token 使用和 trace
 ```
 
 核心模块：
@@ -953,22 +1061,109 @@ AgentContextManager
 - Recall(query, scope) -> []RecallResult
 ```
 
+```text
+AgentRunManager
+- CreateRun(trigger, taskPacket) -> AgentRun
+- ClaimRun(run_id, worker) -> AgentRun
+- MarkRunning(run) -> error
+- CompleteRun(run, result) -> error
+- FailRun(run, reason) -> error
+- CancelRun(run, reason) -> error
+```
+
+```text
+TaskPacketBuilder
+- BuildFromWechatTurn(message, session) -> TaskPacket
+- BuildFromWebCommand(command) -> TaskPacket
+- BuildFromScheduledTask(task) -> TaskPacket
+- ExtractRelevantContextHints(packet) -> []ContextHint
+```
+
+```text
+ModelRouter
+- ClassifyTask(packet) -> TaskComplexity
+- SelectPlannerModel(complexity, constraints) -> ModelRef
+- SelectExecutorModel(plan, constraints) -> ModelRef
+- SelectAuxModel(task) -> ModelRef
+- GetModelMetadata(model_id) -> ModelMetadata
+```
+
+```text
+ContextFitEstimator
+- Estimate(packet, capabilities, models) -> ContextFitEstimate
+- CanSingleContextComplete(estimate) -> bool
+- RecommendDecomposition(estimate) -> TaskDecomposition
+```
+
+```text
+ContextBudgetManager
+- EstimateRequest(messages, tools, model) -> TokenEstimate
+- PrepareProjection(snapshot, budget) -> ContextProjection
+- CompressProjection(projection, policy) -> ContextCompactionResult
+- TrimToolObservation(observation, budget) -> ObservationProjection
+- GuardToolCallPairs(messages) -> []ContextMessage
+```
+
+```text
+RunLoop
+- Run(plan, context, modelPolicy) -> AgentRunResult
+- ExecuteStep(step) -> Observation
+- ContinueOrFinish(state, observation) -> LoopDecision
+- Replan(state, reason) -> AgentPlan
+- AskUser(question) -> AgentRunResult
+- Fail(reason) -> AgentRunResult
+```
+
 最小 Agent Runtime 建议在 Go 后端内实现：
 
 ```text
 internal/agent
+├── AgentRunManager
+├── TaskPacketBuilder
+├── ModelRouter
+├── ContextFitEstimator
 ├── SessionManager
 ├── TurnRunner
 ├── CapabilityRegistry
 ├── CapabilitySearch
 ├── Planner
 ├── PolicyEngine
+├── RunLoop
 ├── Executor
 ├── ContextManager
+├── ContextBudgetManager
 ├── MemoryProvider
 ├── ArchiveStore
 ├── RecallTool
 └── AuditLogger
+```
+
+`AgentRun` 与长期企微 session 的关系：
+
+- 企微 session 负责连续对话、账号映射和完整 transcript。
+- `AgentRun` 负责一次任务执行，默认拥有新的空执行上下文。
+- `AgentRun` 可以引用原企微 session、turn 和 transcript entry，但不默认把长期聊天窗口注入模型。
+- 执行结果回写到原 session 的 transcript 和 audit；需要主动投递时通过通知系统或企业微信回复出口发送。
+
+模型元数据建议：
+
+```text
+agent_models
+- model_key
+- provider
+- model_name
+- role: strong / normal / cheap
+- context_window_tokens
+- max_output_tokens
+- supports_tool_call
+- supports_json_schema
+- supports_streaming
+- input_cost_per_1k
+- output_cost_per_1k
+- latency_class
+- reliability_score
+- enabled
+- updated_at
 ```
 
 能力注册项至少包含：
@@ -991,6 +1186,20 @@ agent_capabilities
 - requires_user_interaction
 - enabled
 ```
+
+联网研究 capability 建议：
+
+| capability | 暴露模式 | 风险 | 默认决策 | 作用 |
+| --- | --- | --- | --- | --- |
+| `web.search` | `core` 或 `deferred` | `low` | `allow` | 根据关键词、时间、语言和站点约束返回候选网页 |
+| `web.fetch_page` | `deferred` | `low` | `allow` | 获取指定 URL 的响应元数据和原始内容引用 |
+| `web.extract_page` | `deferred` | `low` | `allow` | 抽取正文、标题、发布时间、作者、站点名和主要链接 |
+| `web.browse_page` | `deferred` | `medium` | `prompt` | 使用受控浏览器处理 JS 渲染、交互页面或登录态页面 |
+| `repo.search` | `core` 或 `deferred` | `low` | `allow` | 搜索 GitHub 等平台的参考仓库候选 |
+| `repo.inspect_remote` | `deferred` | `low` | `allow` | 不克隆仓库，读取 README、目录树、license 和指定文件片段 |
+| `repo.clone_reference` | `deferred` | `medium` | `prompt` | 浅克隆参考项目到受控 `references/` 目录 |
+
+`repo.clone_reference` 的执行结果只写入参考资料目录和审计记录，不得自动触发依赖安装、构建、测试、部署或源码 import。若用户明确要求立即克隆指定公开仓库，Web 管理端可将该计划降为一次性 `allow`，但仍必须记录目标目录、远端 URL、commit、目录规范化结果和执行人。
 
 能力暴露模式：
 
