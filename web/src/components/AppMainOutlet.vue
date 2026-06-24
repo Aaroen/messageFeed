@@ -193,6 +193,7 @@ const emit = defineEmits<{
       @touch-end="(event) => emit('page-touch-end', event)"
       @touch-cancel="(event) => emit('page-touch-cancel', event)"
       @open-source="(source) => emit('open-source', source)"
+      @open-item="(item, sourceKind, originRect) => emit('open-item', item, sourceKind, originRect)"
     />
   </main>
 </template>

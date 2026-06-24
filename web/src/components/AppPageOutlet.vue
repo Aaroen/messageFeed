@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance, StyleValue } from 'vue'
 
+import type { FeedItem } from '@/api/feed'
 import type { PageViewExpose } from '@/composables/usePageOutletState'
-import type { ReaderSource } from '@/composables/useReaderSession'
+import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
 
 withDefaults(
   defineProps<{
@@ -24,6 +25,7 @@ const emit = defineEmits<{
   (event: 'touch-end', value: TouchEvent): void
   (event: 'touch-cancel', value: TouchEvent): void
   (event: 'open-source', source: ReaderSource): void
+  (event: 'open-item', item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect): void
 }>()
 
 type ComponentRefWithExpose = ComponentPublicInstance & {
@@ -73,6 +75,10 @@ function setViewRef(value: Element | ComponentPublicInstance | null) {
 function handleOpenSource(source: ReaderSource) {
   emit('open-source', source)
 }
+
+function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
+  emit('open-item', item, sourceKind, originRect)
+}
 </script>
 
 <template>
@@ -88,7 +94,7 @@ function handleOpenSource(source: ReaderSource) {
   >
     <div class="page-content-inner" :style="innerStyle">
       <router-view v-slot="{ Component }">
-        <component :is="Component" :ref="setViewRef" @open-source="handleOpenSource" />
+        <component :is="Component" :ref="setViewRef" @open-source="handleOpenSource" @open-item="handleOpenItem" />
       </router-view>
     </div>
   </section>

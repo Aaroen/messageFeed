@@ -26,7 +26,7 @@ import { useFeedInteractionStore } from '@/stores/feedInteraction'
 import { type HiddenFilter, type TriStateFilter, useFeedFiltersStore } from '@/stores/feedFilters'
 import { type FeedListCacheEntry, useFeedListCacheStore } from '@/stores/feedListCache'
 
-type FeedMode = 'subscriptions' | 'recommendations' | 'source'
+type FeedMode = 'subscriptions' | 'recommendations' | 'source' | 'history'
 type SourceKind = 'subscriptions' | 'recommendations'
 type FeedNoticeType = 'success' | 'warning'
 type FeedNotice = { type: FeedNoticeType; message: string }
@@ -161,6 +161,7 @@ const canLoadMore = computed(
 )
 const isRecommendations = computed(() => props.mode === 'recommendations')
 const isSourceMode = computed(() => props.mode === 'source')
+const isHistoryMode = computed(() => props.mode === 'history')
 const usesGlobalPullState = computed(() => !props.backgroundRefresh)
 const shouldRefreshVisibleSource = computed(() => isSourceMode.value && !props.backgroundRefresh)
 const effectiveSourceKind = computed<SourceKind>(() => {
@@ -193,6 +194,14 @@ const copy = computed(() => {
       loadingTitle: '正在加载推荐内容',
       emptyTitle: '暂无推荐内容',
       emptyDescription: '官方源暂时没有返回可展示内容。',
+    }
+  }
+  if (isHistoryMode.value) {
+    return {
+      mark: '史',
+      loadingTitle: '正在加载阅读历史',
+      emptyTitle: '暂无阅读历史',
+      emptyDescription: '标记已读后的内容会显示在这里。',
     }
   }
   return {
@@ -343,6 +352,9 @@ function mergeItems(currentItems: FeedItem[], nextItems: FeedItem[]) {
 }
 
 function currentFiltersMatch(item: FeedItem) {
+  if (isHistoryMode.value) {
+    return item.is_read && !item.is_hidden
+  }
   if (!filtersVisible.value) {
     return true
   }
@@ -649,6 +661,7 @@ async function loadItems(
         ? { is_favorite: triStateBool(favoriteFilter.value) }
         : {}),
       ...(filtersVisible.value ? hiddenFilterParams(hiddenFilter.value) : {}),
+      ...(isHistoryMode.value ? { is_read: true, is_hidden: false } : {}),
       ...(isRefresh && isSourceMode.value && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
       ...(isSourceMode.value && effectiveSourceId.value > 0 ? { source_id: effectiveSourceId.value } : {}),
     }

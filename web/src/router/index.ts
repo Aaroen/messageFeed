@@ -1,13 +1,56 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { getCurrentAuth } from '@/api/auth'
+import { getFeedViewMode, saveFeedViewMode, type FeedViewMode } from '@/api/feed'
 
 const LoginView = () => import('@/views/LoginView.vue')
 const RegisterView = () => import('@/views/RegisterView.vue')
 const AgentApprovalView = () => import('@/views/AgentApprovalView.vue')
+const ItemDetailView = () => import('@/views/ItemDetailView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const SubscriptionFeedView = () => import('@/views/SubscriptionFeedView.vue')
 const SubscriptionSourcesView = () => import('@/views/SubscriptionSourcesView.vue')
+
+const feedViewModeStorageKey = 'messagefeed-feed-view-mode'
+
+function preferredFeedPath() {
+  if (typeof window === 'undefined') {
+    return '/recommendations'
+  }
+  return window.localStorage.getItem(feedViewModeStorageKey) === 'timeline' ? '/subscriptions' : '/recommendations'
+}
+
+function rememberFeedViewMode(mode: FeedViewMode) {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(feedViewModeStorageKey, mode)
+  }
+  void saveFeedViewMode(mode).catch(() => undefined)
+}
+
+async function restoreFeedViewModeForRoute(routeName: string | symbol | null | undefined) {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  if (routeName !== 'subscriptions' && routeName !== 'recommendations') {
+    return null
+  }
+  if (window.localStorage.getItem(feedViewModeStorageKey)) {
+    return null
+  }
+  try {
+    const preference = await getFeedViewMode()
+    window.localStorage.setItem(feedViewModeStorageKey, preference.view_mode)
+    if (preference.view_mode === 'timeline' && routeName !== 'subscriptions') {
+      return { name: 'subscriptions' }
+    }
+    if (preference.view_mode === 'recommendations' && routeName !== 'recommendations') {
+      return { name: 'recommendations' }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
 
 const settingsRoutes = [
   { path: 'account', name: 'settings-account', title: '账户', section: 'account' },
@@ -28,7 +71,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/recommendations',
+      redirect: preferredFeedPath,
     },
     {
       path: '/auth/login',
@@ -69,10 +112,23 @@ const router = createRouter({
       meta: { title: '推荐', section: 'recommendations', public: true },
     },
     {
+      path: '/items/:id',
+      name: 'item-detail',
+      component: ItemDetailView,
+      meta: { title: '条目详情', section: 'items', public: true },
+    },
+    {
       path: '/sources',
       name: 'sources',
       component: SubscriptionSourcesView,
       meta: { title: '订阅管理', section: 'sources' },
+    },
+    {
+      path: '/history',
+      name: 'history',
+      component: SubscriptionFeedView,
+      props: { mode: 'history' },
+      meta: { title: '阅读历史', section: 'history' },
     },
     {
       path: '/settings',
@@ -97,6 +153,15 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  const restoredFeedRoute = await restoreFeedViewModeForRoute(to.name)
+  if (restoredFeedRoute) {
+    return restoredFeedRoute
+  }
+  if (to.name === 'subscriptions') {
+    rememberFeedViewMode('timeline')
+  } else if (to.name === 'recommendations') {
+    rememberFeedViewMode('recommendations')
+  }
   if (to.meta.public) {
     return true
   }
