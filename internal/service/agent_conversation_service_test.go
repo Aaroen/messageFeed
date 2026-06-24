@@ -309,7 +309,7 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	}
 }
 
-func TestAgentConversationServiceInjectsReadOnlyCapabilityContextAndPublishesAIFeedReport(t *testing.T) {
+func TestAgentConversationServiceInjectsReadOnlyCapabilityContextWithoutPublishingAIFeedReport(t *testing.T) {
 	now := time.Date(2026, 6, 24, 18, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
@@ -326,7 +326,6 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextAndPublishesAIF
 	sourceProvider := &fakeAgentSourceProvider{
 		sources: []domain.Source{{ID: 42, UserID: 1, Name: "Go 官方博客", Status: domain.SourceStatusActive}},
 	}
-	aiFeed := &fakeAgentAIFeedPublisher{}
 	llmClient := &fakeAgentConversationLLM{
 		response: llm.ChatResponse{
 			Provider: "openai_compatible",
@@ -341,7 +340,6 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextAndPublishesAIF
 		WithAgentConversationExternalAccountResolver(resolver),
 		WithAgentConversationRecentItemsProvider(recentItems),
 		WithAgentConversationSourceProvider(sourceProvider),
-		WithAgentConversationAIFeedPublisher(aiFeed),
 		WithAgentConversationNow(func() time.Time { return now }),
 		WithAgentConversationInlineProcessing(true),
 	)
@@ -363,15 +361,6 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextAndPublishesAIF
 	}
 	if !strings.Contains(systemPrompt, "匹配来源最新条目") || !strings.Contains(systemPrompt, "Go 官方博客") || !strings.Contains(systemPrompt, "Go 工具链说明") {
 		t.Fatalf("system prompt missing source latest context: %q", systemPrompt)
-	}
-	if len(aiFeed.entries) != 1 {
-		t.Fatalf("ai feed entries = %d, want 1", len(aiFeed.entries))
-	}
-	if aiFeed.entries[0].Kind != domain.AIFeedEntryKindAgentOperationLog {
-		t.Fatalf("ai feed kind = %q", aiFeed.entries[0].Kind)
-	}
-	if !strings.Contains(aiFeed.entries[0].Content, "feed.query_recent_items") {
-		t.Fatalf("ai feed content missing capability observation: %q", aiFeed.entries[0].Content)
 	}
 }
 
@@ -567,13 +556,4 @@ type fakeAgentSourceProvider struct {
 
 func (f *fakeAgentSourceProvider) ListSources(_ context.Context, _ int64) ([]domain.Source, error) {
 	return f.sources, nil
-}
-
-type fakeAgentAIFeedPublisher struct {
-	entries []PublishAIFeedEntryInput
-}
-
-func (f *fakeAgentAIFeedPublisher) PublishEntry(_ context.Context, input PublishAIFeedEntryInput) (PublishAIFeedEntryResult, error) {
-	f.entries = append(f.entries, input)
-	return PublishAIFeedEntryResult{}, nil
 }

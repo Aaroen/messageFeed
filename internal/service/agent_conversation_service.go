@@ -55,10 +55,6 @@ type AgentSourceProvider interface {
 	ListSources(ctx context.Context, userID int64) ([]domain.Source, error)
 }
 
-type AgentAIFeedPublisher interface {
-	PublishEntry(ctx context.Context, input PublishAIFeedEntryInput) (PublishAIFeedEntryResult, error)
-}
-
 type AgentConversationService struct {
 	repository         AgentConversationRepository
 	llmClient          AgentConversationLLM
@@ -67,7 +63,6 @@ type AgentConversationService struct {
 	userCtx            AgentUserContextProvider
 	recentItems        AgentRecentItemsProvider
 	sourceProvider     AgentSourceProvider
-	aiFeedPublisher    AgentAIFeedPublisher
 	turnRunner         *agent.TurnRunner
 	capabilityRegistry *agent.CapabilityRegistry
 	policyEngine       *agent.PolicyEngine
@@ -114,12 +109,6 @@ func WithAgentConversationRecentItemsProvider(provider AgentRecentItemsProvider)
 func WithAgentConversationSourceProvider(provider AgentSourceProvider) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		service.sourceProvider = provider
-	}
-}
-
-func WithAgentConversationAIFeedPublisher(publisher AgentAIFeedPublisher) AgentConversationServiceOption {
-	return func(service *AgentConversationService) {
-		service.aiFeedPublisher = publisher
 	}
 }
 
@@ -514,7 +503,6 @@ func (s *AgentConversationService) processTurn(
 		TraceID:   input.TraceID,
 		CreatedAt: finishedAt,
 	})
-	s.publishTurnReport(ctx, account.UserID, input, reply, observations, finishedAt)
 
 	return ReceiveWeChatWorkAppMessageResult{
 		ExternalAccount: account,
@@ -612,48 +600,6 @@ func (s *AgentConversationService) failTurn(ctx context.Context, userID int64, s
 		CreatedAt: now,
 	})
 	return ReceiveWeChatWorkAppMessageResult{Turn: turn}, cause
-}
-
-func (s *AgentConversationService) publishTurnReport(ctx context.Context, userID int64, input ReceiveWeChatWorkAppMessageInput, reply string, observations []agent.CapabilityObservation, now time.Time) {
-	if s == nil || s.aiFeedPublisher == nil || userID < 1 {
-		return
-	}
-	title := "企业微信对话处理报告"
-	summary := "已处理一条企业微信文本消息并发送回复。"
-	content := buildTurnReportContent(input, reply, observations)
-	_, _ = s.aiFeedPublisher.PublishEntry(ctx, PublishAIFeedEntryInput{
-		UserID:      userID,
-		Kind:        domain.AIFeedEntryKindAgentOperationLog,
-		Title:       title,
-		Summary:     summary,
-		Content:     content,
-		DedupeKey:   "wechat-work-turn-" + input.ProviderMessageID,
-		PublishedAt: now,
-	})
-}
-
-func buildTurnReportContent(input ReceiveWeChatWorkAppMessageInput, reply string, observations []agent.CapabilityObservation) string {
-	var builder strings.Builder
-	builder.WriteString("输入：")
-	builder.WriteString(input.TextContent)
-	builder.WriteString("\n回复：")
-	builder.WriteString(reply)
-	if len(observations) > 0 {
-		builder.WriteString("\n工具调用：")
-		for _, observation := range observations {
-			builder.WriteString("\n- ")
-			builder.WriteString(observation.Capability)
-			builder.WriteString(" ")
-			builder.WriteString(observation.Decision)
-			builder.WriteString(" ")
-			builder.WriteString(observation.Status)
-			if observation.Summary != "" {
-				builder.WriteString("：")
-				builder.WriteString(observation.Summary)
-			}
-		}
-	}
-	return builder.String()
 }
 
 func splitUTF8Bytes(value string, limit int) []string {

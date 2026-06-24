@@ -161,3 +161,9 @@ func TestItemSourceSpecificListAllowsInactiveSources(t *testing.T) {
 		t.Fatal("global item list should require active source status")
 	}
 }
+
+func TestGlobalItemListFiltersAgentOperationLogs(t *testing.T) {
+	if got, want := hiddenAgentOperationLogURLPattern, "messagefeed://ai/agent_operation_log/%"; got != want {
+		t.Fatalf("hidden agent operation log URL pattern = %q, want %q", got, want)
+	}
+}

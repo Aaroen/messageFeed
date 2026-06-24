@@ -60,6 +60,7 @@ type itemViewModel struct {
 }
 
 const activeSourceStatusFilter = "sources.status = ?"
+const hiddenAgentOperationLogURLPattern = "messagefeed://ai/agent_operation_log/%"
 
 func (itemModel) TableName() string {
 	return "items"
@@ -310,6 +311,7 @@ func applyItemSourceFilters(query *gorm.DB, options domain.ItemListOptions) *gor
 	if options.SourceID > 0 {
 		return query.Where("items.source_id = ?", options.SourceID)
 	}
+	query = query.Where("items.normalized_url NOT LIKE ?", hiddenAgentOperationLogURLPattern)
 	if !itemSourceFilterRequiresActive(options) {
 		return query
 	}
