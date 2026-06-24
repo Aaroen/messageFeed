@@ -12,14 +12,14 @@
 | 阶段二 | 订阅源与 Feed 闭环 | 进行中 | 90% | 2026-06-13 | - |
 | 阶段三 | 日志、错误追踪与链路观测 | 进行中 | 90% | 2026-06-17 | - |
 | 阶段四 | 源目录与导入 | 进行中 | 55% | 2026-06-19 | - |
-| 阶段五 | 企业微信对话入口 Agent MVP 与 AI 源 | 原型进行中 | 15% | 2026-06-19 | - |
+| 阶段五 | 企业微信对话入口 Agent MVP 与 AI 源 | 原型进行中 | 35% | 2026-06-19 | - |
 | 阶段六 | 主动采集与内容理解 Agent | 未开始 | 0% | - | - |
 | 阶段七 | 推荐、摘要与通知 Agent | 未开始 | 0% | - | - |
 | 阶段八 | 金融与跨领域分析 Agent | 未开始 | 0% | - | - |
 | 阶段九 | 工程化增强 | 未开始 | 0% | - | - |
 | 阶段十 | 来源扩展与分布式升级验证 | 未开始 | 0% | - | - |
 
-当前状态基于 2026-06-24 代码审阅、本地部署与 Cloudflare Tunnel 验证：生产态通过 `messageFeed-start cloudflare` 启动，`messageFeed-status` 显示 `production + cloudflare`，`https://localhost:8443/healthz` 与 `https://aroen.eu.cc/healthz` 均返回成功。公网默认入口已经由 Vite 开发服务切换为生产静态 Web 服务，阶段四与原推荐 Feed 原型存在前置实现，阶段四点五已建立后台刷新、outbox、规则预筛选、策略引擎、通知作业和 AI 源基础模型。阶段五到阶段八已经重组为统一的 AI Agent 体系，其中阶段五 P0 调整为企业微信自建应用接收消息 API 对话入口优先，主动通知和摘要推送后置，详细方案见 `docs/agent-plan.md` 和 `docs/financial-agent-plan.md`。
+当前状态基于 2026-06-24 代码审阅、本地部署与 Cloudflare Tunnel 验证：生产态通过 `messageFeed-start cloudflare` 启动，`messageFeed-status` 显示 `production + cloudflare`，`https://localhost:8443/healthz` 与 `https://aroen.eu.cc/healthz` 均返回成功。公网默认入口已经由 Vite 开发服务切换为生产静态 Web 服务，阶段四与原推荐 Feed 原型存在前置实现，阶段四点五已建立后台刷新、outbox、规则预筛选、策略引擎、通知作业和 AI 源基础模型。阶段五到阶段八已经重组为统一的 AI Agent 体系，其中阶段五 P0 调整为企业微信自建应用接收消息 API 对话入口优先，主动通知和摘要推送后置；当前已打通企微入站、session/turn/transcript/audit、只读 Runner、P0 capability、系统提示词抽象，并已禁止普通对话进入订阅或推荐主页。下一步是 Agent 框架内部的企微短期聊天窗口、历史聊天原文查询和 transcript 归档索引。详细方案见 `docs/agent-plan.md` 和 `docs/financial-agent-plan.md`。
 
 ---
 
@@ -201,7 +201,7 @@ internal/agent/
 ├── planning     # intent、plan、step、impact 和 plan validation
 ├── policy       # allow/prompt/forbidden、risk、approval
 ├── memory       # MemoryProvider、MemorySnapshot、profile/context 聚合
-├── context      # token 估算、语义分块、压缩、归档、召回
+├── context      # 短期上下文、历史查询、冷热归档索引和召回预算
 ├── eval         # eval case、eval run、状态断言和评分
 └── audit        # command、approval、tool result、model output 审计
 ```
@@ -212,7 +212,7 @@ internal/agent/
 - 真实状态变更必须通过已注册 capability 调用既有 service。
 - `capability` 负责把 Agent 计划步骤映射到 service 用例，不承载业务规则本身。
 - `memory` 可以读取用户画像、近期行为、AI 源报告和当前计划摘要，但长期画像写入必须通过 `profile` service，并保留证据链。
-- `context` 只负责上下文构建、压缩、归档和召回，不负责决定是否订阅、通知或创建金融告警。
+- `context` 只负责短期上下文构建、历史聊天查询、冷热归档索引和召回预算，不负责决定是否订阅、通知或创建金融告警。
 - `eval` 使用固定用例、工具调用 trace 和数据库状态断言验证 Agent，不依赖人工体验作为唯一验收方式。
 
 ### 2.4 文件放置规则
@@ -866,7 +866,7 @@ API 与安全约束：
 - [x] 已建立 `ai_analysis_jobs` 基础表、domain、repository 与模型转换测试，Agent 分析结果以结构化 JSON 保存。
 - [x] 已建立 `AlertPolicyEngine`，统一裁决规则启停、重要性阈值、置信度阈值、冷却、去重和是否需要用户确认。
 - [x] 已建立 `notification_jobs` 和 `notification_deliveries` 基础表、domain、repository 与模型转换测试，支持企业微信、`ntfy` 和站内通道的可审计记录。
-- [x] 已建立 `AIFeedService`，可确保 `messageFeed AI` 内部源存在，并将今日摘要、重要提醒解释、来源健康报告和 Agent 操作报告沉淀为普通条目。
+- [x] 已建立 `AIFeedService`，可确保 `messageFeed AI` 内部源存在，并将今日摘要、重要提醒解释、来源健康报告和 Agent 执行报告沉淀为普通条目；企业微信普通聊天不写入 AI 源。
 
 实施步骤：
 
@@ -881,7 +881,7 @@ API 与安全约束：
 9. [x] 新增 `ai_analysis_jobs`，Agent 只分析候选条目并保存结构化结果，字段包含 `should_notify`、`importance`、`matched_reasons`、`summary`、`risk_level` 和 `confidence`。
 10. [x] 新增策略引擎，统一处理规则命中、重要性阈值、置信度阈值、冷却、去重和是否需要用户确认。
 11. [x] 新增 `notification_jobs` 和 `notification_deliveries`，支持企业微信和 `ntfy` 的可审计发送。
-12. [x] 将重要分析写入 `messageFeed AI` 内部源，包括今日摘要、重要提醒解释、来源健康报告和 Agent 操作报告。
+12. [x] 将重要分析写入 `messageFeed AI` 内部源，包括今日摘要、重要提醒解释、来源健康报告和 Agent 执行报告。
 
 验收标准：
 
@@ -932,16 +932,18 @@ API 与安全约束：
 
 - [x] `GET /api/v1/feed/recommendations` 推荐 Feed 原型已存在，可作为后续推荐 Agent 的候选能力输入。
 - [x] Web 已具备 `/recommendations` 推荐入口和推荐来源订阅启停基础交互。
-- [x] `AIFeedService` 已能确保 `messageFeed AI` 内部源存在，并写入 AI 源条目。
+- [x] `AIFeedService` 已能确保 `messageFeed AI` 内部源存在，并写入非对话类 AI 源条目。
+- [x] 已禁止企业微信普通对话报告写入 AI 源、订阅主页或推荐主页。
 - [x] `ai_analysis_jobs`、`notification_jobs` 和 `notification_deliveries` 已在阶段四点五建立基础模型，但主动通知发送链路暂不作为阶段五 P0。
-- [ ] 尚未建立企业微信自建应用接收消息回调入口、验签解密、消息标准化和 `MsgId` 幂等入库。
-- [ ] 尚未建立最小 `users`、`user_sessions`、`auth_oauth_states`、`external_accounts` 和 `agent_approvals`，无法稳定校验 Web 用户、企业微信用户、Agent plan 和审批对象是否一致。
+- [x] 已建立企业微信自建应用接收消息回调入口、验签解密、消息标准化和 `MsgId` 幂等入库。
+- [x] 已建立最小 `users`、`user_sessions`、`auth_oauth_states`、`external_accounts` 和 `agent_approvals`。
 - [ ] 尚未建立前端授权界面：登录、企业微信绑定、OAuth 回跳、待确认计划详情、批准、拒绝和执行结果页。
-- [ ] 尚未建立 `external_accounts`、`agent_inbound_messages`、`agent_sessions`、`agent_turns`、`agent_transcript_entries` 和 `agent_audit_logs` 的对话 MVP 表结构。
-- [ ] 尚未建立只读 Agent Runner、企业微信自建应用被动回复或 `message/send` 异步回复 worker。
-- [ ] 尚未建立完整 `agent` 模块、能力注册、结构化计划、风险校验、确认策略、执行器和审计表。
+- [x] 已建立 `external_accounts`、`agent_inbound_messages`、`agent_sessions`、`agent_turns`、`agent_transcript_entries` 和 `agent_audit_logs` 的对话 MVP 表结构。
+- [x] 已建立只读 Agent Runner、企业微信自建应用 `message/send` 异步回复 worker。
+- [x] 已建立 P0 `agent` 模块、能力注册、只读策略和基础审计。
+- [ ] 尚未建立结构化 Agent plan、plan step、影响评估、确认策略和通用执行器。
 - [ ] 尚未将自然语言设置控制统一纳入 Agent 能力注册框架。
-- [ ] 尚未建立 Agent 上下文管理、冻结记忆快照、语义分块归档和按需回忆机制。
+- [ ] 尚未建立 Agent 企微短期聊天窗口、历史聊天原文查询、transcript 冷热归档索引和按需回忆机制。
 - [ ] 尚未建立 Agent session/turn 运行时、延迟能力发现、上下文窗口记录和 `allow`、`prompt`、`forbidden` 执行决策。
 - [ ] 尚未建立 Agent 评测集、评测批次、评测结果、状态断言和安全对抗回归机制。
 
@@ -967,13 +969,13 @@ API 与安全约束：
 18. 定义 `PolicyEngine`，将计划决策为 `allow`、`prompt` 或 `forbidden`。P0 中只读能力为 `allow`，订阅变更、通知设置、画像写入和金融告警为 `prompt` 或 `forbidden`。
 19. 建立审批执行链路：生成 `agent_approvals`、发送确认链接、展示计划详情、批准或拒绝、二次校验 `user_id`、`plan_id`、审批 token 和过期时间。
 20. 建立 P1 确认入口设计，确认后由 `AgentExecutor` 调用既有 service；网页授权及 JS-SDK 只用于确认页身份，不用于聊天入口。
-21. 建立 `AgentContextManager`、`MemoryProvider`、`ContextBuilder` 和冻结 `MemorySnapshot`。
-22. 建立上下文窗口、上下文压力评估、不可压缩保护区、语义分块、归档摘要和 search/preview/get 分级回忆基础能力。
-23. 为全文召回建立单轮 token 或字节预算，并记录召回原因、使用位置和预算消耗。
-24. 使用既有 `AIFeedService` 写入 Agent 对话摘要、执行报告或异常报告；Web 继续复用普通来源列表、详情、已读、收藏和隐藏能力展示 AI 源。
+21. 建立 `AgentContextManager`、`ConversationMemoryProvider`、`MemoryProvider`、`ContextBuilder` 和冻结 `MemorySnapshot`。
+22. 建立企微短期聊天窗口、上下文压力评估、上下文保护区、历史聊天原文查询、transcript 冷热归档索引和回忆基础能力。
+23. 为历史聊天查询建立单轮 token 或字节预算，并记录召回原因、使用位置和预算消耗。
+24. 使用既有 `AIFeedService` 写入日报、执行报告或异常报告等非对话类内容；企业微信普通聊天只写 transcript 和 audit，不进入普通来源列表、订阅主页或推荐主页。
 25. 建立 `agent_eval_cases`、`agent_eval_runs` 和 `agent_eval_results`，沉淀企业微信入口、订阅管理、推荐画像、AI 源、主动采集、通知、金融分析、上下文记忆和安全对抗评测集。
 26. 建立评测执行入口，捕获 transcript、计划、工具调用、状态差异、AI 源输出、审计日志、模型版本、提示词版本、token、成本和耗时。
-27. Agent 执行过程接入 request id、trace id、结构化日志、指标、上下文压缩、记忆召回和审计记录。
+27. Agent 执行过程接入 request id、trace id、结构化日志、指标、历史查询、记忆召回和审计记录。
 
 验收标准：
 
@@ -993,12 +995,12 @@ API 与安全约束：
 - Agent 能力必须经过注册才能执行。
 - 延迟能力必须先通过能力检索发现，再进入执行计划。
 - 中高风险计划必须等待用户确认。
-- Agent 可以写入一条 `messageFeed AI` 源内容。
+- Agent 可以写入一条非对话类 `messageFeed AI` 源内容。
 - Agent 执行结果具备可查询审计记录。
 - Agent 可以生成一次冻结的用户画像记忆快照。
-- 当上下文达到压缩阈值时，可以按完整语义块归档历史并保留摘要索引。
-- Agent 可以通过回忆工具取回历史归档、AI 源报告或画像证据。
-- 全文召回必须具备预算约束和审计记录。
+- Agent 可以自动注入同一企微长期 session 的最近聊天窗口，且不会重复注入当前 turn。
+- Agent 可以通过历史查询工具取回 transcript 原文、AI 源报告或画像证据。
+- 历史聊天查询必须具备预算约束和审计记录。
 - Agent 评测集至少覆盖 20 个固定用例，并能输出任务成功率、工具选择准确率、权限决策正确率、越权拦截率、事实引用完整率和召回准确率。
 - 安全对抗用例必须覆盖 prompt injection、敏感信息泄露、未授权通知目标、默认永久删除和绕过访问限制。
 - 模型不能直接访问数据库写接口。
@@ -1011,7 +1013,7 @@ API 与安全约束：
 - P0 不做主动通知闭环，不做推荐推送，不自动订阅，不删除或停用源，不修改提醒阈值，不做金融建议。
 - 模型只生成意图、计划、说明文本和工具参数摘要。
 - 实际执行必须由 `AgentExecutor` 调用既有 service 接口完成。
-- Agent 不 fork 或裁剪 `OpenAI Codex`、`Claude Code` 代码；只吸收其 session/turn、工具路由、上下文压缩、召回预算和权限决策模式，在 Go 后端内实现轻量运行时。
+- Agent 不 fork 或裁剪 `OpenAI Codex`、`Claude Code` 代码；只吸收其 session/turn、工具路由、短期上下文、历史查询、召回预算和权限决策模式，在 Go 后端内实现轻量运行时。
 - Agent 评测优先使用确定性规则和数据库状态断言；LLM-as-judge 或人工复核只能作为文本质量、事实一致性和解释质量的辅助评估。
 - 删除类自然语言默认解释为停用或归档；永久删除必须二次确认。
 - 密钥、token、Webhook URL 和数据库 DSN 不进入模型上下文。
@@ -1215,9 +1217,9 @@ API 与安全约束：
 7. 建立 Agent session/turn、transcript、audit 和只读 Runner，并通过 Web session 或企业微信外部账号映射稳定推导 `user_id`。
 8. 补齐企业微信回复出口：优先支持自建应用被动回复或 `message/send` 异步回复，同时建立自建应用 `access_token` 缓存与文本发送适配，但不启用主动通知闭环。
 9. 建立 Agent 能力注册、结构化计划、风险校验、执行决策、确认策略、执行器、审计日志、上下文管理和冻结记忆快照。
-10. 建立 Agent 能力搜索、上下文归档与回忆基础能力：补齐延迟能力发现、语义分块、压缩阈值、上下文窗口、摘要索引、归档引用、分级回忆工具和记忆提升确认。
+10. 建立 Agent 能力搜索、企微短期聊天窗口、历史聊天原文查询和 transcript 归档索引：补齐延迟能力发现、上下文窗口、冷热分层、关键词索引、历史查询工具和记忆提升确认。
 11. 建立 Agent 评测基础设施：补齐评测用例、评测批次、评测结果、状态断言、安全对抗样例和回归报告。
-12. 建立 `messageFeed AI` 内部源：将对话摘要、日报、周报、热点分析、主动网络研究报告、金融分析和 Agent 操作报告统一写入 AI 源。
+12. 建立 `messageFeed AI` 内部源：将日报、周报、热点分析、主动网络研究报告、金融分析和 Agent 执行报告统一写入 AI 源；企业微信普通聊天不写入 AI 源。
 13. 推进阶段六主动采集：先实现静态网页抽取、网页变化监控和搜索结果抓取评估，再接入 AI 源报告。
 14. 推进阶段七推荐、摘要与通知：补齐阅读行为事件、用户画像、推荐原因、反馈闭环、摘要生成、企业微信自建应用消息、可选智能机器人主动消息和 `ntfy` 推送。
 15. 推进阶段八金融专项：按 `docs/financial-agent-plan.md` 完成关注标的、行情快照、确定性规则、AI 解读和通知闭环。
@@ -1235,7 +1237,7 @@ API 与安全约束：
 - 最小用户系统、企业微信外部账号绑定、Web session、待确认计划页和审批对象校验。
 - Agent 基础设施与审计。
 - Agent session/turn 运行时、能力搜索和执行决策。
-- Agent 上下文管理、冻结记忆快照、语义归档和回忆工具。
+- Agent 上下文管理、冻结记忆快照、短期聊天窗口、历史聊天原文查询、归档索引和回忆工具。
 - Agent 评测集、状态断言、安全对抗回归和评测报告。
 - `messageFeed AI` 内部源。
 - 主动网络采集最小闭环。
@@ -1263,7 +1265,7 @@ API 与安全约束：
 
 1. `references/miniflux_v2`、`references/gofeed`、`references/rsshub`：RSS 主链路。
 2. `references/rssnext_folo`：源目录、推荐源、订阅体验。
-3. `references/openai_codex`：只阅读架构模式，重点关注 session/turn、工具路由、上下文压缩、thread store 和权限决策，不 fork 或迁移 Rust 代码。
+3. `references/openai_codex`：只阅读架构模式，重点关注 session/turn、工具路由、短期上下文、thread store 和权限决策，不 fork 或迁移 Rust 代码。
 4. `references/claude_code`：只阅读工具治理和记忆召回设计，重点关注核心工具常驻、延迟工具搜索、代理执行、召回预算和不可信内容包装。
 5. `references/hermes_agent`、`references/openclaw`：微信通道与 Agent 消息网关。
 6. `references/gocron`、`references/river`、`references/asynq`：调度与异步任务。
