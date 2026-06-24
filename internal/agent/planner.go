@@ -130,7 +130,10 @@ func (p *Planner) Build(ctx context.Context, input PlanInput) PlanOutput {
 
 func (p *Planner) selectCapabilities(goal string) []string {
 	text := strings.ToLower(strings.TrimSpace(goal))
-	keys := []string{"feed.query_recent_items", "content.summarize_text"}
+	keys := []string{"feed.query_recent_items"}
+	if strings.Contains(text, "来源") || strings.Contains(text, "source") {
+		keys = append(keys, "source.query_latest_items")
+	}
 	if strings.Contains(text, "历史") || strings.Contains(text, "之前") || strings.Contains(text, "记得") || strings.Contains(text, "聊天") {
 		keys = append(keys, "conversation.query_history")
 	}

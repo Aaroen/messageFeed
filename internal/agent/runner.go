@@ -70,10 +70,13 @@ type ContextMessage struct {
 }
 
 type CapabilityObservation struct {
-	Capability string
-	Decision   string
-	Status     string
-	Summary    string
+	Capability     string
+	Decision       string
+	Status         string
+	Summary        string
+	RunID          int64
+	ObservationRef string
+	ArtifactRefs   []string
 }
 
 type AuditEvent struct {
@@ -545,10 +548,13 @@ func ObservationMetadata(observations []CapabilityObservation) []domain.AgentJSO
 	output := make([]domain.AgentJSON, 0, len(observations))
 	for _, observation := range observations {
 		output = append(output, domain.AgentJSON{
-			"capability": observation.Capability,
-			"decision":   observation.Decision,
-			"status":     observation.Status,
-			"summary":    observation.Summary,
+			"capability":      observation.Capability,
+			"decision":        observation.Decision,
+			"status":          observation.Status,
+			"summary":         observation.Summary,
+			"run_id":          observation.RunID,
+			"observation_ref": observation.ObservationRef,
+			"artifact_refs":   append([]string(nil), observation.ArtifactRefs...),
 		})
 	}
 	return output

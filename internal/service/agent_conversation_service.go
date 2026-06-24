@@ -40,6 +40,8 @@ type AgentConversationRepository interface {
 	CreateAgentObservation(ctx context.Context, observation domain.AgentObservation) (domain.AgentObservation, error)
 	CreateAgentArtifact(ctx context.Context, artifact domain.AgentArtifact) (domain.AgentArtifact, error)
 	CreateAgentPlan(ctx context.Context, plan domain.AgentPlan, steps []domain.AgentPlanStep) (domain.AgentPlan, error)
+	UpdateAgentPlanStatus(ctx context.Context, userID int64, planID int64, status domain.AgentPlanStatus, now time.Time, errorMessage string) (domain.AgentPlan, error)
+	UpdateAgentPlanStepStatus(ctx context.Context, userID int64, step domain.AgentPlanStep) (domain.AgentPlanStep, error)
 	CreateAgentApproval(ctx context.Context, approval domain.AgentApproval) (domain.AgentApproval, error)
 	CreateAgentCapabilityAuditLog(ctx context.Context, log domain.AgentCapabilityAuditLog) (domain.AgentCapabilityAuditLog, error)
 }
@@ -534,11 +536,13 @@ func (s *AgentConversationService) processTurn(
 	})
 	if err != nil {
 		s.recordControllerTrace(ctx, controllerRun, runResult, "controller_error")
+		_, _ = s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, s.now().UTC(), err.Error())
 		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
 		opErr = err
 		return s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, err), nil
 	}
 	s.recordControllerTrace(ctx, controllerRun, runResult, "controller_output")
+	_, _ = s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
 	_, _ = s.runManager.CompleteRun(ctx, controllerRun, "turn_output")
 	reply := runResult.Reply
 	observations := runResult.Context.Observations
@@ -606,6 +610,54 @@ func (s *AgentConversationService) processTurn(
 		Reply:           reply,
 		SendResult:      sendResult,
 	}, nil
+}
+
+func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Context, userID int64, plan domain.AgentPlan, observations []agent.CapabilityObservation) (domain.AgentPlan, error) {
+	if s == nil || s.repository == nil || plan.ID == 0 {
+		return plan, nil
+	}
+	now := s.now().UTC()
+	observationsByCapability := map[string][]agent.CapabilityObservation{}
+	for _, observation := range observations {
+		key := strings.TrimSpace(observation.Capability)
+		if key == "" {
+			continue
+		}
+		observationsByCapability[key] = append(observationsByCapability[key], observation)
+	}
+	hasFailure := false
+	for _, step := range plan.Steps {
+		candidates := observationsByCapability[step.CapabilityKey]
+		if len(candidates) == 0 {
+			continue
+		}
+		observation := candidates[0]
+		observationsByCapability[step.CapabilityKey] = candidates[1:]
+		step.Status = domain.AgentPlanStepStatusCompleted
+		if strings.EqualFold(observation.Status, "failed") {
+			step.Status = domain.AgentPlanStepStatusFailed
+			step.ErrorMessage = observation.Summary
+			hasFailure = true
+		}
+		if step.StartedAt == nil {
+			startedAt := now
+			step.StartedAt = &startedAt
+		}
+		completedAt := now
+		step.CompletedAt = &completedAt
+		step.ExecutorRunID = observation.RunID
+		step.ObservationRef = observation.ObservationRef
+		step.ArtifactRefs = append([]string(nil), observation.ArtifactRefs...)
+		step.OutputSummary = observation.Summary
+		_, _ = s.repository.UpdateAgentPlanStepStatus(ctx, userID, step)
+	}
+	status := domain.AgentPlanStatusCompleted
+	errorMessage := ""
+	if hasFailure {
+		status = domain.AgentPlanStatusFailed
+		errorMessage = "one or more plan steps failed"
+	}
+	return s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, status, now, errorMessage)
 }
 
 func (s *AgentConversationService) createPlanForTurn(

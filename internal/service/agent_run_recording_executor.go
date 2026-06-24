@@ -35,10 +35,10 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 
 	result, err := e.base.Execute(ctx, input)
 	if err != nil {
-		e.recordExecutorFailure(ctx, run, input.Capability.Key, input.Message, err)
+		result.Observation = e.recordExecutorFailure(ctx, run, input.Capability.Key, input.Message, err)
 		return result, err
 	}
-	e.recordExecutorSuccess(ctx, run, input.Capability.Key, input.Message, result.Observation, contextBlocksContent(result.Blocks), len(result.Blocks))
+	result.Observation = e.recordExecutorSuccess(ctx, run, input.Capability.Key, input.Message, result.Observation, contextBlocksContent(result.Blocks), len(result.Blocks))
 	return result, nil
 }
 
@@ -64,10 +64,10 @@ func (e agentRunRecordingExecutor) ExecuteTool(ctx context.Context, input agent.
 
 	result, err := e.base.ExecuteTool(ctx, input)
 	if err != nil {
-		e.recordExecutorFailure(ctx, run, input.Capability.Key, input.RawArguments, err)
+		result.Observation = e.recordExecutorFailure(ctx, run, input.Capability.Key, input.RawArguments, err)
 		return result, err
 	}
-	e.recordExecutorSuccess(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.Content, 1)
+	result.Observation = e.recordExecutorSuccess(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.Content, 1)
 	return result, nil
 }
 
@@ -90,14 +90,19 @@ func (e agentRunRecordingExecutor) createExecutorRun(ctx context.Context, parent
 	})
 }
 
-func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, observation agent.CapabilityObservation, output string, artifactCount int) {
+func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, observation agent.CapabilityObservation, output string, artifactCount int) agent.CapabilityObservation {
+	if observation.Capability == "" {
+		observation.Capability = capabilityKey
+	}
 	if e.runManager == nil || run.ID == 0 {
-		return
+		return observation
 	}
 	status := observation.Status
 	if strings.TrimSpace(status) == "" {
 		status = "succeeded"
 	}
+	observation.Status = status
+	observation.RunID = run.ID
 	artifactRefs := []string{}
 	if strings.TrimSpace(output) != "" {
 		artifact, _ := e.runManager.RecordArtifact(ctx, domain.AgentArtifact{
@@ -111,7 +116,7 @@ func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, ru
 			artifactRefs = append(artifactRefs, fmt.Sprintf("agent_artifacts/%d", artifact.ID))
 		}
 	}
-	_, _ = e.runManager.RecordObservation(ctx, domain.AgentObservation{
+	recordedObservation, _ := e.runManager.RecordObservation(ctx, domain.AgentObservation{
 		RunID:         run.ID,
 		CapabilityKey: capabilityKey,
 		InputSummary:  safeSummary(input, 500),
@@ -119,6 +124,10 @@ func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, ru
 		Status:        status,
 		ArtifactRefs:  artifactRefs,
 	})
+	if recordedObservation.ID > 0 {
+		observation.ObservationRef = fmt.Sprintf("agent_observations/%d", recordedObservation.ID)
+	}
+	observation.ArtifactRefs = append([]string(nil), artifactRefs...)
 	_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 		RunID:     run.ID,
 		TraceKind: "executor_output",
@@ -135,13 +144,21 @@ func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, ru
 		TokenEstimate:   estimateTokenCount(output),
 	})
 	_, _ = e.runManager.CompleteRun(ctx, run, "observation")
+	return observation
 }
 
-func (e agentRunRecordingExecutor) recordExecutorFailure(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, err error) {
-	if e.runManager == nil || run.ID == 0 {
-		return
+func (e agentRunRecordingExecutor) recordExecutorFailure(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, err error) agent.CapabilityObservation {
+	observation := agent.CapabilityObservation{
+		Capability: capabilityKey,
+		Decision:   string(agent.PolicyDecisionAllow),
+		Status:     "failed",
+		Summary:    "capability execution failed",
+		RunID:      run.ID,
 	}
-	_, _ = e.runManager.RecordObservation(ctx, domain.AgentObservation{
+	if e.runManager == nil || run.ID == 0 {
+		return observation
+	}
+	recordedObservation, _ := e.runManager.RecordObservation(ctx, domain.AgentObservation{
 		RunID:         run.ID,
 		CapabilityKey: capabilityKey,
 		InputSummary:  safeSummary(input, 500),
@@ -149,6 +166,9 @@ func (e agentRunRecordingExecutor) recordExecutorFailure(ctx context.Context, ru
 		Status:        "failed",
 		Error:         safeSummary(err.Error(), 500),
 	})
+	if recordedObservation.ID > 0 {
+		observation.ObservationRef = fmt.Sprintf("agent_observations/%d", recordedObservation.ID)
+	}
 	_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 		RunID:     run.ID,
 		TraceKind: "executor_error",
@@ -158,6 +178,7 @@ func (e agentRunRecordingExecutor) recordExecutorFailure(ctx context.Context, ru
 		RedactionStatus: "redacted",
 	})
 	_, _ = e.runManager.FailRun(ctx, run, err)
+	return observation
 }
 
 func contextBlocksContent(blocks []agent.ContextBlock) string {

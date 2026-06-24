@@ -119,6 +119,19 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	if len(repository.observations) == 0 {
 		t.Fatal("executor observations were not recorded")
 	}
+	if len(repository.plans) != 1 {
+		t.Fatalf("plan count = %d, want 1", len(repository.plans))
+	}
+	plan := repository.plans[0]
+	if plan.Status != domain.AgentPlanStatusCompleted {
+		t.Fatalf("plan status = %q, want completed", plan.Status)
+	}
+	if len(plan.Steps) == 0 {
+		t.Fatalf("plan steps were not recorded: %#v", plan)
+	}
+	if plan.Steps[0].ExecutorRunID == 0 || plan.Steps[0].ObservationRef == "" {
+		t.Fatalf("plan step was not bound to executor observation: %#v", plan.Steps[0])
+	}
 }
 
 func TestAgentConversationServiceSplitsLongWeChatWorkReply(t *testing.T) {
@@ -1094,6 +1107,39 @@ func (r *fakeAgentConversationRepository) CreateAgentPlan(_ context.Context, pla
 	plan.Steps = append([]domain.AgentPlanStep(nil), steps...)
 	r.plans = append(r.plans, plan)
 	return plan, nil
+}
+
+func (r *fakeAgentConversationRepository) UpdateAgentPlanStatus(_ context.Context, userID int64, planID int64, status domain.AgentPlanStatus, now time.Time, errorMessage string) (domain.AgentPlan, error) {
+	for i := range r.plans {
+		if r.plans[i].ID == planID && r.plans[i].UserID == userID {
+			r.plans[i].Status = status
+			r.plans[i].ErrorMessage = errorMessage
+			r.plans[i].UpdatedAt = now
+			switch status {
+			case domain.AgentPlanStatusCompleted:
+				r.plans[i].CompletedAt = &now
+			case domain.AgentPlanStatusFailed:
+				r.plans[i].FailedAt = &now
+			}
+			return r.plans[i], nil
+		}
+	}
+	return domain.AgentPlan{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) UpdateAgentPlanStepStatus(_ context.Context, userID int64, step domain.AgentPlanStep) (domain.AgentPlanStep, error) {
+	for planIndex := range r.plans {
+		if r.plans[planIndex].UserID != userID {
+			continue
+		}
+		for stepIndex := range r.plans[planIndex].Steps {
+			if r.plans[planIndex].Steps[stepIndex].ID == step.ID {
+				r.plans[planIndex].Steps[stepIndex] = step
+				return step, nil
+			}
+		}
+	}
+	return domain.AgentPlanStep{}, domain.ErrNotFound
 }
 
 func (r *fakeAgentConversationRepository) CreateAgentApproval(_ context.Context, approval domain.AgentApproval) (domain.AgentApproval, error) {
