@@ -23,48 +23,54 @@ func NewSourceCatalogRepository(db *gorm.DB) *SourceCatalogRepository {
 }
 
 type sourceCatalogEntryModel struct {
-	ID             int64  `gorm:"primaryKey"`
-	SourceKey      string `gorm:"not null"`
-	Name           string `gorm:"not null"`
-	SiteURL        string
-	FeedURL        string   `gorm:"not null"`
-	NormalizedURL  string   `gorm:"not null"`
-	Type           string   `gorm:"not null"`
-	Category       string   `gorm:"not null"`
-	Tags           []string `gorm:"serializer:json;type:jsonb;not null"`
-	Language       string   `gorm:"not null"`
-	Country        string
-	Official       bool
-	SourceOrigin   string `gorm:"not null"`
-	HealthStatus   string `gorm:"not null"`
-	LastCheckedAt  *time.Time
-	LastCheckError string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID              int64  `gorm:"primaryKey"`
+	SourceKey       string `gorm:"not null"`
+	Name            string `gorm:"not null"`
+	SiteURL         string
+	FeedURL         string   `gorm:"not null"`
+	NormalizedURL   string   `gorm:"not null"`
+	Type            string   `gorm:"not null"`
+	Category        string   `gorm:"not null"`
+	Tags            []string `gorm:"serializer:json;type:jsonb;not null"`
+	Language        string   `gorm:"not null"`
+	Country         string
+	Official        bool
+	SourceOrigin    string `gorm:"not null"`
+	HealthStatus    string `gorm:"not null"`
+	LastCheckedAt   *time.Time
+	LastCheckError  string
+	LicenseStatus   string `gorm:"not null"`
+	LicenseNote     string
+	PopularityScore int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type sourceCatalogEntryViewModel struct {
-	ID             int64  `gorm:"primaryKey"`
-	SourceKey      string `gorm:"not null"`
-	Name           string `gorm:"not null"`
-	SiteURL        string
-	FeedURL        string   `gorm:"not null"`
-	NormalizedURL  string   `gorm:"not null"`
-	Type           string   `gorm:"not null"`
-	Category       string   `gorm:"not null"`
-	Tags           []string `gorm:"serializer:json;type:jsonb;not null"`
-	Language       string   `gorm:"not null"`
-	Country        string
-	Official       bool
-	SourceOrigin   string `gorm:"not null"`
-	HealthStatus   string `gorm:"not null"`
-	LastCheckedAt  *time.Time
-	LastCheckError string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	Subscribed     bool
-	SourceID       int64
-	SourceStatus   string
+	ID              int64  `gorm:"primaryKey"`
+	SourceKey       string `gorm:"not null"`
+	Name            string `gorm:"not null"`
+	SiteURL         string
+	FeedURL         string   `gorm:"not null"`
+	NormalizedURL   string   `gorm:"not null"`
+	Type            string   `gorm:"not null"`
+	Category        string   `gorm:"not null"`
+	Tags            []string `gorm:"serializer:json;type:jsonb;not null"`
+	Language        string   `gorm:"not null"`
+	Country         string
+	Official        bool
+	SourceOrigin    string `gorm:"not null"`
+	HealthStatus    string `gorm:"not null"`
+	LastCheckedAt   *time.Time
+	LastCheckError  string
+	LicenseStatus   string `gorm:"not null"`
+	LicenseNote     string
+	PopularityScore int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Subscribed      bool
+	SourceID        int64
+	SourceStatus    string
 }
 
 func (sourceCatalogEntryModel) TableName() string {
@@ -105,7 +111,23 @@ func (r *SourceCatalogRepository) List(ctx context.Context, options domain.Sourc
 			(sources.id IS NOT NULL) AS subscribed,
 			COALESCE(sources.id, 0) AS source_id,
 			COALESCE(sources.status, '') AS source_status`).
-		Order("source_catalog_entries.category ASC, source_catalog_entries.name ASC, source_catalog_entries.id ASC").
+		Order(`
+			CASE source_catalog_entries.health_status
+				WHEN 'healthy' THEN 0
+				WHEN 'degraded' THEN 1
+				WHEN 'unknown' THEN 2
+				ELSE 3
+			END ASC,
+			CASE source_catalog_entries.license_status
+				WHEN 'allowed' THEN 0
+				WHEN 'unknown' THEN 1
+				WHEN 'restricted' THEN 2
+				ELSE 3
+			END ASC,
+			source_catalog_entries.popularity_score DESC,
+			source_catalog_entries.category ASC,
+			source_catalog_entries.name ASC,
+			source_catalog_entries.id ASC`).
 		Limit(limit).
 		Offset(offset).
 		Scan(&models).Error; err != nil {
@@ -154,38 +176,62 @@ func applySourceCatalogFilters(query *gorm.DB, options domain.SourceCatalogListO
 	if category := strings.TrimSpace(options.Category); category != "" {
 		query = query.Where("source_catalog_entries.category = ?", category)
 	}
+	if language := strings.TrimSpace(options.Language); language != "" {
+		query = query.Where("source_catalog_entries.language = ?", language)
+	}
+	if country := strings.TrimSpace(options.Country); country != "" {
+		query = query.Where("source_catalog_entries.country = ?", country)
+	}
+	if options.HealthStatus.Valid() {
+		query = query.Where("source_catalog_entries.health_status = ?", string(options.HealthStatus))
+	}
+	if options.LicenseStatus.Valid() {
+		query = query.Where("source_catalog_entries.license_status = ?", string(options.LicenseStatus))
+	}
+	if options.Subscribed != nil {
+		if *options.Subscribed {
+			query = query.Where("sources.id IS NOT NULL")
+		} else {
+			query = query.Where("sources.id IS NULL")
+		}
+	}
 	if q := strings.TrimSpace(options.Query); q != "" {
 		pattern := "%" + strings.ToLower(q) + "%"
 		query = query.Where(`
 			LOWER(source_catalog_entries.name) LIKE ?
 			OR LOWER(source_catalog_entries.category) LIKE ?
 			OR LOWER(source_catalog_entries.feed_url) LIKE ?
+			OR LOWER(source_catalog_entries.language) LIKE ?
+			OR LOWER(source_catalog_entries.country) LIKE ?
 			OR LOWER(source_catalog_entries.tags::text) LIKE ?`,
-			pattern, pattern, pattern, pattern)
+			pattern, pattern, pattern, pattern, pattern, pattern)
 	}
 	return query
 }
 
 func sourceCatalogEntryViewModelToDomain(model sourceCatalogEntryViewModel) domain.SourceCatalogEntry {
 	entry := sourceCatalogEntryModelToDomain(sourceCatalogEntryModel{
-		ID:             model.ID,
-		SourceKey:      model.SourceKey,
-		Name:           model.Name,
-		SiteURL:        model.SiteURL,
-		FeedURL:        model.FeedURL,
-		NormalizedURL:  model.NormalizedURL,
-		Type:           model.Type,
-		Category:       model.Category,
-		Tags:           model.Tags,
-		Language:       model.Language,
-		Country:        model.Country,
-		Official:       model.Official,
-		SourceOrigin:   model.SourceOrigin,
-		HealthStatus:   model.HealthStatus,
-		LastCheckedAt:  model.LastCheckedAt,
-		LastCheckError: model.LastCheckError,
-		CreatedAt:      model.CreatedAt,
-		UpdatedAt:      model.UpdatedAt,
+		ID:              model.ID,
+		SourceKey:       model.SourceKey,
+		Name:            model.Name,
+		SiteURL:         model.SiteURL,
+		FeedURL:         model.FeedURL,
+		NormalizedURL:   model.NormalizedURL,
+		Type:            model.Type,
+		Category:        model.Category,
+		Tags:            model.Tags,
+		Language:        model.Language,
+		Country:         model.Country,
+		Official:        model.Official,
+		SourceOrigin:    model.SourceOrigin,
+		HealthStatus:    model.HealthStatus,
+		LastCheckedAt:   model.LastCheckedAt,
+		LastCheckError:  model.LastCheckError,
+		LicenseStatus:   model.LicenseStatus,
+		LicenseNote:     model.LicenseNote,
+		PopularityScore: model.PopularityScore,
+		CreatedAt:       model.CreatedAt,
+		UpdatedAt:       model.UpdatedAt,
 	})
 	entry.Subscribed = model.Subscribed
 	entry.SourceID = model.SourceID
@@ -195,23 +241,26 @@ func sourceCatalogEntryViewModelToDomain(model sourceCatalogEntryViewModel) doma
 
 func sourceCatalogEntryModelToDomain(model sourceCatalogEntryModel) domain.SourceCatalogEntry {
 	return domain.SourceCatalogEntry{
-		ID:             model.ID,
-		SourceKey:      model.SourceKey,
-		Name:           model.Name,
-		SiteURL:        model.SiteURL,
-		FeedURL:        model.FeedURL,
-		NormalizedURL:  model.NormalizedURL,
-		Type:           domain.SourceType(model.Type),
-		Category:       model.Category,
-		Tags:           append([]string(nil), model.Tags...),
-		Language:       model.Language,
-		Country:        model.Country,
-		Official:       model.Official,
-		SourceOrigin:   model.SourceOrigin,
-		HealthStatus:   domain.SourceCatalogHealthStatus(model.HealthStatus),
-		LastCheckedAt:  model.LastCheckedAt,
-		LastCheckError: model.LastCheckError,
-		CreatedAt:      model.CreatedAt,
-		UpdatedAt:      model.UpdatedAt,
+		ID:              model.ID,
+		SourceKey:       model.SourceKey,
+		Name:            model.Name,
+		SiteURL:         model.SiteURL,
+		FeedURL:         model.FeedURL,
+		NormalizedURL:   model.NormalizedURL,
+		Type:            domain.SourceType(model.Type),
+		Category:        model.Category,
+		Tags:            append([]string(nil), model.Tags...),
+		Language:        model.Language,
+		Country:         model.Country,
+		Official:        model.Official,
+		SourceOrigin:    model.SourceOrigin,
+		HealthStatus:    domain.SourceCatalogHealthStatus(model.HealthStatus),
+		LastCheckedAt:   model.LastCheckedAt,
+		LastCheckError:  model.LastCheckError,
+		LicenseStatus:   domain.SourceCatalogLicenseStatus(model.LicenseStatus),
+		LicenseNote:     model.LicenseNote,
+		PopularityScore: model.PopularityScore,
+		CreatedAt:       model.CreatedAt,
+		UpdatedAt:       model.UpdatedAt,
 	}
 }

@@ -388,6 +388,9 @@ func recommendationCandidates(entries []domain.SourceCatalogEntry) []domain.Sour
 		if !entry.Official || entry.HealthStatus == domain.SourceCatalogHealthUnreachable {
 			continue
 		}
+		if entry.LicenseStatus != domain.SourceCatalogLicenseAllowed {
+			continue
+		}
 		if !fetchableFeedURL(entry.FeedURL) {
 			continue
 		}

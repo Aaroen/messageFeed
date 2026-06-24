@@ -134,6 +134,36 @@ paths:
           in: query
           schema:
             type: string
+        - name: language
+          in: query
+          schema:
+            type: string
+        - name: country
+          in: query
+          schema:
+            type: string
+        - name: health_status
+          in: query
+          schema:
+            type: string
+            enum:
+              - healthy
+              - degraded
+              - unreachable
+              - unknown
+        - name: license_status
+          in: query
+          schema:
+            type: string
+            enum:
+              - unknown
+              - allowed
+              - restricted
+              - blocked
+        - name: subscribed
+          in: query
+          schema:
+            type: boolean
       responses:
         '200':
           description: Source catalog entries
@@ -164,6 +194,36 @@ paths:
           in: query
           schema:
             type: string
+        - name: language
+          in: query
+          schema:
+            type: string
+        - name: country
+          in: query
+          schema:
+            type: string
+        - name: health_status
+          in: query
+          schema:
+            type: string
+            enum:
+              - healthy
+              - degraded
+              - unreachable
+              - unknown
+        - name: license_status
+          in: query
+          schema:
+            type: string
+            enum:
+              - unknown
+              - allowed
+              - restricted
+              - blocked
+        - name: subscribed
+          in: query
+          schema:
+            type: boolean
       responses:
         '200':
           description: Source catalog entries
@@ -2033,6 +2093,8 @@ components:
         - official
         - source_origin
         - health_status
+        - license_status
+        - popularity_score
         - subscribed
         - created_at
         - updated_at
@@ -2082,6 +2144,18 @@ components:
           nullable: true
         last_check_error:
           type: string
+        license_status:
+          type: string
+          enum:
+            - unknown
+            - allowed
+            - restricted
+            - blocked
+        license_note:
+          type: string
+        popularity_score:
+          type: integer
+          minimum: 0
         subscribed:
           type: boolean
         source_id:

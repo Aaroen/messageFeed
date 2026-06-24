@@ -20,36 +20,62 @@ func (s SourceCatalogHealthStatus) Valid() bool {
 	}
 }
 
+type SourceCatalogLicenseStatus string
+
+const (
+	SourceCatalogLicenseUnknown    SourceCatalogLicenseStatus = "unknown"
+	SourceCatalogLicenseAllowed    SourceCatalogLicenseStatus = "allowed"
+	SourceCatalogLicenseRestricted SourceCatalogLicenseStatus = "restricted"
+	SourceCatalogLicenseBlocked    SourceCatalogLicenseStatus = "blocked"
+)
+
+func (s SourceCatalogLicenseStatus) Valid() bool {
+	switch s {
+	case SourceCatalogLicenseUnknown, SourceCatalogLicenseAllowed, SourceCatalogLicenseRestricted, SourceCatalogLicenseBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
 type SourceCatalogEntry struct {
-	ID             int64
-	SourceKey      string
-	Name           string
-	SiteURL        string
-	FeedURL        string
-	NormalizedURL  string
-	Type           SourceType
-	Category       string
-	Tags           []string
-	Language       string
-	Country        string
-	Official       bool
-	SourceOrigin   string
-	HealthStatus   SourceCatalogHealthStatus
-	LastCheckedAt  *time.Time
-	LastCheckError string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	Subscribed     bool
-	SourceID       int64
-	SourceStatus   SourceStatus
+	ID              int64
+	SourceKey       string
+	Name            string
+	SiteURL         string
+	FeedURL         string
+	NormalizedURL   string
+	Type            SourceType
+	Category        string
+	Tags            []string
+	Language        string
+	Country         string
+	Official        bool
+	SourceOrigin    string
+	HealthStatus    SourceCatalogHealthStatus
+	LastCheckedAt   *time.Time
+	LastCheckError  string
+	LicenseStatus   SourceCatalogLicenseStatus
+	LicenseNote     string
+	PopularityScore int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Subscribed      bool
+	SourceID        int64
+	SourceStatus    SourceStatus
 }
 
 type SourceCatalogListOptions struct {
-	UserID   int64
-	Category string
-	Query    string
-	Limit    int
-	Offset   int
+	UserID        int64
+	Category      string
+	Query         string
+	Language      string
+	Country       string
+	HealthStatus  SourceCatalogHealthStatus
+	LicenseStatus SourceCatalogLicenseStatus
+	Subscribed    *bool
+	Limit         int
+	Offset        int
 }
 
 type SourceCatalogListResult struct {

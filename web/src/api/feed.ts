@@ -45,6 +45,11 @@ export interface SourceCatalogEntry {
   official: boolean
   source_origin: string
   health_status: 'healthy' | 'degraded' | 'unreachable' | 'unknown'
+  last_checked_at?: string
+  last_check_error?: string
+  license_status: 'unknown' | 'allowed' | 'restricted' | 'blocked'
+  license_note?: string
+  popularity_score: number
   subscribed: boolean
   source_id?: number
   source_status?: 'active' | 'inactive'
@@ -245,7 +250,19 @@ async function fetchSourceFailureMessage(id: number, cause: unknown) {
   }
 }
 
-export async function listSourceCatalog(params: { category?: string; q?: string; limit?: number; offset?: number } = {}) {
+export async function listSourceCatalog(
+  params: {
+    category?: string
+    q?: string
+    language?: string
+    country?: string
+    health_status?: SourceCatalogEntry['health_status']
+    license_status?: SourceCatalogEntry['license_status']
+    subscribed?: boolean
+    limit?: number
+    offset?: number
+  } = {},
+) {
   const response = await apiClient.get<APIEnvelope<SourceCatalogList>>('/api/v1/source-catalogs', {
     params,
   })

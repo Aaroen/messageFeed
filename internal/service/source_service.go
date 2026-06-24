@@ -153,11 +153,16 @@ type SourceFetchStatusInput struct {
 }
 
 type ListSourceCatalogInput struct {
-	UserID   int64
-	Category string
-	Query    string
-	Limit    int
-	Offset   int
+	UserID        int64
+	Category      string
+	Query         string
+	Language      string
+	Country       string
+	HealthStatus  domain.SourceCatalogHealthStatus
+	LicenseStatus domain.SourceCatalogLicenseStatus
+	Subscribed    *bool
+	Limit         int
+	Offset        int
 }
 
 type ListSourceCatalogResult struct {
@@ -594,6 +599,10 @@ func (s *SourceService) ListSourceCatalog(ctx context.Context, input ListSourceC
 		attribute.Int64("user.id", input.UserID),
 		attribute.String("source_catalog.category", input.Category),
 		attribute.String("source_catalog.query", input.Query),
+		attribute.String("source_catalog.language", input.Language),
+		attribute.String("source_catalog.country", input.Country),
+		attribute.String("source_catalog.health_status", string(input.HealthStatus)),
+		attribute.String("source_catalog.license_status", string(input.LicenseStatus)),
 	)
 	var opErr error
 	defer func() { observability.EndSpan(span, opErr) }()
@@ -602,12 +611,25 @@ func (s *SourceService) ListSourceCatalog(ctx context.Context, input ListSourceC
 		opErr = fmt.Errorf("source catalog service is not configured")
 		return ListSourceCatalogResult{}, opErr
 	}
+	if input.HealthStatus != "" && !input.HealthStatus.Valid() {
+		opErr = fmt.Errorf("%w: unsupported source catalog health_status", domain.ErrInvalidInput)
+		return ListSourceCatalogResult{}, opErr
+	}
+	if input.LicenseStatus != "" && !input.LicenseStatus.Valid() {
+		opErr = fmt.Errorf("%w: unsupported source catalog license_status", domain.ErrInvalidInput)
+		return ListSourceCatalogResult{}, opErr
+	}
 	result, err := s.catalogRepository.List(ctx, domain.SourceCatalogListOptions{
-		UserID:   input.UserID,
-		Category: strings.TrimSpace(input.Category),
-		Query:    strings.TrimSpace(input.Query),
-		Limit:    input.Limit,
-		Offset:   input.Offset,
+		UserID:        input.UserID,
+		Category:      strings.TrimSpace(input.Category),
+		Query:         strings.TrimSpace(input.Query),
+		Language:      strings.TrimSpace(input.Language),
+		Country:       strings.TrimSpace(input.Country),
+		HealthStatus:  input.HealthStatus,
+		LicenseStatus: input.LicenseStatus,
+		Subscribed:    input.Subscribed,
+		Limit:         input.Limit,
+		Offset:        input.Offset,
 	})
 	if err != nil {
 		opErr = err
@@ -659,6 +681,11 @@ func (s *SourceService) ImportCatalogSources(ctx context.Context, input ImportCa
 		entry, ok := byID[id]
 		if !ok {
 			result.Errors = append(result.Errors, ImportSourceError{Reference: strconv.FormatInt(id, 10), Message: "catalog entry not found"})
+			result.FailureCount++
+			continue
+		}
+		if entry.LicenseStatus != domain.SourceCatalogLicenseAllowed {
+			result.Errors = append(result.Errors, ImportSourceError{Reference: entry.Name, Message: "catalog entry license is not allowed"})
 			result.FailureCount++
 			continue
 		}

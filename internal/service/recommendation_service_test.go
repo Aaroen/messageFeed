@@ -20,6 +20,7 @@ func TestListRecommendationsRefreshReturnsCacheAndUpdatesAsync(t *testing.T) {
 				Type:          domain.SourceTypeRSS,
 				Official:      true,
 				HealthStatus:  domain.SourceCatalogHealthHealthy,
+				LicenseStatus: domain.SourceCatalogLicenseAllowed,
 			},
 		},
 	}
@@ -245,6 +246,7 @@ func TestListRecommendationsSourceUsesSubscribedHistoryWhenAvailable(t *testing.
 				Type:          domain.SourceTypeRSS,
 				Official:      true,
 				HealthStatus:  domain.SourceCatalogHealthHealthy,
+				LicenseStatus: domain.SourceCatalogLicenseAllowed,
 			},
 		},
 	}
@@ -314,6 +316,7 @@ func TestBuildRecommendationItemsMaterializesFetchedItems(t *testing.T) {
 		Type:          domain.SourceTypeRSS,
 		Official:      true,
 		HealthStatus:  domain.SourceCatalogHealthHealthy,
+		LicenseStatus: domain.SourceCatalogLicenseAllowed,
 	}
 	service := NewRecommendationService(
 		&fakeRecommendationCatalogRepository{entries: []domain.SourceCatalogEntry{entry}},
@@ -420,6 +423,7 @@ func recommendationCatalogEntry(id int64) domain.SourceCatalogEntry {
 		Type:          domain.SourceTypeRSS,
 		Official:      true,
 		HealthStatus:  domain.SourceCatalogHealthHealthy,
+		LicenseStatus: domain.SourceCatalogLicenseAllowed,
 	}
 }
 

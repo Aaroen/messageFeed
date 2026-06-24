@@ -340,11 +340,12 @@ func TestImportCatalogSourcesRecordsImportJob(t *testing.T) {
 		WithSourceCatalogRepository(&fakeSourceCatalogRepository{
 			entries: []domain.SourceCatalogEntry{
 				{
-					ID:      1,
-					Name:    "Example",
-					Type:    domain.SourceTypeRSS,
-					FeedURL: "https://example.com/feed.xml",
-					Tags:    []string{"example"},
+					ID:            1,
+					Name:          "Example",
+					Type:          domain.SourceTypeRSS,
+					FeedURL:       "https://example.com/feed.xml",
+					Tags:          []string{"example"},
+					LicenseStatus: domain.SourceCatalogLicenseAllowed,
 				},
 			},
 		}),

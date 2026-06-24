@@ -138,27 +138,30 @@ type sourceCatalogListResponse struct {
 }
 
 type sourceCatalogResponse struct {
-	ID             int64      `json:"id"`
-	SourceKey      string     `json:"source_key"`
-	Name           string     `json:"name"`
-	SiteURL        string     `json:"site_url,omitempty"`
-	FeedURL        string     `json:"feed_url"`
-	NormalizedURL  string     `json:"normalized_url"`
-	Type           string     `json:"type"`
-	Category       string     `json:"category"`
-	Tags           []string   `json:"tags"`
-	Language       string     `json:"language"`
-	Country        string     `json:"country,omitempty"`
-	Official       bool       `json:"official"`
-	SourceOrigin   string     `json:"source_origin"`
-	HealthStatus   string     `json:"health_status"`
-	LastCheckedAt  *time.Time `json:"last_checked_at,omitempty"`
-	LastCheckError string     `json:"last_check_error,omitempty"`
-	Subscribed     bool       `json:"subscribed"`
-	SourceID       int64      `json:"source_id,omitempty"`
-	SourceStatus   string     `json:"source_status,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID              int64      `json:"id"`
+	SourceKey       string     `json:"source_key"`
+	Name            string     `json:"name"`
+	SiteURL         string     `json:"site_url,omitempty"`
+	FeedURL         string     `json:"feed_url"`
+	NormalizedURL   string     `json:"normalized_url"`
+	Type            string     `json:"type"`
+	Category        string     `json:"category"`
+	Tags            []string   `json:"tags"`
+	Language        string     `json:"language"`
+	Country         string     `json:"country,omitempty"`
+	Official        bool       `json:"official"`
+	SourceOrigin    string     `json:"source_origin"`
+	HealthStatus    string     `json:"health_status"`
+	LastCheckedAt   *time.Time `json:"last_checked_at,omitempty"`
+	LastCheckError  string     `json:"last_check_error,omitempty"`
+	LicenseStatus   string     `json:"license_status"`
+	LicenseNote     string     `json:"license_note,omitempty"`
+	PopularityScore int        `json:"popularity_score"`
+	Subscribed      bool       `json:"subscribed"`
+	SourceID        int64      `json:"source_id,omitempty"`
+	SourceStatus    string     `json:"source_status,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 type importCatalogRequest struct {
@@ -449,13 +452,33 @@ func (h sourceHandler) listSourceCatalogWithQuery(c *gin.Context, query string) 
 		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid offset")
 		return
 	}
+	healthStatus, err := optionalSourceCatalogHealthStatus(c.Query("health_status"))
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid health_status")
+		return
+	}
+	licenseStatus, err := optionalSourceCatalogLicenseStatus(c.Query("license_status"))
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid license_status")
+		return
+	}
+	subscribed, err := optionalBoolQuery(c, "subscribed")
+	if err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid subscribed")
+		return
+	}
 
 	result, err := h.service.ListSourceCatalog(c.Request.Context(), service.ListSourceCatalogInput{
-		UserID:   currentUserID(c),
-		Category: c.Query("category"),
-		Query:    query,
-		Limit:    limit,
-		Offset:   offset,
+		UserID:        currentUserID(c),
+		Category:      c.Query("category"),
+		Query:         query,
+		Language:      c.Query("language"),
+		Country:       c.Query("country"),
+		HealthStatus:  healthStatus,
+		LicenseStatus: licenseStatus,
+		Subscribed:    subscribed,
+		Limit:         limit,
+		Offset:        offset,
 	})
 	if err != nil {
 		writeSourceError(c, err)
@@ -472,6 +495,28 @@ func (h sourceHandler) listSourceCatalogWithQuery(c *gin.Context, query string) 
 		Limit:   result.Limit,
 		Offset:  result.Offset,
 	})
+}
+
+func optionalSourceCatalogHealthStatus(value string) (domain.SourceCatalogHealthStatus, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", nil
+	}
+	status := domain.SourceCatalogHealthStatus(strings.TrimSpace(value))
+	if !status.Valid() {
+		return "", domain.ErrInvalidInput
+	}
+	return status, nil
+}
+
+func optionalSourceCatalogLicenseStatus(value string) (domain.SourceCatalogLicenseStatus, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", nil
+	}
+	status := domain.SourceCatalogLicenseStatus(strings.TrimSpace(value))
+	if !status.Valid() {
+		return "", domain.ErrInvalidInput
+	}
+	return status, nil
 }
 
 func (h sourceHandler) importCatalogSources(c *gin.Context) {
@@ -651,27 +696,30 @@ func sourceResponseFromDomain(source domain.Source) sourceResponse {
 
 func sourceCatalogResponseFromDomain(entry domain.SourceCatalogEntry) sourceCatalogResponse {
 	return sourceCatalogResponse{
-		ID:             entry.ID,
-		SourceKey:      entry.SourceKey,
-		Name:           entry.Name,
-		SiteURL:        entry.SiteURL,
-		FeedURL:        entry.FeedURL,
-		NormalizedURL:  entry.NormalizedURL,
-		Type:           string(entry.Type),
-		Category:       entry.Category,
-		Tags:           append([]string(nil), entry.Tags...),
-		Language:       entry.Language,
-		Country:        entry.Country,
-		Official:       entry.Official,
-		SourceOrigin:   entry.SourceOrigin,
-		HealthStatus:   string(entry.HealthStatus),
-		LastCheckedAt:  entry.LastCheckedAt,
-		LastCheckError: entry.LastCheckError,
-		Subscribed:     entry.Subscribed,
-		SourceID:       entry.SourceID,
-		SourceStatus:   string(entry.SourceStatus),
-		CreatedAt:      entry.CreatedAt,
-		UpdatedAt:      entry.UpdatedAt,
+		ID:              entry.ID,
+		SourceKey:       entry.SourceKey,
+		Name:            entry.Name,
+		SiteURL:         entry.SiteURL,
+		FeedURL:         entry.FeedURL,
+		NormalizedURL:   entry.NormalizedURL,
+		Type:            string(entry.Type),
+		Category:        entry.Category,
+		Tags:            append([]string(nil), entry.Tags...),
+		Language:        entry.Language,
+		Country:         entry.Country,
+		Official:        entry.Official,
+		SourceOrigin:    entry.SourceOrigin,
+		HealthStatus:    string(entry.HealthStatus),
+		LastCheckedAt:   entry.LastCheckedAt,
+		LastCheckError:  entry.LastCheckError,
+		LicenseStatus:   string(entry.LicenseStatus),
+		LicenseNote:     entry.LicenseNote,
+		PopularityScore: entry.PopularityScore,
+		Subscribed:      entry.Subscribed,
+		SourceID:        entry.SourceID,
+		SourceStatus:    string(entry.SourceStatus),
+		CreatedAt:       entry.CreatedAt,
+		UpdatedAt:       entry.UpdatedAt,
 	}
 }
 
