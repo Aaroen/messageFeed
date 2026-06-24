@@ -34,13 +34,14 @@ type ContextBuilder interface {
 }
 
 type ContextBuildInput struct {
-	UserID      int64
-	SessionID   int64
-	TurnID      int64
-	MessageText string
-	MessageType string
-	RequestID   string
-	TraceID     string
+	UserID          int64
+	SessionID       int64
+	TurnID          int64
+	ControllerRunID int64
+	MessageText     string
+	MessageType     string
+	RequestID       string
+	TraceID         string
 }
 
 type ContextSnapshot struct {
@@ -89,16 +90,17 @@ type AuditEvent struct {
 }
 
 type ToolExecuteInput struct {
-	Capability     Capability
-	UserID         int64
-	SessionID      int64
-	TurnID         int64
-	Message        string
-	ExternalUserID string
-	ToolCallID     string
-	RawArguments   string
-	RequestID      string
-	TraceID        string
+	Capability      Capability
+	UserID          int64
+	SessionID       int64
+	TurnID          int64
+	ControllerRunID int64
+	Message         string
+	ExternalUserID  string
+	ToolCallID      string
+	RawArguments    string
+	RequestID       string
+	TraceID         string
 }
 
 type ToolExecuteResult struct {
@@ -163,14 +165,15 @@ func NewTurnRunner(options TurnRunnerOptions) *TurnRunner {
 }
 
 type TurnRunInput struct {
-	UserID         int64
-	Session        domain.AgentSession
-	Turn           domain.AgentTurn
-	InboundMessage domain.AgentInboundMessage
-	MessageType    string
-	MessageText    string
-	RequestID      string
-	TraceID        string
+	UserID          int64
+	Session         domain.AgentSession
+	Turn            domain.AgentTurn
+	InboundMessage  domain.AgentInboundMessage
+	ControllerRunID int64
+	MessageType     string
+	MessageText     string
+	RequestID       string
+	TraceID         string
 }
 
 type TurnRunResult struct {
@@ -260,25 +263,26 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 	if input.MessageType != "text" {
 		return "当前仅支持文本消息。", "", "", ContextSnapshot{}, nil
 	}
-	if r.llmClient == nil {
-		return "已收到：" + input.MessageText, "", "", ContextSnapshot{}, nil
-	}
 
 	snapshot := ContextSnapshot{}
 	if r.contextBuilder != nil {
 		var err error
 		snapshot, err = r.contextBuilder.Build(ctx, ContextBuildInput{
-			UserID:      input.UserID,
-			SessionID:   input.Session.ID,
-			TurnID:      input.Turn.ID,
-			MessageText: input.MessageText,
-			MessageType: input.MessageType,
-			RequestID:   input.RequestID,
-			TraceID:     input.TraceID,
+			UserID:          input.UserID,
+			SessionID:       input.Session.ID,
+			TurnID:          input.Turn.ID,
+			ControllerRunID: input.ControllerRunID,
+			MessageText:     input.MessageText,
+			MessageType:     input.MessageType,
+			RequestID:       input.RequestID,
+			TraceID:         input.TraceID,
 		})
 		if err != nil {
 			return "", "", "", snapshot, err
 		}
+	}
+	if r.llmClient == nil {
+		return "已收到：" + input.MessageText, "", "", snapshot, nil
 	}
 
 	systemPrompt := r.buildSystemPrompt(snapshot)
@@ -360,16 +364,17 @@ func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, ca
 		return ToolExecuteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_tool_not_allowed", "agent tool is not allowed in current policy", "agent.turn_runner.tools", false, nil)
 	}
 	return r.toolExecutor.ExecuteTool(ctx, ToolExecuteInput{
-		Capability:     capability,
-		UserID:         input.UserID,
-		SessionID:      input.Session.ID,
-		TurnID:         input.Turn.ID,
-		Message:        input.MessageText,
-		ExternalUserID: input.InboundMessage.ExternalUserID,
-		ToolCallID:     call.ID,
-		RawArguments:   call.Arguments,
-		RequestID:      input.RequestID,
-		TraceID:        input.TraceID,
+		Capability:      capability,
+		UserID:          input.UserID,
+		SessionID:       input.Session.ID,
+		TurnID:          input.Turn.ID,
+		ControllerRunID: input.ControllerRunID,
+		Message:         input.MessageText,
+		ExternalUserID:  input.InboundMessage.ExternalUserID,
+		ToolCallID:      call.ID,
+		RawArguments:    call.Arguments,
+		RequestID:       input.RequestID,
+		TraceID:         input.TraceID,
 	})
 }
 

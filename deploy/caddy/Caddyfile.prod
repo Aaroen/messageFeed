@@ -30,3 +30,8 @@ https://gateway-dev:8443 {
 	tls internal
 	import messagefeed_routes
 }
+
+:8443 {
+	tls internal
+	import messagefeed_routes
+}

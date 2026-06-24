@@ -1216,6 +1216,66 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/agent/turns/{turn_id}/runs:
+    get:
+      summary: List Agent runs for one turn
+      parameters:
+        - name: turn_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Agent runs for the turn
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          runs:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/AgentRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/agent/runs/{run_id}:
+    get:
+      summary: Get Agent run trace detail
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Agent run detail
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          run:
+                            $ref: '#/components/schemas/AgentRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/channels/wechat-work/app/callback:
     get:
       summary: Verify WeChat Work app callback URL
@@ -1900,6 +1960,159 @@ components:
         metadata:
           type: object
           additionalProperties: true
+    AgentRun:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        parent_run_id:
+          type: integer
+          format: int64
+        session_id:
+          type: integer
+          format: int64
+        turn_id:
+          type: integer
+          format: int64
+        role:
+          type: string
+          enum:
+            - controller
+            - executor
+        status:
+          type: string
+          enum:
+            - running
+            - succeeded
+            - failed
+            - input_required
+            - canceled
+        task_packet:
+          type: object
+          additionalProperties: true
+        capability_scope:
+          type: array
+          items:
+            type: string
+        model_key:
+          type: string
+        context_budget:
+          type: object
+          additionalProperties: true
+        context_trace_ref:
+          type: string
+        result_ref:
+          type: string
+        error_message:
+          type: string
+        trace_id:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        context_traces:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentRunContextTrace'
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentObservation'
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentArtifact'
+        child_runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentRun'
+    AgentRunContextTrace:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        run_id:
+          type: integer
+          format: int64
+        trace_kind:
+          type: string
+        prompt_version:
+          type: string
+        model_key:
+          type: string
+        content:
+          type: object
+          additionalProperties: true
+        content_hash:
+          type: string
+        redaction_status:
+          type: string
+        token_estimate:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    AgentObservation:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        run_id:
+          type: integer
+          format: int64
+        capability_key:
+          type: string
+        input_summary:
+          type: string
+        output_summary:
+          type: string
+        status:
+          type: string
+        error:
+          type: string
+        artifact_refs:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+    AgentArtifact:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        run_id:
+          type: integer
+          format: int64
+        artifact_type:
+          type: string
+        content_ref:
+          type: string
+        summary:
+          type: string
+        source_refs:
+          type: array
+          items:
+            type: string
+        content_hash:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     CreateSourceRequest:
       type: object
       required:

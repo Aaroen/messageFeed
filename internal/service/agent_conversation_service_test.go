@@ -96,6 +96,29 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	if llmClient.lastRequest.MaxTokens != agentReplyMaxTokens {
 		t.Fatalf("MaxTokens = %d, want %d", llmClient.lastRequest.MaxTokens, agentReplyMaxTokens)
 	}
+	if len(repository.runs) < 2 {
+		t.Fatalf("agent run count = %d, want controller and executor runs", len(repository.runs))
+	}
+	controllerRun := repository.runs[0]
+	if controllerRun.Role != domain.AgentRunRoleController || controllerRun.Status != domain.AgentRunStatusSucceeded {
+		t.Fatalf("controller run = %#v", controllerRun)
+	}
+	executorFound := false
+	for _, run := range repository.runs[1:] {
+		if run.Role == domain.AgentRunRoleExecutor && run.ParentRunID == controllerRun.ID && len(run.CapabilityScope) == 1 {
+			executorFound = true
+			break
+		}
+	}
+	if !executorFound {
+		t.Fatalf("executor run with parent %d was not recorded: %#v", controllerRun.ID, repository.runs)
+	}
+	if len(repository.contextTraces) < 3 {
+		t.Fatalf("context trace count = %d, want controller and executor traces", len(repository.contextTraces))
+	}
+	if len(repository.observations) == 0 {
+		t.Fatal("executor observations were not recorded")
+	}
 }
 
 func TestAgentConversationServiceSplitsLongWeChatWorkReply(t *testing.T) {
@@ -834,6 +857,10 @@ type fakeAgentConversationRepository struct {
 	transcripts    []domain.AgentTranscriptEntry
 	recalls        []domain.AgentRecallEvent
 	audits         []domain.AgentAuditLog
+	runs           []domain.AgentRun
+	contextTraces  []domain.AgentRunContextTrace
+	observations   []domain.AgentObservation
+	artifacts      []domain.AgentArtifact
 }
 
 func newFakeAgentConversationRepository() *fakeAgentConversationRepository {
@@ -1015,6 +1042,41 @@ func (r *fakeAgentConversationRepository) CreateAuditLog(_ context.Context, log 
 	log.ID = r.id()
 	r.audits = append(r.audits, log)
 	return log, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentRun(_ context.Context, run domain.AgentRun) (domain.AgentRun, error) {
+	run.ID = r.id()
+	r.runs = append(r.runs, run)
+	return run, nil
+}
+
+func (r *fakeAgentConversationRepository) UpdateAgentRun(_ context.Context, run domain.AgentRun) (domain.AgentRun, error) {
+	for i := range r.runs {
+		if r.runs[i].ID == run.ID {
+			r.runs[i] = run
+			return run, nil
+		}
+	}
+	r.runs = append(r.runs, run)
+	return run, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentRunContextTrace(_ context.Context, trace domain.AgentRunContextTrace) (domain.AgentRunContextTrace, error) {
+	trace.ID = r.id()
+	r.contextTraces = append(r.contextTraces, trace)
+	return trace, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentObservation(_ context.Context, observation domain.AgentObservation) (domain.AgentObservation, error) {
+	observation.ID = r.id()
+	r.observations = append(r.observations, observation)
+	return observation, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentArtifact(_ context.Context, artifact domain.AgentArtifact) (domain.AgentArtifact, error) {
+	artifact.ID = r.id()
+	r.artifacts = append(r.artifacts, artifact)
+	return artifact, nil
 }
 
 func fakeTranscriptRoleAllowed(role domain.AgentTranscriptRole, roles []domain.AgentTranscriptRole) bool {

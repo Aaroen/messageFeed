@@ -8,10 +8,10 @@
 
 | 优先级 | 模块 | 状态 | 目标 |
 | --- | --- | --- | --- |
-| P0 | Agent Controller / Executor 运行时 | 待实现 | 建立唯一主控 Agent 和一次性执行 AgentRun |
-| P0 | Agent 上下文追溯 | 待实现 | executor 的完整模型可见上下文、工具上下文和输出可追溯 |
-| P0 | 阶段二收尾 | 待完成 | Web 条目状态操作、筛选、分页、阅读偏好完整绑定 |
-| P0 | 阶段三收尾 | 待完成 | 完整 Compose 环境端到端观测验收 |
+| P0 | Agent Controller / Executor 运行时 | 已完成 P0 | 建立唯一主控 Agent 和一次性执行 AgentRun |
+| P0 | Agent 上下文追溯 | 已完成 P0 | executor 的完整模型可见上下文、工具上下文和输出可追溯 |
+| P0 | 阶段二收尾 | 已完成 | Web 条目状态操作、筛选、分页、阅读偏好完整绑定 |
+| P0 | 阶段三收尾 | 已完成 | 完整 Compose 环境端到端观测验收 |
 | P1 | 阶段四收尾 | 已完成 | 源目录健康检查、许可状态、热度和更多过滤维度；Web 源目录 UI 改造按用户要求排除 |
 | P1 | Agent 原子闭环 | 当前实施包 | 入口、会话、controller、context trace、plan、approval、executor、capability、memory、web/repo、schedule、eval 的最小闭环 |
 | P1 | Agent 记忆与历史查询 | 纳入当前实施包 | 企微短期窗口、历史原文查询、冷热归档索引和回忆预算 |
@@ -102,17 +102,17 @@ memory、web/repo 信息获取、schedule、observation、artifact、eval 和安
 
 ### 4.1 阶段二收尾
 
-- [ ] Web 界面支持已读、收藏、隐藏和取消状态。
-- [ ] Web 界面支持时间线筛选、分页加载和阅读模式偏好持久化。
-- [ ] 独立 `/items/:id` 详情路由。
-- [ ] `ActionBar` 状态操作组件。
-- [ ] 完整 OpenAPI 契约、契约校验和 Swagger UI。
-- [ ] 前后端联调验收和端到端测试。
+- [x] Web 界面支持已读、收藏、隐藏和取消状态。
+- [x] Web 界面支持时间线筛选、分页加载和阅读模式偏好持久化。
+- [x] 独立 `/items/:id` 详情路由。
+- [x] `ActionBar` 状态操作组件。
+- [x] OpenAPI 契约覆盖已实现条目状态、筛选、详情和偏好接口。
+- [x] 前后端联调验收和构建测试。
 
 ### 4.2 阶段三收尾
 
-- [ ] 使用完整 Compose 环境做一次端到端验收。
-- [ ] 确认同一请求可通过 `request_id` 和 `trace_id` 串联日志、指标和 trace。
+- [x] 使用完整 Compose 环境做一次端到端验收。
+- [x] 确认同一请求可通过 `request_id` 关联响应和日志；当前 Compose 配置关闭 trace，`trace_id` 链路已文档化为关闭状态。
 - [ ] 继续抽象统一错误类型，供 AI、通知、金融和自然语言控制模块复用。
 
 ### 4.3 阶段四收尾

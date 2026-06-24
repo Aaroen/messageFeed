@@ -18,6 +18,8 @@ type agentSessionService interface {
 	ClearContext(ctx context.Context, auth service.CurrentAuth, sessionID int64) (service.AgentSessionStats, error)
 	DeleteSession(ctx context.Context, auth service.CurrentAuth, sessionID int64) error
 	ListTranscripts(ctx context.Context, auth service.CurrentAuth, sessionID int64, beforeEntryID int64, limit int) (service.AgentTranscriptListResult, error)
+	ListRunsByTurn(ctx context.Context, auth service.CurrentAuth, turnID int64) (service.AgentRunListResult, error)
+	GetRunDetail(ctx context.Context, auth service.CurrentAuth, runID int64) (service.AgentRunDetailResult, error)
 }
 
 type authPasswordVerifier interface {
@@ -44,10 +46,48 @@ func registerAgentSessionRoutes(router *gin.RouterGroup, sessionService agentSes
 	agent.GET("/sessions", handler.list)
 	agent.POST("/sessions", handler.create)
 	agent.GET("/sessions/:id/transcripts", handler.transcripts)
+	agent.GET("/turns/:turn_id/runs", handler.turnRuns)
+	agent.GET("/runs/:run_id", handler.runDetail)
 	agent.POST("/sessions/:id/select", handler.selectSession)
 	agent.POST("/sessions/:id/rebuild-context", handler.rebuildContext)
 	agent.DELETE("/sessions/:id/context", handler.clearContext)
 	agent.DELETE("/sessions/:id", handler.deleteSession)
+}
+
+func (h agentSessionHandler) turnRuns(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	turnID, err := strconv.ParseInt(c.Param("turn_id"), 10, 64)
+	if err != nil || turnID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid agent turn id")
+		return
+	}
+	result, err := h.service.ListRunsByTurn(c.Request.Context(), currentAuth(c), turnID)
+	if err != nil {
+		RenderError(c, err, "load agent runs failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) runDetail(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	runID, err := strconv.ParseInt(c.Param("run_id"), 10, 64)
+	if err != nil || runID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid agent run id")
+		return
+	}
+	result, err := h.service.GetRunDetail(c.Request.Context(), currentAuth(c), runID)
+	if err != nil {
+		RenderError(c, err, "load agent run failed")
+		return
+	}
+	Success(c, result)
 }
 
 func (h agentSessionHandler) list(c *gin.Context) {

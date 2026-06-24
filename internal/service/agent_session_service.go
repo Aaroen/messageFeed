@@ -22,6 +22,8 @@ type AgentSessionRepository interface {
 	RebuildAgentSessionContext(ctx context.Context, userID int64, sessionID int64, now time.Time) (domain.AgentSessionStats, error)
 	DeleteAgentSession(ctx context.Context, userID int64, sessionID int64) error
 	ListRecentTranscriptEntries(ctx context.Context, options domain.AgentTranscriptListOptions) ([]domain.AgentTranscriptEntry, error)
+	ListAgentRunsByTurn(ctx context.Context, userID int64, turnID int64) ([]domain.AgentRun, error)
+	GetAgentRunDetail(ctx context.Context, userID int64, runID int64) (domain.AgentRun, error)
 }
 
 type AgentSessionService struct {
@@ -102,6 +104,75 @@ type AgentTranscriptEntryResponse struct {
 	Role      string `json:"role"`
 	Content   string `json:"content"`
 	CreatedAt string `json:"created_at"`
+}
+
+type AgentRunListResult struct {
+	Runs []AgentRunResponse `json:"runs"`
+}
+
+type AgentRunDetailResult struct {
+	Run AgentRunResponse `json:"run"`
+}
+
+type AgentRunResponse struct {
+	ID              int64                          `json:"id"`
+	ParentRunID     int64                          `json:"parent_run_id"`
+	SessionID       int64                          `json:"session_id"`
+	TurnID          int64                          `json:"turn_id"`
+	Role            string                         `json:"role"`
+	Status          string                         `json:"status"`
+	TaskPacket      domain.AgentJSON               `json:"task_packet"`
+	CapabilityScope []string                       `json:"capability_scope"`
+	ModelKey        string                         `json:"model_key"`
+	ContextBudget   domain.AgentJSON               `json:"context_budget"`
+	ContextTraceRef string                         `json:"context_trace_ref"`
+	ResultRef       string                         `json:"result_ref"`
+	ErrorMessage    string                         `json:"error_message"`
+	TraceID         string                         `json:"trace_id"`
+	StartedAt       string                         `json:"started_at"`
+	CompletedAt     string                         `json:"completed_at,omitempty"`
+	CreatedAt       string                         `json:"created_at"`
+	UpdatedAt       string                         `json:"updated_at"`
+	ContextTraces   []AgentRunContextTraceResponse `json:"context_traces,omitempty"`
+	Observations    []AgentObservationResponse     `json:"observations,omitempty"`
+	Artifacts       []AgentArtifactResponse        `json:"artifacts,omitempty"`
+	ChildRuns       []AgentRunResponse             `json:"child_runs,omitempty"`
+}
+
+type AgentRunContextTraceResponse struct {
+	ID              int64            `json:"id"`
+	RunID           int64            `json:"run_id"`
+	TraceKind       string           `json:"trace_kind"`
+	PromptVersion   string           `json:"prompt_version"`
+	ModelKey        string           `json:"model_key"`
+	Content         domain.AgentJSON `json:"content"`
+	ContentHash     string           `json:"content_hash"`
+	RedactionStatus string           `json:"redaction_status"`
+	TokenEstimate   int              `json:"token_estimate"`
+	CreatedAt       string           `json:"created_at"`
+}
+
+type AgentObservationResponse struct {
+	ID            int64    `json:"id"`
+	RunID         int64    `json:"run_id"`
+	CapabilityKey string   `json:"capability_key"`
+	InputSummary  string   `json:"input_summary"`
+	OutputSummary string   `json:"output_summary"`
+	Status        string   `json:"status"`
+	Error         string   `json:"error"`
+	ArtifactRefs  []string `json:"artifact_refs"`
+	CreatedAt     string   `json:"created_at"`
+}
+
+type AgentArtifactResponse struct {
+	ID           int64    `json:"id"`
+	RunID        int64    `json:"run_id"`
+	ArtifactType string   `json:"artifact_type"`
+	ContentRef   string   `json:"content_ref"`
+	Summary      string   `json:"summary"`
+	SourceRefs   []string `json:"source_refs"`
+	ContentHash  string   `json:"content_hash"`
+	CreatedAt    string   `json:"created_at"`
 }
 
 func (s *AgentSessionService) ListSessions(ctx context.Context, auth CurrentAuth) (AgentSessionListResult, error) {
@@ -266,6 +337,44 @@ func (s *AgentSessionService) ListTranscripts(ctx context.Context, auth CurrentA
 	return AgentTranscriptListResult{Entries: responses}, nil
 }
 
+func (s *AgentSessionService) ListRunsByTurn(ctx context.Context, auth CurrentAuth, turnID int64) (AgentRunListResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentRunListResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_runs_unavailable", "agent run service is unavailable", "service.agent_session.runs", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return AgentRunListResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	if turnID < 1 {
+		return AgentRunListResult{}, fmt.Errorf("%w: turn id is required", domain.ErrInvalidInput)
+	}
+	runs, err := s.repository.ListAgentRunsByTurn(ctx, auth.User.ID, turnID)
+	if err != nil {
+		return AgentRunListResult{}, err
+	}
+	responses := make([]AgentRunResponse, 0, len(runs))
+	for _, run := range runs {
+		responses = append(responses, agentRunResponse(run, false))
+	}
+	return AgentRunListResult{Runs: responses}, nil
+}
+
+func (s *AgentSessionService) GetRunDetail(ctx context.Context, auth CurrentAuth, runID int64) (AgentRunDetailResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentRunDetailResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_runs_unavailable", "agent run service is unavailable", "service.agent_session.run_detail", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return AgentRunDetailResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	if runID < 1 {
+		return AgentRunDetailResult{}, fmt.Errorf("%w: run id is required", domain.ErrInvalidInput)
+	}
+	run, err := s.repository.GetAgentRunDetail(ctx, auth.User.ID, runID)
+	if err != nil {
+		return AgentRunDetailResult{}, err
+	}
+	return AgentRunDetailResult{Run: agentRunResponse(run, true)}, nil
+}
+
 func manualAgentSessionKey(account domain.ExternalAccount) string {
 	var random [8]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -318,6 +427,75 @@ func agentSessionStats(stats domain.AgentSessionStats) AgentSessionStats {
 		FirstTranscriptAt: formatOptionalTime(stats.FirstTranscriptAt),
 		LastTranscriptAt:  formatOptionalTime(stats.LastTranscriptAt),
 	}
+}
+
+func agentRunResponse(run domain.AgentRun, includeDetail bool) AgentRunResponse {
+	response := AgentRunResponse{
+		ID:              run.ID,
+		ParentRunID:     run.ParentRunID,
+		SessionID:       run.SessionID,
+		TurnID:          run.TurnID,
+		Role:            string(run.Role),
+		Status:          string(run.Status),
+		TaskPacket:      run.TaskPacket,
+		CapabilityScope: append([]string(nil), run.CapabilityScope...),
+		ModelKey:        run.ModelKey,
+		ContextBudget:   run.ContextBudget,
+		ContextTraceRef: run.ContextTraceRef,
+		ResultRef:       run.ResultRef,
+		ErrorMessage:    run.ErrorMessage,
+		TraceID:         run.TraceID,
+		StartedAt:       formatOptionalTime(&run.StartedAt),
+		CompletedAt:     formatOptionalTime(run.CompletedAt),
+		CreatedAt:       formatOptionalTime(&run.CreatedAt),
+		UpdatedAt:       formatOptionalTime(&run.UpdatedAt),
+	}
+	if !includeDetail {
+		return response
+	}
+	for _, trace := range run.ContextTraces {
+		response.ContextTraces = append(response.ContextTraces, AgentRunContextTraceResponse{
+			ID:              trace.ID,
+			RunID:           trace.RunID,
+			TraceKind:       trace.TraceKind,
+			PromptVersion:   trace.PromptVersion,
+			ModelKey:        trace.ModelKey,
+			Content:         trace.Content,
+			ContentHash:     trace.ContentHash,
+			RedactionStatus: trace.RedactionStatus,
+			TokenEstimate:   trace.TokenEstimate,
+			CreatedAt:       formatOptionalTime(&trace.CreatedAt),
+		})
+	}
+	for _, observation := range run.Observations {
+		response.Observations = append(response.Observations, AgentObservationResponse{
+			ID:            observation.ID,
+			RunID:         observation.RunID,
+			CapabilityKey: observation.CapabilityKey,
+			InputSummary:  observation.InputSummary,
+			OutputSummary: observation.OutputSummary,
+			Status:        observation.Status,
+			Error:         observation.Error,
+			ArtifactRefs:  append([]string(nil), observation.ArtifactRefs...),
+			CreatedAt:     formatOptionalTime(&observation.CreatedAt),
+		})
+	}
+	for _, artifact := range run.Artifacts {
+		response.Artifacts = append(response.Artifacts, AgentArtifactResponse{
+			ID:           artifact.ID,
+			RunID:        artifact.RunID,
+			ArtifactType: artifact.ArtifactType,
+			ContentRef:   artifact.ContentRef,
+			Summary:      artifact.Summary,
+			SourceRefs:   append([]string(nil), artifact.SourceRefs...),
+			ContentHash:  artifact.ContentHash,
+			CreatedAt:    formatOptionalTime(&artifact.CreatedAt),
+		})
+	}
+	for _, child := range run.ChildRuns {
+		response.ChildRuns = append(response.ChildRuns, agentRunResponse(child, false))
+	}
+	return response
 }
 
 func formatOptionalTime(value *time.Time) string {

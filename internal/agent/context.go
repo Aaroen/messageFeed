@@ -41,11 +41,12 @@ type CapabilityExecutor interface {
 }
 
 type CapabilityExecuteInput struct {
-	Capability Capability
-	UserID     int64
-	SessionID  int64
-	TurnID     int64
-	Message    string
+	Capability      Capability
+	UserID          int64
+	SessionID       int64
+	TurnID          int64
+	ControllerRunID int64
+	Message         string
 }
 
 type CapabilityExecuteResult struct {
@@ -206,11 +207,12 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 			continue
 		}
 		result, err := b.executor.Execute(ctx, CapabilityExecuteInput{
-			Capability: capability,
-			UserID:     input.UserID,
-			SessionID:  input.SessionID,
-			TurnID:     input.TurnID,
-			Message:    input.MessageText,
+			Capability:      capability,
+			UserID:          input.UserID,
+			SessionID:       input.SessionID,
+			TurnID:          input.TurnID,
+			ControllerRunID: input.ControllerRunID,
+			Message:         input.MessageText,
 		})
 		if err != nil {
 			return snapshot, fmt.Errorf("%s: %w", capability.Key, err)
