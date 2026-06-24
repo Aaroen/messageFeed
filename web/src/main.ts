@@ -9,6 +9,10 @@ import './styles/app.css'
 
 const app = createApp(AppRoot)
 
+app.config.errorHandler = (error) => {
+  console.error('[messagefeed] uncaught vue error', error)
+}
+
 app.use(createPinia())
 app.use(router)
 app.use(Alert)
