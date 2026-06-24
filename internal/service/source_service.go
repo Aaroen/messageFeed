@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
 	"messagefeed/internal/observability"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -21,6 +23,9 @@ import (
 const (
 	DefaultSourceFetchIntervalSeconds = 3600
 	fetchActiveSourcesConcurrency     = 4
+	defaultSourceCatalogCheckLimit    = 20
+	maxSourceCatalogCheckLimit        = 50
+	sourceCatalogCheckBodyBytes       = 4096
 )
 
 type SourceRepository interface {
@@ -34,6 +39,7 @@ type SourceRepository interface {
 type SourceCatalogRepository interface {
 	List(ctx context.Context, options domain.SourceCatalogListOptions) (domain.SourceCatalogListResult, error)
 	GetByIDs(ctx context.Context, ids []int64) ([]domain.SourceCatalogEntry, error)
+	UpdateHealthCheck(ctx context.Context, entry domain.SourceCatalogEntry) (domain.SourceCatalogEntry, error)
 }
 
 type ItemRepository interface {
@@ -56,13 +62,14 @@ type FeedFetcher interface {
 }
 
 type SourceService struct {
-	repository        SourceRepository
-	catalogRepository SourceCatalogRepository
-	importJobRepo     SourceImportJobRepository
-	fetchJobRepo      SourceFetchJobQueueRepository
-	itemRepository    ItemRepository
-	feedFetcher       FeedFetcher
-	now               func() time.Time
+	repository             SourceRepository
+	catalogRepository      SourceCatalogRepository
+	importJobRepo          SourceImportJobRepository
+	fetchJobRepo           SourceFetchJobQueueRepository
+	itemRepository         ItemRepository
+	feedFetcher            FeedFetcher
+	catalogCheckHTTPClient *http.Client
+	now                    func() time.Time
 }
 
 type SourceServiceOption func(*SourceService)
@@ -97,6 +104,14 @@ func WithFeedFetcher(feedFetcher FeedFetcher) SourceServiceOption {
 	}
 }
 
+func WithSourceCatalogCheckHTTPClient(httpClient *http.Client) SourceServiceOption {
+	return func(service *SourceService) {
+		if httpClient != nil {
+			service.catalogCheckHTTPClient = httpClient
+		}
+	}
+}
+
 func WithNow(now func() time.Time) SourceServiceOption {
 	return func(service *SourceService) {
 		if now != nil {
@@ -108,7 +123,16 @@ func WithNow(now func() time.Time) SourceServiceOption {
 func NewSourceService(repository SourceRepository, options ...SourceServiceOption) *SourceService {
 	service := &SourceService{
 		repository: repository,
-		now:        time.Now,
+		catalogCheckHTTPClient: &http.Client{
+			Timeout: 5 * time.Second,
+			CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+				if len(via) >= 3 {
+					return fmt.Errorf("too many redirects")
+				}
+				return nil
+			},
+		},
+		now: time.Now,
 	}
 	for _, option := range options {
 		option(service)
@@ -170,6 +194,24 @@ type ListSourceCatalogResult struct {
 	Total   int64
 	Limit   int
 	Offset  int
+}
+
+type CheckSourceCatalogInput struct {
+	UserID     int64
+	CatalogIDs []int64
+	Limit      int
+}
+
+type CheckSourceCatalogResult struct {
+	RequestedCount int
+	CheckedCount   int
+	FailureCount   int
+	Checks         []SourceCatalogCheckResult
+}
+
+type SourceCatalogCheckResult struct {
+	Entry domain.SourceCatalogEntry
+	Error string
 }
 
 type ImportCatalogSourcesInput struct {
@@ -642,6 +684,175 @@ func (s *SourceService) ListSourceCatalog(ctx context.Context, input ListSourceC
 		Limit:   result.Limit,
 		Offset:  result.Offset,
 	}, nil
+}
+
+func (s *SourceService) CheckSourceCatalog(ctx context.Context, input CheckSourceCatalogInput) (CheckSourceCatalogResult, error) {
+	ctx, span := observability.StartSpan(ctx, "service.source_catalog.check",
+		attribute.Int64("user.id", input.UserID),
+		attribute.Int("source_catalog.requested", len(input.CatalogIDs)),
+	)
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	if s == nil || s.catalogRepository == nil {
+		opErr = fmt.Errorf("source catalog service is not configured")
+		return CheckSourceCatalogResult{}, opErr
+	}
+	if input.UserID < 1 {
+		opErr = fmt.Errorf("%w: user id must be positive", domain.ErrInvalidInput)
+		return CheckSourceCatalogResult{}, opErr
+	}
+
+	entries, err := s.sourceCatalogCheckEntries(ctx, input)
+	if err != nil {
+		opErr = err
+		return CheckSourceCatalogResult{}, opErr
+	}
+
+	result := CheckSourceCatalogResult{RequestedCount: len(entries), Checks: make([]SourceCatalogCheckResult, 0, len(entries))}
+	for _, entry := range entries {
+		check := s.checkSourceCatalogEntry(ctx, entry)
+		updated, err := s.catalogRepository.UpdateHealthCheck(ctx, check)
+		if err != nil {
+			result.FailureCount++
+			result.Checks = append(result.Checks, SourceCatalogCheckResult{Entry: check, Error: err.Error()})
+			continue
+		}
+		result.CheckedCount++
+		result.Checks = append(result.Checks, SourceCatalogCheckResult{Entry: updated})
+	}
+	span.SetAttributes(
+		attribute.Int("source_catalog.checked", result.CheckedCount),
+		attribute.Int("source_catalog.failed", result.FailureCount),
+	)
+	return result, nil
+}
+
+func (s *SourceService) sourceCatalogCheckEntries(ctx context.Context, input CheckSourceCatalogInput) ([]domain.SourceCatalogEntry, error) {
+	ids := uniquePositiveIDs(input.CatalogIDs)
+	if len(ids) > 0 {
+		if len(ids) > maxSourceCatalogCheckLimit {
+			ids = ids[:maxSourceCatalogCheckLimit]
+		}
+		return s.catalogRepository.GetByIDs(ctx, ids)
+	}
+
+	limit := input.Limit
+	if limit <= 0 {
+		limit = defaultSourceCatalogCheckLimit
+	}
+	if limit > maxSourceCatalogCheckLimit {
+		limit = maxSourceCatalogCheckLimit
+	}
+	result, err := s.catalogRepository.List(ctx, domain.SourceCatalogListOptions{
+		UserID: input.UserID,
+		Limit:  limit,
+		Offset: 0,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.Entries, nil
+}
+
+func (s *SourceService) checkSourceCatalogEntry(ctx context.Context, entry domain.SourceCatalogEntry) domain.SourceCatalogEntry {
+	checkedAt := s.now().UTC()
+	entry.LastCheckedAt = &checkedAt
+	entry.LastCheckError = ""
+	entry.LastCheckHTTPStatus = nil
+	entry.LastCheckContentType = ""
+
+	parsed, err := url.Parse(entry.FeedURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		entry.HealthStatus = domain.SourceCatalogHealthUnreachable
+		entry.LastCheckError = "feed url must use http or https"
+		return entry
+	}
+
+	statusCode, contentType, bodyPrefix, err := s.probeSourceCatalogURL(ctx, entry.FeedURL)
+	if statusCode > 0 {
+		entry.LastCheckHTTPStatus = &statusCode
+	}
+	entry.LastCheckContentType = contentType
+	if err != nil {
+		entry.HealthStatus = domain.SourceCatalogHealthUnreachable
+		entry.LastCheckError = truncateError(err.Error(), 500)
+		return entry
+	}
+
+	entry.HealthStatus, entry.LastCheckError = sourceCatalogHealthFromProbe(statusCode, contentType, bodyPrefix)
+	return entry
+}
+
+func (s *SourceService) probeSourceCatalogURL(ctx context.Context, rawURL string) (int, string, []byte, error) {
+	statusCode, contentType, bodyPrefix, err := s.probeSourceCatalogURLWithMethod(ctx, http.MethodHead, rawURL)
+	if err == nil && statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices && feedContentType(contentType) {
+		return statusCode, contentType, bodyPrefix, nil
+	}
+	if err == nil && statusCode > 0 && statusCode != http.StatusMethodNotAllowed && statusCode != http.StatusNotImplemented && contentType != "" && feedContentType(contentType) {
+		return statusCode, contentType, bodyPrefix, nil
+	}
+	return s.probeSourceCatalogURLWithMethod(ctx, http.MethodGet, rawURL)
+}
+
+func (s *SourceService) probeSourceCatalogURLWithMethod(ctx context.Context, method string, rawURL string) (int, string, []byte, error) {
+	request, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
+	if err != nil {
+		return 0, "", nil, fmt.Errorf("build source catalog check request: %w", err)
+	}
+	request.Header.Set("User-Agent", "messageFeed/0.1")
+	request.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/feed+json, application/json, application/xml, text/xml, */*")
+
+	httpClient := s.catalogCheckHTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	response, err := httpClient.Do(request)
+	if err != nil {
+		return 0, "", nil, fmt.Errorf("source catalog check request: %w", err)
+	}
+	defer response.Body.Close()
+
+	contentType := response.Header.Get("Content-Type")
+	if method == http.MethodHead {
+		return response.StatusCode, contentType, nil, nil
+	}
+	bodyPrefix, err := io.ReadAll(io.LimitReader(response.Body, sourceCatalogCheckBodyBytes))
+	if err != nil {
+		return response.StatusCode, contentType, nil, fmt.Errorf("read source catalog check response: %w", err)
+	}
+	return response.StatusCode, contentType, bodyPrefix, nil
+}
+
+func sourceCatalogHealthFromProbe(statusCode int, contentType string, bodyPrefix []byte) (domain.SourceCatalogHealthStatus, string) {
+	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+		if statusCode >= http.StatusInternalServerError {
+			return domain.SourceCatalogHealthDegraded, fmt.Sprintf("unexpected http status %d", statusCode)
+		}
+		return domain.SourceCatalogHealthUnreachable, fmt.Sprintf("unexpected http status %d", statusCode)
+	}
+	if feedContentType(contentType) || feedBodyPrefix(bodyPrefix) {
+		return domain.SourceCatalogHealthHealthy, ""
+	}
+	return domain.SourceCatalogHealthDegraded, "response content type does not look like a feed"
+}
+
+func feedContentType(contentType string) bool {
+	value := strings.ToLower(contentType)
+	return strings.Contains(value, "rss") ||
+		strings.Contains(value, "atom") ||
+		strings.Contains(value, "feed") ||
+		strings.Contains(value, "xml") ||
+		strings.Contains(value, "json")
+}
+
+func feedBodyPrefix(bodyPrefix []byte) bool {
+	value := strings.ToLower(strings.TrimSpace(string(bodyPrefix)))
+	return strings.Contains(value, "<rss") ||
+		strings.Contains(value, "<feed") ||
+		strings.Contains(value, "<rdf") ||
+		strings.Contains(value, "\"items\"") ||
+		strings.Contains(value, "\"version\"")
 }
 
 func (s *SourceService) ImportCatalogSources(ctx context.Context, input ImportCatalogSourcesInput) (ImportSourceResult, error) {

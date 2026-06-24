@@ -23,54 +23,58 @@ func NewSourceCatalogRepository(db *gorm.DB) *SourceCatalogRepository {
 }
 
 type sourceCatalogEntryModel struct {
-	ID              int64  `gorm:"primaryKey"`
-	SourceKey       string `gorm:"not null"`
-	Name            string `gorm:"not null"`
-	SiteURL         string
-	FeedURL         string   `gorm:"not null"`
-	NormalizedURL   string   `gorm:"not null"`
-	Type            string   `gorm:"not null"`
-	Category        string   `gorm:"not null"`
-	Tags            []string `gorm:"serializer:json;type:jsonb;not null"`
-	Language        string   `gorm:"not null"`
-	Country         string
-	Official        bool
-	SourceOrigin    string `gorm:"not null"`
-	HealthStatus    string `gorm:"not null"`
-	LastCheckedAt   *time.Time
-	LastCheckError  string
-	LicenseStatus   string `gorm:"not null"`
-	LicenseNote     string
-	PopularityScore int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                   int64  `gorm:"primaryKey"`
+	SourceKey            string `gorm:"not null"`
+	Name                 string `gorm:"not null"`
+	SiteURL              string
+	FeedURL              string   `gorm:"not null"`
+	NormalizedURL        string   `gorm:"not null"`
+	Type                 string   `gorm:"not null"`
+	Category             string   `gorm:"not null"`
+	Tags                 []string `gorm:"serializer:json;type:jsonb;not null"`
+	Language             string   `gorm:"not null"`
+	Country              string
+	Official             bool
+	SourceOrigin         string `gorm:"not null"`
+	HealthStatus         string `gorm:"not null"`
+	LastCheckedAt        *time.Time
+	LastCheckError       string
+	LastCheckHTTPStatus  *int
+	LastCheckContentType string
+	LicenseStatus        string `gorm:"not null"`
+	LicenseNote          string
+	PopularityScore      int
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type sourceCatalogEntryViewModel struct {
-	ID              int64  `gorm:"primaryKey"`
-	SourceKey       string `gorm:"not null"`
-	Name            string `gorm:"not null"`
-	SiteURL         string
-	FeedURL         string   `gorm:"not null"`
-	NormalizedURL   string   `gorm:"not null"`
-	Type            string   `gorm:"not null"`
-	Category        string   `gorm:"not null"`
-	Tags            []string `gorm:"serializer:json;type:jsonb;not null"`
-	Language        string   `gorm:"not null"`
-	Country         string
-	Official        bool
-	SourceOrigin    string `gorm:"not null"`
-	HealthStatus    string `gorm:"not null"`
-	LastCheckedAt   *time.Time
-	LastCheckError  string
-	LicenseStatus   string `gorm:"not null"`
-	LicenseNote     string
-	PopularityScore int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Subscribed      bool
-	SourceID        int64
-	SourceStatus    string
+	ID                   int64  `gorm:"primaryKey"`
+	SourceKey            string `gorm:"not null"`
+	Name                 string `gorm:"not null"`
+	SiteURL              string
+	FeedURL              string   `gorm:"not null"`
+	NormalizedURL        string   `gorm:"not null"`
+	Type                 string   `gorm:"not null"`
+	Category             string   `gorm:"not null"`
+	Tags                 []string `gorm:"serializer:json;type:jsonb;not null"`
+	Language             string   `gorm:"not null"`
+	Country              string
+	Official             bool
+	SourceOrigin         string `gorm:"not null"`
+	HealthStatus         string `gorm:"not null"`
+	LastCheckedAt        *time.Time
+	LastCheckError       string
+	LastCheckHTTPStatus  *int
+	LastCheckContentType string
+	LicenseStatus        string `gorm:"not null"`
+	LicenseNote          string
+	PopularityScore      int
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	Subscribed           bool
+	SourceID             int64
+	SourceStatus         string
 }
 
 func (sourceCatalogEntryModel) TableName() string {
@@ -172,6 +176,44 @@ func (r *SourceCatalogRepository) GetByIDs(ctx context.Context, ids []int64) ([]
 	return entries, nil
 }
 
+func (r *SourceCatalogRepository) UpdateHealthCheck(ctx context.Context, entry domain.SourceCatalogEntry) (domain.SourceCatalogEntry, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.source_catalog.update_health_check", "update", "source_catalog_entries")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	if entry.ID < 1 {
+		opErr = domain.ErrInvalidInput
+		return domain.SourceCatalogEntry{}, opErr
+	}
+
+	updates := map[string]any{
+		"health_status":           string(entry.HealthStatus),
+		"last_checked_at":         entry.LastCheckedAt,
+		"last_check_error":        entry.LastCheckError,
+		"last_check_http_status":  entry.LastCheckHTTPStatus,
+		"last_check_content_type": entry.LastCheckContentType,
+	}
+	result := r.db.WithContext(ctx).
+		Model(&sourceCatalogEntryModel{}).
+		Where("id = ?", entry.ID).
+		Updates(updates)
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.SourceCatalogEntry{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return domain.SourceCatalogEntry{}, opErr
+	}
+
+	var model sourceCatalogEntryModel
+	if err := r.db.WithContext(ctx).Where("id = ?", entry.ID).First(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.SourceCatalogEntry{}, opErr
+	}
+	return sourceCatalogEntryModelToDomain(model), nil
+}
+
 func applySourceCatalogFilters(query *gorm.DB, options domain.SourceCatalogListOptions) *gorm.DB {
 	if category := strings.TrimSpace(options.Category); category != "" {
 		query = query.Where("source_catalog_entries.category = ?", category)
@@ -211,27 +253,29 @@ func applySourceCatalogFilters(query *gorm.DB, options domain.SourceCatalogListO
 
 func sourceCatalogEntryViewModelToDomain(model sourceCatalogEntryViewModel) domain.SourceCatalogEntry {
 	entry := sourceCatalogEntryModelToDomain(sourceCatalogEntryModel{
-		ID:              model.ID,
-		SourceKey:       model.SourceKey,
-		Name:            model.Name,
-		SiteURL:         model.SiteURL,
-		FeedURL:         model.FeedURL,
-		NormalizedURL:   model.NormalizedURL,
-		Type:            model.Type,
-		Category:        model.Category,
-		Tags:            model.Tags,
-		Language:        model.Language,
-		Country:         model.Country,
-		Official:        model.Official,
-		SourceOrigin:    model.SourceOrigin,
-		HealthStatus:    model.HealthStatus,
-		LastCheckedAt:   model.LastCheckedAt,
-		LastCheckError:  model.LastCheckError,
-		LicenseStatus:   model.LicenseStatus,
-		LicenseNote:     model.LicenseNote,
-		PopularityScore: model.PopularityScore,
-		CreatedAt:       model.CreatedAt,
-		UpdatedAt:       model.UpdatedAt,
+		ID:                   model.ID,
+		SourceKey:            model.SourceKey,
+		Name:                 model.Name,
+		SiteURL:              model.SiteURL,
+		FeedURL:              model.FeedURL,
+		NormalizedURL:        model.NormalizedURL,
+		Type:                 model.Type,
+		Category:             model.Category,
+		Tags:                 model.Tags,
+		Language:             model.Language,
+		Country:              model.Country,
+		Official:             model.Official,
+		SourceOrigin:         model.SourceOrigin,
+		HealthStatus:         model.HealthStatus,
+		LastCheckedAt:        model.LastCheckedAt,
+		LastCheckError:       model.LastCheckError,
+		LastCheckHTTPStatus:  model.LastCheckHTTPStatus,
+		LastCheckContentType: model.LastCheckContentType,
+		LicenseStatus:        model.LicenseStatus,
+		LicenseNote:          model.LicenseNote,
+		PopularityScore:      model.PopularityScore,
+		CreatedAt:            model.CreatedAt,
+		UpdatedAt:            model.UpdatedAt,
 	})
 	entry.Subscribed = model.Subscribed
 	entry.SourceID = model.SourceID
@@ -241,26 +285,28 @@ func sourceCatalogEntryViewModelToDomain(model sourceCatalogEntryViewModel) doma
 
 func sourceCatalogEntryModelToDomain(model sourceCatalogEntryModel) domain.SourceCatalogEntry {
 	return domain.SourceCatalogEntry{
-		ID:              model.ID,
-		SourceKey:       model.SourceKey,
-		Name:            model.Name,
-		SiteURL:         model.SiteURL,
-		FeedURL:         model.FeedURL,
-		NormalizedURL:   model.NormalizedURL,
-		Type:            domain.SourceType(model.Type),
-		Category:        model.Category,
-		Tags:            append([]string(nil), model.Tags...),
-		Language:        model.Language,
-		Country:         model.Country,
-		Official:        model.Official,
-		SourceOrigin:    model.SourceOrigin,
-		HealthStatus:    domain.SourceCatalogHealthStatus(model.HealthStatus),
-		LastCheckedAt:   model.LastCheckedAt,
-		LastCheckError:  model.LastCheckError,
-		LicenseStatus:   domain.SourceCatalogLicenseStatus(model.LicenseStatus),
-		LicenseNote:     model.LicenseNote,
-		PopularityScore: model.PopularityScore,
-		CreatedAt:       model.CreatedAt,
-		UpdatedAt:       model.UpdatedAt,
+		ID:                   model.ID,
+		SourceKey:            model.SourceKey,
+		Name:                 model.Name,
+		SiteURL:              model.SiteURL,
+		FeedURL:              model.FeedURL,
+		NormalizedURL:        model.NormalizedURL,
+		Type:                 domain.SourceType(model.Type),
+		Category:             model.Category,
+		Tags:                 append([]string(nil), model.Tags...),
+		Language:             model.Language,
+		Country:              model.Country,
+		Official:             model.Official,
+		SourceOrigin:         model.SourceOrigin,
+		HealthStatus:         domain.SourceCatalogHealthStatus(model.HealthStatus),
+		LastCheckedAt:        model.LastCheckedAt,
+		LastCheckError:       model.LastCheckError,
+		LastCheckHTTPStatus:  model.LastCheckHTTPStatus,
+		LastCheckContentType: model.LastCheckContentType,
+		LicenseStatus:        domain.SourceCatalogLicenseStatus(model.LicenseStatus),
+		LicenseNote:          model.LicenseNote,
+		PopularityScore:      model.PopularityScore,
+		CreatedAt:            model.CreatedAt,
+		UpdatedAt:            model.UpdatedAt,
 	}
 }

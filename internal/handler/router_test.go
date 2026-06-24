@@ -265,6 +265,7 @@ func TestWriteRoutesRequireAuthWhenAuthServiceConfigured(t *testing.T) {
 	}{
 		{name: "mark read", method: http.MethodPost, path: "/api/v1/items/1/read"},
 		{name: "import catalog", method: http.MethodPost, path: "/api/v1/sources/import/catalog", body: `{"catalog_ids":[1]}`},
+		{name: "check source catalog", method: http.MethodPost, path: "/api/v1/source-catalogs/check", body: `{"catalog_ids":[1]}`},
 		{name: "toggle source", method: http.MethodPatch, path: "/api/v1/sources/1", body: `{"status":"inactive"}`},
 	}
 
@@ -742,6 +743,10 @@ func (s *fakeSourceService) ListSourceCatalog(_ context.Context, input service.L
 		Limit:   input.Limit,
 		Offset:  input.Offset,
 	}, nil
+}
+
+func (s *fakeSourceService) CheckSourceCatalog(_ context.Context, _ service.CheckSourceCatalogInput) (service.CheckSourceCatalogResult, error) {
+	return service.CheckSourceCatalogResult{}, nil
 }
 
 func (s *fakeSourceService) ImportCatalogSources(_ context.Context, _ service.ImportCatalogSourcesInput) (service.ImportSourceResult, error) {

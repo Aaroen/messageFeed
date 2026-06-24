@@ -240,6 +240,33 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/source-catalogs/check:
+    post:
+      summary: Check source catalog feed health
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckSourceCatalogRequest'
+      responses:
+        '200':
+          description: Source catalog check result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/APIResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/CheckSourceCatalogResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/sources/import/catalog:
     post:
       summary: Import sources from catalog entries
@@ -2144,6 +2171,13 @@ components:
           nullable: true
         last_check_error:
           type: string
+        last_check_http_status:
+          type: integer
+          nullable: true
+          minimum: 100
+          maximum: 599
+        last_check_content_type:
+          type: string
         license_status:
           type: string
           enum:
@@ -2169,6 +2203,45 @@ components:
         updated_at:
           type: string
           format: date-time
+    CheckSourceCatalogRequest:
+      type: object
+      properties:
+        catalog_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 50
+    CheckSourceCatalogResult:
+      type: object
+      required:
+        - requested_count
+        - checked_count
+        - failure_count
+        - checks
+      properties:
+        requested_count:
+          type: integer
+        checked_count:
+          type: integer
+        failure_count:
+          type: integer
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceCatalogCheck'
+    SourceCatalogCheck:
+      type: object
+      required:
+        - entry
+      properties:
+        entry:
+          $ref: '#/components/schemas/SourceCatalogEntry'
+        error:
+          type: string
     ImportSourceResult:
       type: object
       required:

@@ -47,6 +47,8 @@ export interface SourceCatalogEntry {
   health_status: 'healthy' | 'degraded' | 'unreachable' | 'unknown'
   last_checked_at?: string
   last_check_error?: string
+  last_check_http_status?: number
+  last_check_content_type?: string
   license_status: 'unknown' | 'allowed' | 'restricted' | 'blocked'
   license_note?: string
   popularity_score: number

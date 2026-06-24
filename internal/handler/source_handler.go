@@ -19,6 +19,7 @@ type sourceService interface {
 	CreateSource(ctx context.Context, input service.CreateSourceInput) (domain.Source, error)
 	ListSources(ctx context.Context, userID int64) ([]domain.Source, error)
 	ListSourceCatalog(ctx context.Context, input service.ListSourceCatalogInput) (service.ListSourceCatalogResult, error)
+	CheckSourceCatalog(ctx context.Context, input service.CheckSourceCatalogInput) (service.CheckSourceCatalogResult, error)
 	ImportCatalogSources(ctx context.Context, input service.ImportCatalogSourcesInput) (service.ImportSourceResult, error)
 	ImportURLSources(ctx context.Context, input service.ImportURLSourcesInput) (service.ImportSourceResult, error)
 	ListSourceImportJobs(ctx context.Context, input service.ListSourceImportJobsInput) (service.ListSourceImportJobsResult, error)
@@ -46,6 +47,7 @@ func registerProtectedSourceRoutes(router *gin.RouterGroup, service sourceServic
 	router.POST("/sources/:id/fetch", handler.fetchSource)
 	router.POST("/source-fetches", handler.fetchActiveSources)
 	router.GET("/source-fetches/status", handler.getSourceFetchStatus)
+	router.POST("/source-catalogs/check", handler.checkSourceCatalog)
 	router.POST("/sources/import/catalog", handler.importCatalogSources)
 	router.POST("/sources/import/urls", handler.importURLSources)
 	router.POST("/sources/import/opml", handler.importOPMLSources)
@@ -138,30 +140,49 @@ type sourceCatalogListResponse struct {
 }
 
 type sourceCatalogResponse struct {
-	ID              int64      `json:"id"`
-	SourceKey       string     `json:"source_key"`
-	Name            string     `json:"name"`
-	SiteURL         string     `json:"site_url,omitempty"`
-	FeedURL         string     `json:"feed_url"`
-	NormalizedURL   string     `json:"normalized_url"`
-	Type            string     `json:"type"`
-	Category        string     `json:"category"`
-	Tags            []string   `json:"tags"`
-	Language        string     `json:"language"`
-	Country         string     `json:"country,omitempty"`
-	Official        bool       `json:"official"`
-	SourceOrigin    string     `json:"source_origin"`
-	HealthStatus    string     `json:"health_status"`
-	LastCheckedAt   *time.Time `json:"last_checked_at,omitempty"`
-	LastCheckError  string     `json:"last_check_error,omitempty"`
-	LicenseStatus   string     `json:"license_status"`
-	LicenseNote     string     `json:"license_note,omitempty"`
-	PopularityScore int        `json:"popularity_score"`
-	Subscribed      bool       `json:"subscribed"`
-	SourceID        int64      `json:"source_id,omitempty"`
-	SourceStatus    string     `json:"source_status,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID                   int64      `json:"id"`
+	SourceKey            string     `json:"source_key"`
+	Name                 string     `json:"name"`
+	SiteURL              string     `json:"site_url,omitempty"`
+	FeedURL              string     `json:"feed_url"`
+	NormalizedURL        string     `json:"normalized_url"`
+	Type                 string     `json:"type"`
+	Category             string     `json:"category"`
+	Tags                 []string   `json:"tags"`
+	Language             string     `json:"language"`
+	Country              string     `json:"country,omitempty"`
+	Official             bool       `json:"official"`
+	SourceOrigin         string     `json:"source_origin"`
+	HealthStatus         string     `json:"health_status"`
+	LastCheckedAt        *time.Time `json:"last_checked_at,omitempty"`
+	LastCheckError       string     `json:"last_check_error,omitempty"`
+	LastCheckHTTPStatus  *int       `json:"last_check_http_status,omitempty"`
+	LastCheckContentType string     `json:"last_check_content_type,omitempty"`
+	LicenseStatus        string     `json:"license_status"`
+	LicenseNote          string     `json:"license_note,omitempty"`
+	PopularityScore      int        `json:"popularity_score"`
+	Subscribed           bool       `json:"subscribed"`
+	SourceID             int64      `json:"source_id,omitempty"`
+	SourceStatus         string     `json:"source_status,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
+type checkSourceCatalogRequest struct {
+	CatalogIDs []int64 `json:"catalog_ids"`
+	Limit      int     `json:"limit"`
+}
+
+type sourceCatalogCheckResponse struct {
+	Entry sourceCatalogResponse `json:"entry"`
+	Error string                `json:"error,omitempty"`
+}
+
+type checkSourceCatalogResponse struct {
+	RequestedCount int                          `json:"requested_count"`
+	CheckedCount   int                          `json:"checked_count"`
+	FailureCount   int                          `json:"failure_count"`
+	Checks         []sourceCatalogCheckResponse `json:"checks"`
 }
 
 type importCatalogRequest struct {
@@ -541,6 +562,32 @@ func (h sourceHandler) importCatalogSources(c *gin.Context) {
 	Success(c, importSourceResponseFromDomain(result))
 }
 
+func (h sourceHandler) checkSourceCatalog(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "source catalog service unavailable")
+		return
+	}
+
+	var request checkSourceCatalogRequest
+	if c.Request.Body != nil {
+		if err := c.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+			Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid source catalog check request")
+			return
+		}
+	}
+
+	result, err := h.service.CheckSourceCatalog(c.Request.Context(), service.CheckSourceCatalogInput{
+		UserID:     currentUserID(c),
+		CatalogIDs: request.CatalogIDs,
+		Limit:      request.Limit,
+	})
+	if err != nil {
+		writeSourceError(c, err)
+		return
+	}
+	Success(c, sourceCatalogCheckResponseFromService(result))
+}
+
 func (h sourceHandler) importURLSources(c *gin.Context) {
 	if h.service == nil {
 		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "source service unavailable")
@@ -696,30 +743,48 @@ func sourceResponseFromDomain(source domain.Source) sourceResponse {
 
 func sourceCatalogResponseFromDomain(entry domain.SourceCatalogEntry) sourceCatalogResponse {
 	return sourceCatalogResponse{
-		ID:              entry.ID,
-		SourceKey:       entry.SourceKey,
-		Name:            entry.Name,
-		SiteURL:         entry.SiteURL,
-		FeedURL:         entry.FeedURL,
-		NormalizedURL:   entry.NormalizedURL,
-		Type:            string(entry.Type),
-		Category:        entry.Category,
-		Tags:            append([]string(nil), entry.Tags...),
-		Language:        entry.Language,
-		Country:         entry.Country,
-		Official:        entry.Official,
-		SourceOrigin:    entry.SourceOrigin,
-		HealthStatus:    string(entry.HealthStatus),
-		LastCheckedAt:   entry.LastCheckedAt,
-		LastCheckError:  entry.LastCheckError,
-		LicenseStatus:   string(entry.LicenseStatus),
-		LicenseNote:     entry.LicenseNote,
-		PopularityScore: entry.PopularityScore,
-		Subscribed:      entry.Subscribed,
-		SourceID:        entry.SourceID,
-		SourceStatus:    string(entry.SourceStatus),
-		CreatedAt:       entry.CreatedAt,
-		UpdatedAt:       entry.UpdatedAt,
+		ID:                   entry.ID,
+		SourceKey:            entry.SourceKey,
+		Name:                 entry.Name,
+		SiteURL:              entry.SiteURL,
+		FeedURL:              entry.FeedURL,
+		NormalizedURL:        entry.NormalizedURL,
+		Type:                 string(entry.Type),
+		Category:             entry.Category,
+		Tags:                 append([]string(nil), entry.Tags...),
+		Language:             entry.Language,
+		Country:              entry.Country,
+		Official:             entry.Official,
+		SourceOrigin:         entry.SourceOrigin,
+		HealthStatus:         string(entry.HealthStatus),
+		LastCheckedAt:        entry.LastCheckedAt,
+		LastCheckError:       entry.LastCheckError,
+		LastCheckHTTPStatus:  entry.LastCheckHTTPStatus,
+		LastCheckContentType: entry.LastCheckContentType,
+		LicenseStatus:        string(entry.LicenseStatus),
+		LicenseNote:          entry.LicenseNote,
+		PopularityScore:      entry.PopularityScore,
+		Subscribed:           entry.Subscribed,
+		SourceID:             entry.SourceID,
+		SourceStatus:         string(entry.SourceStatus),
+		CreatedAt:            entry.CreatedAt,
+		UpdatedAt:            entry.UpdatedAt,
+	}
+}
+
+func sourceCatalogCheckResponseFromService(result service.CheckSourceCatalogResult) checkSourceCatalogResponse {
+	checks := make([]sourceCatalogCheckResponse, 0, len(result.Checks))
+	for _, check := range result.Checks {
+		checks = append(checks, sourceCatalogCheckResponse{
+			Entry: sourceCatalogResponseFromDomain(check.Entry),
+			Error: check.Error,
+		})
+	}
+	return checkSourceCatalogResponse{
+		RequestedCount: result.RequestedCount,
+		CheckedCount:   result.CheckedCount,
+		FailureCount:   result.FailureCount,
+		Checks:         checks,
 	}
 }
 

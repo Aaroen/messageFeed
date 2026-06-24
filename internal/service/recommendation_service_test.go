@@ -393,6 +393,10 @@ func (r *fakeRecommendationCatalogRepository) GetByIDs(_ context.Context, ids []
 	return entries, nil
 }
 
+func (r *fakeRecommendationCatalogRepository) UpdateHealthCheck(_ context.Context, entry domain.SourceCatalogEntry) (domain.SourceCatalogEntry, error) {
+	return entry, nil
+}
+
 type sequencedRecommendationFetcher struct {
 	calls int
 }

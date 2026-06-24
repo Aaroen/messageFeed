@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"messagefeed/internal/domain"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -386,6 +388,67 @@ func TestImportCatalogSourcesRecordsImportJob(t *testing.T) {
 	}
 }
 
+func TestCheckSourceCatalogUpdatesHealthMetadata(t *testing.T) {
+	feedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		_, _ = w.Write([]byte(`<rss version="2.0"><channel><title>Example</title></channel></rss>`))
+	}))
+	defer feedServer.Close()
+
+	checkedAt := time.Date(2026, 6, 25, 9, 0, 0, 0, time.UTC)
+	catalogRepository := &fakeSourceCatalogRepository{
+		entries: []domain.SourceCatalogEntry{
+			{
+				ID:            1,
+				Name:          "Example",
+				FeedURL:       feedServer.URL + "/feed.xml",
+				HealthStatus:  domain.SourceCatalogHealthUnknown,
+				LicenseStatus: domain.SourceCatalogLicenseAllowed,
+			},
+		},
+	}
+	service := NewSourceService(
+		newFakeSourceRepository(),
+		WithSourceCatalogRepository(catalogRepository),
+		WithSourceCatalogCheckHTTPClient(feedServer.Client()),
+		WithNow(func() time.Time {
+			return checkedAt
+		}),
+	)
+
+	result, err := service.CheckSourceCatalog(context.Background(), CheckSourceCatalogInput{
+		UserID:     1,
+		CatalogIDs: []int64{1},
+	})
+	if err != nil {
+		t.Fatalf("CheckSourceCatalog returned error: %v", err)
+	}
+	if result.CheckedCount != 1 || result.FailureCount != 0 {
+		t.Fatalf("result counts = checked:%d failed:%d, want 1/0", result.CheckedCount, result.FailureCount)
+	}
+
+	entry := result.Checks[0].Entry
+	if entry.HealthStatus != domain.SourceCatalogHealthHealthy {
+		t.Fatalf("HealthStatus = %q, want healthy", entry.HealthStatus)
+	}
+	if entry.LastCheckedAt == nil || !entry.LastCheckedAt.Equal(checkedAt) {
+		t.Fatalf("LastCheckedAt = %#v, want %s", entry.LastCheckedAt, checkedAt)
+	}
+	if entry.LastCheckHTTPStatus == nil || *entry.LastCheckHTTPStatus != http.StatusOK {
+		t.Fatalf("LastCheckHTTPStatus = %#v, want %d", entry.LastCheckHTTPStatus, http.StatusOK)
+	}
+	if entry.LastCheckContentType != "application/rss+xml" {
+		t.Fatalf("LastCheckContentType = %q, want application/rss+xml", entry.LastCheckContentType)
+	}
+	if entry.LastCheckError != "" {
+		t.Fatalf("LastCheckError = %q, want empty", entry.LastCheckError)
+	}
+}
+
 func TestListSourceImportJobsNormalizesPagination(t *testing.T) {
 	importJobRepository := &fakeSourceImportJobRepository{
 		jobs: []domain.SourceImportJob{
@@ -749,6 +812,20 @@ func (r *fakeSourceCatalogRepository) GetByIDs(_ context.Context, ids []int64) (
 		}
 	}
 	return entries, nil
+}
+
+func (r *fakeSourceCatalogRepository) UpdateHealthCheck(_ context.Context, entry domain.SourceCatalogEntry) (domain.SourceCatalogEntry, error) {
+	for index, existing := range r.entries {
+		if existing.ID == entry.ID {
+			r.entries[index].HealthStatus = entry.HealthStatus
+			r.entries[index].LastCheckedAt = entry.LastCheckedAt
+			r.entries[index].LastCheckError = entry.LastCheckError
+			r.entries[index].LastCheckHTTPStatus = entry.LastCheckHTTPStatus
+			r.entries[index].LastCheckContentType = entry.LastCheckContentType
+			return r.entries[index], nil
+		}
+	}
+	return domain.SourceCatalogEntry{}, domain.ErrNotFound
 }
 
 type fakeFeedFetcher struct {
