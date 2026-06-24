@@ -1918,6 +1918,32 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   line-height: 1.45;
 }
 
+.settings-binding-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.settings-transcript-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-transcript-row {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--mf-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--mf-text);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .settings-wechat-qr {
   display: grid;
   grid-template-columns: 160px minmax(0, 1fr);

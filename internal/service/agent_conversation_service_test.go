@@ -364,6 +364,51 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextWithoutPublishi
 	}
 }
 
+func TestAgentConversationServiceUsesSelectedActiveSession(t *testing.T) {
+	now := time.Date(2026, 6, 24, 20, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{
+		ID:                300,
+		UserID:            1,
+		ExternalAccountID: 10,
+		Provider:          domain.AgentProviderWeChatWorkApp,
+		ChannelSessionKey: "manual-session",
+		Status:            domain.AgentSessionStatusActive,
+	}
+	account := testAgentExternalAccount(now)
+	account.ActiveAgentSessionID = 300
+	resolver := &fakeAgentExternalAccountResolver{account: account}
+	llmClient := &fakeAgentConversationLLM{
+		response: llm.ChatResponse{Provider: "openai_compatible", Model: "custom-model", Content: "进入选中的 session。"},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-selected-session",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "你好",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Session.ID != 300 {
+		t.Fatalf("session ID = %d, want selected active session 300", result.Session.ID)
+	}
+	if len(repository.transcripts) == 0 || repository.transcripts[0].SessionID != 300 {
+		t.Fatalf("transcripts = %#v", repository.transcripts)
+	}
+}
+
 func TestAgentConversationServiceInjectsRecentConversationWindowWithoutCurrentTurn(t *testing.T) {
 	now := time.Date(2026, 6, 24, 19, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -525,6 +570,21 @@ func (r *fakeAgentConversationRepository) GetOrCreateSession(_ context.Context, 
 		r.session = session
 	}
 	return r.session, nil
+}
+
+func (r *fakeAgentConversationRepository) GetAgentSession(_ context.Context, userID int64, sessionID int64) (domain.AgentSession, error) {
+	if r.session.ID == sessionID && r.session.UserID == userID {
+		return r.session, nil
+	}
+	return domain.AgentSession{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) TouchAgentSession(_ context.Context, userID int64, sessionID int64, now time.Time) error {
+	if r.session.ID == sessionID && r.session.UserID == userID {
+		r.session.LastActiveAt = now
+		return nil
+	}
+	return domain.ErrNotFound
 }
 
 func (r *fakeAgentConversationRepository) CreateTurn(_ context.Context, turn domain.AgentTurn) (domain.AgentTurn, error) {

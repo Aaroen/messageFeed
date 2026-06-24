@@ -79,6 +79,7 @@ func main() {
 	var adminConfigService *service.AdminConfigService
 	var authService *service.AuthService
 	var agentApprovalService *service.AgentApprovalService
+	var agentSessionService *service.AgentSessionService
 	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
 	if cfg.WeChatWork.Enabled() {
@@ -206,6 +207,7 @@ func main() {
 			service.WithAuthWeChatWorkOAuth(weChatWorkOAuth),
 		)
 		agentApprovalService = service.NewAgentApprovalService(agentApprovalRepository)
+		agentSessionService = service.NewAgentSessionService(agentRepository)
 		if weChatWorkAppCallback != nil {
 			agentConversationService = service.NewAgentConversationService(
 				agentRepository,
@@ -251,6 +253,7 @@ func main() {
 		WeChatWorkReceiver:    agentConversationService,
 		AdminConfigService:    adminConfigService,
 		AgentApprovalService:  agentApprovalService,
+		AgentSessionService:   agentSessionService,
 		ServiceName:           cfg.Observability.ServiceName,
 	})
 

@@ -45,6 +45,10 @@ func (fakeAuthEndpointService) ChangePassword(ctx context.Context, input service
 	return service.AuthUserResponse{}, nil
 }
 
+func (fakeAuthEndpointService) VerifyCurrentPassword(ctx context.Context, auth service.CurrentAuth, currentPassword string) error {
+	return nil
+}
+
 func (fakeAuthEndpointService) UpdateProfile(ctx context.Context, input service.UpdateProfileInput) (service.UserProfileResponse, error) {
 	return service.UserProfileResponse{}, nil
 }

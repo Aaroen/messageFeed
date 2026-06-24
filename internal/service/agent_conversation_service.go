@@ -25,6 +25,8 @@ type AgentConversationRepository interface {
 	CreateInboundMessage(ctx context.Context, message domain.AgentInboundMessage) (domain.AgentInboundMessage, bool, error)
 	UpdateInboundMessageStatus(ctx context.Context, userID int64, id int64, status domain.AgentInboundMessageStatus, now time.Time) (domain.AgentInboundMessage, error)
 	GetOrCreateSession(ctx context.Context, session domain.AgentSession) (domain.AgentSession, error)
+	GetAgentSession(ctx context.Context, userID int64, sessionID int64) (domain.AgentSession, error)
+	TouchAgentSession(ctx context.Context, userID int64, sessionID int64, now time.Time) error
 	CreateTurn(ctx context.Context, turn domain.AgentTurn) (domain.AgentTurn, error)
 	UpdateTurn(ctx context.Context, turn domain.AgentTurn) (domain.AgentTurn, error)
 	AppendTranscriptEntry(ctx context.Context, entry domain.AgentTranscriptEntry) (domain.AgentTranscriptEntry, error)
@@ -339,16 +341,7 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	}
 	metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "received").Inc()
 
-	session, err := s.repository.GetOrCreateSession(ctx, domain.AgentSession{
-		UserID:            account.UserID,
-		ExternalAccountID: account.ID,
-		Provider:          input.Provider,
-		ChannelSessionKey: weChatWorkSessionKey(input),
-		Status:            domain.AgentSessionStatusActive,
-		Title:             "企业微信对话",
-		StartedAt:         now,
-		LastActiveAt:      now,
-	})
+	session, err := s.resolveConversationSession(ctx, account, input, now)
 	if err != nil {
 		status = "failed"
 		opErr = err
@@ -422,6 +415,30 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	}()
 
 	return result, nil
+}
+
+func (s *AgentConversationService) resolveConversationSession(ctx context.Context, account domain.ExternalAccount, input ReceiveWeChatWorkAppMessageInput, now time.Time) (domain.AgentSession, error) {
+	if account.ActiveAgentSessionID > 0 {
+		session, err := s.repository.GetAgentSession(ctx, account.UserID, account.ActiveAgentSessionID)
+		if err == nil && session.ExternalAccountID == account.ID && session.Status == domain.AgentSessionStatusActive {
+			_ = s.repository.TouchAgentSession(ctx, account.UserID, session.ID, now)
+			session.LastActiveAt = now
+			return session, nil
+		}
+		if err != nil && domain.ClassifyError(err) != domain.ErrorKindNotFound {
+			return domain.AgentSession{}, err
+		}
+	}
+	return s.repository.GetOrCreateSession(ctx, domain.AgentSession{
+		UserID:            account.UserID,
+		ExternalAccountID: account.ID,
+		Provider:          input.Provider,
+		ChannelSessionKey: weChatWorkSessionKey(input),
+		Status:            domain.AgentSessionStatusActive,
+		Title:             "企业微信对话",
+		StartedAt:         now,
+		LastActiveAt:      now,
+	})
 }
 
 func (s *AgentConversationService) processTurn(

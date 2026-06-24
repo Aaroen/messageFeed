@@ -18,6 +18,7 @@ type authEndpointService interface {
 	LocalLogin(ctx context.Context, input service.LocalLoginInput) (service.AuthSessionResult, error)
 	RegisterWithInvite(ctx context.Context, input service.RegisterWithInviteInput) (service.AuthSessionResult, error)
 	ChangePassword(ctx context.Context, input service.ChangePasswordInput) (service.AuthUserResponse, error)
+	VerifyCurrentPassword(ctx context.Context, auth service.CurrentAuth, currentPassword string) error
 	UpdateProfile(ctx context.Context, input service.UpdateProfileInput) (service.UserProfileResponse, error)
 	ListSessions(ctx context.Context, auth service.CurrentAuth) ([]service.UserSessionResponse, error)
 	RevokeSession(ctx context.Context, auth service.CurrentAuth, sessionID int64) error

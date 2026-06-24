@@ -555,6 +555,36 @@ func (s *AuthService) ChangePassword(ctx context.Context, input ChangePasswordIn
 	return *userResponse(user), nil
 }
 
+func (s *AuthService) VerifyCurrentPassword(ctx context.Context, auth CurrentAuth, currentPassword string) error {
+	if s == nil || s.repository == nil {
+		return domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.verify_password", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	ctx, span := observability.StartSpan(ctx, "service.auth.verify_password")
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	user, err := s.repository.GetUserByID(ctx, auth.User.ID)
+	if err != nil {
+		opErr = err
+		return err
+	}
+	if strings.TrimSpace(user.PasswordHash) != "" {
+		if err := verifyPassword(user.PasswordHash, currentPassword); err != nil {
+			opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invalid_current_password", "current password is invalid", "service.auth.verify_password", false, nil)
+			return opErr
+		}
+		return nil
+	}
+	if !s.ownerPasswordMatches(user.Username, currentPassword) {
+		opErr = domain.NewAppError(domain.ErrorKindInvalidInput, "auth_invalid_current_password", "current password is invalid", "service.auth.verify_password", false, nil)
+		return opErr
+	}
+	return nil
+}
+
 func (s *AuthService) UpdateProfile(ctx context.Context, input UpdateProfileInput) (UserProfileResponse, error) {
 	if s == nil || s.repository == nil {
 		return UserProfileResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "auth_unavailable", "auth service is unavailable", "service.auth.update_profile", false, nil)

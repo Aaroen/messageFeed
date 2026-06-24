@@ -35,6 +35,18 @@ import {
   type AdminLLMTestResult,
   type AdminWeChatWorkTestResult,
 } from '@/api/adminConfig'
+import {
+  clearAgentSessionContext,
+  createAgentSession,
+  deleteAgentSession,
+  listAgentSessions,
+  listAgentTranscripts,
+  rebuildAgentSessionContext,
+  selectAgentSession,
+  type AgentExternalAccount,
+  type AgentSession,
+  type AgentTranscriptEntry,
+} from '@/api/agent'
 import { formatAPIError } from '@/api/client'
 import {
   readSourceTimelinePreloadSetting,
@@ -82,6 +94,19 @@ const deletePassword = ref('')
 const accountDeleting = ref(false)
 const accountDeleteResult = ref('')
 const userContext = ref<UserContext | null>(null)
+const agentAccounts = ref<AgentExternalAccount[]>([])
+const agentSessions = ref<AgentSession[]>([])
+const agentSessionsLoading = ref(false)
+const selectedAgentSessionID = ref<number | null>(null)
+const agentTranscripts = ref<AgentTranscriptEntry[]>([])
+const agentTranscriptsLoading = ref(false)
+const newAgentSessionAccountID = ref<number | null>(null)
+const newAgentSessionTitle = ref('企业微信对话')
+const agentSessionCreating = ref(false)
+const agentSessionActionID = ref<number | null>(null)
+const agentSessionDeleteID = ref<number | null>(null)
+const agentSessionDeletePassword = ref('')
+const agentSessionResult = ref('')
 const users = ref<AdminUser[]>([])
 const usersLoading = ref(false)
 const userDeletingID = ref<number | null>(null)
@@ -234,6 +259,7 @@ async function loadAuthStatus() {
     if (authStatus.value.user?.role === 'owner') {
       if (section === 'context') {
         tasks.push(loadUserContext())
+        tasks.push(loadAgentSessions())
       }
       if (section === 'invites') {
         tasks.push(loadInvites())
@@ -293,6 +319,130 @@ async function loadUserContext() {
     userContext.value = await getUserContext()
   } catch (error) {
     authError.value = formatAPIError(error)
+  }
+}
+
+async function loadAgentSessions() {
+  agentSessionsLoading.value = true
+  try {
+    const result = await listAgentSessions()
+    agentAccounts.value = result.accounts
+    agentSessions.value = result.sessions
+    if (!newAgentSessionAccountID.value && result.accounts.length) {
+      newAgentSessionAccountID.value = result.accounts[0].id
+    }
+    if (!selectedAgentSessionID.value && result.sessions.length) {
+      selectedAgentSessionID.value = result.sessions[0].id
+    }
+    if (selectedAgentSessionID.value) {
+      await loadAgentTranscripts(selectedAgentSessionID.value)
+    }
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    agentSessionsLoading.value = false
+  }
+}
+
+async function loadAgentTranscripts(sessionID: number) {
+  selectedAgentSessionID.value = sessionID
+  agentTranscriptsLoading.value = true
+  try {
+    agentTranscripts.value = await listAgentTranscripts(sessionID, { limit: 80 })
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    agentTranscriptsLoading.value = false
+  }
+}
+
+async function createNewAgentSession() {
+  if (!newAgentSessionAccountID.value) {
+    authError.value = '请选择企业微信绑定账号'
+    return
+  }
+  agentSessionCreating.value = true
+  agentSessionResult.value = ''
+  try {
+    const created = await createAgentSession({
+      external_account_id: newAgentSessionAccountID.value,
+      title: newAgentSessionTitle.value,
+    })
+    selectedAgentSessionID.value = created.id
+    agentSessionResult.value = 'session 已创建'
+    await loadAgentSessions()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    agentSessionCreating.value = false
+  }
+}
+
+async function selectCurrentAgentSession(id: number) {
+  agentSessionActionID.value = id
+  agentSessionResult.value = ''
+  try {
+    await selectAgentSession(id)
+    agentSessionResult.value = '当前企微 session 已切换'
+    await loadAgentSessions()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    agentSessionActionID.value = null
+  }
+}
+
+async function rebuildAgentContext(id: number) {
+  agentSessionActionID.value = id
+  agentSessionResult.value = ''
+  try {
+    await rebuildAgentSessionContext(id)
+    agentSessionResult.value = '上下文索引已重建'
+    await loadAgentSessions()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    agentSessionActionID.value = null
+  }
+}
+
+async function clearAgentContext(id: number) {
+  agentSessionActionID.value = id
+  agentSessionResult.value = ''
+  try {
+    await clearAgentSessionContext(id)
+    agentSessionResult.value = '上下文索引已清空，原文 transcript 保留'
+    await loadAgentSessions()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    agentSessionActionID.value = null
+  }
+}
+
+function prepareDeleteAgentSession(id: number) {
+  agentSessionDeleteID.value = id
+  agentSessionDeletePassword.value = ''
+  agentSessionResult.value = ''
+}
+
+async function confirmDeleteAgentSession() {
+  if (!agentSessionDeleteID.value) {
+    return
+  }
+  agentSessionActionID.value = agentSessionDeleteID.value
+  try {
+    await deleteAgentSession(agentSessionDeleteID.value, { current_password: agentSessionDeletePassword.value })
+    agentSessionResult.value = 'session 已删除'
+    agentSessionDeleteID.value = null
+    agentSessionDeletePassword.value = ''
+    agentTranscripts.value = []
+    selectedAgentSessionID.value = null
+    await loadAgentSessions()
+  } catch (error) {
+    authError.value = formatAPIError(error)
+  } finally {
+    agentSessionActionID.value = null
   }
 }
 
@@ -1246,24 +1396,164 @@ defineExpose({ refreshPage })
           </section>
         </div>
 
-        <section v-if="isSettingsSectionActive('context') && isOwner && userContext" class="settings-panel settings-panel--wide">
-          <div class="settings-panel__title">用户上下文</div>
-          <dl class="settings-description-list">
-            <div>
-              <dt>User ID</dt>
-              <dd>{{ userContext.data_scope.user_id }}</dd>
+        <div v-if="isSettingsSectionActive('context') && isOwner" class="settings-section-stack">
+          <section v-if="userContext" class="settings-panel settings-panel--wide">
+            <div class="settings-panel__title">用户上下文</div>
+            <dl class="settings-description-list">
+              <div>
+                <dt>User ID</dt>
+                <dd>{{ userContext.data_scope.user_id }}</dd>
+              </div>
+              <div>
+                <dt>可读范围</dt>
+                <dd>{{ userContext.data_scope.readable_domains.join(' / ') }}</dd>
+              </div>
+              <div>
+                <dt>渠道</dt>
+                <dd>{{ userContext.data_scope.external_providers.join(' / ') || '暂无' }}</dd>
+              </div>
+            </dl>
+            <textarea class="settings-textarea" rows="5" :value="userContext.prompt.plain_text" readonly />
+          </section>
+
+          <section class="settings-panel settings-panel--wide">
+            <div class="settings-panel__header">
+              <div>
+                <div class="settings-panel__title">企微 Agent Session</div>
+                <div class="settings-panel__meta">
+                  {{ agentSessionsLoading ? '加载中' : `${agentSessions.length} 个 session` }}
+                </div>
+              </div>
+              <button class="settings-action-button" type="button" :disabled="agentSessionsLoading" @click="loadAgentSessions">
+                刷新
+              </button>
             </div>
-            <div>
-              <dt>可读范围</dt>
-              <dd>{{ userContext.data_scope.readable_domains.join(' / ') }}</dd>
+
+            <div class="settings-form-grid settings-form-grid--split">
+              <label class="settings-field">
+                <span class="settings-field__label">绑定账号</span>
+                <select v-model.number="newAgentSessionAccountID" class="settings-input">
+                  <option v-for="account in agentAccounts" :key="account.id" :value="account.id">
+                    {{ account.external_user_id }} / Agent {{ account.agent_id }}
+                  </option>
+                </select>
+              </label>
+              <label class="settings-field">
+                <span class="settings-field__label">新 session 标题</span>
+                <input v-model="newAgentSessionTitle" class="settings-input" type="text" autocomplete="off" />
+              </label>
             </div>
-            <div>
-              <dt>渠道</dt>
-              <dd>{{ userContext.data_scope.external_providers.join(' / ') || '暂无' }}</dd>
+            <button
+              class="settings-action-button"
+              type="button"
+              :disabled="agentSessionCreating || !agentAccounts.length"
+              @click="createNewAgentSession"
+            >
+              {{ agentSessionCreating ? '创建中' : '新建 session' }}
+            </button>
+
+            <div v-if="agentSessionResult" class="settings-inline-alert settings-inline-alert--success">
+              {{ agentSessionResult }}
             </div>
-          </dl>
-          <textarea class="settings-textarea" rows="5" :value="userContext.prompt.plain_text" readonly />
-        </section>
+
+            <div class="settings-bindings">
+              <div v-for="session in agentSessions" :key="session.id" class="settings-binding-row">
+                <div>
+                  <div class="settings-binding-row__title">
+                    {{ session.title || `Session ${session.id}` }}
+                    <span v-if="session.active_for_account" class="settings-status-pill settings-status-pill--ok">当前</span>
+                  </div>
+                  <div class="settings-binding-row__meta">
+                    ID {{ session.id }} / 原文 {{ session.stats.transcript_count }} / 索引
+                    {{ session.stats.archive_index_count }} / 召回 {{ session.stats.recall_count }}
+                  </div>
+                  <div class="settings-binding-row__meta">
+                    首条 {{ formatTime(session.stats.first_transcript_at) }} / 最新 {{ formatTime(session.stats.last_transcript_at) }}
+                  </div>
+                </div>
+                <div class="settings-binding-row__actions">
+                  <button class="settings-action-button" type="button" @click="loadAgentTranscripts(session.id)">查看</button>
+                  <button
+                    class="settings-action-button"
+                    type="button"
+                    :disabled="agentSessionActionID === session.id || session.active_for_account"
+                    @click="selectCurrentAgentSession(session.id)"
+                  >
+                    设为当前
+                  </button>
+                  <button
+                    class="settings-action-button"
+                    type="button"
+                    :disabled="agentSessionActionID === session.id"
+                    @click="rebuildAgentContext(session.id)"
+                  >
+                    重建索引
+                  </button>
+                  <button
+                    class="settings-action-button"
+                    type="button"
+                    :disabled="agentSessionActionID === session.id"
+                    @click="clearAgentContext(session.id)"
+                  >
+                    清空上下文
+                  </button>
+                  <button
+                    class="settings-action-button"
+                    type="button"
+                    :disabled="agentSessionActionID === session.id"
+                    @click="prepareDeleteAgentSession(session.id)"
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+              <div v-if="!agentSessions.length" class="settings-panel__meta">暂无 agent session</div>
+            </div>
+
+            <div v-if="agentSessionDeleteID" class="settings-inline-alert settings-inline-alert--warning">
+              <label class="settings-field">
+                <span class="settings-field__label">输入当前登录密码后删除 Session {{ agentSessionDeleteID }}</span>
+                <input
+                  v-model="agentSessionDeletePassword"
+                  class="settings-input"
+                  type="password"
+                  autocomplete="current-password"
+                />
+              </label>
+              <button
+                class="settings-action-button"
+                type="button"
+                :disabled="agentSessionActionID === agentSessionDeleteID"
+                @click="confirmDeleteAgentSession"
+              >
+                确认删除整个 session
+              </button>
+            </div>
+          </section>
+
+          <section class="settings-panel settings-panel--wide">
+            <div class="settings-panel__header">
+              <div>
+                <div class="settings-panel__title">Session 原文记录</div>
+                <div class="settings-panel__meta">
+                  {{ selectedAgentSessionID ? `Session ${selectedAgentSessionID}` : '未选择 session' }}
+                </div>
+              </div>
+            </div>
+            <div class="settings-transcript-list">
+              <div v-if="agentTranscriptsLoading" class="settings-panel__meta">加载中</div>
+              <div v-for="entry in agentTranscripts" :key="entry.id" class="settings-transcript-row">
+                <div class="settings-binding-row__meta">
+                  #{{ entry.id }} / turn {{ entry.turn_id }} / {{ entry.role }} / {{ formatTime(entry.created_at) }}
+                </div>
+                <div>{{ entry.content }}</div>
+              </div>
+              <div v-if="!agentTranscriptsLoading && !agentTranscripts.length" class="settings-panel__meta">
+                暂无 transcript
+              </div>
+            </div>
+          </section>
+        </div>
       </main>
   </section>
 </template>

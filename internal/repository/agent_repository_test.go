@@ -35,3 +35,21 @@ func TestAgentContextMemoryMigrationDefinesArchiveAndRecallTables(t *testing.T) 
 		}
 	}
 }
+
+func TestAgentSessionManagementMigrationDefinesActiveSessionAndContextState(t *testing.T) {
+	content, err := os.ReadFile("../../migrations/000020_add_agent_session_management.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"active_agent_session_id BIGINT REFERENCES agent_sessions(id) ON DELETE SET NULL",
+		"context_initialized_at TIMESTAMP WITH TIME ZONE",
+		"context_version BIGINT NOT NULL DEFAULT 0",
+		"transcript_count_indexed BIGINT NOT NULL DEFAULT 0",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("migration missing %q", required)
+		}
+	}
+}

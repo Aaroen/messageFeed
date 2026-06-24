@@ -93,18 +93,19 @@ func (r AgentTranscriptRole) Valid() bool {
 type AgentJSON map[string]any
 
 type ExternalAccount struct {
-	ID             int64
-	UserID         int64
-	Provider       string
-	CorpID         string
-	AgentID        string
-	ExternalUserID string
-	DisplayName    string
-	BindingStatus  ExternalAccountBindingStatus
-	VerifiedAt     *time.Time
-	LastSeenAt     *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                   int64
+	UserID               int64
+	Provider             string
+	CorpID               string
+	AgentID              string
+	ExternalUserID       string
+	DisplayName          string
+	BindingStatus        ExternalAccountBindingStatus
+	ActiveAgentSessionID int64
+	VerifiedAt           *time.Time
+	LastSeenAt           *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type AgentInboundMessage struct {
@@ -129,17 +130,31 @@ type AgentInboundMessage struct {
 }
 
 type AgentSession struct {
-	ID                int64
-	UserID            int64
-	ExternalAccountID int64
-	Provider          string
-	ChannelSessionKey string
-	Status            AgentSessionStatus
-	Title             string
-	StartedAt         time.Time
-	LastActiveAt      time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                       int64
+	UserID                   int64
+	ExternalAccountID        int64
+	Provider                 string
+	ChannelSessionKey        string
+	Status                   AgentSessionStatus
+	Title                    string
+	StartedAt                time.Time
+	LastActiveAt             time.Time
+	ContextInitializedAt     *time.Time
+	ContextRebuildStartedAt  *time.Time
+	ContextRebuildFinishedAt *time.Time
+	ContextVersion           int64
+	TranscriptCountIndexed   int64
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+type AgentSessionStats struct {
+	SessionID         int64
+	TranscriptCount   int64
+	ArchiveIndexCount int64
+	RecallCount       int64
+	FirstTranscriptAt *time.Time
+	LastTranscriptAt  *time.Time
 }
 
 type AgentTurn struct {
@@ -237,11 +252,12 @@ type AgentRecallEvent struct {
 }
 
 type AgentTranscriptListOptions struct {
-	SessionID    int64
-	UserID       int64
-	BeforeTurnID int64
-	Roles        []AgentTranscriptRole
-	Limit        int
+	SessionID     int64
+	UserID        int64
+	BeforeTurnID  int64
+	BeforeEntryID int64
+	Roles         []AgentTranscriptRole
+	Limit         int
 }
 
 type AgentTranscriptQueryOptions struct {

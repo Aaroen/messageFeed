@@ -19,18 +19,19 @@ func NewAgentRepository(db *gorm.DB) *AgentRepository {
 }
 
 type externalAccountModel struct {
-	ID             int64 `gorm:"primaryKey"`
-	UserID         int64 `gorm:"not null"`
-	Provider       string
-	CorpID         string
-	AgentID        string
-	ExternalUserID string
-	DisplayName    string
-	BindingStatus  string
-	VerifiedAt     *time.Time
-	LastSeenAt     *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                   int64 `gorm:"primaryKey"`
+	UserID               int64 `gorm:"not null"`
+	Provider             string
+	CorpID               string
+	AgentID              string
+	ExternalUserID       string
+	DisplayName          string
+	BindingStatus        string
+	ActiveAgentSessionID *int64
+	VerifiedAt           *time.Time
+	LastSeenAt           *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 type agentInboundMessageModel struct {
@@ -55,17 +56,22 @@ type agentInboundMessageModel struct {
 }
 
 type agentSessionModel struct {
-	ID                int64 `gorm:"primaryKey"`
-	UserID            int64 `gorm:"not null"`
-	ExternalAccountID int64 `gorm:"not null"`
-	Provider          string
-	ChannelSessionKey string
-	Status            string
-	Title             string
-	StartedAt         time.Time
-	LastActiveAt      time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                       int64 `gorm:"primaryKey"`
+	UserID                   int64 `gorm:"not null"`
+	ExternalAccountID        int64 `gorm:"not null"`
+	Provider                 string
+	ChannelSessionKey        string
+	Status                   string
+	Title                    string
+	StartedAt                time.Time
+	LastActiveAt             time.Time
+	ContextInitializedAt     *time.Time
+	ContextRebuildStartedAt  *time.Time
+	ContextRebuildFinishedAt *time.Time
+	ContextVersion           int64
+	TranscriptCountIndexed   int64
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 type agentTurnModel struct {
@@ -283,6 +289,142 @@ func (r *AgentRepository) GetOrCreateSession(ctx context.Context, session domain
 	return agentSessionModelToDomain(persisted), nil
 }
 
+func (r *AgentRepository) CreateAgentSession(ctx context.Context, session domain.AgentSession) (domain.AgentSession, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.session.create", "insert", "agent_sessions")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	model := agentSessionModelFromDomain(normalizeAgentSession(session))
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentSession{}, opErr
+	}
+	return agentSessionModelToDomain(model), nil
+}
+
+func (r *AgentRepository) GetAgentSession(ctx context.Context, userID int64, sessionID int64) (domain.AgentSession, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.session.get", "select", "agent_sessions")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model agentSessionModel
+	if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", sessionID, userID).First(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentSession{}, opErr
+	}
+	return agentSessionModelToDomain(model), nil
+}
+
+func (r *AgentRepository) ListAgentSessions(ctx context.Context, userID int64) ([]domain.AgentSession, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.session.list", "select", "agent_sessions")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var models []agentSessionModel
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("last_active_at DESC, id DESC").
+		Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	sessions := make([]domain.AgentSession, 0, len(models))
+	for _, model := range models {
+		sessions = append(sessions, agentSessionModelToDomain(model))
+	}
+	return sessions, nil
+}
+
+func (r *AgentRepository) ListExternalAccounts(ctx context.Context, userID int64) ([]domain.ExternalAccount, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.external_account.list", "select", "external_accounts")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var models []externalAccountModel
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("updated_at DESC, id DESC").
+		Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	accounts := make([]domain.ExternalAccount, 0, len(models))
+	for _, model := range models {
+		accounts = append(accounts, externalAccountModelToDomain(model))
+	}
+	return accounts, nil
+}
+
+func (r *AgentRepository) GetExternalAccount(ctx context.Context, userID int64, accountID int64) (domain.ExternalAccount, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.external_account.get", "select", "external_accounts")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model externalAccountModel
+	if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", accountID, userID).First(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.ExternalAccount{}, opErr
+	}
+	return externalAccountModelToDomain(model), nil
+}
+
+func (r *AgentRepository) SetExternalAccountActiveSession(ctx context.Context, userID int64, externalAccountID int64, sessionID int64) (domain.ExternalAccount, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.external_account.set_active_session", "update", "external_accounts")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	if sessionID > 0 {
+		var session agentSessionModel
+		if err := r.db.WithContext(ctx).
+			Where("id = ? AND user_id = ? AND external_account_id = ?", sessionID, userID, externalAccountID).
+			First(&session).Error; err != nil {
+			opErr = mapRepositoryError(err)
+			return domain.ExternalAccount{}, opErr
+		}
+	}
+	result := r.db.WithContext(ctx).
+		Model(&externalAccountModel{}).
+		Where("id = ? AND user_id = ?", externalAccountID, userID).
+		Updates(map[string]any{
+			"active_agent_session_id": sessionID,
+			"updated_at":              time.Now().UTC(),
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.ExternalAccount{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return domain.ExternalAccount{}, opErr
+	}
+	var updated externalAccountModel
+	if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", externalAccountID, userID).First(&updated).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.ExternalAccount{}, opErr
+	}
+	return externalAccountModelToDomain(updated), nil
+}
+
+func (r *AgentRepository) TouchAgentSession(ctx context.Context, userID int64, sessionID int64, now time.Time) error {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.session.touch", "update", "agent_sessions")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	result := r.db.WithContext(ctx).
+		Model(&agentSessionModel{}).
+		Where("id = ? AND user_id = ?", sessionID, userID).
+		Updates(map[string]any{"last_active_at": now.UTC(), "updated_at": now.UTC()})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return opErr
+	}
+	return nil
+}
+
 func (r *AgentRepository) CreateTurn(ctx context.Context, turn domain.AgentTurn) (domain.AgentTurn, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.turn.create", "insert", "agent_turns")
 	var opErr error
@@ -349,6 +491,9 @@ func (r *AgentRepository) ListRecentTranscriptEntries(ctx context.Context, optio
 		Where("session_id = ? AND user_id = ?", options.SessionID, options.UserID)
 	if options.BeforeTurnID > 0 {
 		query = query.Where("turn_id < ?", options.BeforeTurnID)
+	}
+	if options.BeforeEntryID > 0 {
+		query = query.Where("id < ?", options.BeforeEntryID)
 	}
 	if len(options.Roles) > 0 {
 		query = query.Where("role IN ?", transcriptRoleStrings(options.Roles))
@@ -418,6 +563,183 @@ func (r *AgentRepository) CreateRecallEvent(ctx context.Context, event domain.Ag
 		return domain.AgentRecallEvent{}, opErr
 	}
 	return agentRecallEventModelToDomain(model), nil
+}
+
+func (r *AgentRepository) GetAgentSessionStats(ctx context.Context, userID int64, sessionID int64) (domain.AgentSessionStats, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.session.stats", "select", "agent_transcript_entries")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	stats := domain.AgentSessionStats{SessionID: sessionID}
+	type transcriptStats struct {
+		Count   int64
+		FirstAt *time.Time
+		LastAt  *time.Time
+	}
+	var transcript transcriptStats
+	if err := r.db.WithContext(ctx).
+		Table("agent_transcript_entries").
+		Select("COUNT(*) AS count, MIN(created_at) AS first_at, MAX(created_at) AS last_at").
+		Where("user_id = ? AND session_id = ?", userID, sessionID).
+		Scan(&transcript).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return stats, opErr
+	}
+	stats.TranscriptCount = transcript.Count
+	stats.FirstTranscriptAt = transcript.FirstAt
+	stats.LastTranscriptAt = transcript.LastAt
+	if err := r.db.WithContext(ctx).
+		Table("agent_transcript_archive_index").
+		Where("user_id = ? AND session_id = ?", userID, sessionID).
+		Count(&stats.ArchiveIndexCount).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return stats, opErr
+	}
+	if err := r.db.WithContext(ctx).
+		Table("agent_recall_events").
+		Where("user_id = ? AND session_id = ?", userID, sessionID).
+		Count(&stats.RecallCount).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return stats, opErr
+	}
+	return stats, nil
+}
+
+func (r *AgentRepository) ClearAgentSessionContext(ctx context.Context, userID int64, sessionID int64, now time.Time) (domain.AgentSessionStats, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.session.clear_context", "delete", "agent_transcript_archive_index")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ? AND session_id = ?", userID, sessionID).Delete(&agentTranscriptArchiveIndexModel{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ? AND session_id = ?", userID, sessionID).Delete(&agentRecallEventModel{}).Error; err != nil {
+			return err
+		}
+		result := tx.Model(&agentSessionModel{}).
+			Where("id = ? AND user_id = ?", sessionID, userID).
+			Updates(map[string]any{
+				"context_initialized_at":      nil,
+				"context_rebuild_started_at":  nil,
+				"context_rebuild_finished_at": nil,
+				"context_version":             gorm.Expr("context_version + ?", 1),
+				"transcript_count_indexed":    0,
+				"updated_at":                  now.UTC(),
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentSessionStats{}, opErr
+	}
+	return r.GetAgentSessionStats(ctx, userID, sessionID)
+}
+
+func (r *AgentRepository) RebuildAgentSessionContext(ctx context.Context, userID int64, sessionID int64, now time.Time) (domain.AgentSessionStats, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.session.rebuild_context", "upsert", "agent_transcript_archive_index")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		startedAt := now.UTC()
+		result := tx.Model(&agentSessionModel{}).
+			Where("id = ? AND user_id = ?", sessionID, userID).
+			Updates(map[string]any{
+				"context_rebuild_started_at":  startedAt,
+				"context_rebuild_finished_at": nil,
+				"updated_at":                  startedAt,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrNotFound
+		}
+		if err := tx.Where("user_id = ? AND session_id = ?", userID, sessionID).Delete(&agentTranscriptArchiveIndexModel{}).Error; err != nil {
+			return err
+		}
+		var entries []agentTranscriptEntryModel
+		if err := tx.Where("user_id = ? AND session_id = ?", userID, sessionID).
+			Order("created_at ASC, id ASC").
+			Find(&entries).Error; err != nil {
+			return err
+		}
+		for _, model := range entries {
+			entry := agentTranscriptEntryModelToDomain(model)
+			index := agentTranscriptArchiveIndexModelFromDomain(domain.AgentTranscriptArchiveIndex{
+				TranscriptEntryID: entry.ID,
+				SessionID:         entry.SessionID,
+				UserID:            entry.UserID,
+				ArchiveStatus:     domain.AgentTranscriptArchiveStatusHot,
+				MemoryKind:        classifyTranscriptMemoryKind(entry.Content),
+				Importance:        transcriptImportance(entry.Content),
+				Keywords:          transcriptIndexKeywords(entry.Content),
+				Metadata:          domain.AgentJSON{"rebuild": true},
+				CreatedAt:         startedAt,
+				UpdatedAt:         startedAt,
+			})
+			if err := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "transcript_entry_id"}},
+				DoUpdates: clause.Assignments(map[string]any{
+					"archive_status": string(index.ArchiveStatus),
+					"memory_kind":    string(index.MemoryKind),
+					"importance":     index.Importance,
+					"keywords_json":  index.Keywords,
+					"metadata_json":  index.Metadata,
+					"updated_at":     startedAt,
+				}),
+			}).Create(&index).Error; err != nil {
+				return err
+			}
+		}
+		finishedAt := now.UTC()
+		return tx.Model(&agentSessionModel{}).
+			Where("id = ? AND user_id = ?", sessionID, userID).
+			Updates(map[string]any{
+				"context_initialized_at":      finishedAt,
+				"context_rebuild_finished_at": finishedAt,
+				"context_version":             gorm.Expr("context_version + ?", 1),
+				"transcript_count_indexed":    len(entries),
+				"updated_at":                  finishedAt,
+			}).Error
+	})
+	if err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentSessionStats{}, opErr
+	}
+	return r.GetAgentSessionStats(ctx, userID, sessionID)
+}
+
+func (r *AgentRepository) DeleteAgentSession(ctx context.Context, userID int64, sessionID int64) error {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.session.delete", "delete", "agent_sessions")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ? AND session_id = ?", userID, sessionID).Delete(&agentRecallEventModel{}).Error; err != nil {
+			return err
+		}
+		result := tx.Where("id = ? AND user_id = ?", sessionID, userID).Delete(&agentSessionModel{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		opErr = mapRepositoryError(err)
+		return opErr
+	}
+	return nil
 }
 
 func (r *AgentRepository) CreateAuditLog(ctx context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error) {
@@ -571,35 +893,37 @@ func normalizeAuditLog(log domain.AgentAuditLog) domain.AgentAuditLog {
 
 func externalAccountModelFromDomain(account domain.ExternalAccount) externalAccountModel {
 	return externalAccountModel{
-		ID:             account.ID,
-		UserID:         account.UserID,
-		Provider:       account.Provider,
-		CorpID:         account.CorpID,
-		AgentID:        account.AgentID,
-		ExternalUserID: account.ExternalUserID,
-		DisplayName:    account.DisplayName,
-		BindingStatus:  string(account.BindingStatus),
-		VerifiedAt:     account.VerifiedAt,
-		LastSeenAt:     account.LastSeenAt,
-		CreatedAt:      account.CreatedAt,
-		UpdatedAt:      account.UpdatedAt,
+		ID:                   account.ID,
+		UserID:               account.UserID,
+		Provider:             account.Provider,
+		CorpID:               account.CorpID,
+		AgentID:              account.AgentID,
+		ExternalUserID:       account.ExternalUserID,
+		DisplayName:          account.DisplayName,
+		BindingStatus:        string(account.BindingStatus),
+		ActiveAgentSessionID: int64Pointer(account.ActiveAgentSessionID),
+		VerifiedAt:           account.VerifiedAt,
+		LastSeenAt:           account.LastSeenAt,
+		CreatedAt:            account.CreatedAt,
+		UpdatedAt:            account.UpdatedAt,
 	}
 }
 
 func externalAccountModelToDomain(model externalAccountModel) domain.ExternalAccount {
 	return domain.ExternalAccount{
-		ID:             model.ID,
-		UserID:         model.UserID,
-		Provider:       model.Provider,
-		CorpID:         model.CorpID,
-		AgentID:        model.AgentID,
-		ExternalUserID: model.ExternalUserID,
-		DisplayName:    model.DisplayName,
-		BindingStatus:  domain.ExternalAccountBindingStatus(model.BindingStatus),
-		VerifiedAt:     model.VerifiedAt,
-		LastSeenAt:     model.LastSeenAt,
-		CreatedAt:      model.CreatedAt,
-		UpdatedAt:      model.UpdatedAt,
+		ID:                   model.ID,
+		UserID:               model.UserID,
+		Provider:             model.Provider,
+		CorpID:               model.CorpID,
+		AgentID:              model.AgentID,
+		ExternalUserID:       model.ExternalUserID,
+		DisplayName:          model.DisplayName,
+		BindingStatus:        domain.ExternalAccountBindingStatus(model.BindingStatus),
+		ActiveAgentSessionID: int64Value(model.ActiveAgentSessionID),
+		VerifiedAt:           model.VerifiedAt,
+		LastSeenAt:           model.LastSeenAt,
+		CreatedAt:            model.CreatedAt,
+		UpdatedAt:            model.UpdatedAt,
 	}
 }
 
@@ -651,33 +975,43 @@ func agentInboundMessageModelToDomain(model agentInboundMessageModel) domain.Age
 
 func agentSessionModelFromDomain(session domain.AgentSession) agentSessionModel {
 	return agentSessionModel{
-		ID:                session.ID,
-		UserID:            session.UserID,
-		ExternalAccountID: session.ExternalAccountID,
-		Provider:          session.Provider,
-		ChannelSessionKey: session.ChannelSessionKey,
-		Status:            string(session.Status),
-		Title:             session.Title,
-		StartedAt:         session.StartedAt,
-		LastActiveAt:      session.LastActiveAt,
-		CreatedAt:         session.CreatedAt,
-		UpdatedAt:         session.UpdatedAt,
+		ID:                       session.ID,
+		UserID:                   session.UserID,
+		ExternalAccountID:        session.ExternalAccountID,
+		Provider:                 session.Provider,
+		ChannelSessionKey:        session.ChannelSessionKey,
+		Status:                   string(session.Status),
+		Title:                    session.Title,
+		StartedAt:                session.StartedAt,
+		LastActiveAt:             session.LastActiveAt,
+		ContextInitializedAt:     session.ContextInitializedAt,
+		ContextRebuildStartedAt:  session.ContextRebuildStartedAt,
+		ContextRebuildFinishedAt: session.ContextRebuildFinishedAt,
+		ContextVersion:           session.ContextVersion,
+		TranscriptCountIndexed:   session.TranscriptCountIndexed,
+		CreatedAt:                session.CreatedAt,
+		UpdatedAt:                session.UpdatedAt,
 	}
 }
 
 func agentSessionModelToDomain(model agentSessionModel) domain.AgentSession {
 	return domain.AgentSession{
-		ID:                model.ID,
-		UserID:            model.UserID,
-		ExternalAccountID: model.ExternalAccountID,
-		Provider:          model.Provider,
-		ChannelSessionKey: model.ChannelSessionKey,
-		Status:            domain.AgentSessionStatus(model.Status),
-		Title:             model.Title,
-		StartedAt:         model.StartedAt,
-		LastActiveAt:      model.LastActiveAt,
-		CreatedAt:         model.CreatedAt,
-		UpdatedAt:         model.UpdatedAt,
+		ID:                       model.ID,
+		UserID:                   model.UserID,
+		ExternalAccountID:        model.ExternalAccountID,
+		Provider:                 model.Provider,
+		ChannelSessionKey:        model.ChannelSessionKey,
+		Status:                   domain.AgentSessionStatus(model.Status),
+		Title:                    model.Title,
+		StartedAt:                model.StartedAt,
+		LastActiveAt:             model.LastActiveAt,
+		ContextInitializedAt:     model.ContextInitializedAt,
+		ContextRebuildStartedAt:  model.ContextRebuildStartedAt,
+		ContextRebuildFinishedAt: model.ContextRebuildFinishedAt,
+		ContextVersion:           model.ContextVersion,
+		TranscriptCountIndexed:   model.TranscriptCountIndexed,
+		CreatedAt:                model.CreatedAt,
+		UpdatedAt:                model.UpdatedAt,
 	}
 }
 
@@ -991,4 +1325,18 @@ func cloneAgentJSON(input domain.AgentJSON) domain.AgentJSON {
 		output[key] = value
 	}
 	return output
+}
+
+func int64Pointer(value int64) *int64 {
+	if value == 0 {
+		return nil
+	}
+	return &value
+}
+
+func int64Value(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
