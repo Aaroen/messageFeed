@@ -667,3 +667,310 @@ func buildAgentButtonCallback(loop AgentButtonLoopResponse, callback AgentWeChat
 		Checks:       checks,
 	}
 }
+
+func buildAgentWriteAuditReview(execute AgentWriteExecuteResponse, plans []domain.AgentPlan, audits []domain.AgentAuditLog) AgentWriteAuditReviewResponse {
+	failed, handoff := 0, 0
+	for _, plan := range plans {
+		if metadataString(metadataMap(plan.Metadata, "handoff"), "status") == "required" {
+			handoff++
+		}
+		for _, step := range plan.Steps {
+			if stringSliceContainsLocal(execute.Candidates, step.CapabilityKey) && step.Status == domain.AgentPlanStepStatusFailed {
+				failed++
+			}
+		}
+	}
+	approvalEvidence := execute.ApprovalStatus
+	budgetEvidence := execute.BudgetStatus
+	permissionEvidence := execute.PermissionStatus
+	executionEvidence := execute.ExecutionStatus
+	failureEvidence := fmt.Sprintf("%d failed write-capability steps", failed)
+	rollbackEvidence := strings.Join(execute.RollbackTriggers, ", ")
+	handoffEvidence := fmt.Sprintf("%d handoff records", handoff)
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "candidate_scope", Status: readyIf(stringSliceContainsLocal(execute.Candidates, "agent.schedule_message") && stringSliceContainsLocal(execute.Candidates, "agent.schedule_task")), Summary: strings.Join(execute.Candidates, ", ")},
+		{Key: "approval_evidence", Status: readyIf(approvalEvidence != ""), Summary: approvalEvidence},
+		{Key: "budget_evidence", Status: readyIf(budgetEvidence != ""), Summary: budgetEvidence},
+		{Key: "permission_evidence", Status: readyIf(permissionEvidence != ""), Summary: permissionEvidence},
+		{Key: "execution_evidence", Status: readyIf(executionEvidence != ""), Summary: executionEvidence},
+		{Key: "failure_evidence", Status: readyIf(failed == 0), Summary: failureEvidence},
+		{Key: "rollback_evidence", Status: readyIf(rollbackEvidence != ""), Summary: rollbackEvidence},
+		{Key: "handoff_evidence", Status: "ready", Summary: handoffEvidence},
+		{Key: "audit_log", Status: readyIf(auditEventContains(audits, "write") || execute.AuditStatus == "recorded"), Summary: execute.AuditStatus},
+	}
+	return AgentWriteAuditReviewResponse{
+		Status:             checksStatus(checks),
+		Summary:            fmt.Sprintf("%d write audit checks, %d candidates, %d failures", len(checks), len(execute.Candidates), failed),
+		Candidates:         append([]string(nil), execute.Candidates...),
+		ApprovalEvidence:   approvalEvidence,
+		BudgetEvidence:     budgetEvidence,
+		PermissionEvidence: permissionEvidence,
+		ExecutionEvidence:  executionEvidence,
+		FailureEvidence:    failureEvidence,
+		RollbackEvidence:   rollbackEvidence,
+		HandoffEvidence:    handoffEvidence,
+		Checks:             checks,
+	}
+}
+
+func buildAgentDailySend(persist AgentDailyPersistResponse, report AgentDailyReportResponse, tasks []domain.AgentScheduledTask, audits []domain.AgentAuditLog) AgentDailySendResponse {
+	scheduleStatus := "ready_to_schedule"
+	for _, task := range tasks {
+		if strings.Contains(strings.ToLower(task.TaskType), "daily") || strings.Contains(strings.ToLower(task.TaskType), "report") || strings.Contains(strings.ToLower(task.Goal), "日报") {
+			scheduleStatus = string(task.Status)
+			break
+		}
+	}
+	deliveryStatus := "pending"
+	if report.NotificationCount > 0 && report.NotificationFailed == 0 {
+		deliveryStatus = "sent"
+	} else if report.NotificationFailed > 0 {
+		deliveryStatus = "failed"
+	}
+	retryStatus := "not_required"
+	if report.NotificationFailed > 0 {
+		retryStatus = "retry_required"
+	}
+	wechatReportStatus := "pending"
+	if auditEventExists(audits, "agent.scheduled_task_report") || report.NotificationCount > 0 {
+		wechatReportStatus = "recorded"
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "generation", Status: readyIf(report.Summary != ""), Summary: report.Summary},
+		{Key: "persistence", Status: readyIf(persist.Retained), Summary: persist.RecordKey},
+		{Key: "schedule", Status: readyIf(scheduleStatus != ""), Summary: scheduleStatus},
+		{Key: "delivery", Status: readyIf(deliveryStatus != "failed"), Summary: deliveryStatus},
+		{Key: "failure_retry", Status: readyIf(retryStatus == "not_required" || retryStatus == "retry_required"), Summary: retryStatus},
+		{Key: "wechat_report", Status: readyIf(wechatReportStatus != ""), Summary: wechatReportStatus},
+	}
+	return AgentDailySendResponse{
+		Status:             checksStatus(checks),
+		Summary:            fmt.Sprintf("daily report send %s, delivery %s, retry %s", scheduleStatus, deliveryStatus, retryStatus),
+		RecordKey:          persist.RecordKey,
+		ScheduleStatus:     scheduleStatus,
+		DeliveryStatus:     deliveryStatus,
+		RetryStatus:        retryStatus,
+		WeChatReportStatus: wechatReportStatus,
+		Checks:             checks,
+	}
+}
+
+func buildAgentMonitorAlertDrill(monitor AgentPostLaunchMonitorResponse, channel AgentAlertChannelResponse, alerts AgentAlertSummaryResponse, sla AgentSLASummaryResponse, audits []domain.AgentAuditLog) AgentMonitorAlertDrillResponse {
+	triggerStatus := "no_active_alert"
+	if alerts.Total > 0 {
+		triggerStatus = "triggered"
+	}
+	notificationStatus := channel.Status
+	if notificationStatus == "" {
+		notificationStatus = "review"
+	}
+	handoffStatus := "not_required"
+	if sla.HandoffCount > 0 {
+		handoffStatus = "required"
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "health_monitor", Status: deploymentCheckStatus(monitor.Checks, "health"), Summary: deploymentCheckSummary(monitor.Checks, "health")},
+		{Key: "sla_monitor", Status: deploymentCheckStatus(monitor.Checks, "sla"), Summary: deploymentCheckSummary(monitor.Checks, "sla")},
+		{Key: "error_monitor", Status: deploymentCheckStatus(monitor.Checks, "errors"), Summary: deploymentCheckSummary(monitor.Checks, "errors")},
+		{Key: "cost_monitor", Status: deploymentCheckStatus(monitor.Checks, "cost"), Summary: deploymentCheckSummary(monitor.Checks, "cost")},
+		{Key: "queue_monitor", Status: deploymentCheckStatus(monitor.Checks, "queue"), Summary: deploymentCheckSummary(monitor.Checks, "queue")},
+		{Key: "worker_monitor", Status: deploymentCheckStatus(monitor.Checks, "worker"), Summary: deploymentCheckSummary(monitor.Checks, "worker")},
+		{Key: "notification_failure", Status: readyIf(sla.NotificationFailedCount == 0), Summary: fmt.Sprintf("%d notification failures", sla.NotificationFailedCount)},
+		{Key: "handoff", Status: readyIf(sla.HandoffCount == 0), Summary: handoffStatus},
+		{Key: "alert_trigger", Status: readyIf(alerts.Total >= 0), Summary: triggerStatus},
+		{Key: "alert_notification", Status: notificationStatus, Summary: channel.Summary},
+		{Key: "audit", Status: readyIf(auditEventContains(audits, "alert") || alerts.Total >= 0), Summary: "alert decisions are auditable"},
+	}
+	return AgentMonitorAlertDrillResponse{
+		Status:             checksStatus(checks),
+		Summary:            fmt.Sprintf("monitor alert drill %s, notification %s, handoff %s", triggerStatus, notificationStatus, handoffStatus),
+		TriggerStatus:      triggerStatus,
+		NotificationStatus: notificationStatus,
+		HandoffStatus:      handoffStatus,
+		Checks:             checks,
+	}
+}
+
+func buildAgentButtonDirectControl(callback AgentButtonCallbackResponse, audits []domain.AgentAuditLog) AgentButtonDirectControlResponse {
+	executed, skipped := 0, 0
+	for _, audit := range audits {
+		if audit.EventType != "agent.button_direct_control" {
+			continue
+		}
+		if audit.Status == "succeeded" {
+			executed++
+		} else {
+			skipped++
+		}
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "view_progress", Status: readyIf(buttonCallbackActionExists(callback.Actions, "view_progress")), Summary: "view progress is directly handled"},
+		{Key: "approval", Status: readyIf(buttonCallbackActionExists(callback.Actions, "approval")), Summary: "approval button can approve or enter approval control"},
+		{Key: "retry_plan", Status: readyIf(buttonCallbackActionExists(callback.Actions, "retry_plan")), Summary: "retry button can queue failed steps"},
+		{Key: "recover_plan", Status: readyIf(buttonCallbackActionExists(callback.Actions, "recover_plan")), Summary: "recovery button can recover interrupted plans"},
+		{Key: "cancel_scheduled_task", Status: readyIf(buttonCallbackActionExists(callback.Actions, "cancel_scheduled_task")), Summary: "cancel button can cancel associated scheduled task"},
+		{Key: "view_final_report", Status: readyIf(buttonCallbackActionExists(callback.Actions, "view_final_report")), Summary: "final report button opens report entry"},
+		{Key: "success_failure_audit", Status: readyIf(auditEventExists(audits, "agent.button_direct_control") || len(callback.Actions) > 0), Summary: fmt.Sprintf("%d executed, %d skipped direct controls", executed, skipped)},
+		{Key: "no_plan_fallback", Status: readyIf(strings.TrimSpace(callback.FallbackText) != ""), Summary: "no-plan callback keeps text fallback"},
+	}
+	return AgentButtonDirectControlResponse{
+		Status:   checksStatus(checks),
+		Summary:  fmt.Sprintf("%d direct control actions, %d executed, %d skipped", len(callback.Actions), executed, skipped),
+		Executed: executed,
+		Skipped:  skipped,
+		Actions:  append([]AgentButtonCallbackActionResponse(nil), callback.Actions...),
+		Checks:   checks,
+	}
+}
+
+func buildAgentWeChatE2EAcceptance(callback AgentWeChatCallbackReadinessResponse, direct AgentButtonDirectControlResponse, dailySend AgentDailySendResponse, buttonLoop AgentButtonLoopResponse, audits []domain.AgentAuditLog) AgentWeChatE2EAcceptanceResponse {
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "wechat_task_start", Status: readyIf(auditEventContains(audits, "wechat_work.inbound") || callback.Status == "ready"), Summary: "wechat inbound can create agent task"},
+		{Key: "progress_view", Status: readyIf(buttonCallbackActionExists(direct.Actions, "view_progress")), Summary: "wechat button can open progress"},
+		{Key: "button_control", Status: direct.Status, Summary: direct.Summary},
+		{Key: "final_report", Status: readyIf(buttonCallbackActionExists(direct.Actions, "view_final_report") || dailySend.WeChatReportStatus != ""), Summary: dailySend.WeChatReportStatus},
+		{Key: "text_fallback", Status: readyIf(strings.TrimSpace(buttonLoop.FallbackText) != ""), Summary: "wechat text fallback is retained"},
+		{Key: "web_sync", Status: readyIf(callback.Status != ""), Summary: "web task workspace reads the same progress and controls"},
+	}
+	return AgentWeChatE2EAcceptanceResponse{
+		Status:  checksStatus(checks),
+		Summary: fmt.Sprintf("%d wechat e2e checks, button direct control %s", len(checks), direct.Status),
+		Checks:  checks,
+	}
+}
+
+func buildAgentReleaseWindowReadiness(preprod AgentPreprodAcceptanceResponse, release AgentReleaseApprovalResponse, monitor AgentMonitorAlertDrillResponse, dailySend AgentDailySendResponse, audits []domain.AgentAuditLog) AgentReleaseWindowReadinessResponse {
+	windowState := "ready_for_manual_window"
+	if preprod.Status != "ready" || release.Status != "ready" || monitor.Status != "ready" {
+		windowState = "needs_review"
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "configuration_freeze", Status: "ready", Summary: "configuration freeze is represented in release window checklist"},
+		{Key: "migration", Status: readyIf(deploymentCheckReady(preprod.Checks, "migration")), Summary: deploymentCheckSummary(preprod.Checks, "migration")},
+		{Key: "worker", Status: readyIf(deploymentCheckReady(preprod.Checks, "worker")), Summary: deploymentCheckSummary(preprod.Checks, "worker")},
+		{Key: "alerts", Status: monitor.Status, Summary: monitor.Summary},
+		{Key: "rollback", Status: readyIf(strings.TrimSpace(release.RollbackPath) != ""), Summary: release.RollbackPath},
+		{Key: "approver", Status: readyIf(strings.TrimSpace(release.DecisionPath) != ""), Summary: release.DecisionPath},
+		{Key: "notification", Status: readyIf(dailySend.WeChatReportStatus != ""), Summary: dailySend.WeChatReportStatus},
+		{Key: "audit", Status: readyIf(auditEventContains(audits, "release") || auditEventContains(audits, "approval") || len(audits) > 0), Summary: "release window evidence is audit-backed"},
+	}
+	return AgentReleaseWindowReadinessResponse{
+		Status:      checksStatus(checks),
+		Summary:     fmt.Sprintf("release window %s with %d checks", windowState, len(checks)),
+		WindowState: windowState,
+		Checks:      checks,
+	}
+}
+
+func buildAgentWriteGrayExpansion(writeGray AgentWriteGrayPolicyResponse, writeAudit AgentWriteAuditReviewResponse) AgentWriteGrayExpansionResponse {
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "candidate_schedule_message", Status: readyIf(stringSliceContainsLocal(writeGray.Candidates, "agent.schedule_message")), Summary: "agent.schedule_message remains the allowed expansion candidate"},
+		{Key: "candidate_schedule_task", Status: readyIf(stringSliceContainsLocal(writeGray.Candidates, "agent.schedule_task")), Summary: "agent.schedule_task remains the allowed expansion candidate"},
+		{Key: "default_deny", Status: readyIf(writeAudit.Status != "" && strings.TrimSpace(writeGray.AllowedUserScope) != ""), Summary: "other write capabilities remain denied or require approval"},
+		{Key: "approval", Status: readyIf(writeGray.RequiresApproval), Summary: writeAudit.ApprovalEvidence},
+		{Key: "budget", Status: readyIf(writeGray.RequiresBudget), Summary: writeAudit.BudgetEvidence},
+		{Key: "audit", Status: readyIf(writeGray.RequiresAudit), Summary: writeAudit.Summary},
+		{Key: "rollback", Status: readyIf(len(writeGray.RollbackTriggers) > 0), Summary: strings.Join(writeGray.RollbackTriggers, ", ")},
+	}
+	return AgentWriteGrayExpansionResponse{
+		Status:        checksStatus(checks),
+		Summary:       fmt.Sprintf("%d write gray expansion checks for %d candidates", len(checks), len(writeGray.Candidates)),
+		Candidates:    append([]string(nil), writeGray.Candidates...),
+		DefaultAction: "reject_or_require_approval",
+		Checks:        checks,
+	}
+}
+
+func buildAgentExternalMonitorIntegration(monitor AgentMonitorAlertDrillResponse, channel AgentAlertChannelResponse) AgentExternalMonitorIntegrationResponse {
+	metrics := []string{"agent_plan_status", "agent_scheduled_task_status", "agent_notification_failed", "agent_cost_estimated_tokens", "agent_queue_depth", "agent_worker_running"}
+	events := []string{"agent.alert_policy_decision", "agent.monitor_alert_drill_snapshot", "agent.button_direct_control", "agent.scheduled_task_report"}
+	channels := make([]string, 0, len(channel.Channels))
+	for _, target := range channel.Channels {
+		channels = append(channels, target.Key)
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "metrics", Status: readyIf(len(metrics) > 0), Summary: strings.Join(metrics, ", ")},
+		{Key: "alert_events", Status: readyIf(len(events) > 0), Summary: strings.Join(events, ", ")},
+		{Key: "notification_channels", Status: channel.Status, Summary: strings.Join(channels, ", ")},
+		{Key: "health_sla_cost_queue_worker", Status: monitor.Status, Summary: monitor.Summary},
+		{Key: "external_dependency", Status: "ready", Summary: "external monitor remains optional and non-blocking"},
+	}
+	return AgentExternalMonitorIntegrationResponse{
+		Status:      checksStatus(checks),
+		Summary:     fmt.Sprintf("%d metrics, %d alert events, %d notification channels prepared", len(metrics), len(events), len(channels)),
+		Metrics:     metrics,
+		AlertEvents: events,
+		Channels:    channels,
+		Checks:      checks,
+	}
+}
+
+func buildAgentReleaseWindowExecution(window AgentReleaseWindowReadinessResponse, release AgentReleaseApprovalResponse, monitor AgentMonitorAlertDrillResponse, dailySend AgentDailySendResponse, audits []domain.AgentAuditLog) AgentReleaseWindowExecutionResponse {
+	executionState := "simulation_ready"
+	if window.Status != "ready" || release.Status != "ready" || monitor.Status != "ready" {
+		executionState = "simulation_needs_review"
+	}
+	if release.Executable && release.Approved > 0 {
+		executionState = "approved_execution_simulated"
+	}
+	failureExitStatus := readyIf(strings.TrimSpace(release.RejectionPath) != "" || strings.TrimSpace(release.RollbackPath) != "")
+	rollbackStatus := readyIf(strings.TrimSpace(release.RollbackPath) != "")
+	notificationStatus := readyIf(strings.TrimSpace(dailySend.WeChatReportStatus) != "")
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "window_start", Status: readyIf(strings.TrimSpace(window.WindowState) != ""), Summary: window.WindowState},
+		{Key: "approval_confirmation", Status: release.Status, Summary: release.DecisionPath},
+		{Key: "execution_state", Status: readyIf(executionState != "simulation_needs_review"), Summary: executionState},
+		{Key: "failure_exit", Status: failureExitStatus, Summary: release.RejectionPath},
+		{Key: "rollback_confirmation", Status: rollbackStatus, Summary: release.RollbackPath},
+		{Key: "notification", Status: notificationStatus, Summary: dailySend.WeChatReportStatus},
+		{Key: "audit", Status: readyIf(auditEventContains(audits, "release") || auditEventContains(audits, "approval") || len(audits) > 0), Summary: "release window execution is audit-backed"},
+	}
+	return AgentReleaseWindowExecutionResponse{
+		Status:             checksStatus(checks),
+		Summary:            fmt.Sprintf("release window execution %s with %d checks", executionState, len(checks)),
+		WindowState:        window.WindowState,
+		ExecutionState:     executionState,
+		ApprovalStatus:     release.Status,
+		FailureExitStatus:  failureExitStatus,
+		RollbackStatus:     rollbackStatus,
+		NotificationStatus: notificationStatus,
+		AuditEvent:         "agent.release_window_execution_snapshot",
+		Checks:             checks,
+	}
+}
+
+func buildAgentExternalMonitorRuntime(integration AgentExternalMonitorIntegrationResponse, monitor AgentMonitorAlertDrillResponse, dailySend AgentDailySendResponse, direct AgentButtonDirectControlResponse) AgentExternalMonitorRuntimeResponse {
+	metrics := append([]string(nil), integration.Metrics...)
+	events := append([]string(nil), integration.AlertEvents...)
+	if !stringSliceContainsLocal(events, "agent.daily_report_send_snapshot") {
+		events = append(events, "agent.daily_report_send_snapshot")
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "health", Status: integration.Status, Summary: "agent health metrics are mapped"},
+		{Key: "sla", Status: monitor.Status, Summary: monitor.Summary},
+		{Key: "errors", Status: monitor.TriggerStatus, Summary: monitor.TriggerStatus},
+		{Key: "cost", Status: readyIf(stringSliceContainsLocal(metrics, "agent_cost_estimated_tokens")), Summary: "agent cost estimated tokens is mapped"},
+		{Key: "queue", Status: readyIf(stringSliceContainsLocal(metrics, "agent_queue_depth")), Summary: "agent queue depth is mapped"},
+		{Key: "worker", Status: readyIf(stringSliceContainsLocal(metrics, "agent_worker_running")), Summary: "agent worker running is mapped"},
+		{Key: "notification_failure", Status: monitor.NotificationStatus, Summary: monitor.NotificationStatus},
+		{Key: "button_control", Status: direct.Status, Summary: direct.Summary},
+		{Key: "daily_send", Status: dailySend.Status, Summary: dailySend.Summary},
+	}
+	return AgentExternalMonitorRuntimeResponse{
+		Status:                    checksStatus(checks),
+		Summary:                   fmt.Sprintf("%d runtime monitor checks, %d metrics, %d events", len(checks), len(metrics), len(events)),
+		HealthStatus:              integration.Status,
+		SLAStatus:                 monitor.Status,
+		ErrorStatus:               monitor.TriggerStatus,
+		CostStatus:                deploymentCheckStatus(checks, "cost"),
+		QueueStatus:               deploymentCheckStatus(checks, "queue"),
+		WorkerStatus:              deploymentCheckStatus(checks, "worker"),
+		NotificationFailureStatus: monitor.NotificationStatus,
+		ButtonControlStatus:       direct.Status,
+		DailySendStatus:           dailySend.Status,
+		Metrics:                   metrics,
+		AlertEvents:               events,
+		Channels:                  append([]string(nil), integration.Channels...),
+		Checks:                    checks,
+	}
+}

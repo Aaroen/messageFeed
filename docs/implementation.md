@@ -81,7 +81,7 @@
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 5936 | 仍明显过大；本轮已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper，后续应继续拆分聚合 builder、审计 recorder 和服务编排 |
-| `internal/service/agent_workflow_governance.go` | 3057 | 仍偏大；已迁出 metadata builder、基础聚合 builder、企业微信组件 builder、release/ops 基础 builder 和发布执行/日报闭环 builder 群组，后续继续拆分发布窗口、外部监控和按钮直控等治理摘要 builder |
+| `internal/service/agent_workflow_governance.go` | 2750 | 仍偏大；已迁出 metadata builder、基础聚合 builder、企业微信组件 builder、release/ops 基础 builder、发布执行/日报闭环 builder 和发布窗口/外部监控 builder 群组，后续继续拆分生产发布、运行闭环和运维处置等治理摘要 builder |
 | `web/src/views/AgentPlanView.vue` | 3680 | 仍明显过大；本轮已迁出两个企业微信摘要组件，后续应继续拆分 composable、摘要面板组件和任务卡片组件 |
 
 结论：这些文件达到数千行不能简单视为正常的企业级设计结果。当前实现虽然有业务闭环推进价值，但从企业级代码质量角度看，必须持续进行模块化拆分、职责收敛和测试保护。后续新增能力不得继续扩大上述文件，除非是短期兼容性必要改动；优先使用独立 service 文件、独立前端组件或 composable。
@@ -245,6 +245,14 @@ Workflow governance 发布执行与日报闭环 builder 拆分阶段性结果：
 2. 已从 `internal/service/agent_workflow_governance.go` 移除同一函数块，不改变聚合摘要 JSON 字段、状态取值、summary 文案或 `ListTasks` 调用顺序。
 3. `agent_workflow_governance.go` 从 3381 行降至 3057 行；`agent_workflow_release_ops_builders.go` 从 345 行增至 669 行。
 4. 当前 workflow governance builder 拆分累计新增 4 个小文件，合计承接 49 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
+5. 已验证：`go test ./...`、`go vet ./...`。
+
+Workflow governance 发布窗口与外部监控 builder 拆分阶段性结果：
+
+1. 已将 10 个发布窗口、外部监控、按钮直控、灰度扩展和企业微信验收相关 builder 追加迁入 `internal/service/agent_workflow_release_ops_builders.go`。
+2. 已从 `internal/service/agent_workflow_governance.go` 移除同一函数块，不改变聚合摘要 JSON 字段、状态取值、summary 文案或 `ListTasks` 调用顺序。
+3. `agent_workflow_governance.go` 从 3057 行降至 2750 行；`agent_workflow_release_ops_builders.go` 从 669 行增至 976 行。
+4. 当前 workflow governance builder 拆分累计新增 4 个小文件，合计承接 59 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
