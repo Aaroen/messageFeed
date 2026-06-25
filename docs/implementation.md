@@ -1,6 +1,6 @@
 # messageFeed 实施进度台账
 
-**最后更新**：2026-06-25
+**最后更新**：2026-06-26
 
 本文件是当前实现进度的主台账。每轮迭代除更新 `docs/nowdoit` 活动文档外，必须同步更新本文档以及相关设计文档，例如 `docs/agent-plan.md`。历史已完成活动文档保留在 `docs/nowdoit/archive/`。
 
@@ -22,8 +22,8 @@
 | 分支 | `master` |
 | 工作区 | 最近核对为干净，且已与 `origin/master` 同步 |
 | 当前活动文档 | `docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md` |
-| 最近全量验证 | `go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build` 已在上一轮通过 |
-| 最近提交 | `ac20538`、`97ba0f7`、`bd9fcc1`、`d629dc5`、`4bd3063` |
+| 最近全量验证 | `go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build` 已在本轮通过 |
+| 最近核对提交 | `dbb989a`、`70f6d92`、`074228c`、`95e6009`、`0cbe844` |
 
 ## 3. 已完成能力
 
@@ -42,6 +42,7 @@
 - 已完成 `wechat_web_progress_link` 后端聚合摘要和审计快照，字段覆盖进度地址、地址来源、投递通道、模板状态、fallback 状态、浏览器目标和审计引用。
 - 已接入企业微信进度通知真实投递：模板卡片优先，文本 fallback 保底，卡片和 fallback 均包含 Web 浏览器进度地址。
 - `wechat_web_progress_link` 聚合摘要已读取真实 `agent.plan_progress_notification` 或 `agent.plan_started_feedback` 审计事件中的进度地址、模板状态和 fallback 状态。
+- 企业微信 OAuth 绑定链路已核对：OAuth URL 必须由已登录 Web 用户生成；callback 按 OAuth state 中的 `user_id` 绑定 external account 并创建同一用户的 Web session；`/api/v1/auth/me` 返回当前用户 bindings；disabled binding 在企业微信 external account 解析时被拒绝。
 
 ### 3.3 Web 进度与治理展示
 
@@ -65,7 +66,7 @@
 
 | 优先级 | 缺口 | 当前判断 |
 | --- | --- | --- |
-| P1 | Web 浏览器进度地址权限校验与企业微信身份绑定仍需继续强化 | 已有 OAuth 与审批基础，需与进度地址投递闭环结合 |
+| P1 | Web 浏览器进度地址权限校验与企业微信身份绑定仍需继续强化 | 进度与计划接口用户归属校验已有测试；OAuth / external account 绑定链路已有服务测试；仍需完成前端进度摘要拆分和入口体验治理 |
 | P1 | Agent 能力注册、上下文记忆、计划执行和评测体系仍需按设计持续补齐 | 已有较多基础对象，但未能证明全部设计均已完整实现 |
 | P1 | 大文件职责边界仍不理想 | 需要继续拆分 `agent_session_service.go`、`agent_workflow_governance.go`、`AgentPlanView.vue` |
 
@@ -75,9 +76,9 @@
 
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
-| `internal/service/agent_session_service.go` | 6247 | 明显过大，承担聚合、响应结构、审计快照和部分运行逻辑，后续应拆分响应 DTO、聚合 builder、审计 recorder 和服务编排 |
-| `internal/service/agent_workflow_governance.go` | 4588 | 明显过大，虽然近期已有拆分，但仍不符合长期可维护目标 |
-| `web/src/views/AgentPlanView.vue` | 3680 | 明显过大，后续应拆分 composable、摘要面板组件和任务卡片组件 |
+| `internal/service/agent_session_service.go` | 6255 | 明显过大，承担聚合、响应结构、审计快照和部分运行逻辑，后续应拆分响应 DTO、聚合 builder、审计 recorder 和服务编排 |
+| `internal/service/agent_workflow_governance.go` | 4626 | 明显过大，虽然近期已有拆分，但仍不符合长期可维护目标 |
+| `web/src/views/AgentPlanView.vue` | 3707 | 明显过大，后续应拆分 composable、摘要面板组件和任务卡片组件 |
 
 结论：这些文件达到数千行不能简单视为正常的企业级设计结果。当前实现虽然有业务闭环推进价值，但从企业级代码质量角度看，必须持续进行模块化拆分、职责收敛和测试保护。后续新增能力不得继续扩大上述文件，除非是短期兼容性必要改动；优先使用独立 service 文件、独立前端组件或 composable。
 
@@ -118,15 +119,26 @@
 3. 已完成：补充跨用户访问计划进度拒绝测试。
 4. 已完成：补充跨用户访问计划详情拒绝测试。
 5. 已完成：补充跨用户访问调度任务进度拒绝测试。
-6. 已验证：`go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
+6. 已完成：梳理企业微信 OAuth / external account / Web session 与 Web 进度页访问关系。
+7. 已完成：补充 OAuth 与绑定一致性测试，覆盖未登录生成 OAuth URL 拒绝、callback 按 state 用户绑定、当前用户 bindings 返回、disabled binding 解析拒绝。
+8. 已验证：`go test ./internal/service -run 'TestAuthService(WeChatWorkOAuth|ResolveExternalAccount|Me)'`。
+9. 本轮完整验证已通过：`go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
 
 ## 7. 下一轮实施顺序
 
-1. 提交并推送权限测试阶段性结果。
-2. 梳理企业微信 OAuth 和 external account 绑定对 Web 进度页访问的支持状态。
-3. 补齐绑定不一致拒绝测试。
-4. 拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑。
-5. 运行完整验证矩阵，提交并推送。
+1. 提交并推送 OAuth / external account 绑定测试和文档同步结果。
+2. 拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑，避免继续扩大 `AgentPlanView.vue`。
+3. 归档当前活动文档，并按主设计新建下一轮活动文档。
+4. 继续治理后端大文件职责边界，优先迁出 Agent session 聚合 DTO、审计快照 builder 和 workflow governance 子模块。
+
+## 7.1 本轮文件变更核对
+
+当前阶段未新增生产文件，文件数量未扩张。变更集中在：
+
+1. `internal/service/auth_service_test.go`：新增 OAuth / external account 绑定语义测试，并扩展测试 fake repository 支持多用户断言。
+2. `docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md`：同步本轮活动文档状态。
+3. `docs/implementation.md`：同步主进度台账。
+4. `docs/agent-plan.md`：同步 Agent 设计对照状态。
 
 ## 8. 最小验证命令
 

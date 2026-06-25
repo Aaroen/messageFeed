@@ -195,6 +195,86 @@ func TestAuthServiceWeChatWorkOAuthBind(t *testing.T) {
 	}
 }
 
+func TestAuthServiceWeChatWorkOAuthURLRequiresAuthenticatedUser(t *testing.T) {
+	now := time.Date(2026, 6, 23, 11, 10, 0, 0, time.UTC)
+	service := NewAuthService(
+		newFakeAuthRepository(now),
+		testAuthConfig(),
+		WithAuthNow(func() time.Time { return now }),
+		WithAuthRandomToken(func() (string, error) { return "fixed-token", nil }),
+		WithAuthWeChatWorkOAuth(fakeWeChatWorkOAuth{user: WeChatWorkOAuthUser{UserID: "aroen"}}),
+	)
+
+	_, err := service.BuildWeChatWorkOAuthURL(context.Background(), WeChatWorkOAuthURLInput{
+		UserID:       0,
+		Purpose:      "bind",
+		RedirectPath: "/agent/plans/42",
+	})
+	if domain.ClassifyError(err) != domain.ErrorKindInvalidInput {
+		t.Fatalf("error kind = %s, want invalid_input; err = %v", domain.ClassifyError(err), err)
+	}
+}
+
+func TestAuthServiceWeChatWorkOAuthCallbackBindsStateUser(t *testing.T) {
+	now := time.Date(2026, 6, 23, 11, 15, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	repository.users[2] = domain.User{
+		ID:          2,
+		Username:    "bound_user",
+		DisplayName: "bound_user",
+		Role:        domain.UserRoleUser,
+		Status:      domain.UserStatusActive,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	tokens := []string{"oauth-state-user-2", "session-token-user-2"}
+	service := NewAuthService(
+		repository,
+		testAuthConfig(),
+		WithAuthNow(func() time.Time { return now }),
+		WithAuthRandomToken(func() (string, error) {
+			token := tokens[0]
+			tokens = tokens[1:]
+			return token, nil
+		}),
+		WithAuthWeChatWorkOAuth(fakeWeChatWorkOAuth{user: WeChatWorkOAuthUser{UserID: "lisi"}}),
+	)
+
+	if _, err := service.BuildWeChatWorkOAuthURL(context.Background(), WeChatWorkOAuthURLInput{
+		UserID:       2,
+		Purpose:      "bind",
+		RedirectPath: "/agent/plans/42",
+	}); err != nil {
+		t.Fatalf("BuildWeChatWorkOAuthURL() error = %v", err)
+	}
+	result, err := service.HandleWeChatWorkOAuthCallback(context.Background(), WeChatWorkOAuthCallbackInput{
+		Code:  "oauth-code",
+		State: "oauth-state-user-2",
+	})
+	if err != nil {
+		t.Fatalf("HandleWeChatWorkOAuthCallback() error = %v", err)
+	}
+	if result.User.ID != 2 {
+		t.Fatalf("result.User.ID = %d, want 2", result.User.ID)
+	}
+	if result.Binding.UserID != 2 {
+		t.Fatalf("result.Binding.UserID = %d, want 2", result.Binding.UserID)
+	}
+	if result.Binding.ExternalUserID != "lisi" {
+		t.Fatalf("ExternalUserID = %q, want lisi", result.Binding.ExternalUserID)
+	}
+	if result.RedirectPath != "/agent/plans/42" {
+		t.Fatalf("RedirectPath = %q, want /agent/plans/42", result.RedirectPath)
+	}
+	auth, err := service.AuthenticateSession(context.Background(), result.Token)
+	if err != nil {
+		t.Fatalf("AuthenticateSession() error = %v", err)
+	}
+	if !auth.Authenticated || auth.User.ID != 2 {
+		t.Fatalf("authenticated user = %#v, want user 2", auth.User)
+	}
+}
+
 func TestAuthServiceWeChatWorkOAuthRejectsOpenIDOnly(t *testing.T) {
 	now := time.Date(2026, 6, 23, 11, 30, 0, 0, time.UTC)
 	repository := newFakeAuthRepository(now)
@@ -558,6 +638,65 @@ func TestAuthServiceResolveExternalAccount(t *testing.T) {
 	}
 }
 
+func TestAuthServiceResolveExternalAccountRejectsDisabledBinding(t *testing.T) {
+	now := time.Date(2026, 6, 23, 17, 10, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	account := domain.ExternalAccount{
+		ID:             10,
+		UserID:         1,
+		Provider:       domain.AgentProviderWeChatWorkApp,
+		CorpID:         "corp-a",
+		AgentID:        "1000002",
+		ExternalUserID: "zhangsan",
+		BindingStatus:  domain.ExternalAccountBindingStatusDisabled,
+	}
+	repository.accounts[account.ID] = account
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	_, err := service.ResolveExternalAccount(context.Background(), domain.AgentProviderWeChatWorkApp, "corp-a", "1000002", "zhangsan")
+	if domain.ClassifyError(err) != domain.ErrorKindUnavailable {
+		t.Fatalf("error kind = %s, want unavailable; err = %v", domain.ClassifyError(err), err)
+	}
+	if repository.accounts[account.ID].LastSeenAt != nil {
+		t.Fatal("LastSeenAt updated for disabled binding")
+	}
+}
+
+func TestAuthServiceMeReturnsCurrentUserBindings(t *testing.T) {
+	now := time.Date(2026, 6, 23, 17, 20, 0, 0, time.UTC)
+	repository := newFakeAuthRepository(now)
+	verifiedAt := now.Add(-time.Minute)
+	repository.accounts[11] = domain.ExternalAccount{
+		ID:             11,
+		UserID:         1,
+		Provider:       domain.AgentProviderWeChatWorkApp,
+		CorpID:         "corp-a",
+		AgentID:        "1000002",
+		ExternalUserID: "zhangsan",
+		DisplayName:    "zhang san",
+		BindingStatus:  domain.ExternalAccountBindingStatusActive,
+		VerifiedAt:     &verifiedAt,
+	}
+	service := NewAuthService(repository, testAuthConfig(), WithAuthNow(func() time.Time { return now }))
+
+	result, err := service.Me(context.Background(), CurrentAuth{Authenticated: true, User: repository.user})
+	if err != nil {
+		t.Fatalf("Me() error = %v", err)
+	}
+	if !result.Authenticated {
+		t.Fatal("Authenticated = false, want true")
+	}
+	if len(result.Bindings) != 1 {
+		t.Fatalf("len(Bindings) = %d, want 1", len(result.Bindings))
+	}
+	if result.Bindings[0].ExternalUserID != "zhangsan" {
+		t.Fatalf("ExternalUserID = %q, want zhangsan", result.Bindings[0].ExternalUserID)
+	}
+	if result.Bindings[0].BindingStatus != string(domain.ExternalAccountBindingStatusActive) {
+		t.Fatalf("BindingStatus = %q, want active", result.Bindings[0].BindingStatus)
+	}
+}
+
 func testAuthConfig() config.Config {
 	cfg := config.Defaults()
 	cfg.Runtime.PublicBaseURL = "https://messagefeed.example"
@@ -589,6 +728,7 @@ type fakeAuthRepository struct {
 	now      time.Time
 	nextID   int64
 	user     domain.User
+	users    map[int64]domain.User
 	sessions map[string]domain.UserSession
 	states   map[string]domain.AuthOAuthState
 	accounts map[int64]domain.ExternalAccount
@@ -609,6 +749,7 @@ func newFakeAuthRepository(now time.Time) *fakeAuthRepository {
 			CreatedAt:   now,
 			UpdatedAt:   now,
 		},
+		users:    map[int64]domain.User{},
 		sessions: map[string]domain.UserSession{},
 		states:   map[string]domain.AuthOAuthState{},
 		accounts: map[int64]domain.ExternalAccount{},
@@ -627,12 +768,16 @@ func (r *fakeAuthRepository) EnsureOwner(ctx context.Context, username string) (
 		CreatedAt:   r.now,
 		UpdatedAt:   r.now,
 	}
+	r.users[r.user.ID] = r.user
 	return r.user, nil
 }
 
 func (r *fakeAuthRepository) GetUserByID(ctx context.Context, userID int64) (domain.User, error) {
 	if r.user.ID > 0 && r.user.ID == userID {
 		return r.user, nil
+	}
+	if user, ok := r.users[userID]; ok && user.ID > 0 {
+		return user, nil
 	}
 	return domain.User{}, domain.ErrNotFound
 }
@@ -645,10 +790,16 @@ func (r *fakeAuthRepository) GetUserByUsername(ctx context.Context, username str
 }
 
 func (r *fakeAuthRepository) ListUsers(ctx context.Context) ([]domain.User, error) {
-	if r.user.ID == 0 {
-		return []domain.User{}, nil
+	users := []domain.User{}
+	if r.user.ID > 0 {
+		users = append(users, r.user)
 	}
-	return []domain.User{r.user}, nil
+	for userID, user := range r.users {
+		if user.ID > 0 && userID != r.user.ID {
+			users = append(users, user)
+		}
+	}
+	return users, nil
 }
 
 func (r *fakeAuthRepository) UpdateUserInfo(ctx context.Context, userID int64, displayName string, email string, now time.Time) (domain.User, error) {
@@ -881,6 +1032,7 @@ func (r *fakeAuthRepository) CreateUserWithInvite(ctx context.Context, codeHash 
 	user.CreatedAt = now
 	user.UpdatedAt = now
 	r.user = user
+	r.users[user.ID] = user
 	invite.UseCount++
 	invite.UpdatedAt = now
 	r.invites[codeHash] = invite
