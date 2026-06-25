@@ -248,6 +248,11 @@ type AgentTaskListResult struct {
 	CallbackReplayResultTrace    AgentCallbackReplayResultTraceResponse    `json:"callback_replay_result_trace"`
 	RecoveryPolicyAutomation     AgentRecoveryPolicyAutomationResponse     `json:"recovery_policy_automation"`
 	DualEndTaskClosure           AgentDualEndTaskClosureResponse           `json:"dual_end_task_closure"`
+	WeChatTemplatePilotMetric    AgentWeChatTemplatePilotMetricResponse    `json:"wechat_template_pilot_metric"`
+	WebEvidenceOperation         AgentWebEvidenceOperationResponse         `json:"web_evidence_operation"`
+	CallbackReplayResultQuery    AgentCallbackReplayResultQueryResponse    `json:"callback_replay_result_query"`
+	RecoveryAutomationExecution  AgentRecoveryAutomationExecutionResponse  `json:"recovery_automation_execution"`
+	RealInteractionAutomation    AgentRealInteractionAutomationResponse    `json:"real_interaction_automation"`
 	Report                       AgentTaskReportResponse                   `json:"report"`
 }
 
@@ -1623,6 +1628,70 @@ type AgentDualEndTaskClosureResponse struct {
 	Checks                    []AgentDeploymentCheckResponse `json:"checks"`
 }
 
+type AgentWeChatTemplatePilotMetricResponse struct {
+	Status          string                         `json:"status"`
+	Summary         string                         `json:"summary"`
+	BatchID         string                         `json:"batch_id"`
+	TargetUserScope string                         `json:"target_user_scope"`
+	SendStatus      string                         `json:"send_status"`
+	FallbackCount   int                            `json:"fallback_count"`
+	MessageIDStatus string                         `json:"message_id_status"`
+	AuditRef        string                         `json:"audit_ref"`
+	Checks          []AgentDeploymentCheckResponse `json:"checks"`
+}
+
+type AgentWebEvidenceOperationResponse struct {
+	Status             string                         `json:"status"`
+	Summary            string                         `json:"summary"`
+	FilterEntry        string                         `json:"filter_entry"`
+	ExpandEntry        string                         `json:"expand_entry"`
+	TimelineEntry      string                         `json:"timeline_entry"`
+	ReplayRequestEntry string                         `json:"replay_request_entry"`
+	PermissionGate     string                         `json:"permission_gate"`
+	AuditEvent         string                         `json:"audit_event"`
+	OperationCount     int                            `json:"operation_count"`
+	Checks             []AgentDeploymentCheckResponse `json:"checks"`
+}
+
+type AgentCallbackReplayResultQueryResponse struct {
+	Status            string                         `json:"status"`
+	Summary           string                         `json:"summary"`
+	QueryEntry        string                         `json:"query_entry"`
+	ExecutionResult   string                         `json:"execution_result"`
+	IdempotencyResult string                         `json:"idempotency_result"`
+	ApprovalDecision  string                         `json:"approval_decision"`
+	SignatureResult   string                         `json:"signature_result"`
+	FailureReason     string                         `json:"failure_reason"`
+	AuditRef          string                         `json:"audit_ref"`
+	Checks            []AgentDeploymentCheckResponse `json:"checks"`
+}
+
+type AgentRecoveryAutomationExecutionResponse struct {
+	Status          string                         `json:"status"`
+	Summary         string                         `json:"summary"`
+	ExecutionMode   string                         `json:"execution_mode"`
+	CurrentPercent  int                            `json:"current_percent"`
+	NextPercent     int                            `json:"next_percent"`
+	AdvanceDecision string                         `json:"advance_decision"`
+	PauseGate       string                         `json:"pause_gate"`
+	RollbackGate    string                         `json:"rollback_gate"`
+	ApprovalGate    string                         `json:"approval_gate"`
+	AuditRef        string                         `json:"audit_ref"`
+	Checks          []AgentDeploymentCheckResponse `json:"checks"`
+}
+
+type AgentRealInteractionAutomationResponse struct {
+	Status                  string                         `json:"status"`
+	Summary                 string                         `json:"summary"`
+	PilotMetricStatus       string                         `json:"pilot_metric_status"`
+	EvidenceOperationStatus string                         `json:"evidence_operation_status"`
+	ReplayQueryStatus       string                         `json:"replay_query_status"`
+	RecoveryExecutionStatus string                         `json:"recovery_execution_status"`
+	AuditStatus             string                         `json:"audit_status"`
+	NextAction              string                         `json:"next_action"`
+	Checks                  []AgentDeploymentCheckResponse `json:"checks"`
+}
+
 type AgentCallbackReplayInput struct {
 	PlanID      int64  `json:"plan_id"`
 	CallbackKey string `json:"callback_key"`
@@ -2254,6 +2323,11 @@ func (s *AgentSessionService) ListTasks(ctx context.Context, auth CurrentAuth, l
 	callbackReplayResultTrace := buildAgentCallbackReplayResultTrace(callbackReplaySafetyAudit)
 	recoveryPolicyAutomation := buildAgentRecoveryPolicyAutomation(recoveryPolicyGrayRelease)
 	dualEndTaskClosure := buildAgentDualEndTaskClosure(wechatTemplatePilot, webEvidenceUserAction, callbackReplayResultTrace, recoveryPolicyAutomation, auditLogs)
+	wechatTemplatePilotMetric := buildAgentWeChatTemplatePilotMetric(wechatTemplatePilot, auditLogs)
+	webEvidenceOperation := buildAgentWebEvidenceOperation(webEvidenceUserAction, auditLogs)
+	callbackReplayResultQuery := buildAgentCallbackReplayResultQuery(callbackReplayResultTrace, auditLogs)
+	recoveryAutomationExecution := buildAgentRecoveryAutomationExecution(recoveryPolicyAutomation, auditLogs)
+	realInteractionAutomation := buildAgentRealInteractionAutomation(wechatTemplatePilotMetric, webEvidenceOperation, callbackReplayResultQuery, recoveryAutomationExecution, auditLogs)
 	s.recordAgentProductionDrillSnapshot(ctx, auth.User.ID, drill, trendSnapshot)
 	s.recordAgentAlertPolicyDecision(ctx, auth.User.ID, alertPolicy, alerts)
 	s.recordAgentWriteSandboxSnapshot(ctx, auth.User.ID, writeSandbox)
@@ -2357,6 +2431,11 @@ func (s *AgentSessionService) ListTasks(ctx context.Context, auth CurrentAuth, l
 	s.recordAgentCallbackReplayResultTraceSnapshot(ctx, auth.User.ID, callbackReplayResultTrace)
 	s.recordAgentRecoveryPolicyAutomationSnapshot(ctx, auth.User.ID, recoveryPolicyAutomation)
 	s.recordAgentDualEndTaskClosureSnapshot(ctx, auth.User.ID, dualEndTaskClosure)
+	s.recordAgentWeChatTemplatePilotMetricSnapshot(ctx, auth.User.ID, wechatTemplatePilotMetric)
+	s.recordAgentWebEvidenceOperationSnapshot(ctx, auth.User.ID, webEvidenceOperation)
+	s.recordAgentCallbackReplayResultQuerySnapshot(ctx, auth.User.ID, callbackReplayResultQuery)
+	s.recordAgentRecoveryAutomationExecutionSnapshot(ctx, auth.User.ID, recoveryAutomationExecution)
+	s.recordAgentRealInteractionAutomationSnapshot(ctx, auth.User.ID, realInteractionAutomation)
 	return AgentTaskListResult{
 		Tasks:                        items,
 		SLA:                          sla,
@@ -2474,6 +2553,11 @@ func (s *AgentSessionService) ListTasks(ctx context.Context, auth CurrentAuth, l
 		CallbackReplayResultTrace:    callbackReplayResultTrace,
 		RecoveryPolicyAutomation:     recoveryPolicyAutomation,
 		DualEndTaskClosure:           dualEndTaskClosure,
+		WeChatTemplatePilotMetric:    wechatTemplatePilotMetric,
+		WebEvidenceOperation:         webEvidenceOperation,
+		CallbackReplayResultQuery:    callbackReplayResultQuery,
+		RecoveryAutomationExecution:  recoveryAutomationExecution,
+		RealInteractionAutomation:    realInteractionAutomation,
 		Report:                       buildAgentTaskReport(plans, scheduledTasks),
 	}, nil
 }
@@ -4706,6 +4790,120 @@ func (s *AgentSessionService) recordAgentDualEndTaskClosureSnapshot(ctx context.
 			"audit_status":                 closure.AuditStatus,
 			"next_action":                  closure.NextAction,
 			"check_count":                  len(closure.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentWeChatTemplatePilotMetricSnapshot(ctx context.Context, userID int64, metric AgentWeChatTemplatePilotMetricResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.wechat_template_pilot_metric_snapshot",
+		Status:    metric.Status,
+		Message:   metric.Summary,
+		Metadata: domain.AgentJSON{
+			"batch_id":          metric.BatchID,
+			"target_user_scope": metric.TargetUserScope,
+			"send_status":       metric.SendStatus,
+			"fallback_count":    metric.FallbackCount,
+			"message_id_status": metric.MessageIDStatus,
+			"audit_ref":         metric.AuditRef,
+			"check_count":       len(metric.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentWebEvidenceOperationSnapshot(ctx context.Context, userID int64, operation AgentWebEvidenceOperationResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.web_evidence_operation_snapshot",
+		Status:    operation.Status,
+		Message:   operation.Summary,
+		Metadata: domain.AgentJSON{
+			"filter_entry":         operation.FilterEntry,
+			"expand_entry":         operation.ExpandEntry,
+			"timeline_entry":       operation.TimelineEntry,
+			"replay_request_entry": operation.ReplayRequestEntry,
+			"permission_gate":      operation.PermissionGate,
+			"audit_event":          operation.AuditEvent,
+			"operation_count":      operation.OperationCount,
+			"check_count":          len(operation.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentCallbackReplayResultQuerySnapshot(ctx context.Context, userID int64, query AgentCallbackReplayResultQueryResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.callback_replay_result_query_snapshot",
+		Status:    query.Status,
+		Message:   query.Summary,
+		Metadata: domain.AgentJSON{
+			"query_entry":        query.QueryEntry,
+			"execution_result":   query.ExecutionResult,
+			"idempotency_result": query.IdempotencyResult,
+			"approval_decision":  query.ApprovalDecision,
+			"signature_result":   query.SignatureResult,
+			"failure_reason":     query.FailureReason,
+			"audit_ref":          query.AuditRef,
+			"check_count":        len(query.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentRecoveryAutomationExecutionSnapshot(ctx context.Context, userID int64, execution AgentRecoveryAutomationExecutionResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.recovery_automation_execution_snapshot",
+		Status:    execution.Status,
+		Message:   execution.Summary,
+		Metadata: domain.AgentJSON{
+			"execution_mode":   execution.ExecutionMode,
+			"current_percent":  execution.CurrentPercent,
+			"next_percent":     execution.NextPercent,
+			"advance_decision": execution.AdvanceDecision,
+			"pause_gate":       execution.PauseGate,
+			"rollback_gate":    execution.RollbackGate,
+			"approval_gate":    execution.ApprovalGate,
+			"audit_ref":        execution.AuditRef,
+			"check_count":      len(execution.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentRealInteractionAutomationSnapshot(ctx context.Context, userID int64, automation AgentRealInteractionAutomationResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.real_interaction_automation_snapshot",
+		Status:    automation.Status,
+		Message:   automation.Summary,
+		Metadata: domain.AgentJSON{
+			"pilot_metric_status":       automation.PilotMetricStatus,
+			"evidence_operation_status": automation.EvidenceOperationStatus,
+			"replay_query_status":       automation.ReplayQueryStatus,
+			"recovery_execution_status": automation.RecoveryExecutionStatus,
+			"audit_status":              automation.AuditStatus,
+			"next_action":               automation.NextAction,
+			"check_count":               len(automation.Checks),
 		},
 		CreatedAt: s.now().UTC(),
 	})

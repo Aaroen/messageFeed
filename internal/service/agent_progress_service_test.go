@@ -486,6 +486,21 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	if result.DualEndTaskClosure.NextAction == "" || result.DualEndTaskClosure.WeChatPilotStatus == "" || len(result.DualEndTaskClosure.Checks) == 0 {
 		t.Fatalf("dual end task closure = %#v", result.DualEndTaskClosure)
 	}
+	if result.WeChatTemplatePilotMetric.BatchID == "" || result.WeChatTemplatePilotMetric.SendStatus == "" || result.WeChatTemplatePilotMetric.AuditRef == "" {
+		t.Fatalf("wechat template pilot metric = %#v", result.WeChatTemplatePilotMetric)
+	}
+	if result.WebEvidenceOperation.FilterEntry == "" || result.WebEvidenceOperation.ReplayRequestEntry == "" || result.WebEvidenceOperation.OperationCount == 0 {
+		t.Fatalf("web evidence operation = %#v", result.WebEvidenceOperation)
+	}
+	if result.CallbackReplayResultQuery.QueryEntry == "" || result.CallbackReplayResultQuery.IdempotencyResult == "" || result.CallbackReplayResultQuery.AuditRef == "" {
+		t.Fatalf("callback replay result query = %#v", result.CallbackReplayResultQuery)
+	}
+	if result.RecoveryAutomationExecution.ExecutionMode == "" || result.RecoveryAutomationExecution.ApprovalGate == "" || result.RecoveryAutomationExecution.NextPercent < result.RecoveryAutomationExecution.CurrentPercent {
+		t.Fatalf("recovery automation execution = %#v", result.RecoveryAutomationExecution)
+	}
+	if result.RealInteractionAutomation.NextAction == "" || result.RealInteractionAutomation.PilotMetricStatus == "" || len(result.RealInteractionAutomation.Checks) == 0 {
+		t.Fatalf("real interaction automation = %#v", result.RealInteractionAutomation)
+	}
 	if result.Report.ByEntry["web"] != 1 || result.Report.ByCapability["web.search"] != 1 || result.Report.ByHandoff["required"] != 1 {
 		t.Fatalf("report = %#v", result.Report)
 	}
@@ -591,7 +606,12 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 		!auditEventExists(repository.audits, "agent.web_evidence_user_action_snapshot") ||
 		!auditEventExists(repository.audits, "agent.callback_replay_result_trace_snapshot") ||
 		!auditEventExists(repository.audits, "agent.recovery_policy_automation_snapshot") ||
-		!auditEventExists(repository.audits, "agent.dual_end_task_closure_snapshot") {
+		!auditEventExists(repository.audits, "agent.dual_end_task_closure_snapshot") ||
+		!auditEventExists(repository.audits, "agent.wechat_template_pilot_metric_snapshot") ||
+		!auditEventExists(repository.audits, "agent.web_evidence_operation_snapshot") ||
+		!auditEventExists(repository.audits, "agent.callback_replay_result_query_snapshot") ||
+		!auditEventExists(repository.audits, "agent.recovery_automation_execution_snapshot") ||
+		!auditEventExists(repository.audits, "agent.real_interaction_automation_snapshot") {
 		t.Fatalf("audits = %#v", repository.audits)
 	}
 }
