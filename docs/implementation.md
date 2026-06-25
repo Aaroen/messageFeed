@@ -21,7 +21,7 @@
 | --- | --- |
 | 分支 | `master` |
 | 工作区 | 最近核对为干净，且已与 `origin/master` 同步 |
-| 当前活动文档 | `docs/nowdoit/agent-wechat-final-result-report-delivery-plan.md` |
+| 当前活动文档 | `docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md` |
 | 最近全量验证 | `go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build` 已在上一轮通过 |
 | 最近提交 | `ac20538`、`97ba0f7`、`bd9fcc1`、`d629dc5`、`4bd3063` |
 
@@ -85,7 +85,9 @@
 
 上一活动文档 `docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-wechat-web-progress-link-delivery-plan-implemented-2026-06-25.md`。
 
-当前活动文档：`docs/nowdoit/agent-wechat-final-result-report-delivery-plan.md`
+上一活动文档 `docs/nowdoit/agent-wechat-final-result-report-delivery-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-wechat-final-result-report-delivery-plan-implemented-2026-06-25.md`。
+
+当前活动文档：`docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md`
 
 上一轮完成项：
 
@@ -111,10 +113,11 @@
 
 ## 7. 下一轮实施顺序
 
-1. 提交并推送企业微信最终结果汇报真实发送闭环。
-2. 归档当前活动文档，创建下一轮活动文档。
-3. 继续推进 Web 浏览器进度页权限校验与企业微信身份绑定。
-4. 继续推进大文件拆分治理。
+1. 梳理 Agent 进度、证据、审批 API 的用户归属校验。
+2. 梳理企业微信 OAuth 和 external account 绑定对 Web 进度页访问的支持状态。
+3. 补齐权限测试，覆盖跨用户访问拒绝、未登录拒绝和绑定不一致拒绝。
+4. 拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑。
+5. 运行完整验证矩阵，提交并推送。
 
 ## 8. 最小验证命令
 
