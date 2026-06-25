@@ -111,11 +111,20 @@
 6. 已完成：Web 任务工作台展示企业微信最终汇报真实投递状态和进度地址链接。
 7. 已验证：`go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
 
+当前权限治理阶段性完成项：
+
+1. 已完成：确认 `GetProgress` 和 `GetPlanDetail` 使用当前认证用户 ID 访问数据层。
+2. 已完成：补充未登录访问进度拒绝测试。
+3. 已完成：补充跨用户访问计划进度拒绝测试。
+4. 已完成：补充跨用户访问计划详情拒绝测试。
+5. 已完成：补充跨用户访问调度任务进度拒绝测试。
+6. 已验证：`go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
+
 ## 7. 下一轮实施顺序
 
-1. 梳理 Agent 进度、证据、审批 API 的用户归属校验。
+1. 提交并推送权限测试阶段性结果。
 2. 梳理企业微信 OAuth 和 external account 绑定对 Web 进度页访问的支持状态。
-3. 补齐权限测试，覆盖跨用户访问拒绝、未登录拒绝和绑定不一致拒绝。
+3. 补齐绑定不一致拒绝测试。
 4. 拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑。
 5. 运行完整验证矩阵，提交并推送。
 

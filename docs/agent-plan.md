@@ -1677,7 +1677,7 @@ EvalCase
 
 当前活动文档为 `docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md`。本轮剩余工作优先级为：
 
-1. 梳理 Agent 进度、证据、审批 API 的用户归属校验。
+1. 已完成 Agent 进度和计划详情 API 的用户归属校验测试。
 2. 梳理企业微信 OAuth 和 external account 绑定对 Web 进度页访问的支持状态。
-3. 补齐权限测试，覆盖跨用户访问拒绝、未登录拒绝和绑定不一致拒绝。
+3. 补齐绑定不一致拒绝测试。
 4. 拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑。

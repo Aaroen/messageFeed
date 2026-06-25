@@ -629,6 +629,57 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	}
 }
 
+func TestAgentSessionServiceProgressRejectsUnauthenticatedUser(t *testing.T) {
+	service := NewAgentSessionService(&fakeAgentProgressRepository{})
+
+	_, err := service.GetProgress(context.Background(), CurrentAuth{}, AgentProgressQuery{PlanID: 10})
+	if err == nil {
+		t.Fatal("GetProgress() error = nil, want unauthenticated error")
+	}
+}
+
+func TestAgentSessionServiceProgressRejectsCrossUserPlan(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	repository := &fakeAgentProgressRepository{
+		enforceUserScope: true,
+		plan:             domain.AgentPlan{ID: 10, UserID: 2, TurnID: 3, Status: domain.AgentPlanStatusExecuting, CreatedAt: now, UpdatedAt: now},
+	}
+	service := NewAgentSessionService(repository)
+
+	_, err := service.GetProgress(context.Background(), CurrentAuth{Authenticated: true, User: domain.User{ID: 1}}, AgentProgressQuery{PlanID: 10})
+	if err == nil {
+		t.Fatal("GetProgress() error = nil, want cross-user rejection")
+	}
+}
+
+func TestAgentSessionServicePlanDetailRejectsCrossUserPlan(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	repository := &fakeAgentProgressRepository{
+		enforceUserScope: true,
+		plan:             domain.AgentPlan{ID: 10, UserID: 2, TurnID: 3, Status: domain.AgentPlanStatusExecuting, CreatedAt: now, UpdatedAt: now},
+	}
+	service := NewAgentSessionService(repository)
+
+	_, err := service.GetPlanDetail(context.Background(), CurrentAuth{Authenticated: true, User: domain.User{ID: 1}}, 10)
+	if err == nil {
+		t.Fatal("GetPlanDetail() error = nil, want cross-user rejection")
+	}
+}
+
+func TestAgentSessionServiceProgressRejectsCrossUserScheduledTask(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	repository := &fakeAgentProgressRepository{
+		enforceUserScope: true,
+		tasks:            []domain.AgentScheduledTask{{ID: 20, UserID: 2, PlanID: 10, Status: domain.AgentScheduledTaskStatusRunning, UpdatedAt: now}},
+	}
+	service := NewAgentSessionService(repository)
+
+	_, err := service.GetProgress(context.Background(), CurrentAuth{Authenticated: true, User: domain.User{ID: 1}}, AgentProgressQuery{ScheduledTaskID: 20})
+	if err == nil {
+		t.Fatal("GetProgress() error = nil, want cross-user scheduled task rejection")
+	}
+}
+
 func stringSliceContains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
@@ -752,11 +803,12 @@ func TestAgentSessionServiceCallbackReplayAPIsWriteAuditAndGateExecution(t *test
 }
 
 type fakeAgentProgressRepository struct {
-	plan   domain.AgentPlan
-	plans  []domain.AgentPlan
-	runs   []domain.AgentRun
-	tasks  []domain.AgentScheduledTask
-	audits []domain.AgentAuditLog
+	plan             domain.AgentPlan
+	plans            []domain.AgentPlan
+	runs             []domain.AgentRun
+	tasks            []domain.AgentScheduledTask
+	audits           []domain.AgentAuditLog
+	enforceUserScope bool
 }
 
 func (r *fakeAgentProgressRepository) ListAgentSessions(context.Context, int64) ([]domain.AgentSession, error) {
@@ -803,7 +855,7 @@ func (r *fakeAgentProgressRepository) ListRecentTranscriptEntries(context.Contex
 	return nil, nil
 }
 
-func (r *fakeAgentProgressRepository) ListAgentRunsByTurn(_ context.Context, _ int64, turnID int64) ([]domain.AgentRun, error) {
+func (r *fakeAgentProgressRepository) ListAgentRunsByTurn(_ context.Context, userID int64, turnID int64) ([]domain.AgentRun, error) {
 	runs := make([]domain.AgentRun, 0)
 	for _, run := range r.runs {
 		if run.TurnID == turnID {
@@ -813,7 +865,7 @@ func (r *fakeAgentProgressRepository) ListAgentRunsByTurn(_ context.Context, _ i
 	return runs, nil
 }
 
-func (r *fakeAgentProgressRepository) GetAgentRunDetail(_ context.Context, _ int64, runID int64) (domain.AgentRun, error) {
+func (r *fakeAgentProgressRepository) GetAgentRunDetail(_ context.Context, userID int64, runID int64) (domain.AgentRun, error) {
 	for _, run := range r.runs {
 		if run.ID == runID {
 			return run, nil
@@ -822,34 +874,55 @@ func (r *fakeAgentProgressRepository) GetAgentRunDetail(_ context.Context, _ int
 	return domain.AgentRun{}, domain.ErrNotFound
 }
 
-func (r *fakeAgentProgressRepository) ListAgentPlans(_ context.Context, _ int64, _ int64, turnID int64, _ int) ([]domain.AgentPlan, error) {
+func (r *fakeAgentProgressRepository) ListAgentPlans(_ context.Context, userID int64, _ int64, turnID int64, _ int) ([]domain.AgentPlan, error) {
 	if turnID == 0 && len(r.plans) > 0 {
-		return append([]domain.AgentPlan(nil), r.plans...), nil
+		plans := make([]domain.AgentPlan, 0, len(r.plans))
+		for _, plan := range r.plans {
+			if !r.enforceUserScope || plan.UserID == userID {
+				plans = append(plans, plan)
+			}
+		}
+		return plans, nil
 	}
 	if r.plan.TurnID == turnID {
+		if r.enforceUserScope && r.plan.UserID != userID {
+			return nil, nil
+		}
 		return []domain.AgentPlan{r.plan}, nil
 	}
 	return nil, nil
 }
 
-func (r *fakeAgentProgressRepository) GetAgentPlan(_ context.Context, _ int64, planID int64) (domain.AgentPlan, error) {
+func (r *fakeAgentProgressRepository) GetAgentPlan(_ context.Context, userID int64, planID int64) (domain.AgentPlan, error) {
 	if r.plan.ID == planID {
+		if r.enforceUserScope && r.plan.UserID != userID {
+			return domain.AgentPlan{}, domain.ErrNotFound
+		}
 		return r.plan, nil
 	}
 	return domain.AgentPlan{}, domain.ErrNotFound
 }
 
-func (r *fakeAgentProgressRepository) GetAgentScheduledTask(_ context.Context, _ int64, taskID int64) (domain.AgentScheduledTask, error) {
+func (r *fakeAgentProgressRepository) GetAgentScheduledTask(_ context.Context, userID int64, taskID int64) (domain.AgentScheduledTask, error) {
 	for _, task := range r.tasks {
 		if task.ID == taskID {
+			if r.enforceUserScope && task.UserID != userID {
+				return domain.AgentScheduledTask{}, domain.ErrNotFound
+			}
 			return task, nil
 		}
 	}
 	return domain.AgentScheduledTask{}, domain.ErrNotFound
 }
 
-func (r *fakeAgentProgressRepository) ListAgentScheduledTasks(_ context.Context, _ domain.AgentScheduledTaskListOptions) ([]domain.AgentScheduledTask, error) {
-	return append([]domain.AgentScheduledTask(nil), r.tasks...), nil
+func (r *fakeAgentProgressRepository) ListAgentScheduledTasks(_ context.Context, options domain.AgentScheduledTaskListOptions) ([]domain.AgentScheduledTask, error) {
+	tasks := make([]domain.AgentScheduledTask, 0, len(r.tasks))
+	for _, task := range r.tasks {
+		if !r.enforceUserScope || task.UserID == options.UserID {
+			tasks = append(tasks, task)
+		}
+	}
+	return tasks, nil
 }
 
 func (r *fakeAgentProgressRepository) UpdateAgentScheduledTask(_ context.Context, task domain.AgentScheduledTask) (domain.AgentScheduledTask, error) {

@@ -38,18 +38,34 @@
 
 ## 4. 本轮实施清单
 
-1. [ ] 梳理 Agent 进度、证据、审批 API 的用户归属校验。
+1. [x] 梳理 Agent 进度、证据、审批 API 的用户归属校验。
 2. [ ] 梳理企业微信 OAuth 和 external account 绑定对 Web 进度页访问的支持状态。
-3. [ ] 补齐权限测试，覆盖跨用户访问拒绝、未登录拒绝和绑定不一致拒绝。
+3. [x] 补齐权限测试，覆盖跨用户访问拒绝和未登录拒绝；绑定不一致拒绝待 OAuth 绑定梳理后补齐。
 4. [ ] 拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑。
 5. [ ] 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
-6. [ ] 完成验证矩阵：
-   - [ ] `go test ./...`
-   - [ ] `go vet ./...`
-   - [ ] `npm --prefix web run test`
-   - [ ] `npm --prefix web run type-check`
-   - [ ] `npm --prefix web run build`
+6. [x] 完成验证矩阵：
+   - [x] `go test ./...`
+   - [x] `go vet ./...`
+   - [x] `npm --prefix web run test`
+   - [x] `npm --prefix web run type-check`
+   - [x] `npm --prefix web run build`
 7. [ ] 记录实施结果和验证记录，归档本文档并创建下一轮文档。
+
+## 4.1 阶段性实施结果
+
+- 已确认 `AgentSessionService.GetProgress` 和 `GetPlanDetail` 使用 `auth.User.ID` 访问 repository。
+- 已补充未登录访问进度拒绝测试。
+- 已补充跨用户访问计划进度拒绝测试。
+- 已补充跨用户访问计划详情拒绝测试。
+- 已补充跨用户访问调度任务进度拒绝测试。
+- 测试 fake repository 已增加可选 user scope 校验，能证明 service 将当前认证用户传入数据访问层。
+- 完整验证矩阵已通过。
+
+当前仍未完成：
+
+- 企业微信 OAuth / external account 与 Web 进度页访问绑定关系仍需继续梳理。
+- 绑定不一致拒绝测试仍需在绑定路径明确后补齐。
+- `AgentPlanView.vue` 摘要展示逻辑仍需拆分。
 
 ## 5. 非目标
 
