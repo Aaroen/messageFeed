@@ -292,6 +292,8 @@ Workflow governance 运维处置基础 builder 拆分阶段性结果：
 4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 89 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
+下一实施单元已写入当前活动文档：审批执行与 SLA Builder 迁出。拟继续迁出写阶段审批、反馈工单生命周期、运营动作闭环、API 执行、告警回执、审批按钮、反馈 SLA、运营执行记录和企业微信审批回调相关 10 个纯 builder，承接文件仍为 `internal/service/agent_workflow_ops_handling_builders.go`。
+
 ## 8. 最小验证命令
 
 当前阶段每轮代码实现后至少运行：

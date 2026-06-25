@@ -1700,4 +1700,4 @@ EvalCase
 
 上一活动文档 `docs/nowdoit/agent-workflow-governance-release-ops-builder-modularization-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-workflow-governance-release-ops-builder-modularization-plan-implemented-2026-06-26.md`。已新增 `internal/service/agent_workflow_release_ops_builders.go`，迁出发布、运维、灰度、告警通道、上线演练、企业微信原生按钮联调、发布执行、审批、日报、监控、按钮回调闭环、发布窗口、外部监控、按钮直控、企业微信验收、生产发布、上线交接、运行态参数、监控回读、放量推荐、企业微信用户反馈、运营面板和异常自动汇报相关 50 个纯 builder，并迁入 1 个企业微信最终汇报审计读取 helper；`agent_workflow_governance.go` 当前降至 2127 行。
 
-当前活动文档为 `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md`。已新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，迁出写放量阶段、企业微信反馈循环、运营闭环、运营面板交互、告警去重升级、写阶段记录、反馈工单、运营处理、运营动作定义和告警升级策略相关 10 个纯 builder；`agent_workflow_governance.go` 当前降至 1832 行。下一小轮继续拆分剩余审批执行、证据交互和双端进度相关纯 builder，避免继续扩大治理主文件。
+当前活动文档为 `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md`。已新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，迁出写放量阶段、企业微信反馈循环、运营闭环、运营面板交互、告警去重升级、写阶段记录、反馈工单、运营处理、运营动作定义和告警升级策略相关 10 个纯 builder；`agent_workflow_governance.go` 当前降至 1832 行。下一实施单元已写入活动文档，将继续拆分审批执行与 SLA 相关 10 个纯 builder，避免继续扩大治理主文件。
