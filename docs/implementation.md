@@ -20,7 +20,7 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 本轮文档记录按 4.5 运行态与反馈闭环 Builder 迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
+| 工作区 | 本轮文档记录按 ops handling 第一实施单元迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md` |
 | 最近本轮验证 | `go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
@@ -65,6 +65,7 @@
   - `internal/service/agent_workflow_foundation_builders.go`
   - `internal/service/agent_workflow_wechat_builders.go`
   - `internal/service/agent_workflow_release_ops_builders.go`
+  - `internal/service/agent_workflow_ops_handling_builders.go`
 
 ## 4. 当前未完成缺口
 
@@ -81,7 +82,7 @@
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 5936 | 仍明显过大；本轮已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper，后续应继续拆分聚合 builder、审计 recorder 和服务编排 |
-| `internal/service/agent_workflow_governance.go` | 2127 | 仍偏大；已迁出 metadata builder、基础聚合 builder、企业微信组件 builder、release/ops 基础 builder、发布执行/日报闭环 builder、发布窗口/外部监控 builder、生产发布 builder 和运行态反馈闭环 builder 群组，后续继续拆分剩余灰度阶段、反馈循环、运维处置等治理摘要 builder |
+| `internal/service/agent_workflow_governance.go` | 1832 | 仍偏大；已迁出 metadata builder、基础聚合 builder、企业微信组件 builder、release/ops 基础 builder、发布执行/日报闭环 builder、发布窗口/外部监控 builder、生产发布 builder、运行态反馈闭环 builder 和运维处置基础 builder 群组，后续继续拆分剩余审批执行、证据交互和双端进度等治理摘要 builder |
 | `web/src/views/AgentPlanView.vue` | 3680 | 仍明显过大；本轮已迁出两个企业微信摘要组件，后续应继续拆分 composable、摘要面板组件和任务卡片组件 |
 
 结论：这些文件达到数千行不能简单视为正常的企业级设计结果。当前实现虽然有业务闭环推进价值，但从企业级代码质量角度看，必须持续进行模块化拆分、职责收敛和测试保护。后续新增能力不得继续扩大上述文件，除非是短期兼容性必要改动；优先使用独立 service 文件、独立前端组件或 composable。
@@ -282,6 +283,14 @@ Workflow governance 运行态与反馈闭环 builder 拆分阶段性结果：
 2. 优先迁出输入输出为响应 DTO、无 repository 访问、无审计写入副作用的纯聚合函数。
 3. 新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，避免继续扩大 release/ops 承接文件。
 4. 验证通过后同步主文档和设计文档并提交推送。
+
+Workflow governance 运维处置基础 builder 拆分阶段性结果：
+
+1. 已新增 `internal/service/agent_workflow_ops_handling_builders.go`，承接写放量阶段、企业微信反馈循环、运营闭环、运营面板交互、告警去重升级、写阶段记录、反馈工单、运营处理、运营动作定义和告警升级策略相关 10 个纯 builder。
+2. 已从 `internal/service/agent_workflow_governance.go` 移除同一函数块，不改变聚合摘要 JSON 字段、状态取值、summary 文案或 `ListTasks` 调用顺序。
+3. `agent_workflow_governance.go` 从 2127 行降至 1832 行；`agent_workflow_ops_handling_builders.go` 新增为 302 行。
+4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 89 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
+5. 已验证：`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
 
