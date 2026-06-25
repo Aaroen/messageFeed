@@ -27,11 +27,21 @@
 
 ## 4. 本轮实施清单
 
-1. [ ] 梳理 `agent_session_service.go` 中任务聚合响应类型和 builder 可迁移边界。
-2. [ ] 新增职责明确的小文件，优先迁出任务列表响应 DTO 或纯函数摘要逻辑。
-3. [ ] 运行 Go 测试和 vet；如 API 类型或前端展示受影响，则补跑前端验证。
-4. [ ] 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+1. [x] 梳理 `agent_session_service.go` 中任务聚合响应类型和 builder 可迁移边界。
+2. [x] 新增职责明确的小文件，优先迁出任务列表响应 DTO 或纯函数摘要逻辑。
+3. [x] 运行 Go 测试和 vet；如 API 类型或前端展示受影响，则补跑前端验证。
+4. [x] 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
 5. [ ] 记录实施结果，归档本文档并创建下一轮活动文档。
+
+## 4.1 阶段性实施结果
+
+1. 已新增 `internal/service/agent_task_list_responses.go`，承接 `AgentTaskListResult` 以及任务列表聚合所需的 SLA、成本、告警和趋势响应 DTO。
+2. 已从 `internal/service/agent_session_service.go` 迁出同一组纯类型定义，不改变 `ListTasks` 查询流程、审计事件或 JSON 字段。
+3. `agent_session_service.go` 从 6255 行降至 6054 行；新增 DTO 文件为 202 行，职责边界明确。
+4. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+5. 本次变更不影响前端 API 类型文件和页面展示逻辑，因此未补跑前端验证。
 
 ## 5. 非目标
 
