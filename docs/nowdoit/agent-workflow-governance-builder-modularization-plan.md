@@ -75,6 +75,38 @@
    - `go test ./...`
    - `go vet ./...`
 
+## 4.2 第二实施单元：基础聚合 Builder 迁出
+
+本小轮迁出 workflow governance 中成本、告警、趋势、部署验证和生产演练相关的纯聚合 builder。这组函数主要服务 `ListTasks` 的基础运行治理摘要，不访问 repository，不写审计事件。
+
+拟迁出内容：
+
+1. `buildAgentTaskCostSummary`
+2. `buildAgentAlertSummary`
+3. `buildAgentAlertPolicy`
+4. `agentAlertReasonEnabled`
+5. `agentAlertReasonSeverity`
+6. `buildAgentCostTrend`
+7. `buildAgentTrendSnapshot`
+8. `buildAgentDeploymentVerification`
+9. `buildAgentProductionDrill`
+
+拟新增文件：
+
+1. `internal/service/agent_workflow_foundation_builders.go`
+
+实施约束：
+
+1. 不改变聚合摘要 JSON 字段和状态取值。
+2. 不改变 `ListTasks` 中 builder 调用顺序。
+3. helper 仍保持 package 内部可见，不扩大导出面。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
