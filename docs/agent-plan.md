@@ -1684,9 +1684,16 @@ EvalCase
 3. 已补齐 OAuth state 归属绑定、当前用户 bindings 返回和 disabled binding 拒绝测试。
 4. 已拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑，新增 `web/src/components/agent/AgentWeChatFinalReportSummary.vue` 和 `web/src/components/agent/AgentWeChatWebProgressLinkSummary.vue`；`npm --prefix web run type-check`、`npm --prefix web run build` 和 `npm --prefix web run test` 已通过。
 
-当前活动文档为 `docs/nowdoit/agent-session-service-aggregation-modularization-plan.md`。本轮目标为：
+上一活动文档 `docs/nowdoit/agent-session-service-aggregation-modularization-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-session-service-aggregation-modularization-plan-implemented-2026-06-26.md`。完成项为：
 
 1. 已梳理 `agent_session_service.go` 中任务聚合响应类型和 builder 可迁移边界。
 2. 已新增 `internal/service/agent_task_list_responses.go`，迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper。
 3. 已保持 `ListTasks` 的 JSON 字段、审计事件和前端 API 语义不变；`agent_session_service.go` 当前降至 5936 行。
 4. `go test ./...` 和 `go vet ./...` 已通过。
+
+当前活动文档为 `docs/nowdoit/agent-workflow-governance-builder-modularization-plan.md`。本轮目标为：
+
+1. 梳理 `agent_workflow_governance.go` 中低耦合 builder 群组。
+2. 优先迁出输入输出均为 domain 或 response DTO、无 repository 访问、无审计写入副作用的纯函数。
+3. 保持 `ListTasks` 聚合结果、JSON 字段和审计语义不变。
+4. 验证通过后同步主文档和设计文档并提交推送。
