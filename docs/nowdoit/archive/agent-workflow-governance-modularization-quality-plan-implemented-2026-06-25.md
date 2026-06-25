@@ -49,3 +49,25 @@
 ## 5. 后续衔接
 
 本轮完成后，继续推进企业微信模板试运行指标落库、证据页面实际操作 API、回放执行结果查询 API 和恢复策略自动化执行。
+
+## 6. 实施结果
+
+1. 后端已将双端任务闭环推进 builder 拆分至 `internal/service/agent_dual_end_task_closure_governance.go`。
+2. 后端已将双端运行闭环 builder 拆分至 `internal/service/agent_dual_end_run_loop_governance.go`。
+3. 后端已新增 `internal/service/agent_governance_checks.go`，用于收敛 `AgentDeploymentCheckResponse` 的通用构造逻辑。
+4. `internal/service/agent_workflow_governance.go` 已从 4921 行降至 4588 行。
+5. 前端 `AgentPlanView.vue` 已将本轮新增五个闭环摘要展示块收敛为 `taskClosureSummaryItems` 统一渲染数组，减少重复模板结构。
+6. 本轮保持后端 API 字段、JSON 名称、服务层行为和 Web 可见业务文案不变。
+
+## 7. 验证记录
+
+1. `go test ./internal/service`：通过。
+2. `go test ./...`：通过。
+3. `go vet ./...`：通过。
+4. `npm --prefix web run test`：通过，3 个测试文件、9 个测试用例通过。
+5. `npm --prefix web run type-check`：通过。
+6. `npm --prefix web run build`：通过。
+
+## 8. 归档结论
+
+本轮已完成后端双端闭环 builder 的第一阶段模块化、公共 checks helper 提取和前端新增摘要渲染收敛。后续仍应继续拆分更早期的企业微信、Web 证据、回放和恢复治理函数，但当前结构已能支撑下一轮推进真实链路自动化执行。
