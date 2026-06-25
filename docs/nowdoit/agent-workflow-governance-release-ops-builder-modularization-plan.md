@@ -29,7 +29,7 @@
 2. [x] 新增独立 release/ops builder 文件，迁出低风险纯函数。
 3. [x] 运行 `go test ./...` 和 `go vet ./...`。
 4. [x] 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
-5. [ ] 记录实施结果，归档本文档并创建下一轮活动文档。
+5. [ ] 归档本文档并创建下一轮活动文档。
 
 ## 4.1 第一实施单元：发布与运维基础 Builder 迁出
 
@@ -153,6 +153,59 @@
 1. `go test ./...`
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
+实施结果：
+
+1. 已将 4.4 列出的 10 个灰度评审、企业微信验收复核、生产发布、外部监控配置、写放量策略和最终报告相关 builder 追加迁入 `internal/service/agent_workflow_release_ops_builders.go`。
+2. 已从 `internal/service/agent_workflow_governance.go` 移除同一函数块，不改变聚合摘要 JSON 字段、状态取值、summary 文案或 `ListTasks` 中相关 builder 的调用顺序。
+3. `agent_workflow_governance.go` 从 2750 行降至 2442 行；`agent_workflow_release_ops_builders.go` 从 976 行增至 1284 行。
+4. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
+## 4.5 第五实施单元：运行态与反馈闭环 Builder 迁出
+
+下一小轮继续迁出写放量策略、最终报告、运行态参数、监控回读、推荐和面板摘要相关纯 builder。这组函数仍以响应 DTO 聚合为主，不访问 repository，不写审计事件。
+
+拟迁出内容：
+
+1. `buildAgentWriteRampPolicy`
+2. `buildAgentWeChatFinalReport`
+3. `buildAgentLaunchRuntimeOverview`
+4. `buildAgentRuntimeParameters`
+5. `buildAgentMonitorReadback`
+6. `buildAgentWriteRampRecommendation`
+7. `buildAgentWeChatUserFeedback`
+8. `buildAgentOperationsRuntimeClosure`
+9. `buildAgentOpsPanelConfig`
+10. `buildAgentMonitorAutoReport`
+
+拟承接文件：
+
+1. `internal/service/agent_workflow_release_ops_builders.go`
+
+实施约束：
+
+1. 不改变聚合摘要 JSON 字段、状态取值和 summary 文案。
+2. 不改变 `ListTasks` 中相关 builder 的调用顺序。
+3. helper 仍保持 package 内部可见，不扩大导出面。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
+实施结果：
+
+1. 已将 4.5 列出的 10 个运行态与反馈闭环 builder 追加迁入 `internal/service/agent_workflow_release_ops_builders.go`。
+2. 已同步迁入 `latestAgentWeChatFinalReportAudit` 辅助函数，保留企业微信最终汇报真实审计回读逻辑。
+3. 已从 `internal/service/agent_workflow_governance.go` 移除同一函数块，不改变聚合摘要 JSON 字段、状态取值、summary 文案或 `ListTasks` 中相关 builder 的调用顺序。
+4. `agent_workflow_governance.go` 从 2442 行降至 2127 行；`agent_workflow_release_ops_builders.go` 从 1284 行增至 1599 行。
+5. 本轮 release/ops 活动文档累计迁出 50 个发布、运维、灰度、监控、日报、按钮、生产执行、运行态和反馈闭环相关纯 builder；当前新增文件数量与职责拆分相匹配，不属于冗余扩张。
+6. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
 
 ## 5. 非目标
 
