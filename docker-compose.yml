@@ -364,6 +364,7 @@ services:
     logging: *default-logging
     environment:
       SSL_CERT_FILE: /etc/messagefeed-certs/cloudflared-ca-bundle.crt
+      GODEBUG: tlsmlkem=0
     command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN:-}"]
     volumes:
       - ./deploy/caddy/certs:/etc/messagefeed-certs:ro
@@ -383,6 +384,7 @@ services:
     logging: *default-logging
     environment:
       SSL_CERT_FILE: /etc/messagefeed-certs/cloudflared-ca-bundle.crt
+      GODEBUG: tlsmlkem=0
     command: ["tunnel", "--no-autoupdate", "--protocol", "http2", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN:-}"]
     volumes:
       - ./deploy/caddy/certs:/etc/messagefeed-certs:ro
