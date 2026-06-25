@@ -1666,7 +1666,7 @@ EvalCase
 | 文件 | 当前行数 | 治理要求 |
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 5936 | 已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper；继续拆分聚合 builder、审计 recorder 和服务编排逻辑 |
-| `internal/service/agent_workflow_governance.go` | 4626 | 继续抽离独立治理模块，降低单文件职责范围 |
+| `internal/service/agent_workflow_governance.go` | 4296 | 已迁出 metadata builder 群组；继续抽离独立治理摘要 builder，降低单文件职责范围 |
 | `web/src/views/AgentPlanView.vue` | 3680 | 已迁出企业微信最终汇报和 Web 进度地址两个小组件；仍需继续拆分任务摘要组件、组合式状态逻辑和展示面板 |
 
 上述文件达到数千行不应被视为理想的企业级终态。后续实现必须优先新增职责明确的小文件或组件，并在必要时逐步迁出既有逻辑。
@@ -1693,7 +1693,7 @@ EvalCase
 
 当前活动文档为 `docs/nowdoit/agent-workflow-governance-builder-modularization-plan.md`。本轮目标为：
 
-1. 梳理 `agent_workflow_governance.go` 中低耦合 builder 群组。
-2. 优先迁出输入输出均为 domain 或 response DTO、无 repository 访问、无审计写入副作用的纯函数。
-3. 保持 `ListTasks` 聚合结果、JSON 字段和审计语义不变。
-4. 验证通过后同步主文档和设计文档并提交推送。
+1. 已梳理 `agent_workflow_governance.go` 中低耦合 builder 群组。
+2. 已新增 `internal/service/agent_workflow_metadata_builders.go`，迁出 metadata builder 群组。
+3. 已保持 `ListTasks` 聚合结果、JSON 字段和审计语义不变；`agent_workflow_governance.go` 当前降至 4296 行。
+4. `go test ./...` 和 `go vet ./...` 已通过。

@@ -24,10 +24,10 @@
 
 ## 4. 本轮实施清单
 
-1. [ ] 梳理 `agent_workflow_governance.go` 中可迁移 builder 群组。
-2. [ ] 新增独立治理 builder 文件，迁出低风险纯函数。
-3. [ ] 运行 `go test ./...` 和 `go vet ./...`。
-4. [ ] 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+1. [x] 梳理 `agent_workflow_governance.go` 中可迁移 builder 群组。
+2. [x] 新增独立治理 builder 文件，迁出低风险纯函数。
+3. [x] 运行 `go test ./...` 和 `go vet ./...`。
+4. [x] 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
 5. [ ] 记录实施结果，归档本文档并创建下一轮活动文档。
 
 ## 4.1 第一实施单元：Metadata Builder 迁出
@@ -65,6 +65,15 @@
 1. `go test ./...`
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
+实施结果：
+
+1. 已新增 `internal/service/agent_workflow_metadata_builders.go`，承接 metadata builder 群组。
+2. 已从 `internal/service/agent_workflow_governance.go` 迁出 13 个纯函数，不改变 metadata 字段名、调用方或任务聚合顺序。
+3. `agent_workflow_governance.go` 从 4626 行降至 4296 行；新增文件为 338 行。
+4. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
 
 ## 5. 非目标
 
