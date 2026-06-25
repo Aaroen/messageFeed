@@ -927,6 +927,10 @@ export interface AgentWeChatFinalReport {
   completion_notice_status: string
   final_report_entry: string
   failure_summary: string
+  delivery_status: string
+  template_status: string
+  text_status: string
+  progress_url: string
   next_action: string
   audit_event: string
   checks: AgentDeploymentCheck[]

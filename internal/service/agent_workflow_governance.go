@@ -2448,10 +2448,28 @@ func buildAgentWeChatFinalReport(signoff AgentWeChatSignoffResponse, dailySend A
 	}
 	failureSummary := fmt.Sprintf("%d failures, %d alerts", report.FailureCount, report.AlertCount)
 	auditStatus := readyIf(auditEventContains(audits, "daily") || auditEventContains(audits, "wechat") || len(audits) > 0)
+	deliveryStatus := "not_observed"
+	templateStatus := "not_observed"
+	textStatus := "not_observed"
+	progressURL := ""
+	auditEvent := "agent.wechat_final_report_snapshot"
+	if audit := latestAgentWeChatFinalReportAudit(audits); audit.ID > 0 {
+		deliveryStatus = audit.Status
+		templateStatus = metadataString(audit.Metadata, "template_status")
+		textStatus = metadataString(audit.Metadata, "text_status")
+		progressURL = metadataString(audit.Metadata, "progress_url")
+		finalReportEntry = audit.EventType
+		auditEvent = audit.EventType
+		completionNoticeStatus = readyIf(audit.Status == "succeeded")
+	}
 	checks := []AgentDeploymentCheckResponse{
 		{Key: "completion_notice", Status: completionNoticeStatus, Summary: dailySend.WeChatReportStatus},
 		{Key: "final_report_entry", Status: readyIf(strings.TrimSpace(finalReportEntry) != ""), Summary: finalReportEntry},
 		{Key: "failure_summary", Status: readyIf(strings.TrimSpace(failureSummary) != ""), Summary: failureSummary},
+		agentGovernanceTextCheck("delivery_status", deliveryStatus),
+		agentGovernanceTextCheck("template_status", templateStatus),
+		agentGovernanceTextCheck("text_status", textStatus),
+		agentGovernanceTextCheck("progress_url", progressURL),
 		{Key: "user_next_action", Status: readyIf(strings.TrimSpace(signoff.SignoffState) != ""), Summary: signoff.SignoffState},
 		{Key: "audit", Status: auditStatus, Summary: "wechat final report is audit-backed"},
 	}
@@ -2465,10 +2483,30 @@ func buildAgentWeChatFinalReport(signoff AgentWeChatSignoffResponse, dailySend A
 		CompletionNoticeStatus: completionNoticeStatus,
 		FinalReportEntry:       finalReportEntry,
 		FailureSummary:         failureSummary,
+		DeliveryStatus:         deliveryStatus,
+		TemplateStatus:         templateStatus,
+		TextStatus:             textStatus,
+		ProgressURL:            progressURL,
 		NextAction:             nextAction,
-		AuditEvent:             "agent.wechat_final_report_snapshot",
+		AuditEvent:             auditEvent,
 		Checks:                 checks,
 	}
+}
+
+func latestAgentWeChatFinalReportAudit(audits []domain.AgentAuditLog) domain.AgentAuditLog {
+	var latest domain.AgentAuditLog
+	for _, audit := range audits {
+		if audit.EventType != "wechat_work.reply_sent" && audit.EventType != "agent.turn_failure_feedback" {
+			continue
+		}
+		if metadataString(audit.Metadata, "text_status") == "" && metadataString(audit.Metadata, "progress_url") == "" {
+			continue
+		}
+		if latest.ID == 0 || audit.CreatedAt.After(latest.CreatedAt) || audit.ID > latest.ID && audit.CreatedAt.Equal(latest.CreatedAt) {
+			latest = audit
+		}
+	}
+	return latest
 }
 
 func buildAgentLaunchRuntimeOverview(execution AgentProductionExecutionResponse, monitor AgentMonitorIntegrationResponse, policy AgentWriteRampPolicyResponse, finalReport AgentWeChatFinalReportResponse, audits []domain.AgentAuditLog) AgentLaunchRuntimeOverviewResponse {

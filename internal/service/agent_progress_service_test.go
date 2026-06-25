@@ -122,7 +122,7 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 			{ID: 20, UserID: 1, SessionID: 2, TurnID: 3, PlanID: 10, Status: domain.AgentScheduledTaskStatusSucceeded, TaskType: "digest", Goal: "定时摘要", TargetChannel: domain.AgentProviderWeChatWorkApp, UpdatedAt: now},
 		},
 		audits: []domain.AgentAuditLog{
-			{ID: 30, UserID: 1, EventType: "wechat_work.reply_sent", Status: "succeeded", CreatedAt: now},
+			{ID: 30, UserID: 1, EventType: "wechat_work.reply_sent", Status: "succeeded", Metadata: domain.AgentJSON{"message_type": "template_card_with_text", "template_status": "succeeded", "text_status": "succeeded", "progress_url": "https://messagefeed.example/agent/plans/10"}, CreatedAt: now},
 			{ID: 31, UserID: 1, EventType: "agent.plan_progress_notification", Status: "succeeded", Metadata: domain.AgentJSON{"progress_url": "https://messagefeed.example/agent/plans/10", "target_channel": "wechat_work", "template_status": "succeeded", "fallback_status": "not_attempted"}, CreatedAt: now.Add(time.Second)},
 		},
 	}
@@ -305,6 +305,9 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	}
 	if result.WeChatFinalReport.FinalReportEntry == "" || result.WeChatFinalReport.AuditEvent == "" || len(result.WeChatFinalReport.Checks) == 0 {
 		t.Fatalf("wechat final report = %#v", result.WeChatFinalReport)
+	}
+	if result.WeChatFinalReport.DeliveryStatus != "succeeded" || result.WeChatFinalReport.TemplateStatus != "succeeded" || result.WeChatFinalReport.TextStatus != "succeeded" || result.WeChatFinalReport.ProgressURL == "" {
+		t.Fatalf("wechat final report delivery = %#v", result.WeChatFinalReport)
 	}
 	if result.LaunchRuntimeOverview.NextAction == "" || result.LaunchRuntimeOverview.ProductionExecutionStatus == "" || len(result.LaunchRuntimeOverview.Checks) == 0 {
 		t.Fatalf("launch runtime overview = %#v", result.LaunchRuntimeOverview)

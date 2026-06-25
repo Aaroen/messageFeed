@@ -905,7 +905,7 @@ const taskWeChatFinalReportSummary = computed(() => {
   if (!taskWeChatFinalReport.value) {
     return ''
   }
-  return `${statusLabel(taskWeChatFinalReport.value.status)} / 通知 ${taskWeChatFinalReport.value.completion_notice_status} / 入口 ${taskWeChatFinalReport.value.final_report_entry} / 失败 ${taskWeChatFinalReport.value.failure_summary} / ${taskWeChatFinalReport.value.next_action}`
+  return `${statusLabel(taskWeChatFinalReport.value.status)} / 通知 ${taskWeChatFinalReport.value.completion_notice_status} / 投递 ${taskWeChatFinalReport.value.delivery_status} / 模板 ${taskWeChatFinalReport.value.template_status} / 文本 ${taskWeChatFinalReport.value.text_status} / 入口 ${taskWeChatFinalReport.value.final_report_entry} / ${taskWeChatFinalReport.value.next_action}`
 })
 const visibleWeChatFinalReportChecks = computed(() => taskWeChatFinalReport.value?.checks?.slice(0, 8) || [])
 const taskLaunchRuntimeOverviewSummary = computed(() => {
@@ -2647,6 +2647,9 @@ onBeforeUnmount(() => {
       <div v-if="taskWeChatFinalReportSummary" class="agent-plan-summary">
         <div class="agent-plan-summary__meta">
           <span>企微最终汇报 {{ taskWeChatFinalReportSummary }}</span>
+          <a v-if="taskWeChatFinalReport?.progress_url" :href="taskWeChatFinalReport.progress_url" target="_blank" rel="noreferrer">
+            {{ taskWeChatFinalReport.progress_url }}
+          </a>
           <span v-for="check in visibleWeChatFinalReportChecks" :key="`wechat-final-report-${check.key}`">
             {{ check.key }} {{ statusLabel(check.status) }}
           </span>

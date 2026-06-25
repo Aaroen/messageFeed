@@ -1695,8 +1695,11 @@ func (s *AgentConversationService) processTurn(
 
 	sendResult := notifier.WeChatWorkSendResult{}
 	sendCount := 0
+	finalDelivery := agentWeChatFinalReportDeliveryResult{}
 	if s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "final") {
-		sendResult, sendCount, err = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
+		finalDelivery, err = s.sendWeChatWorkFinalReportDelivery(ctx, input.ExternalUserID, plan, reply, string(plan.Status))
+		sendResult = finalDelivery.SendResult
+		sendCount = finalDelivery.SendCount
 		if err != nil {
 			opErr = err
 			metrics.AgentReplyBytes.WithLabelValues(input.Provider, "failed").Observe(float64(len([]byte(reply))))
@@ -1709,7 +1712,16 @@ func (s *AgentConversationService) processTurn(
 				EventType: "wechat_work.reply_failed",
 				Status:    "failed",
 				Message:   err.Error(),
-				Metadata:  domain.AgentJSON{"provider_message_id": input.ProviderMessageID},
+				Metadata: domain.AgentJSON{
+					"provider_message_id": input.ProviderMessageID,
+					"send_count":          sendCount,
+					"message_type":        finalDelivery.DeliveryMode,
+					"template_status":     finalDelivery.TemplateStatus,
+					"text_status":         finalDelivery.TextStatus,
+					"template_error":      finalDelivery.TemplateError,
+					"text_error":          finalDelivery.TextError,
+					"progress_url":        finalDelivery.ProgressURL,
+				},
 				RequestID: input.RequestID,
 				TraceID:   input.TraceID,
 				CreatedAt: s.now().UTC(),
@@ -1735,6 +1747,12 @@ func (s *AgentConversationService) processTurn(
 			"invalid_user":        sendResult.InvalidUser,
 			"send_count":          sendCount,
 			"observations":        agent.ObservationMetadata(observations),
+			"message_type":        finalDelivery.DeliveryMode,
+			"template_status":     finalDelivery.TemplateStatus,
+			"text_status":         finalDelivery.TextStatus,
+			"template_error":      finalDelivery.TemplateError,
+			"text_error":          finalDelivery.TextError,
+			"progress_url":        finalDelivery.ProgressURL,
 		},
 		RequestID: input.RequestID,
 		TraceID:   input.TraceID,
@@ -2548,9 +2566,12 @@ func (s *AgentConversationService) sendTurnFailureFeedback(
 	sendResult := notifier.WeChatWorkSendResult{}
 	sendCount := 0
 	sendStatus := "skipped"
+	finalDelivery := agentWeChatFinalReportDeliveryResult{}
 	if s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "failure") {
 		var sendErr error
-		sendResult, sendCount, sendErr = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
+		finalDelivery, sendErr = s.sendWeChatWorkFinalReportDelivery(ctx, input.ExternalUserID, plan, reply, "failed")
+		sendResult = finalDelivery.SendResult
+		sendCount = finalDelivery.SendCount
 		if sendErr != nil {
 			sendStatus = "failed"
 		} else {
@@ -2582,6 +2603,12 @@ func (s *AgentConversationService) sendTurnFailureFeedback(
 			"provider_message_id": input.ProviderMessageID,
 			"send_count":          sendCount,
 			"failure_reason":      truncateError(cause.Error(), 500),
+			"message_type":        finalDelivery.DeliveryMode,
+			"template_status":     finalDelivery.TemplateStatus,
+			"text_status":         finalDelivery.TextStatus,
+			"template_error":      finalDelivery.TemplateError,
+			"text_error":          finalDelivery.TextError,
+			"progress_url":        finalDelivery.ProgressURL,
 		},
 		RequestID: input.RequestID,
 		TraceID:   input.TraceID,

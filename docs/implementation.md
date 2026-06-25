@@ -65,7 +65,6 @@
 
 | 优先级 | 缺口 | 当前判断 |
 | --- | --- | --- |
-| P0 | 任务完成后的企业微信最终结果汇报需要继续核实真实发送路径 | 已有最终报告摘要，但仍需以真实发送证据闭环 |
 | P1 | Web 浏览器进度地址权限校验与企业微信身份绑定仍需继续强化 | 已有 OAuth 与审批基础，需与进度地址投递闭环结合 |
 | P1 | Agent 能力注册、上下文记忆、计划执行和评测体系仍需按设计持续补齐 | 已有较多基础对象，但未能证明全部设计均已完整实现 |
 | P1 | 大文件职责边界仍不理想 | 需要继续拆分 `agent_session_service.go`、`agent_workflow_governance.go`、`AgentPlanView.vue` |
@@ -100,13 +99,22 @@
 8. 已验证：`go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
 9. 已完成：本轮完成后归档活动文档并创建下一轮活动文档。
 
+当前轮完成项：
+
+1. 已完成：梳理最终结果汇报路径，包括主完成回复、失败反馈和最终报告摘要 builder。
+2. 已完成：新增企业微信最终结果汇报 helper。
+3. 已完成：最终结果采用模板卡片入口加完整文本结果的组合投递，模板失败时文本仍可发送。
+4. 已完成：最终结果真实发送结果写入 `wechat_work.reply_sent` 和 `agent.turn_failure_feedback` 审计 metadata。
+5. 已完成：`wechat_final_report` 聚合摘要暴露 `delivery_status`、`template_status`、`text_status` 和 `progress_url`。
+6. 已完成：Web 任务工作台展示企业微信最终汇报真实投递状态和进度地址链接。
+7. 已验证：`go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
+
 ## 7. 下一轮实施顺序
 
-1. 梳理最终结果汇报路径，包括最终回复、失败反馈和调度任务 worker。
-2. 实现企业微信最终结果汇报模板卡片优先和文本 fallback。
-3. 将最终结果真实发送结果写入审计，并在任务聚合摘要中暴露。
-4. 运行完整验证矩阵，提交并推送。
-5. 继续推进 Web 浏览器进度页权限校验与大文件拆分治理。
+1. 提交并推送企业微信最终结果汇报真实发送闭环。
+2. 归档当前活动文档，创建下一轮活动文档。
+3. 继续推进 Web 浏览器进度页权限校验与企业微信身份绑定。
+4. 继续推进大文件拆分治理。
 
 ## 8. 最小验证命令
 

@@ -875,6 +875,10 @@ type AgentWeChatFinalReportResponse struct {
 	CompletionNoticeStatus string                         `json:"completion_notice_status"`
 	FinalReportEntry       string                         `json:"final_report_entry"`
 	FailureSummary         string                         `json:"failure_summary"`
+	DeliveryStatus         string                         `json:"delivery_status"`
+	TemplateStatus         string                         `json:"template_status"`
+	TextStatus             string                         `json:"text_status"`
+	ProgressURL            string                         `json:"progress_url"`
 	NextAction             string                         `json:"next_action"`
 	AuditEvent             string                         `json:"audit_event"`
 	Checks                 []AgentDeploymentCheckResponse `json:"checks"`
@@ -3483,6 +3487,10 @@ func (s *AgentSessionService) recordAgentWeChatFinalReportSnapshot(ctx context.C
 			"completion_notice_status": report.CompletionNoticeStatus,
 			"final_report_entry":       report.FinalReportEntry,
 			"failure_summary":          report.FailureSummary,
+			"delivery_status":          report.DeliveryStatus,
+			"template_status":          report.TemplateStatus,
+			"text_status":              report.TextStatus,
+			"progress_url":             report.ProgressURL,
 			"next_action":              report.NextAction,
 			"audit_event":              report.AuditEvent,
 			"check_count":              len(report.Checks),

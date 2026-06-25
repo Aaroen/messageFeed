@@ -79,11 +79,21 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	if sender.sent.Content != "这是 AI 回复" {
 		t.Fatalf("sent Content = %q", sender.sent.Content)
 	}
+	if sender.templateCalls != 1 || sender.sentTemplate.ToUser != "zhangsan" || sender.sentTemplate.URL == "" {
+		t.Fatalf("final report template = %#v calls=%d", sender.sentTemplate, sender.templateCalls)
+	}
 	if len(repository.transcripts) != 2 {
 		t.Fatalf("transcript count = %d, want 2", len(repository.transcripts))
 	}
 	if !fakeAuditContains(repository.audits, "agent.plan_governance_recorded") || !fakeAuditContains(repository.audits, "wechat_work.reply_sent") {
 		t.Fatalf("audits = %#v", repository.audits)
+	}
+	replyAudit := fakeAuditByType(repository.audits, "wechat_work.reply_sent")
+	if replyAudit.Metadata["message_type"] != "template_card_with_text" ||
+		replyAudit.Metadata["template_status"] != "succeeded" ||
+		replyAudit.Metadata["text_status"] != "succeeded" ||
+		replyAudit.Metadata["progress_url"] == "" {
+		t.Fatalf("reply audit metadata = %#v", replyAudit.Metadata)
 	}
 	if len(llmClient.lastRequest.Messages) != 2 {
 		t.Fatalf("llm messages = %#v", llmClient.lastRequest.Messages)
@@ -133,6 +143,57 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	}
 	if plan.Steps[0].ExecutorRunID == 0 || plan.Steps[0].ObservationRef == "" {
 		t.Fatalf("plan step was not bound to executor observation: %#v", plan.Steps[0])
+	}
+}
+
+func TestAgentConversationServiceFallsBackToTextWhenFinalReportTemplateFails(t *testing.T) {
+	now := time.Date(2026, 6, 24, 17, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		response: llm.ChatResponse{
+			Provider: "openai_compatible",
+			Model:    "custom-model",
+			Content:  "最终结果",
+		},
+	}
+	sender := &fakeAgentConversationSender{
+		result:      notifier.WeChatWorkSendResult{MessageID: "wx-text-1"},
+		templateErr: domain.NewAppError(domain.ErrorKindUnavailable, "template_failed", "template failed", "test", true, nil),
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-final-fallback",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "执行任务",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Reply != "最终结果" || sender.templateCalls != 1 || sender.calls != 1 {
+		t.Fatalf("reply=%q templateCalls=%d textCalls=%d", result.Reply, sender.templateCalls, sender.calls)
+	}
+	if sender.sent.Content != "最终结果" {
+		t.Fatalf("fallback text = %#v", sender.sent)
+	}
+	replyAudit := fakeAuditByType(repository.audits, "wechat_work.reply_sent")
+	if replyAudit.Metadata["message_type"] != "text_fallback" ||
+		replyAudit.Metadata["template_status"] != "failed" ||
+		replyAudit.Metadata["text_status"] != "succeeded" ||
+		replyAudit.Metadata["progress_url"] == "" {
+		t.Fatalf("reply audit metadata = %#v", replyAudit.Metadata)
 	}
 }
 
@@ -2042,6 +2103,15 @@ func fakeAuditContains(audits []domain.AgentAuditLog, eventType string) bool {
 		}
 	}
 	return false
+}
+
+func fakeAuditByType(audits []domain.AgentAuditLog, eventType string) domain.AgentAuditLog {
+	for _, audit := range audits {
+		if audit.EventType == eventType {
+			return audit
+		}
+	}
+	return domain.AgentAuditLog{}
 }
 
 type fakeAgentExternalAccountResolver struct {
