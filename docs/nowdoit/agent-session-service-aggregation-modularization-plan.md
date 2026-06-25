@@ -75,6 +75,29 @@
    - `go test ./...`
    - `go vet ./...`
 
+## 4.3 第三实施单元：任务摘要状态 helper 迁出
+
+本小轮继续迁出只服务任务摘要或任务报告聚合的纯 helper，进一步减少 `agent_session_service.go` 中与服务编排无关的工具函数。
+
+拟迁出内容：
+
+1. `scheduledTaskBudgetStatus`
+2. `scheduledTaskHandoffStatus`
+3. `scheduledTaskObservabilitySummary`
+4. `planLatestProgress`
+
+实施约束：
+
+1. helper 仍保持 package 内部可见，不扩大导出面。
+2. 不改变计划和调度任务摘要字段语义。
+3. `scheduledTaskHandoffStatus` 仍需兼容 `agent_workflow_governance.go` 中任务报告聚合调用。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
 ## 5. 非目标
 
 - 本轮不重写 `ListTasks` 的数据查询流程。
