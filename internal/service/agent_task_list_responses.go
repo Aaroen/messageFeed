@@ -285,3 +285,42 @@ func agentTaskSummaryFromScheduledTask(task domain.AgentScheduledTask) AgentTask
 		UpdatedAt:        formatOptionalTime(&task.UpdatedAt),
 	}
 }
+
+func scheduledTaskBudgetStatus(task domain.AgentScheduledTask) string {
+	if strings.TrimSpace(task.LastError) != "" {
+		return "failed"
+	}
+	if task.AttemptCount >= task.MaxAttempts && task.MaxAttempts > 0 {
+		return "exhausted"
+	}
+	return "within_budget"
+}
+
+func scheduledTaskHandoffStatus(task domain.AgentScheduledTask) string {
+	if task.Status == domain.AgentScheduledTaskStatusFailed || task.Status == domain.AgentScheduledTaskStatusInputRequired {
+		return "required"
+	}
+	return "not_required"
+}
+
+func scheduledTaskObservabilitySummary(task domain.AgentScheduledTask) string {
+	if strings.TrimSpace(task.LastError) != "" {
+		return "最近失败：" + strings.TrimSpace(task.LastError)
+	}
+	return fmt.Sprintf("状态 %s，尝试 %d/%d", task.Status, task.AttemptCount, task.MaxAttempts)
+}
+
+func planLatestProgress(plan domain.AgentPlan) string {
+	for _, step := range plan.Steps {
+		if step.Status == domain.AgentPlanStepStatusFailed {
+			return agentProgressFirstNonEmpty(step.ErrorMessage, step.OutputSummary, step.Title)
+		}
+	}
+	for index := len(plan.Steps) - 1; index >= 0; index-- {
+		step := plan.Steps[index]
+		if step.OutputSummary != "" || step.InputSummary != "" {
+			return agentProgressFirstNonEmpty(step.OutputSummary, step.InputSummary, step.Title)
+		}
+	}
+	return agentProgressFirstNonEmpty(plan.ErrorMessage, plan.Summary, plan.Goal)
+}

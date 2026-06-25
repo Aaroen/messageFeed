@@ -98,6 +98,15 @@
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
 
+实施结果：
+
+1. 已将 `scheduledTaskBudgetStatus`、`scheduledTaskHandoffStatus`、`scheduledTaskObservabilitySummary` 和 `planLatestProgress` 迁入 `internal/service/agent_task_list_responses.go`。
+2. helper 仍保持 package 内部可见，`agent_workflow_governance.go` 对 `scheduledTaskHandoffStatus` 的调用不变。
+3. `agent_session_service.go` 从 5975 行继续降至 5936 行；`agent_task_list_responses.go` 从 287 行增至 326 行。
+4. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
 ## 5. 非目标
 
 - 本轮不重写 `ListTasks` 的数据查询流程。

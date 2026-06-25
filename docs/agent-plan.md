@@ -1665,7 +1665,7 @@ EvalCase
 
 | 文件 | 当前行数 | 治理要求 |
 | --- | ---: | --- |
-| `internal/service/agent_session_service.go` | 5975 | 已迁出任务列表聚合响应 DTO、任务摘要 DTO 和转换函数；继续拆分聚合 builder、审计 recorder 和服务编排逻辑 |
+| `internal/service/agent_session_service.go` | 5936 | 已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper；继续拆分聚合 builder、审计 recorder 和服务编排逻辑 |
 | `internal/service/agent_workflow_governance.go` | 4626 | 继续抽离独立治理模块，降低单文件职责范围 |
 | `web/src/views/AgentPlanView.vue` | 3680 | 已迁出企业微信最终汇报和 Web 进度地址两个小组件；仍需继续拆分任务摘要组件、组合式状态逻辑和展示面板 |
 
@@ -1687,6 +1687,6 @@ EvalCase
 当前活动文档为 `docs/nowdoit/agent-session-service-aggregation-modularization-plan.md`。本轮目标为：
 
 1. 已梳理 `agent_session_service.go` 中任务聚合响应类型和 builder 可迁移边界。
-2. 已新增 `internal/service/agent_task_list_responses.go`，迁出任务列表聚合响应 DTO、任务摘要 DTO 和转换函数。
-3. 已保持 `ListTasks` 的 JSON 字段、审计事件和前端 API 语义不变；`agent_session_service.go` 当前降至 5975 行。
+2. 已新增 `internal/service/agent_task_list_responses.go`，迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper。
+3. 已保持 `ListTasks` 的 JSON 字段、审计事件和前端 API 语义不变；`agent_session_service.go` 当前降至 5936 行。
 4. `go test ./...` 和 `go vet ./...` 已通过。
