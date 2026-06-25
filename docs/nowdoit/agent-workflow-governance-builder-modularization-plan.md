@@ -30,6 +30,42 @@
 4. [ ] 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
 5. [ ] 记录实施结果，归档本文档并创建下一轮活动文档。
 
+## 4.1 第一实施单元：Metadata Builder 迁出
+
+本小轮先迁出 workflow governance 文件顶部的 metadata builder 群组。这些函数输入输出明确，主要生成 `domain.AgentJSON`，不访问 repository，也不写审计事件。
+
+拟迁出内容：
+
+1. `buildAgentCapabilityPolicyMetadata`
+2. `agentCapabilityPolicyDecision`
+3. `stricterCapabilityDecision`
+4. `buildAgentHandoffMetadata`
+5. `buildAgentRuntimeObservabilityMetadata`
+6. `buildAgentPlanRecoveryMetadata`
+7. `agentPlanRecoveryStrategy`
+8. `buildAgentScheduledTaskRecoveryMetadata`
+9. `buildAgentResultQualityMetadata`
+10. `buildAgentDeploymentAcceptanceMetadata`
+11. `buildAgentCostSummaryMetadata`
+12. `agentTextTokenEstimate`
+13. `agentDeploymentCheck`
+
+拟新增文件：
+
+1. `internal/service/agent_workflow_metadata_builders.go`
+
+实施约束：
+
+1. 不改变 metadata 字段名和值语义。
+2. 不改变调用方和任务聚合顺序。
+3. helper 仍保持 package 内部可见，不扩大导出面。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
