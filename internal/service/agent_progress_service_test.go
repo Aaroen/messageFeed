@@ -501,6 +501,9 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	if result.RealInteractionAutomation.NextAction == "" || result.RealInteractionAutomation.PilotMetricStatus == "" || len(result.RealInteractionAutomation.Checks) == 0 {
 		t.Fatalf("real interaction automation = %#v", result.RealInteractionAutomation)
 	}
+	if result.WeChatWebProgressLink.ProgressURL == "" || result.WeChatWebProgressLink.DeliveryChannel != "wechat_work" || result.WeChatWebProgressLink.BrowserTarget != "web_browser" {
+		t.Fatalf("wechat web progress link = %#v", result.WeChatWebProgressLink)
+	}
 	if result.Report.ByEntry["web"] != 1 || result.Report.ByCapability["web.search"] != 1 || result.Report.ByHandoff["required"] != 1 {
 		t.Fatalf("report = %#v", result.Report)
 	}
@@ -611,7 +614,8 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 		!auditEventExists(repository.audits, "agent.web_evidence_operation_snapshot") ||
 		!auditEventExists(repository.audits, "agent.callback_replay_result_query_snapshot") ||
 		!auditEventExists(repository.audits, "agent.recovery_automation_execution_snapshot") ||
-		!auditEventExists(repository.audits, "agent.real_interaction_automation_snapshot") {
+		!auditEventExists(repository.audits, "agent.real_interaction_automation_snapshot") ||
+		!auditEventExists(repository.audits, "agent.wechat_web_progress_link_snapshot") {
 		t.Fatalf("audits = %#v", repository.audits)
 	}
 }

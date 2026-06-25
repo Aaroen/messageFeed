@@ -253,6 +253,7 @@ type AgentTaskListResult struct {
 	CallbackReplayResultQuery    AgentCallbackReplayResultQueryResponse    `json:"callback_replay_result_query"`
 	RecoveryAutomationExecution  AgentRecoveryAutomationExecutionResponse  `json:"recovery_automation_execution"`
 	RealInteractionAutomation    AgentRealInteractionAutomationResponse    `json:"real_interaction_automation"`
+	WeChatWebProgressLink        AgentWeChatWebProgressLinkResponse        `json:"wechat_web_progress_link"`
 	Report                       AgentTaskReportResponse                   `json:"report"`
 }
 
@@ -1692,6 +1693,20 @@ type AgentRealInteractionAutomationResponse struct {
 	Checks                  []AgentDeploymentCheckResponse `json:"checks"`
 }
 
+type AgentWeChatWebProgressLinkResponse struct {
+	Status          string                         `json:"status"`
+	Summary         string                         `json:"summary"`
+	ProgressURL     string                         `json:"progress_url"`
+	URLSource       string                         `json:"url_source"`
+	DeliveryChannel string                         `json:"delivery_channel"`
+	TemplateStatus  string                         `json:"template_status"`
+	FallbackStatus  string                         `json:"fallback_status"`
+	BrowserTarget   string                         `json:"browser_target"`
+	AuditRef        string                         `json:"audit_ref"`
+	NextAction      string                         `json:"next_action"`
+	Checks          []AgentDeploymentCheckResponse `json:"checks"`
+}
+
 type AgentCallbackReplayInput struct {
 	PlanID      int64  `json:"plan_id"`
 	CallbackKey string `json:"callback_key"`
@@ -2328,6 +2343,7 @@ func (s *AgentSessionService) ListTasks(ctx context.Context, auth CurrentAuth, l
 	callbackReplayResultQuery := buildAgentCallbackReplayResultQuery(callbackReplayResultTrace, auditLogs)
 	recoveryAutomationExecution := buildAgentRecoveryAutomationExecution(recoveryPolicyAutomation, auditLogs)
 	realInteractionAutomation := buildAgentRealInteractionAutomation(wechatTemplatePilotMetric, webEvidenceOperation, callbackReplayResultQuery, recoveryAutomationExecution, auditLogs)
+	wechatWebProgressLink := buildAgentWeChatWebProgressLink(items, wechatTemplateSend, realInteractionAutomation)
 	s.recordAgentProductionDrillSnapshot(ctx, auth.User.ID, drill, trendSnapshot)
 	s.recordAgentAlertPolicyDecision(ctx, auth.User.ID, alertPolicy, alerts)
 	s.recordAgentWriteSandboxSnapshot(ctx, auth.User.ID, writeSandbox)
@@ -2436,6 +2452,7 @@ func (s *AgentSessionService) ListTasks(ctx context.Context, auth CurrentAuth, l
 	s.recordAgentCallbackReplayResultQuerySnapshot(ctx, auth.User.ID, callbackReplayResultQuery)
 	s.recordAgentRecoveryAutomationExecutionSnapshot(ctx, auth.User.ID, recoveryAutomationExecution)
 	s.recordAgentRealInteractionAutomationSnapshot(ctx, auth.User.ID, realInteractionAutomation)
+	s.recordAgentWeChatWebProgressLinkSnapshot(ctx, auth.User.ID, wechatWebProgressLink)
 	return AgentTaskListResult{
 		Tasks:                        items,
 		SLA:                          sla,
@@ -2558,6 +2575,7 @@ func (s *AgentSessionService) ListTasks(ctx context.Context, auth CurrentAuth, l
 		CallbackReplayResultQuery:    callbackReplayResultQuery,
 		RecoveryAutomationExecution:  recoveryAutomationExecution,
 		RealInteractionAutomation:    realInteractionAutomation,
+		WeChatWebProgressLink:        wechatWebProgressLink,
 		Report:                       buildAgentTaskReport(plans, scheduledTasks),
 	}, nil
 }
@@ -4904,6 +4922,30 @@ func (s *AgentSessionService) recordAgentRealInteractionAutomationSnapshot(ctx c
 			"audit_status":              automation.AuditStatus,
 			"next_action":               automation.NextAction,
 			"check_count":               len(automation.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentWeChatWebProgressLinkSnapshot(ctx context.Context, userID int64, link AgentWeChatWebProgressLinkResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.wechat_web_progress_link_snapshot",
+		Status:    link.Status,
+		Message:   link.Summary,
+		Metadata: domain.AgentJSON{
+			"progress_url":     link.ProgressURL,
+			"url_source":       link.URLSource,
+			"delivery_channel": link.DeliveryChannel,
+			"template_status":  link.TemplateStatus,
+			"fallback_status":  link.FallbackStatus,
+			"browser_target":   link.BrowserTarget,
+			"audit_ref":        link.AuditRef,
+			"next_action":      link.NextAction,
+			"check_count":      len(link.Checks),
 		},
 		CreatedAt: s.now().UTC(),
 	})
