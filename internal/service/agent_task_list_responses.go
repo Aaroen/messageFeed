@@ -1,5 +1,11 @@
 package service
 
+import (
+	"fmt"
+	"messagefeed/internal/domain"
+	"strings"
+)
+
 type AgentTaskListResult struct {
 	Tasks                        []AgentTaskSummaryResponse                `json:"tasks"`
 	SLA                          AgentSLASummaryResponse                   `json:"sla"`
@@ -199,4 +205,83 @@ type AgentTrendBucketResponse struct {
 	NotificationFailed  int    `json:"notification_failed"`
 	RecoveryCount       int    `json:"recovery_count"`
 	HandoffCount        int    `json:"handoff_count"`
+}
+
+type AgentTaskReportResponse struct {
+	ByStatus     map[string]int `json:"by_status"`
+	ByEntry      map[string]int `json:"by_entry"`
+	ByCapability map[string]int `json:"by_capability"`
+	ByHandoff    map[string]int `json:"by_handoff"`
+}
+
+type AgentTaskSummaryResponse struct {
+	ID               string `json:"id"`
+	Kind             string `json:"kind"`
+	SessionID        int64  `json:"session_id"`
+	TurnID           int64  `json:"turn_id"`
+	PlanID           int64  `json:"plan_id"`
+	ScheduledTaskID  int64  `json:"scheduled_task_id"`
+	Status           string `json:"status"`
+	Goal             string `json:"goal"`
+	Summary          string `json:"summary"`
+	PermissionStatus string `json:"permission_status"`
+	BudgetStatus     string `json:"budget_status"`
+	QualityStatus    string `json:"quality_status"`
+	HandoffStatus    string `json:"handoff_status"`
+	Observability    string `json:"observability"`
+	LatestProgress   string `json:"latest_progress"`
+	NextAction       string `json:"next_action"`
+	ProgressURL      string `json:"progress_url"`
+	UpdatedAt        string `json:"updated_at"`
+}
+
+func agentTaskSummaryFromPlan(plan domain.AgentPlan) AgentTaskSummaryResponse {
+	permissionStatus := planPermissionStatus(plan)
+	budgetStatus := planBudgetStatus(plan)
+	return AgentTaskSummaryResponse{
+		ID:               fmt.Sprintf("plan:%d", plan.ID),
+		Kind:             "plan",
+		SessionID:        plan.SessionID,
+		TurnID:           plan.TurnID,
+		PlanID:           plan.ID,
+		Status:           string(plan.Status),
+		Goal:             plan.Goal,
+		Summary:          plan.Summary,
+		PermissionStatus: permissionStatus,
+		BudgetStatus:     budgetStatus,
+		QualityStatus:    metadataString(metadataMap(plan.Metadata, "result_quality"), "status"),
+		HandoffStatus:    metadataString(metadataMap(plan.Metadata, "handoff"), "status"),
+		Observability:    planRuntimeObservabilitySummary(plan),
+		LatestProgress:   planLatestProgress(plan),
+		NextAction:       agentProgressNextAction(string(plan.Status), true, plan, nil),
+		ProgressURL:      fmt.Sprintf("/agent/plans/%d", plan.ID),
+		UpdatedAt:        formatOptionalTime(&plan.UpdatedAt),
+	}
+}
+
+func agentTaskSummaryFromScheduledTask(task domain.AgentScheduledTask) AgentTaskSummaryResponse {
+	progressURL := fmt.Sprintf("/agent?scheduled_task_id=%d", task.ID)
+	if task.PlanID > 0 {
+		progressURL = fmt.Sprintf("/agent/plans/%d", task.PlanID)
+	}
+	return AgentTaskSummaryResponse{
+		ID:               fmt.Sprintf("scheduled_task:%d", task.ID),
+		Kind:             "scheduled_task",
+		SessionID:        task.SessionID,
+		TurnID:           task.TurnID,
+		PlanID:           task.PlanID,
+		ScheduledTaskID:  task.ID,
+		Status:           string(task.Status),
+		Goal:             task.Goal,
+		Summary:          strings.TrimSpace(task.TaskType + " " + task.TargetChannel),
+		PermissionStatus: "scheduled_task",
+		BudgetStatus:     scheduledTaskBudgetStatus(task),
+		QualityStatus:    "not_applicable",
+		HandoffStatus:    scheduledTaskHandoffStatus(task),
+		Observability:    scheduledTaskObservabilitySummary(task),
+		LatestProgress:   agentProgressFirstNonEmpty(task.LastError, task.FreshnessPolicy, "等待调度"),
+		NextAction:       agentProgressNextAction(string(task.Status), false, domain.AgentPlan{}, []domain.AgentScheduledTask{task}),
+		ProgressURL:      progressURL,
+		UpdatedAt:        formatOptionalTime(&task.UpdatedAt),
+	}
 }

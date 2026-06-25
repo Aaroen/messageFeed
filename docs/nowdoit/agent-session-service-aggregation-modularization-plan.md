@@ -66,6 +66,15 @@
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
 
+实施结果：
+
+1. 已将 `AgentTaskSummaryResponse` 和 `AgentTaskReportResponse` 迁入 `internal/service/agent_task_list_responses.go`。
+2. 已将 `agentTaskSummaryFromPlan` 和 `agentTaskSummaryFromScheduledTask` 迁入同一文件，保留原有转换语义和 JSON 字段。
+3. `agent_session_service.go` 从 6054 行继续降至 5975 行；`agent_task_list_responses.go` 从 202 行增至 287 行。
+4. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
 ## 5. 非目标
 
 - 本轮不重写 `ListTasks` 的数据查询流程。
