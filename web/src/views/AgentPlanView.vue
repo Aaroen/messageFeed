@@ -1300,35 +1300,64 @@ const taskWeChatTemplatePilotSummary = computed(() => {
   }
   return `${statusLabel(taskWeChatTemplatePilot.value.status)} / 批次 ${taskWeChatTemplatePilot.value.pilot_batch} / 范围 ${taskWeChatTemplatePilot.value.target_scope} / 模板 ${taskWeChatTemplatePilot.value.template_status} / 消息 ${taskWeChatTemplatePilot.value.message_id_status}`
 })
-const visibleWeChatTemplatePilotChecks = computed(() => taskWeChatTemplatePilot.value?.checks?.slice(0, 8) || [])
 const taskWebEvidenceUserActionSummary = computed(() => {
   if (!taskWebEvidenceUserAction.value) {
     return ''
   }
   return `${statusLabel(taskWebEvidenceUserAction.value.status)} / 筛选 ${taskWebEvidenceUserAction.value.filter_action} / 展开 ${taskWebEvidenceUserAction.value.expand_action} / 时间线 ${taskWebEvidenceUserAction.value.timeline_action} / 权限 ${taskWebEvidenceUserAction.value.permission_result}`
 })
-const visibleWebEvidenceUserActionChecks = computed(() => taskWebEvidenceUserAction.value?.checks?.slice(0, 8) || [])
 const taskCallbackReplayResultTraceSummary = computed(() => {
   if (!taskCallbackReplayResultTrace.value) {
     return ''
   }
   return `${statusLabel(taskCallbackReplayResultTrace.value.status)} / 结果 ${taskCallbackReplayResultTrace.value.execution_result} / 幂等 ${taskCallbackReplayResultTrace.value.idempotency_hit} / 审批 ${taskCallbackReplayResultTrace.value.approval_decision} / 签名 ${taskCallbackReplayResultTrace.value.signature_result}`
 })
-const visibleCallbackReplayResultTraceChecks = computed(() => taskCallbackReplayResultTrace.value?.checks?.slice(0, 8) || [])
 const taskRecoveryPolicyAutomationSummary = computed(() => {
   if (!taskRecoveryPolicyAutomation.value) {
     return ''
   }
   return `${statusLabel(taskRecoveryPolicyAutomation.value.status)} / 推进 ${taskRecoveryPolicyAutomation.value.auto_advance} / 当前 ${taskRecoveryPolicyAutomation.value.current_percent}% / 下一 ${taskRecoveryPolicyAutomation.value.next_percent}% / 回滚 ${taskRecoveryPolicyAutomation.value.rollback_condition}`
 })
-const visibleRecoveryPolicyAutomationChecks = computed(() => taskRecoveryPolicyAutomation.value?.checks?.slice(0, 8) || [])
 const taskDualEndTaskClosureSummary = computed(() => {
   if (!taskDualEndTaskClosure.value) {
     return ''
   }
   return `${statusLabel(taskDualEndTaskClosure.value.status)} / 企微 ${taskDualEndTaskClosure.value.wechat_pilot_status} / 证据 ${taskDualEndTaskClosure.value.web_evidence_action_status} / 回放 ${taskDualEndTaskClosure.value.callback_replay_trace_status} / 恢复 ${taskDualEndTaskClosure.value.recovery_automation_status} / ${taskDualEndTaskClosure.value.next_action}`
 })
-const visibleDualEndTaskClosureChecks = computed(() => taskDualEndTaskClosure.value?.checks?.slice(0, 8) || [])
+const taskClosureSummaryItems = computed(() =>
+  [
+    {
+      key: 'wechat-template-pilot',
+      title: '企微模板试运行',
+      summary: taskWeChatTemplatePilotSummary.value,
+      checks: taskWeChatTemplatePilot.value?.checks?.slice(0, 8) || [],
+    },
+    {
+      key: 'web-evidence-user-action',
+      title: 'Web 证据操作',
+      summary: taskWebEvidenceUserActionSummary.value,
+      checks: taskWebEvidenceUserAction.value?.checks?.slice(0, 8) || [],
+    },
+    {
+      key: 'callback-replay-result-trace',
+      title: '回放结果留痕',
+      summary: taskCallbackReplayResultTraceSummary.value,
+      checks: taskCallbackReplayResultTrace.value?.checks?.slice(0, 8) || [],
+    },
+    {
+      key: 'recovery-policy-automation',
+      title: '恢复策略自动化',
+      summary: taskRecoveryPolicyAutomationSummary.value,
+      checks: taskRecoveryPolicyAutomation.value?.checks?.slice(0, 8) || [],
+    },
+    {
+      key: 'dual-end-task-closure',
+      title: '双端任务闭环',
+      summary: taskDualEndTaskClosureSummary.value,
+      checks: taskDualEndTaskClosure.value?.checks?.slice(0, 8) || [],
+    },
+  ].filter((item) => item.summary),
+)
 const hasMultiTurnContext = computed(() =>
   Boolean(
     multiTurnOriginalGoal.value ||
@@ -2989,42 +3018,10 @@ onBeforeUnmount(() => {
           </span>
         </div>
       </div>
-      <div v-if="taskWeChatTemplatePilotSummary" class="agent-plan-summary">
+      <div v-for="item in taskClosureSummaryItems" :key="item.key" class="agent-plan-summary">
         <div class="agent-plan-summary__meta">
-          <span>企微模板试运行 {{ taskWeChatTemplatePilotSummary }}</span>
-          <span v-for="check in visibleWeChatTemplatePilotChecks" :key="`wechat-template-pilot-${check.key}`">
-            {{ check.key }} {{ statusLabel(check.status) }}
-          </span>
-        </div>
-      </div>
-      <div v-if="taskWebEvidenceUserActionSummary" class="agent-plan-summary">
-        <div class="agent-plan-summary__meta">
-          <span>Web 证据操作 {{ taskWebEvidenceUserActionSummary }}</span>
-          <span v-for="check in visibleWebEvidenceUserActionChecks" :key="`web-evidence-user-action-${check.key}`">
-            {{ check.key }} {{ statusLabel(check.status) }}
-          </span>
-        </div>
-      </div>
-      <div v-if="taskCallbackReplayResultTraceSummary" class="agent-plan-summary">
-        <div class="agent-plan-summary__meta">
-          <span>回放结果留痕 {{ taskCallbackReplayResultTraceSummary }}</span>
-          <span v-for="check in visibleCallbackReplayResultTraceChecks" :key="`callback-replay-result-trace-${check.key}`">
-            {{ check.key }} {{ statusLabel(check.status) }}
-          </span>
-        </div>
-      </div>
-      <div v-if="taskRecoveryPolicyAutomationSummary" class="agent-plan-summary">
-        <div class="agent-plan-summary__meta">
-          <span>恢复策略自动化 {{ taskRecoveryPolicyAutomationSummary }}</span>
-          <span v-for="check in visibleRecoveryPolicyAutomationChecks" :key="`recovery-policy-automation-${check.key}`">
-            {{ check.key }} {{ statusLabel(check.status) }}
-          </span>
-        </div>
-      </div>
-      <div v-if="taskDualEndTaskClosureSummary" class="agent-plan-summary">
-        <div class="agent-plan-summary__meta">
-          <span>双端任务闭环 {{ taskDualEndTaskClosureSummary }}</span>
-          <span v-for="check in visibleDualEndTaskClosureChecks" :key="`dual-end-task-closure-${check.key}`">
+          <span>{{ item.title }} {{ item.summary }}</span>
+          <span v-for="check in item.checks" :key="`${item.key}-${check.key}`">
             {{ check.key }} {{ statusLabel(check.status) }}
           </span>
         </div>
