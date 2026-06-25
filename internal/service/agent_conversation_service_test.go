@@ -903,23 +903,77 @@ func TestAgentConversationServiceSendsWeChatProgressNotificationWithAudit(t *tes
 		"计划步骤失败",
 	)
 
-	if sender.calls != 1 || sender.sent.ToUser != "zhangsan" {
-		t.Fatalf("sent = %#v calls=%d", sender.sent, sender.calls)
+	if sender.templateCalls != 1 || sender.sentTemplate.ToUser != "zhangsan" {
+		t.Fatalf("template sent = %#v calls=%d", sender.sentTemplate, sender.templateCalls)
 	}
-	if !strings.Contains(sender.sent.Content, "计划 #9") ||
-		!strings.Contains(sender.sent.Content, "状态锚点：step_failed/failed") ||
-		!strings.Contains(sender.sent.Content, "失败步骤") ||
-		!strings.Contains(sender.sent.Content, "权限：") ||
-		!strings.Contains(sender.sent.Content, "预算：") ||
-		!strings.Contains(sender.sent.Content, "下一步：") ||
-		!strings.Contains(sender.sent.Content, "企微动作组件：view_progress=https://messagefeed.example/agent/plans/9") ||
-		!strings.Contains(sender.sent.Content, "https://messagefeed.example/agent/plans/9") {
-		t.Fatalf("content = %q", sender.sent.Content)
+	if sender.calls != 0 {
+		t.Fatalf("text fallback calls = %d, want 0", sender.calls)
+	}
+	if sender.sentTemplate.URL != "https://messagefeed.example/agent/plans/9" ||
+		!strings.Contains(sender.sentTemplate.Description, "计划 #9") ||
+		!strings.Contains(sender.sentTemplate.FallbackText, "企微动作组件：view_progress=https://messagefeed.example/agent/plans/9") ||
+		!strings.Contains(sender.sentTemplate.FallbackText, "https://messagefeed.example/agent/plans/9") {
+		t.Fatalf("template = %#v", sender.sentTemplate)
 	}
 	if len(repository.audits) != 1 || repository.audits[0].EventType != "agent.plan_progress_notification" || repository.audits[0].Status != "succeeded" {
 		t.Fatalf("audits = %#v", repository.audits)
 	}
-	if repository.audits[0].Metadata["target_channel"] != domain.AgentProviderWeChatWorkApp {
+	if repository.audits[0].Metadata["target_channel"] != domain.AgentProviderWeChatWorkApp ||
+		repository.audits[0].Metadata["message_type"] != "template_card" ||
+		repository.audits[0].Metadata["template_status"] != "succeeded" ||
+		repository.audits[0].Metadata["progress_url"] != "https://messagefeed.example/agent/plans/9" {
+		t.Fatalf("audit metadata = %#v", repository.audits[0].Metadata)
+	}
+}
+
+func TestAgentConversationServiceFallsBackToTextWhenProgressTemplateFails(t *testing.T) {
+	repository := newFakeAgentConversationRepository()
+	sender := &fakeAgentConversationSender{
+		result:      notifier.WeChatWorkSendResult{MessageID: "wx-progress-fallback"},
+		templateErr: domain.NewAppError(domain.ErrorKindUnavailable, "template_failed", "template failed", "test", true, nil),
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationSender(sender),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+	)
+	plan := domain.AgentPlan{
+		ID:        10,
+		UserID:    1,
+		Status:    domain.AgentPlanStatusExecuting,
+		Summary:   "汇总订阅",
+		UpdatedAt: time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC),
+	}
+
+	service.sendPlanProgressNotification(
+		context.Background(),
+		domain.ExternalAccount{UserID: 1},
+		domain.AgentSession{ID: 2},
+		domain.AgentTurn{ID: 3},
+		ReceiveWeChatWorkAppMessageInput{
+			Provider:          domain.AgentProviderWeChatWorkApp,
+			ProviderMessageID: "msg-progress-fallback",
+			ExternalUserID:    "zhangsan",
+		},
+		plan,
+		"started",
+		"工作已开始",
+	)
+
+	if sender.templateCalls != 1 || sender.calls != 1 {
+		t.Fatalf("calls template=%d text=%d", sender.templateCalls, sender.calls)
+	}
+	if sender.sent.ToUser != "zhangsan" ||
+		!strings.Contains(sender.sent.Content, "https://messagefeed.example/agent/plans/10") {
+		t.Fatalf("fallback text = %#v", sender.sent)
+	}
+	if len(repository.audits) != 1 || repository.audits[0].Status != "succeeded" {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+	if repository.audits[0].Metadata["message_type"] != "text_fallback" ||
+		repository.audits[0].Metadata["template_status"] != "failed" ||
+		repository.audits[0].Metadata["fallback_status"] != "succeeded" ||
+		repository.audits[0].Metadata["progress_url"] != "https://messagefeed.example/agent/plans/10" {
 		t.Fatalf("audit metadata = %#v", repository.audits[0].Metadata)
 	}
 }
@@ -2072,14 +2126,19 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 }
 
 type fakeAgentConversationSender struct {
-	calls        int
-	sent         notifier.WeChatWorkTextMessage
-	sentMessages []notifier.WeChatWorkTextMessage
-	result       notifier.WeChatWorkSendResult
-	err          error
-	sentEvents   chan notifier.WeChatWorkTextMessage
-	sentSignal   chan struct{}
-	sentOnce     sync.Once
+	calls          int
+	templateCalls  int
+	sent           notifier.WeChatWorkTextMessage
+	sentTemplate   notifier.WeChatWorkTemplateCardMessage
+	sentMessages   []notifier.WeChatWorkTextMessage
+	sentTemplates  []notifier.WeChatWorkTemplateCardMessage
+	result         notifier.WeChatWorkSendResult
+	templateResult notifier.WeChatWorkSendResult
+	err            error
+	templateErr    error
+	sentEvents     chan notifier.WeChatWorkTextMessage
+	sentSignal     chan struct{}
+	sentOnce       sync.Once
 }
 
 func (f *fakeAgentConversationSender) SendText(_ context.Context, message notifier.WeChatWorkTextMessage) (notifier.WeChatWorkSendResult, error) {
@@ -2094,6 +2153,25 @@ func (f *fakeAgentConversationSender) SendText(_ context.Context, message notifi
 	}
 	if f.err != nil {
 		return notifier.WeChatWorkSendResult{}, f.err
+	}
+	return f.result, nil
+}
+
+func (f *fakeAgentConversationSender) SendTemplateCard(_ context.Context, message notifier.WeChatWorkTemplateCardMessage) (notifier.WeChatWorkSendResult, error) {
+	f.templateCalls++
+	f.sentTemplate = message
+	f.sentTemplates = append(f.sentTemplates, message)
+	if f.templateErr != nil {
+		return notifier.WeChatWorkSendResult{}, f.templateErr
+	}
+	if f.sentEvents != nil {
+		f.sentEvents <- notifier.WeChatWorkTextMessage{ToUser: message.ToUser, Content: message.FallbackText}
+	}
+	if f.sentSignal != nil {
+		f.sentOnce.Do(func() { close(f.sentSignal) })
+	}
+	if f.templateResult.MessageID != "" || f.templateResult.ErrCode != 0 || f.templateResult.ErrMsg != "" {
+		return f.templateResult, nil
 	}
 	return f.result, nil
 }

@@ -1649,11 +1649,11 @@ EvalCase
 - 后端任务聚合已暴露多项企业微信双端治理摘要，包括进度卡片、模板渲染、模板发送、模板集成、试点指标、真实交互自动化等。
 - 后端已新增 `wechat_web_progress_link` 聚合摘要，覆盖进度地址、地址来源、企业微信投递通道、模板状态、fallback 状态、浏览器目标和审计引用。
 - 前端已声明并展示 `wechat_web_progress_link`，Web 任务工作台可以查看企业微信 Web 进度地址投递摘要和地址链接。
+- 企业微信进度通知已接入真实模板卡片投递，模板失败时降级为文本 fallback，且聚合摘要读取真实审计事件。
 - 最近一轮完整验证已通过 `go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check` 和 `npm --prefix web run build`。
 
 ### 15.2 当前缺口
 
-- `wechat_web_progress_link` 目前是聚合摘要和审计快照，不能等同于企业微信真实消息已经向用户投递 Web 进度地址。
 - 任务完成后的企业微信结果汇报仍需以真实发送审计和用户可见消息形成闭环。
 - Agent 能力、架构、上下文记忆、执行策略和评测系统已有基础实现，但尚未有证据证明本设计文档中的全部能力均完整完成。
 
@@ -1673,6 +1673,6 @@ EvalCase
 
 当前活动文档为 `docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md`。本轮剩余工作优先级为：
 
-1. 将企业微信真实模板卡片或文本 fallback 投递 Web 进度地址接入 notifier、conversation 或 worker 流程。
-2. 以审计事件和验证命令证明真实投递闭环。
-3. 归档当前活动文档并创建下一轮活动文档。
+1. 提交并推送企业微信 Web 进度地址真实投递实现。
+2. 归档当前活动文档并创建下一轮活动文档。
+3. 继续推进任务完成后的企业微信结果汇报真实发送闭环。

@@ -2343,7 +2343,7 @@ func (s *AgentSessionService) ListTasks(ctx context.Context, auth CurrentAuth, l
 	callbackReplayResultQuery := buildAgentCallbackReplayResultQuery(callbackReplayResultTrace, auditLogs)
 	recoveryAutomationExecution := buildAgentRecoveryAutomationExecution(recoveryPolicyAutomation, auditLogs)
 	realInteractionAutomation := buildAgentRealInteractionAutomation(wechatTemplatePilotMetric, webEvidenceOperation, callbackReplayResultQuery, recoveryAutomationExecution, auditLogs)
-	wechatWebProgressLink := buildAgentWeChatWebProgressLink(items, wechatTemplateSend, realInteractionAutomation)
+	wechatWebProgressLink := buildAgentWeChatWebProgressLink(items, wechatTemplateSend, realInteractionAutomation, auditLogs)
 	s.recordAgentProductionDrillSnapshot(ctx, auth.User.ID, drill, trendSnapshot)
 	s.recordAgentAlertPolicyDecision(ctx, auth.User.ID, alertPolicy, alerts)
 	s.recordAgentWriteSandboxSnapshot(ctx, auth.User.ID, writeSandbox)

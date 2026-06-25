@@ -2086,13 +2086,16 @@ func (s *AgentConversationService) sendPlanProgressNotification(
 	if stage == "" {
 		stage = "progress"
 	}
+	progressURL := s.agentPlanURL(plan.ID)
 	reply := s.agentPlanProgressNotificationText(plan, stage, title)
-	sendResult, sendCount, err := s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
+	delivery := s.sendWeChatWorkProgressDelivery(ctx, input.ExternalUserID, plan, stage, title, reply)
 	status := "succeeded"
 	message := "agent plan progress notification sent"
-	if err != nil {
+	if delivery.FallbackStatus == "failed" {
 		status = "failed"
-		message = err.Error()
+		message = delivery.FallbackError
+	} else if delivery.DeliveryMode == "text_fallback" {
+		message = "agent plan progress notification sent with text fallback"
 	}
 	eventType := "agent.plan_progress_notification"
 	if stage == "started" {
@@ -2111,9 +2114,14 @@ func (s *AgentConversationService) sendPlanProgressNotification(
 			"target_channel":      input.Provider,
 			"target_ref":          input.ExternalUserID,
 			"provider_message_id": input.ProviderMessageID,
-			"wechat_msgid":        sendResult.MessageID,
-			"send_count":          sendCount,
-			"progress_url":        s.agentPlanURL(plan.ID),
+			"wechat_msgid":        delivery.SendResult.MessageID,
+			"send_count":          delivery.SendCount,
+			"progress_url":        progressURL,
+			"message_type":        delivery.DeliveryMode,
+			"template_status":     delivery.TemplateStatus,
+			"fallback_status":     delivery.FallbackStatus,
+			"template_error":      delivery.TemplateError,
+			"fallback_error":      delivery.FallbackError,
 		},
 		RequestID: input.RequestID,
 		TraceID:   input.TraceID,

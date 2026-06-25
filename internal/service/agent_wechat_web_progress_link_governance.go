@@ -2,10 +2,11 @@ package service
 
 import (
 	"fmt"
+	"messagefeed/internal/domain"
 	"strings"
 )
 
-func buildAgentWeChatWebProgressLink(tasks []AgentTaskSummaryResponse, send AgentWeChatTemplateSendResponse, automation AgentRealInteractionAutomationResponse) AgentWeChatWebProgressLinkResponse {
+func buildAgentWeChatWebProgressLink(tasks []AgentTaskSummaryResponse, send AgentWeChatTemplateSendResponse, automation AgentRealInteractionAutomationResponse, audits []domain.AgentAuditLog) AgentWeChatWebProgressLinkResponse {
 	progressURL := ""
 	urlSource := "task_summary"
 	for _, task := range tasks {
@@ -25,6 +26,22 @@ func buildAgentWeChatWebProgressLink(tasks []AgentTaskSummaryResponse, send Agen
 	fallbackStatus := readyIf(strings.TrimSpace(send.FallbackText) != "")
 	browserTarget := "web_browser"
 	auditRef := "agent.wechat_web_progress_link_snapshot"
+	if audit := latestAgentWeChatProgressDeliveryAudit(audits); audit.ID > 0 {
+		auditRef = audit.EventType
+		if metadataProgressURL := metadataString(audit.Metadata, "progress_url"); metadataProgressURL != "" {
+			progressURL = metadataProgressURL
+			urlSource = "agent_progress_notification"
+		}
+		if channel := metadataString(audit.Metadata, "target_channel"); channel != "" {
+			deliveryChannel = channel
+		}
+		if status := metadataString(audit.Metadata, "template_status"); status != "" {
+			templateStatus = status
+		}
+		if status := metadataString(audit.Metadata, "fallback_status"); status != "" {
+			fallbackStatus = status
+		}
+	}
 	nextAction := "通过企业微信发送 Web 浏览器进度地址"
 	checks := []AgentDeploymentCheckResponse{
 		agentGovernanceTextCheck("progress_url", progressURL),
@@ -52,4 +69,20 @@ func buildAgentWeChatWebProgressLink(tasks []AgentTaskSummaryResponse, send Agen
 		NextAction:      nextAction,
 		Checks:          checks,
 	}
+}
+
+func latestAgentWeChatProgressDeliveryAudit(audits []domain.AgentAuditLog) domain.AgentAuditLog {
+	var latest domain.AgentAuditLog
+	for _, audit := range audits {
+		if audit.EventType != "agent.plan_progress_notification" && audit.EventType != "agent.plan_started_feedback" {
+			continue
+		}
+		if metadataString(audit.Metadata, "progress_url") == "" {
+			continue
+		}
+		if latest.ID == 0 || audit.CreatedAt.After(latest.CreatedAt) || audit.ID > latest.ID && audit.CreatedAt.Equal(latest.CreatedAt) {
+			latest = audit
+		}
+	}
+	return latest
 }

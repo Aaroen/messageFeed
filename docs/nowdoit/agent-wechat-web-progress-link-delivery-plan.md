@@ -33,10 +33,10 @@
 3. [x] `ListTasks` 接入地址投递摘要并写入审计快照。
 4. [x] 服务层测试补充地址投递字段断言。
 5. [x] 前端 API 类型和 Agent 任务工作台展示地址投递摘要。
-6. [ ] 接入企业微信真实模板卡片或文本 fallback 的 Web 进度地址投递。
-7. [ ] 完成验证矩阵：
-   - `go test ./...`
-   - `go vet ./...`
+6. [x] 接入企业微信真实模板卡片或文本 fallback 的 Web 进度地址投递。
+7. [x] 完成验证矩阵：
+   - [x] `go test ./...`
+   - [x] `go vet ./...`
    - [x] `npm --prefix web run test`
    - [x] `npm --prefix web run type-check`
    - [x] `npm --prefix web run build`
@@ -58,10 +58,18 @@
 - 进度地址在 Web 工作台中以链接形式展示，便于核对浏览器可打开地址。
 - 已通过 `npm --prefix web run test`、`npm --prefix web run type-check` 和 `npm --prefix web run build`。
 
+已完成真实企业微信投递接入：
+
+- 新增 `internal/service/agent_conversation_wechat_progress_delivery.go`，将进度通知投递封装为模板卡片优先、文本 fallback 保底的独立逻辑。
+- `sendPlanProgressNotification` 已优先发送企业微信模板卡片，卡片 URL 指向 `agentPlanURL(plan.ID)`。
+- 模板卡片发送失败时保留现有文本 fallback，fallback 文本包含同一个 Web 进度地址。
+- 审计 metadata 已记录 `message_type`、`template_status`、`fallback_status`、`template_error`、`fallback_error` 和 `progress_url`。
+- `wechat_web_progress_link` 聚合摘要已读取 `agent.plan_progress_notification` 或 `agent.plan_started_feedback` 审计事件中的真实进度地址、模板状态和 fallback 状态。
+- 测试覆盖模板发送成功、模板失败后文本 fallback 成功，以及聚合摘要读取真实审计字段。
+
 当前未完成项：
 
-- 企业微信真实发送链路尚未保证模板卡片或文本 fallback 中包含可在 Web 浏览器打开的进度地址。
-- 当前摘要不能替代真实投递证据，后续需要通过 `wechat_work.reply_sent` 或失败审计证明。
+- 任务完成后的企业微信最终结果汇报仍需继续核实和增强，确保最终回复也形成可审计的结果汇报闭环。
 
 ## 2.4 真实企业微信投递接入方案
 
@@ -74,6 +82,11 @@
 5. 测试需覆盖模板发送成功、模板失败后文本 fallback 成功，以及审计中包含进度地址。
 
 本阶段不改变企业微信最终结果汇报逻辑；任务完成后的企业微信结果汇报将在模板进度地址真实投递完成后继续推进。
+
+实施结果：
+
+- 已按本方案完成模板卡片优先发送、文本 fallback、审计记录和 Web 工作台聚合摘要读取真实审计。
+- 已通过完整验证矩阵。
 
 ## 2.3 文档同步要求
 

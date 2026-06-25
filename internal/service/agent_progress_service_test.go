@@ -121,7 +121,10 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 		tasks: []domain.AgentScheduledTask{
 			{ID: 20, UserID: 1, SessionID: 2, TurnID: 3, PlanID: 10, Status: domain.AgentScheduledTaskStatusSucceeded, TaskType: "digest", Goal: "定时摘要", TargetChannel: domain.AgentProviderWeChatWorkApp, UpdatedAt: now},
 		},
-		audits: []domain.AgentAuditLog{{ID: 30, UserID: 1, EventType: "wechat_work.reply_sent", Status: "succeeded", CreatedAt: now}},
+		audits: []domain.AgentAuditLog{
+			{ID: 30, UserID: 1, EventType: "wechat_work.reply_sent", Status: "succeeded", CreatedAt: now},
+			{ID: 31, UserID: 1, EventType: "agent.plan_progress_notification", Status: "succeeded", Metadata: domain.AgentJSON{"progress_url": "https://messagefeed.example/agent/plans/10", "target_channel": "wechat_work", "template_status": "succeeded", "fallback_status": "not_attempted"}, CreatedAt: now.Add(time.Second)},
+		},
 	}
 	service := NewAgentSessionService(repository, WithAgentSessionNow(func() time.Time { return now }))
 
@@ -503,6 +506,9 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	}
 	if result.WeChatWebProgressLink.ProgressURL == "" || result.WeChatWebProgressLink.DeliveryChannel != "wechat_work" || result.WeChatWebProgressLink.BrowserTarget != "web_browser" {
 		t.Fatalf("wechat web progress link = %#v", result.WeChatWebProgressLink)
+	}
+	if result.WeChatWebProgressLink.URLSource != "agent_progress_notification" || result.WeChatWebProgressLink.TemplateStatus != "succeeded" || result.WeChatWebProgressLink.FallbackStatus != "not_attempted" {
+		t.Fatalf("wechat web progress link audit fields = %#v", result.WeChatWebProgressLink)
 	}
 	if result.Report.ByEntry["web"] != 1 || result.Report.ByCapability["web.search"] != 1 || result.Report.ByHandoff["required"] != 1 {
 		t.Fatalf("report = %#v", result.Report)
