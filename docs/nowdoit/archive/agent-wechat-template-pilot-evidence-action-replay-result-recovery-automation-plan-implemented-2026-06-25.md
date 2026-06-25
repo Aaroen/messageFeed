@@ -63,3 +63,29 @@
 ## 5. 后续衔接
 
 本轮完成后，继续推进企业微信模板试运行指标、证据页面实际操作 API、回放执行结果查询和恢复策略自动化执行。
+
+## 6. 实施结果
+
+1. 后端 `ListTasks` 聚合结果已新增企业微信模板试运行、Web 证据页面用户操作、回放执行结果留痕、恢复策略灰度自动化和双端任务闭环总览五类摘要。
+2. 后端 builder 已基于上一轮企业微信模板联调、Web 证据交互细节、回放安全审计和恢复策略灰度发布摘要继续派生本轮摘要。
+3. 后端审计链路已写入本轮五类快照事件：
+   - `agent.wechat_template_pilot_snapshot`
+   - `agent.web_evidence_user_action_snapshot`
+   - `agent.callback_replay_result_trace_snapshot`
+   - `agent.recovery_policy_automation_snapshot`
+   - `agent.dual_end_task_closure_snapshot`
+4. 服务层测试已补充本轮五类摘要字段和审计事件断言。
+5. 前端 API 类型和 Agent 任务工作台已展示本轮五类摘要，使 Web 端可查看企业微信试运行、证据操作、回放结果、恢复自动化和双端闭环状态。
+
+## 7. 验证记录
+
+1. `go test ./internal/service`：通过。
+2. `go test ./...`：通过。
+3. `go vet ./...`：通过。
+4. `npm --prefix web run test`：通过，3 个测试文件、9 个测试用例通过。
+5. `npm --prefix web run type-check`：通过。
+6. `npm --prefix web run build`：通过。
+
+## 8. 归档结论
+
+本轮目标已按实施范围完成并通过验证。后续迭代应优先处理 `agent_workflow_governance.go` 和 `AgentPlanView.vue` 的结构治理，降低单文件职责聚合和宽响应扩张带来的维护风险。
