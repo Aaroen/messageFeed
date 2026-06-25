@@ -127,6 +127,7 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 	memory.HistoryResultContent = formatConversationHistoryResult(conversationHistoryResultInput{
 		Mode:         mode,
 		Scope:        "current_session",
+		Reason:       historyRecallReason(hint),
 		Entries:      results,
 		MatchedCount: len(results),
 		TimeRange:    timeRange,
@@ -149,9 +150,12 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 			"limit":             limit,
 			"roles":             []string{string(domain.AgentTranscriptRoleUser), string(domain.AgentTranscriptRoleAssistant)},
 			"boundary":          conversationHistoryBoundaryMetadata(mode, len(results)),
+			"memory_scope":      "long_term_conversation",
+			"reusable":          true,
 		},
 		RecalledRefs: domain.AgentJSON{
 			"transcript_entry_ids": transcriptEntryIDs(results),
+			"evidence_refs":        transcriptEvidenceRefs(results),
 		},
 		Reason:      historyRecallReason(hint),
 		BudgetChars: transcriptEntriesContentLength(results),
@@ -168,6 +172,7 @@ type agentP0CapabilityExecutor struct {
 	recentItems      AgentRecentItemsProvider
 	sourceProvider   AgentSourceProvider
 	notificationJobs AgentNotificationJobStore
+	scheduledTasks   AgentScheduleEvalRepository
 	now              func() time.Time
 }
 
@@ -177,6 +182,8 @@ func (e agentP0CapabilityExecutor) Execute(ctx context.Context, input agent.Capa
 		return e.queryRecentItems(ctx, input)
 	case "source.query_latest_items":
 		return e.querySourceLatestItems(ctx, input)
+	case "content.summarize_text":
+		return e.summarizeTextCapability(input), nil
 	default:
 		return agent.CapabilityExecuteResult{
 			Observation: agent.CapabilityObservation{
@@ -193,6 +200,8 @@ func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.
 	switch input.Capability.Key {
 	case "conversation.query_history":
 		return e.queryConversationHistory(ctx, input)
+	case "agent.schedule_task":
+		return e.scheduleTask(ctx, input)
 	case "agent.schedule_message":
 		return e.scheduleMessage(ctx, input)
 	case "web.search":
@@ -205,6 +214,8 @@ func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.
 		return e.repoSearch(ctx, input)
 	case "repo.inspect_remote":
 		return e.repoInspectRemote(ctx, input)
+	case "content.summarize_text":
+		return e.summarizeTextTool(input), nil
 	default:
 		return agent.ToolExecuteResult{
 			Content: "当前工具执行器不支持该能力。",
@@ -228,9 +239,12 @@ func (e agentP0CapabilityExecutor) queryRecentItems(ctx context.Context, input a
 		observation.Summary = "recent items provider is unavailable"
 		return agent.CapabilityExecuteResult{Observation: observation}, nil
 	}
+	query := e.parseItemQuery(ctx, input.UserID, input.Message, 5)
 	result, err := e.recentItems.ListItems(ctx, ListItemsInput{
 		UserID:        input.UserID,
-		Limit:         5,
+		SourceID:      query.SourceID,
+		IsRead:        query.IsRead,
+		Limit:         50,
 		Offset:        0,
 		IncludeHidden: false,
 		Order:         string(domain.ItemSortOrderDesc),
@@ -238,15 +252,16 @@ func (e agentP0CapabilityExecutor) queryRecentItems(ctx context.Context, input a
 	if err != nil {
 		return agent.CapabilityExecuteResult{}, err
 	}
+	items := filterAgentItems(result.Items, query)
 	observation.Status = "succeeded"
-	observation.Summary = fmt.Sprintf("loaded %d recent items", len(result.Items))
+	observation.Summary = fmt.Sprintf("loaded %d recent items with filters %s", len(items), formatItemQuerySummary(query))
 	return agent.CapabilityExecuteResult{
 		Blocks: []agent.ContextBlock{
 			{
 				Name:          "最近条目",
 				CapabilityKey: input.Capability.Key,
-				Content:       formatRecentItemsBlock(result.Items),
-				ItemCount:     len(result.Items),
+				Content:       "新鲜度提示：订阅源结果 12 小时后建议刷新。\n" + formatRecentItemsBlock(items),
+				ItemCount:     len(items),
 				GeneratedAt:   e.currentTime(),
 				TrustLevel:    "database",
 			},
@@ -274,10 +289,14 @@ func (e agentP0CapabilityExecutor) querySourceLatestItems(ctx context.Context, i
 		observation.Summary = "no source name matched user input"
 		return agent.CapabilityExecuteResult{Observation: observation}, nil
 	}
+	query := e.parseItemQuery(ctx, input.UserID, input.Message, 3)
+	query.SourceID = source.ID
+	query.SourceName = source.Name
 	result, err := e.recentItems.ListItems(ctx, ListItemsInput{
 		UserID:        input.UserID,
 		SourceID:      source.ID,
-		Limit:         3,
+		IsRead:        query.IsRead,
+		Limit:         50,
 		Offset:        0,
 		IncludeHidden: false,
 		Order:         string(domain.ItemSortOrderDesc),
@@ -285,15 +304,16 @@ func (e agentP0CapabilityExecutor) querySourceLatestItems(ctx context.Context, i
 	if err != nil {
 		return agent.CapabilityExecuteResult{}, err
 	}
+	items := filterAgentItems(result.Items, query)
 	observation.Status = "succeeded"
-	observation.Summary = fmt.Sprintf("loaded %d latest items for source %s", len(result.Items), source.Name)
+	observation.Summary = fmt.Sprintf("loaded %d latest items for source %s with filters %s", len(items), source.Name, formatItemQuerySummary(query))
 	return agent.CapabilityExecuteResult{
 		Blocks: []agent.ContextBlock{
 			{
 				Name:          "匹配来源最新条目",
 				CapabilityKey: input.Capability.Key,
-				Content:       formatSourceLatestItemsBlock(source, result.Items),
-				ItemCount:     len(result.Items),
+				Content:       "新鲜度提示：订阅源结果 12 小时后建议刷新。\n" + formatSourceLatestItemsBlock(source, items),
+				ItemCount:     len(items),
 				GeneratedAt:   e.currentTime(),
 				TrustLevel:    "database",
 			},
@@ -320,6 +340,101 @@ func (e agentP0CapabilityExecutor) matchSourceByText(ctx context.Context, userID
 	return domain.Source{}, false, nil
 }
 
+type agentItemQuery struct {
+	SourceID   int64
+	SourceName string
+	Keyword    string
+	IsRead     *bool
+	TimeRange  conversationHistoryTimeRange
+	Limit      int
+}
+
+func (e agentP0CapabilityExecutor) parseItemQuery(ctx context.Context, userID int64, message string, limit int) agentItemQuery {
+	query := agentItemQuery{Limit: limit}
+	if containsAny(message, []string{"未读", "没读", "没有读"}) {
+		value := false
+		query.IsRead = &value
+	} else if containsAny(message, []string{"已读", "读过"}) {
+		value := true
+		query.IsRead = &value
+	}
+	query.TimeRange = parseConversationHistoryTimeRange(message, "", e.currentTime())
+	query.Keyword = extractAgentItemKeyword(message)
+	if e.sourceProvider != nil {
+		if source, found, err := e.matchSourceByText(ctx, userID, message); err == nil && found {
+			query.SourceID = source.ID
+			query.SourceName = source.Name
+		}
+	}
+	return query
+}
+
+func extractAgentItemKeyword(message string) string {
+	message = strings.TrimSpace(message)
+	for _, marker := range []string{"关键词", "关键字", "包含", "关于"} {
+		index := strings.Index(message, marker)
+		if index >= 0 {
+			keyword := strings.Trim(message[index+len(marker):], " ：:，,。 \t\r\n")
+			fields := strings.Fields(keyword)
+			if len(fields) > 0 {
+				return fields[0]
+			}
+			return keyword
+		}
+	}
+	return ""
+}
+
+func filterAgentItems(items []domain.Item, query agentItemQuery) []domain.Item {
+	filtered := make([]domain.Item, 0, len(items))
+	keyword := strings.ToLower(strings.TrimSpace(query.Keyword))
+	for _, item := range items {
+		if query.TimeRange.Valid {
+			itemTime := item.PublishedAt
+			if itemTime == nil {
+				fetchedAt := item.FetchedAt
+				itemTime = &fetchedAt
+			}
+			if itemTime == nil || itemTime.Before(query.TimeRange.After.UTC()) || !itemTime.Before(query.TimeRange.Before.UTC()) {
+				continue
+			}
+		}
+		if keyword != "" {
+			text := strings.ToLower(strings.Join([]string{item.Title, item.Summary, item.ContentSnippet, item.SourceName}, " "))
+			if !strings.Contains(text, keyword) {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+		if query.Limit > 0 && len(filtered) >= query.Limit {
+			break
+		}
+	}
+	return filtered
+}
+
+func formatItemQuerySummary(query agentItemQuery) string {
+	parts := make([]string, 0, 4)
+	if query.SourceName != "" {
+		parts = append(parts, "source="+query.SourceName)
+	} else if query.SourceID > 0 {
+		parts = append(parts, "source_id="+strconv.FormatInt(query.SourceID, 10))
+	}
+	if query.Keyword != "" {
+		parts = append(parts, "keyword="+query.Keyword)
+	}
+	if query.IsRead != nil {
+		parts = append(parts, fmt.Sprintf("is_read=%t", *query.IsRead))
+	}
+	if query.TimeRange.Valid {
+		parts = append(parts, "time_range="+query.TimeRange.After.UTC().Format(time.RFC3339)+"/"+query.TimeRange.Before.UTC().Format(time.RFC3339))
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ",")
+}
+
 func (e agentP0CapabilityExecutor) currentTime() time.Time {
 	if e.now != nil {
 		return e.now().UTC()
@@ -341,13 +456,17 @@ type conversationHistoryToolArgs struct {
 }
 
 type scheduleMessageToolArgs struct {
-	TaskType    string `json:"task_type"`
-	Content     string `json:"content"`
-	ScheduledAt string `json:"scheduled_at"`
-	TimeHint    string `json:"time_hint"`
-	TimeZone    string `json:"time_zone"`
-	Importance  string `json:"importance"`
-	Confirmed   bool   `json:"confirmed"`
+	TaskType            string   `json:"task_type"`
+	Goal                string   `json:"goal"`
+	Content             string   `json:"content"`
+	ScheduledAt         string   `json:"scheduled_at"`
+	TimeHint            string   `json:"time_hint"`
+	TimeZone            string   `json:"time_zone"`
+	Importance          string   `json:"importance"`
+	TargetChannel       string   `json:"target_channel"`
+	FreshnessPolicy     string   `json:"freshness_policy"`
+	AllowedCapabilities []string `json:"allowed_capabilities"`
+	Confirmed           bool     `json:"confirmed"`
 }
 
 type webSearchToolArgs struct {
@@ -357,6 +476,19 @@ type webSearchToolArgs struct {
 
 type webURLToolArgs struct {
 	URL string `json:"url"`
+}
+
+type summarizeTextToolArgs struct {
+	Text       string                `json:"text"`
+	Sources    []summarizeTextSource `json:"sources"`
+	SourceRefs []string              `json:"source_refs"`
+}
+
+type summarizeTextSource struct {
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Content string `json:"content"`
+	Summary string `json:"summary"`
 }
 
 type repoSearchToolArgs struct {
@@ -454,6 +586,7 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 	content := formatConversationHistoryResult(conversationHistoryResultInput{
 		Mode:         mode,
 		Scope:        "current_session",
+		Reason:       "model_tool_call",
 		Entries:      entries,
 		MatchedCount: len(contextMessages),
 		TimeRange:    timeRange,
@@ -491,9 +624,12 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 			"request_id":      input.RequestID,
 			"trace_id":        input.TraceID,
 			"boundary":        conversationHistoryBoundaryMetadata(mode, len(entries)),
+			"memory_scope":    "long_term_conversation",
+			"reusable":        true,
 		},
 		RecalledRefs: domain.AgentJSON{
 			"transcript_entry_ids": transcriptEntryIDs(entries),
+			"evidence_refs":        transcriptEvidenceRefs(entries),
 		},
 		Reason:      "model_tool_call",
 		BudgetChars: transcriptEntriesContentLength(entries),
@@ -506,6 +642,9 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 }
 
 func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	if e.scheduledTasks != nil {
+		return e.scheduleTask(ctx, input)
+	}
 	observation := agent.CapabilityObservation{
 		Capability: input.Capability.Key,
 		Decision:   string(agent.PolicyDecisionPrompt),
@@ -598,6 +737,150 @@ func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input ag
 		Content:     fmt.Sprintf("工具状态：created\n任务 ID：%d\n计划时间：%s\n提醒内容：%s", created.ID, created.ScheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), content),
 		Observation: observation,
 	}, nil
+}
+
+func (e agentP0CapabilityExecutor) scheduleTask(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+	observation := agent.CapabilityObservation{
+		Capability: input.Capability.Key,
+		Decision:   string(agent.PolicyDecisionPrompt),
+	}
+	if e.scheduledTasks == nil {
+		observation.Status = "skipped"
+		observation.Summary = "scheduled task store is unavailable"
+		return agent.ToolExecuteResult{Content: "定时 Agent 任务能力暂不可用。", Observation: observation}, nil
+	}
+	args := parseScheduleMessageToolArgs(input.RawArguments)
+	if args.TaskType == "" {
+		args.TaskType = "agent_task"
+		if input.Capability.Key == "agent.schedule_message" {
+			args.TaskType = "reminder"
+		}
+	}
+	goal := strings.TrimSpace(args.Goal)
+	content := strings.TrimSpace(args.Content)
+	if goal == "" {
+		goal = content
+	}
+	if goal == "" {
+		observation.Status = "failed"
+		observation.Summary = "scheduled task goal is empty"
+		return agent.ToolExecuteResult{Content: "定时任务目标不能为空。", Observation: observation}, nil
+	}
+	scheduledAt, parseResult := parseScheduleInstant(args.ScheduledAt, args.TimeHint, args.TimeZone, e.currentTime())
+	if scheduledAt.IsZero() {
+		observation.Status = "failed"
+		observation.Summary = "scheduled time is ambiguous"
+		return agent.ToolExecuteResult{Content: "工具状态：requires_clarification\n原因：没有明确的 scheduled_at，且 time_hint 无法被后端校验为具体时间点。请结合当前时间和最近上下文，让用户补充日期、上午/下午/晚上，或由模型归一化为 RFC3339 scheduled_at 后再次调用工具。", Observation: observation}, nil
+	}
+	if scheduledAt.Before(e.currentTime().Add(-time.Minute)) {
+		observation.Status = "failed"
+		observation.Summary = "scheduled time is in the past"
+		return agent.ToolExecuteResult{Content: "工具状态：failed\n原因：scheduled_at 已经过期，不能创建定时任务。", Observation: observation}, nil
+	}
+	if !args.Confirmed {
+		observation.Status = "requires_confirmation"
+		observation.Summary = "scheduled agent task requires user confirmation"
+		return agent.ToolExecuteResult{
+			Content:     fmt.Sprintf("工具状态：requires_confirmation\n计划时间：%s\n任务目标：%s\n说明：需要用户明确确认后才能创建；用户确认后必须再次调用 agent.schedule_task，并传 confirmed=true。", scheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), goal),
+			Observation: observation,
+		}, nil
+	}
+	targetChannel := args.TargetChannel
+	if targetChannel == "" {
+		targetChannel = "web"
+		if strings.TrimSpace(input.ExternalUserID) != "" {
+			targetChannel = "wechat_work_app"
+		}
+	}
+	freshnessPolicy := args.FreshnessPolicy
+	if freshnessPolicy == "" {
+		freshnessPolicy = "latest_at_run"
+	}
+	allowedCapabilities := compactNonEmptyStrings(args.AllowedCapabilities)
+	if len(allowedCapabilities) == 0 {
+		allowedCapabilities = []string{"feed.query_recent_items", "conversation.query_history", "web.search", "web.fetch_page", "web.extract_page", "content.summarize_text"}
+	}
+	now := e.currentTime()
+	task, err := e.scheduledTasks.CreateAgentScheduledTask(ctx, domain.AgentScheduledTask{
+		UserID:              input.UserID,
+		SessionID:           input.SessionID,
+		TurnID:              input.TurnID,
+		SourceRunID:         input.ControllerRunID,
+		Status:              domain.AgentScheduledTaskStatusQueued,
+		TaskType:            args.TaskType,
+		Goal:                goal,
+		TargetChannel:       targetChannel,
+		TargetRef:           strings.TrimSpace(input.ExternalUserID),
+		ScheduledAt:         scheduledAt.UTC(),
+		FreshnessPolicy:     freshnessPolicy,
+		AllowedCapabilities: allowedCapabilities,
+		ModelPolicy: domain.AgentJSON{
+			"model_key": "default",
+		},
+		FailurePolicy: domain.AgentJSON{
+			"max_attempts": 3,
+			"on_failure":   "report_to_user",
+		},
+		Payload: domain.AgentJSON{
+			"content":         content,
+			"time_hint":       args.TimeHint,
+			"time_zone":       parseResult.TimeZone,
+			"importance":      normalizedScheduleImportance(args.Importance),
+			"source":          input.Capability.Key,
+			"trigger_message": input.Message,
+			"request_id":      input.RequestID,
+			"trace_id":        input.TraceID,
+		},
+		MaxAttempts: 3,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		return agent.ToolExecuteResult{}, err
+	}
+	observation.Decision = string(agent.PolicyDecisionAllow)
+	observation.Status = "succeeded"
+	observation.Summary = fmt.Sprintf("scheduled agent task %d", task.ID)
+	return agent.ToolExecuteResult{
+		Content:     fmt.Sprintf("工具状态：created\n任务 ID：%d\n计划时间：%s\n任务目标：%s", task.ID, task.ScheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), task.Goal),
+		Observation: observation,
+	}, nil
+}
+
+func (e agentP0CapabilityExecutor) summarizeTextCapability(input agent.CapabilityExecuteInput) agent.CapabilityExecuteResult {
+	content := formatSummarizeTextResult(summarizeTextToolArgs{Text: input.Message}, input.Message)
+	return agent.CapabilityExecuteResult{
+		Blocks: []agent.ContextBlock{
+			{
+				Name:          "内容总结",
+				CapabilityKey: input.Capability.Key,
+				Content:       content,
+				ItemCount:     1,
+				GeneratedAt:   e.currentTime(),
+				TrustLevel:    "model_assisted",
+			},
+		},
+		Observation: agent.CapabilityObservation{
+			Capability: input.Capability.Key,
+			Decision:   string(agent.PolicyDecisionAllow),
+			Status:     "succeeded",
+			Summary:    "generated structured text summary",
+		},
+	}
+}
+
+func (e agentP0CapabilityExecutor) summarizeTextTool(input agent.ToolExecuteInput) agent.ToolExecuteResult {
+	args := parseSummarizeTextToolArgs(input.RawArguments)
+	content := formatSummarizeTextResult(args, input.Message)
+	return agent.ToolExecuteResult{
+		Content: content,
+		Observation: agent.CapabilityObservation{
+			Capability: input.Capability.Key,
+			Decision:   string(agent.PolicyDecisionAllow),
+			Status:     "succeeded",
+			Summary:    "generated structured text summary",
+		},
+	}
 }
 
 func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
@@ -798,11 +1081,17 @@ func parseScheduleMessageToolArgs(raw string) scheduleMessageToolArgs {
 		return scheduleMessageToolArgs{}
 	}
 	args.TaskType = strings.TrimSpace(args.TaskType)
+	args.Goal = strings.TrimSpace(args.Goal)
 	args.Content = strings.TrimSpace(args.Content)
 	args.ScheduledAt = strings.TrimSpace(args.ScheduledAt)
 	args.TimeHint = strings.TrimSpace(args.TimeHint)
 	args.TimeZone = strings.TrimSpace(args.TimeZone)
 	args.Importance = strings.TrimSpace(args.Importance)
+	args.TargetChannel = strings.TrimSpace(args.TargetChannel)
+	args.FreshnessPolicy = strings.TrimSpace(args.FreshnessPolicy)
+	for index, capability := range args.AllowedCapabilities {
+		args.AllowedCapabilities[index] = strings.TrimSpace(capability)
+	}
 	return args
 }
 
@@ -829,6 +1118,28 @@ func parseWebURLToolArgs(raw string) webURLToolArgs {
 		return webURLToolArgs{}
 	}
 	args.URL = strings.TrimSpace(args.URL)
+	return args
+}
+
+func parseSummarizeTextToolArgs(raw string) summarizeTextToolArgs {
+	var args summarizeTextToolArgs
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return args
+	}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return summarizeTextToolArgs{}
+	}
+	args.Text = strings.TrimSpace(args.Text)
+	for index := range args.Sources {
+		args.Sources[index].Title = strings.TrimSpace(args.Sources[index].Title)
+		args.Sources[index].URL = strings.TrimSpace(args.Sources[index].URL)
+		args.Sources[index].Content = strings.TrimSpace(args.Sources[index].Content)
+		args.Sources[index].Summary = strings.TrimSpace(args.Sources[index].Summary)
+	}
+	for index, ref := range args.SourceRefs {
+		args.SourceRefs[index] = strings.TrimSpace(ref)
+	}
 	return args
 }
 
@@ -861,6 +1172,7 @@ func parseRepoInspectToolArgs(raw string) repoInspectToolArgs {
 type conversationHistoryResultInput struct {
 	Mode         string
 	Scope        string
+	Reason       string
 	Entries      []domain.AgentTranscriptEntry
 	MatchedCount int
 	TimeRange    conversationHistoryTimeRange
@@ -878,6 +1190,11 @@ func formatConversationHistoryResult(input conversationHistoryResultInput) strin
 	builder.WriteString(mode)
 	builder.WriteString("\n查询范围：")
 	builder.WriteString(scope)
+	builder.WriteString("\n新鲜度提示：历史对话结果属于同用户会话记忆，30 天内可作为上下文引用。")
+	if strings.TrimSpace(input.Reason) != "" {
+		builder.WriteString("\n召回原因：")
+		builder.WriteString(strings.TrimSpace(input.Reason))
+	}
 	builder.WriteString("\n是否已确认会话边界：")
 	builder.WriteString(formatHistoryBool(metadata["is_session_boundary"]))
 	builder.WriteString("\n是否存在更早记录：")
@@ -905,6 +1222,14 @@ func formatConversationHistoryResult(input conversationHistoryResultInput) strin
 	builder.WriteString("\n命中原文：")
 	builder.WriteString("\n")
 	builder.WriteString(agent.FormatContextMessages(transcriptEntriesToContextMessages(input.Entries)))
+	builder.WriteString("\nEvidence refs：")
+	refs := make([]string, 0, len(input.Entries))
+	for _, entry := range input.Entries {
+		if entry.ID > 0 {
+			refs = append(refs, "agent_transcript_entry:"+strconv.FormatInt(entry.ID, 10))
+		}
+	}
+	builder.WriteString(strings.Join(refs, ", "))
 	return builder.String()
 }
 
@@ -927,6 +1252,16 @@ func conversationHistoryBoundaryMetadata(mode string, matchedCount int) domain.A
 		metadata["has_newer"] = false
 	}
 	return metadata
+}
+
+func transcriptEvidenceRefs(entries []domain.AgentTranscriptEntry) []string {
+	refs := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ID > 0 {
+			refs = append(refs, "agent_transcript_entry:"+strconv.FormatInt(entry.ID, 10))
+		}
+	}
+	return refs
 }
 
 func formatHistoryBool(value any) string {
@@ -1350,12 +1685,17 @@ func formatWebSearchResult(query string, source string, statusCode int, contentT
 	builder.WriteString(strconv.Itoa(statusCode))
 	builder.WriteString("\n内容类型：")
 	builder.WriteString(contentType)
+	builder.WriteString("\n证据引用：web_search:")
+	builder.WriteString(source)
+	builder.WriteString("\n新鲜度提示：联网结果 6 小时后建议刷新。")
 	builder.WriteString("\n结果：\n")
 	for index, result := range results {
 		builder.WriteString(strconv.Itoa(index + 1))
 		builder.WriteString(". ")
 		builder.WriteString(result.Title)
 		builder.WriteString("\nURL：")
+		builder.WriteString(result.URL)
+		builder.WriteString("\nEvidence ref：url:")
 		builder.WriteString(result.URL)
 		if result.Snippet != "" {
 			builder.WriteString("\n摘要：")
@@ -1371,11 +1711,12 @@ func formatWebSearchResult(query string, source string, statusCode int, contentT
 
 func formatWebFetchResult(source string, statusCode int, contentType string, fetchedAt time.Time, body []byte) string {
 	return fmt.Sprintf(
-		"工具：web.fetch_page\n来源：%s\n抓取时间：%s\nHTTP 状态：%d\n内容类型：%s\n字节数：%d\n正文片段：\n%s",
+		"工具：web.fetch_page\n来源：%s\n抓取时间：%s\nHTTP 状态：%d\n内容类型：%s\n证据引用：url:%s\n新鲜度提示：联网结果 6 小时后建议刷新。\n字节数：%d\n正文片段：\n%s",
 		source,
 		fetchedAt.UTC().Format(time.RFC3339),
 		statusCode,
 		contentType,
+		source,
 		len(body),
 		safeSummary(string(body), 4000),
 	)
@@ -1391,6 +1732,9 @@ func formatWebExtractResult(source string, statusCode int, contentType string, f
 	builder.WriteString(strconv.Itoa(statusCode))
 	builder.WriteString("\n内容类型：")
 	builder.WriteString(contentType)
+	builder.WriteString("\n证据引用：url:")
+	builder.WriteString(source)
+	builder.WriteString("\n新鲜度提示：联网结果 6 小时后建议刷新。")
 	builder.WriteString("\n标题：")
 	builder.WriteString(page.Title)
 	if page.SiteName != "" {
@@ -1414,12 +1758,115 @@ func formatWebExtractResult(source string, statusCode int, contentType string, f
 		builder.WriteString(link.Title)
 		builder.WriteString("\nURL：")
 		builder.WriteString(link.URL)
+		builder.WriteString("\nEvidence ref：url:")
+		builder.WriteString(link.URL)
 		builder.WriteString("\n")
 	}
 	if len(page.Links) == 0 {
 		builder.WriteString("没有解析到主要链接。\n")
 	}
 	return builder.String()
+}
+
+func formatSummarizeTextResult(args summarizeTextToolArgs, fallback string) string {
+	text := strings.TrimSpace(args.Text)
+	if text == "" {
+		text = strings.TrimSpace(fallback)
+	}
+	if text == "" {
+		for _, source := range args.Sources {
+			text = strings.TrimSpace(strings.Join([]string{text, source.Title, source.Summary, source.Content}, " "))
+		}
+	}
+	conclusions := summarizeKeyConclusions(text, args.Sources)
+	risks := summarizeRisks(text, args.Sources)
+	refs := append([]string(nil), args.SourceRefs...)
+	for _, source := range args.Sources {
+		if source.URL != "" {
+			refs = append(refs, "url:"+source.URL)
+		} else if source.Title != "" {
+			refs = append(refs, "source:"+source.Title)
+		}
+	}
+	if len(refs) == 0 {
+		refs = append(refs, "input:message")
+	}
+	var builder strings.Builder
+	builder.WriteString("工具：content.summarize_text\n关键结论：\n")
+	for index, conclusion := range conclusions {
+		builder.WriteString(strconv.Itoa(index + 1))
+		builder.WriteString(". ")
+		builder.WriteString(conclusion)
+		builder.WriteString("\n")
+	}
+	builder.WriteString("风险提示：\n")
+	for index, risk := range risks {
+		builder.WriteString(strconv.Itoa(index + 1))
+		builder.WriteString(". ")
+		builder.WriteString(risk)
+		builder.WriteString("\n")
+	}
+	builder.WriteString("引用列表：\n")
+	for index, ref := range refs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		builder.WriteString(strconv.Itoa(index + 1))
+		builder.WriteString(". ")
+		builder.WriteString(ref)
+		builder.WriteString("\n")
+	}
+	builder.WriteString("Evidence refs：")
+	builder.WriteString(strings.Join(compactNonEmptyStrings(refs), ", "))
+	builder.WriteString("\n新鲜度提示：文本总结继承输入来源的新鲜度；多来源总结需要按最旧来源复核。")
+	return builder.String()
+}
+
+func summarizeKeyConclusions(text string, sources []summarizeTextSource) []string {
+	conclusions := make([]string, 0, 4)
+	for _, source := range sources {
+		summary := strings.TrimSpace(source.Summary)
+		if summary == "" {
+			summary = strings.TrimSpace(source.Content)
+		}
+		if summary != "" {
+			prefix := strings.TrimSpace(source.Title)
+			if prefix != "" {
+				conclusions = append(conclusions, prefix+"："+safeSummary(cleanWhitespace(summary), 180))
+			} else {
+				conclusions = append(conclusions, safeSummary(cleanWhitespace(summary), 180))
+			}
+		}
+		if len(conclusions) >= 4 {
+			break
+		}
+	}
+	if len(conclusions) == 0 {
+		conclusions = append(conclusions, safeSummary(cleanWhitespace(text), 240))
+	}
+	if len(conclusions) == 0 || strings.TrimSpace(conclusions[0]) == "" {
+		return []string{"没有足够文本生成可靠结论。"}
+	}
+	return conclusions
+}
+
+func summarizeRisks(text string, sources []summarizeTextSource) []string {
+	joined := strings.ToLower(text)
+	for _, source := range sources {
+		joined += " " + strings.ToLower(source.Title+" "+source.Summary+" "+source.Content)
+	}
+	risks := make([]string, 0, 3)
+	if containsAny(joined, []string{"风险", "失败", "错误", "下跌", "漏洞", "延迟", "不确定", "可能"}) {
+		risks = append(risks, "原文包含风险或不确定性信号，结论需要结合来源上下文复核。")
+	}
+	if len(sources) > 1 {
+		risks = append(risks, "多来源内容可能存在时间差或口径差异，引用时应保留来源。")
+	}
+	if len(risks) == 0 {
+		risks = append(risks, "未从输入文本中识别到明确风险信号。")
+	}
+	return risks
 }
 
 func cleanWhitespace(value string) string {
@@ -1738,6 +2185,23 @@ func historyRecallReason(hint agent.HistoryNeedHint) string {
 	}
 }
 
+func compactNonEmptyStrings(values []string) []string {
+	compacted := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		compacted = append(compacted, value)
+	}
+	return compacted
+}
+
 func formatRecentItemsBlock(items []domain.Item) string {
 	if len(items) == 0 {
 		return "暂无可用条目。"
@@ -1755,8 +2219,27 @@ func formatRecentItemsBlock(items []domain.Item) string {
 			builder.WriteString(item.SourceName)
 			builder.WriteString("）")
 		}
+		if item.PublishedAt != nil {
+			builder.WriteString("\n发布时间：")
+			builder.WriteString(item.PublishedAt.UTC().Format(time.RFC3339))
+		} else if !item.FetchedAt.IsZero() {
+			builder.WriteString("\n抓取时间：")
+			builder.WriteString(item.FetchedAt.UTC().Format(time.RFC3339))
+		}
+		builder.WriteString("\n已读：")
+		if item.IsRead {
+			builder.WriteString("是")
+		} else {
+			builder.WriteString("否")
+		}
+		if item.URL != "" {
+			builder.WriteString("\nURL：")
+			builder.WriteString(item.URL)
+		}
+		builder.WriteString("\nEvidence ref：item:")
+		builder.WriteString(strconv.FormatInt(item.ID, 10))
 		if item.Summary != "" {
-			builder.WriteString("：")
+			builder.WriteString("\n摘要：")
 			builder.WriteString(truncateError(item.Summary, 160))
 		}
 	}
@@ -1776,6 +2259,16 @@ func formatSourceLatestItemsBlock(source domain.Source, items []domain.Item) str
 		builder.WriteString(strconv.Itoa(i + 1))
 		builder.WriteString(". ")
 		builder.WriteString(item.Title)
+		if item.PublishedAt != nil {
+			builder.WriteString("\n发布时间：")
+			builder.WriteString(item.PublishedAt.UTC().Format(time.RFC3339))
+		}
+		if item.URL != "" {
+			builder.WriteString("\nURL：")
+			builder.WriteString(item.URL)
+		}
+		builder.WriteString("\nEvidence ref：item:")
+		builder.WriteString(strconv.FormatInt(item.ID, 10))
 	}
 	return builder.String()
 }

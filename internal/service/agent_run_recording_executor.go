@@ -103,17 +103,17 @@ func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, ru
 	}
 	observation.Status = status
 	observation.RunID = run.ID
-	artifactRefs := []string{}
+	evidenceRefs := capabilityEvidenceRefs(capabilityKey, run)
 	if strings.TrimSpace(output) != "" {
 		artifact, _ := e.runManager.RecordArtifact(ctx, domain.AgentArtifact{
 			RunID:        run.ID,
 			ArtifactType: "capability_output",
 			ContentRef:   fmt.Sprintf("agent_run:%d:capability_output", run.ID),
 			Summary:      safeSummary(output, 1000),
-			SourceRefs:   []string{capabilityKey},
+			SourceRefs:   evidenceRefs,
 		})
 		if artifact.ID > 0 {
-			artifactRefs = append(artifactRefs, fmt.Sprintf("agent_artifacts/%d", artifact.ID))
+			evidenceRefs = append(evidenceRefs, fmt.Sprintf("agent_artifact:%d", artifact.ID), fmt.Sprintf("agent_artifacts/%d", artifact.ID))
 		}
 	}
 	recordedObservation, _ := e.runManager.RecordObservation(ctx, domain.AgentObservation{
@@ -122,12 +122,13 @@ func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, ru
 		InputSummary:  safeSummary(input, 500),
 		OutputSummary: safeSummary(observation.Summary, 500),
 		Status:        status,
-		ArtifactRefs:  artifactRefs,
+		ArtifactRefs:  evidenceRefs,
 	})
 	if recordedObservation.ID > 0 {
 		observation.ObservationRef = fmt.Sprintf("agent_observations/%d", recordedObservation.ID)
+		evidenceRefs = append(evidenceRefs, fmt.Sprintf("agent_observation:%d", recordedObservation.ID), observation.ObservationRef)
 	}
-	observation.ArtifactRefs = append([]string(nil), artifactRefs...)
+	observation.ArtifactRefs = append([]string(nil), evidenceRefs...)
 	_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 		RunID:     run.ID,
 		TraceKind: "executor_output",
@@ -165,9 +166,11 @@ func (e agentRunRecordingExecutor) recordExecutorFailure(ctx context.Context, ru
 		OutputSummary: "capability execution failed",
 		Status:        "failed",
 		Error:         safeSummary(err.Error(), 500),
+		ArtifactRefs:  capabilityEvidenceRefs(capabilityKey, run),
 	})
 	if recordedObservation.ID > 0 {
 		observation.ObservationRef = fmt.Sprintf("agent_observations/%d", recordedObservation.ID)
+		observation.ArtifactRefs = append(capabilityEvidenceRefs(capabilityKey, run), fmt.Sprintf("agent_observation:%d", recordedObservation.ID), observation.ObservationRef)
 	}
 	_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 		RunID:     run.ID,
@@ -179,6 +182,20 @@ func (e agentRunRecordingExecutor) recordExecutorFailure(ctx context.Context, ru
 	})
 	_, _ = e.runManager.FailRun(ctx, run, err)
 	return observation
+}
+
+func capabilityEvidenceRefs(capabilityKey string, run domain.AgentRun) []string {
+	refs := []string{}
+	if strings.TrimSpace(capabilityKey) != "" {
+		refs = append(refs, "capability:"+strings.TrimSpace(capabilityKey))
+	}
+	if run.ID > 0 {
+		refs = append(refs, fmt.Sprintf("agent_run:%d", run.ID))
+	}
+	if run.TurnID > 0 {
+		refs = append(refs, fmt.Sprintf("agent_turn:%d", run.TurnID))
+	}
+	return refs
 }
 
 func contextBlocksContent(blocks []agent.ContextBlock) string {

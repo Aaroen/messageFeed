@@ -80,7 +80,9 @@ func main() {
 	var authService *service.AuthService
 	var agentApprovalService *service.AgentApprovalService
 	var agentSessionService *service.AgentSessionService
+	var agentScheduleEvalService *service.AgentScheduleEvalService
 	var notificationWorkerService *service.NotificationWorkerService
+	var agentScheduledTaskWorkerService *service.AgentScheduledTaskWorkerService
 	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
 	if cfg.WeChatWork.Enabled() {
@@ -210,27 +212,29 @@ func main() {
 		)
 		agentApprovalService = service.NewAgentApprovalService(agentApprovalRepository)
 		agentSessionService = service.NewAgentSessionService(agentRepository)
+		agentScheduleEvalService = service.NewAgentScheduleEvalService(agentRepository)
 		if weChatWorkSender != nil {
 			notificationWorkerService = service.NewNotificationWorkerService(notificationRepository, weChatWorkSender)
 		}
-		if weChatWorkAppCallback != nil {
-			agentConversationService = service.NewAgentConversationService(
-				agentRepository,
-				service.WithAgentConversationLLM(llmClient),
-				service.WithAgentConversationSender(weChatWorkSender),
-				service.WithAgentConversationExternalAccountResolver(authService),
-				service.WithAgentConversationUserContextProvider(authService),
-				service.WithAgentConversationRecentItemsProvider(timelineService),
-				service.WithAgentConversationSourceProvider(sourceService),
-				service.WithAgentConversationNotificationJobStore(notificationRepository),
-				service.WithAgentConversationPublicBaseURL(cfg.Runtime.PublicBaseURL),
-			)
-		}
+		agentConversationService = service.NewAgentConversationService(
+			agentRepository,
+			service.WithAgentConversationLLM(llmClient),
+			service.WithAgentConversationSender(weChatWorkSender),
+			service.WithAgentConversationExternalAccountResolver(authService),
+			service.WithAgentConversationUserContextProvider(authService),
+			service.WithAgentConversationRecentItemsProvider(timelineService),
+			service.WithAgentConversationSourceProvider(sourceService),
+			service.WithAgentConversationNotificationJobStore(notificationRepository),
+			service.WithAgentConversationPublicBaseURL(cfg.Runtime.PublicBaseURL),
+		)
+		agentScheduledTaskWorkerService = service.NewAgentScheduledTaskWorkerService(agentRepository)
+		agentScheduledTaskWorkerService.SetReportSender(weChatWorkSender)
 
 		// 启动数据库连接池指标采集器
 		go collectDatabaseMetrics(database, logger)
 		go runSourceSyncWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, sourceSyncService)
 		go runNotificationWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, notificationWorkerService)
+		go runAgentScheduledTaskWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, agentScheduledTaskWorkerService)
 	} else {
 		logger.Warn("database not configured, running in database-less mode")
 	}
@@ -262,6 +266,8 @@ func main() {
 		AdminConfigService:    adminConfigService,
 		AgentApprovalService:  agentApprovalService,
 		AgentSessionService:   agentSessionService,
+		AgentTaskService:      agentConversationService,
+		AgentEvalService:      agentScheduleEvalService,
 		ServiceName:           cfg.Observability.ServiceName,
 	})
 
@@ -377,6 +383,46 @@ func runNotificationWorker(ctx context.Context, logger *slog.Logger, workerID st
 				"success", result.SucceededCount,
 				"failed", result.FailedCount,
 				"retry", result.RetryCount,
+			)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func runAgentScheduledTaskWorker(ctx context.Context, logger *slog.Logger, workerID string, workerService *service.AgentScheduledTaskWorkerService) {
+	if workerService == nil {
+		return
+	}
+	if workerID == "" {
+		workerID = "api"
+	}
+	workerID = workerID + ":agent-scheduled-task"
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		result, err := workerService.RunDueOnce(runCtx, service.RunDueAgentScheduledTasksInput{
+			WorkerID: workerID,
+			Limit:    20,
+		})
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			logger.Warn("agent scheduled task worker run failed", "error", err)
+		} else if result.Claimed > 0 {
+			logger.Info(
+				"agent scheduled task worker run completed",
+				"claimed", result.Claimed,
+				"succeeded", result.Succeeded,
+				"failed", result.Failed,
+				"report_sent", result.ReportSent,
+				"report_failed", result.ReportFailed,
+				"report_skipped", result.ReportSkipped,
 			)
 		}
 

@@ -28,3 +28,13 @@ export async function rejectAgentApproval(token: string) {
   const response = await apiClient.post<APIEnvelope<AgentApprovalDetail>>(`/api/v1/agent/approvals/${token}/reject`)
   return response.data.data
 }
+
+export async function approveAgentApprovalRecord(id: number) {
+  const response = await apiClient.post<APIEnvelope<AgentApprovalDetail>>(`/api/v1/agent/approval-records/${id}/approve`)
+  return response.data.data
+}
+
+export async function rejectAgentApprovalRecord(id: number) {
+  const response = await apiClient.post<APIEnvelope<AgentApprovalDetail>>(`/api/v1/agent/approval-records/${id}/reject`)
+  return response.data.data
+}

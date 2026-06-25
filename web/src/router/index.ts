@@ -97,10 +97,22 @@ const router = createRouter({
       meta: { title: '操作确认', section: 'agent' },
     },
     {
+      path: '/agent',
+      name: 'agent',
+      component: AgentPlanView,
+      meta: { title: 'Agent 任务', section: 'agent' },
+    },
+    {
       path: '/agent/plans/:id',
       name: 'agent-plan',
       component: AgentPlanView,
       meta: { title: '执行进度', section: 'agent' },
+    },
+    {
+      path: '/agent/plans/:id/evidence/:recordKey',
+      name: 'agent-evidence-detail',
+      component: AgentPlanView,
+      meta: { title: '执行证据', section: 'agent' },
     },
     {
       path: '/timeline',

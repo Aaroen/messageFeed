@@ -35,6 +35,40 @@ func TestP0CapabilityRegistryContainsWebCapabilities(t *testing.T) {
 	}
 }
 
+func TestP0CapabilityRegistryContainsScheduleTask(t *testing.T) {
+	registry := NewP0CapabilityRegistry()
+	capability, ok := registry.Get("agent.schedule_task")
+	if !ok {
+		t.Fatal("agent.schedule_task was not registered")
+	}
+	if !capability.Mutates || !capability.Schedulable {
+		t.Fatalf("schedule task capability = %#v, want mutating schedulable", capability)
+	}
+	if capability.Risk != CapabilityRiskMedium {
+		t.Fatalf("risk = %q, want medium", capability.Risk)
+	}
+}
+
+func TestPlannerSelectsScheduleTaskForReminder(t *testing.T) {
+	planner := NewPlanner(PlannerOptions{})
+	output := planner.Build(context.Background(), PlanInput{
+		UserID: 1,
+		Goal:   "明天上午九点提醒我检查部署状态",
+	})
+	if output.Plan.Status != "awaiting_approval" {
+		t.Fatalf("plan status = %q, want awaiting_approval", output.Plan.Status)
+	}
+	found := false
+	for _, step := range output.Steps {
+		if step.CapabilityKey == "agent.schedule_task" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("steps = %#v, want agent.schedule_task", output.Steps)
+	}
+}
+
 func TestPolicyEngineAllowsReadOnlyAndPromptsMutatingCapability(t *testing.T) {
 	engine := NewPolicyEngine()
 	readOnly := Capability{Key: "feed.query_recent_items", Risk: CapabilityRiskLow}

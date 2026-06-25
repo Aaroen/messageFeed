@@ -2,8 +2,13 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"messagefeed/internal/service"
 
@@ -22,6 +27,11 @@ type agentSessionService interface {
 	GetRunDetail(ctx context.Context, auth service.CurrentAuth, runID int64) (service.AgentRunDetailResult, error)
 	ListPlans(ctx context.Context, auth service.CurrentAuth, sessionID int64, turnID int64, limit int) (service.AgentPlanListResult, error)
 	GetPlanDetail(ctx context.Context, auth service.CurrentAuth, planID int64) (service.AgentPlanDetailResult, error)
+	ListTasks(ctx context.Context, auth service.CurrentAuth, limit int) (service.AgentTaskListResult, error)
+	CancelScheduledTask(ctx context.Context, auth service.CurrentAuth, taskID int64) (service.CancelAgentScheduledTaskResult, error)
+	GetProgress(ctx context.Context, auth service.CurrentAuth, query service.AgentProgressQuery) (service.AgentProgressResult, error)
+	RequestCallbackReplayApproval(ctx context.Context, auth service.CurrentAuth, input service.AgentCallbackReplayInput) (service.AgentCallbackReplayAPIResult, error)
+	ExecuteCallbackReplay(ctx context.Context, auth service.CurrentAuth, input service.AgentCallbackReplayInput) (service.AgentCallbackReplayAPIResult, error)
 }
 
 type authPasswordVerifier interface {
@@ -42,6 +52,14 @@ type deleteAgentSessionRequest struct {
 	CurrentPassword string `json:"current_password"`
 }
 
+type agentCallbackReplayRequest struct {
+	PlanID      int64  `json:"plan_id"`
+	CallbackKey string `json:"callback_key"`
+	ReplayEntry string `json:"replay_entry"`
+	Reason      string `json:"reason"`
+	Approved    bool   `json:"approved"`
+}
+
 func registerAgentSessionRoutes(router *gin.RouterGroup, sessionService agentSessionService, authVerifier authPasswordVerifier) {
 	handler := agentSessionHandler{service: sessionService, authVerifier: authVerifier}
 	agent := router.Group("/agent")
@@ -50,12 +68,163 @@ func registerAgentSessionRoutes(router *gin.RouterGroup, sessionService agentSes
 	agent.GET("/sessions/:id/transcripts", handler.transcripts)
 	agent.GET("/turns/:turn_id/runs", handler.turnRuns)
 	agent.GET("/runs/:run_id", handler.runDetail)
+	agent.GET("/tasks", handler.tasks)
+	agent.POST("/scheduled-tasks/:id/cancel", handler.cancelScheduledTask)
 	agent.GET("/plans", handler.plans)
 	agent.GET("/plans/:plan_id", handler.planDetail)
+	agent.GET("/progress", handler.progress)
+	agent.GET("/progress/stream", handler.progressStream)
+	agent.POST("/callback-replay/requests", handler.requestCallbackReplay)
+	agent.POST("/callback-replay/execute", handler.executeCallbackReplay)
 	agent.POST("/sessions/:id/select", handler.selectSession)
 	agent.POST("/sessions/:id/rebuild-context", handler.rebuildContext)
 	agent.DELETE("/sessions/:id/context", handler.clearContext)
 	agent.DELETE("/sessions/:id", handler.deleteSession)
+}
+
+func (h agentSessionHandler) requestCallbackReplay(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	var request agentCallbackReplayRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	result, err := h.service.RequestCallbackReplayApproval(c.Request.Context(), currentAuth(c), service.AgentCallbackReplayInput{
+		PlanID:      request.PlanID,
+		CallbackKey: request.CallbackKey,
+		ReplayEntry: request.ReplayEntry,
+		Reason:      request.Reason,
+	})
+	if err != nil {
+		RenderError(c, err, "request callback replay approval failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) executeCallbackReplay(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	var request agentCallbackReplayRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	result, err := h.service.ExecuteCallbackReplay(c.Request.Context(), currentAuth(c), service.AgentCallbackReplayInput{
+		PlanID:      request.PlanID,
+		CallbackKey: request.CallbackKey,
+		ReplayEntry: request.ReplayEntry,
+		Reason:      request.Reason,
+		Approved:    request.Approved,
+	})
+	if err != nil {
+		RenderError(c, err, "execute callback replay failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) tasks(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	result, err := h.service.ListTasks(c.Request.Context(), currentAuth(c), limit)
+	if err != nil {
+		RenderError(c, err, "load agent tasks failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) cancelScheduledTask(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	taskID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || taskID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid scheduled task id")
+		return
+	}
+	result, err := h.service.CancelScheduledTask(c.Request.Context(), currentAuth(c), taskID)
+	if err != nil {
+		RenderError(c, err, "cancel scheduled task failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) progress(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	query := parseAgentProgressQuery(c)
+	if query.PlanID < 1 && query.TurnID < 1 && query.RunID < 1 && query.ScheduledTaskID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "one progress query id is required")
+		return
+	}
+	result, err := h.service.GetProgress(c.Request.Context(), currentAuth(c), query)
+	if err != nil {
+		RenderError(c, err, "load agent progress failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) progressStream(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	query := parseAgentProgressQuery(c)
+	if query.PlanID < 1 && query.TurnID < 1 && query.RunID < 1 && query.ScheduledTaskID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "one progress query id is required")
+		return
+	}
+	initial, err := h.service.GetProgress(c.Request.Context(), currentAuth(c), query)
+	if err != nil {
+		RenderError(c, err, "load agent progress failed")
+		return
+	}
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+	flusher, _ := c.Writer.(http.Flusher)
+	lastCursor := initial.Progress.EventCursor
+	_ = writeAgentProgressSSE(c.Writer, flusher, "progress", lastCursor, initial)
+	if strings.EqualFold(c.Query("once"), "true") {
+		return
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.Request.Context().Done():
+			return
+		case <-ticker.C:
+			result, err := h.service.GetProgress(c.Request.Context(), currentAuth(c), query)
+			if err != nil {
+				_ = writeAgentProgressSSE(c.Writer, flusher, "error", "", gin.H{"message": err.Error()})
+				continue
+			}
+			if result.Progress.EventCursor == lastCursor {
+				_ = writeAgentProgressSSE(c.Writer, flusher, "heartbeat", result.Progress.EventCursor, gin.H{"event_cursor": result.Progress.EventCursor})
+				continue
+			}
+			lastCursor = result.Progress.EventCursor
+			_ = writeAgentProgressSSE(c.Writer, flusher, "progress", lastCursor, result)
+		}
+	}
 }
 
 func (h agentSessionHandler) plans(c *gin.Context) {
@@ -256,6 +425,59 @@ func (h agentSessionHandler) transcripts(c *gin.Context) {
 		return
 	}
 	Success(c, result)
+}
+
+func parseInt64Query(c *gin.Context, key string) int64 {
+	value := c.Query(key)
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed < 1 {
+		return 0
+	}
+	return parsed
+}
+
+func parseAgentProgressQuery(c *gin.Context) service.AgentProgressQuery {
+	return service.AgentProgressQuery{
+		PlanID:          parseInt64Query(c, "plan_id"),
+		TurnID:          parseInt64Query(c, "turn_id"),
+		RunID:           parseInt64Query(c, "run_id"),
+		ScheduledTaskID: parseInt64Query(c, "scheduled_task_id"),
+	}
+}
+
+func writeAgentProgressSSE(writer io.Writer, flusher http.Flusher, event string, id string, data any) error {
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	event = strings.TrimSpace(event)
+	if event == "" {
+		event = "message"
+	}
+	if id != "" {
+		if _, err := fmt.Fprintf(writer, "id: %s\n", sanitizeSSELine(id)); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(writer, "event: %s\n", sanitizeSSELine(event)); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(writer, "data: %s\n\n", payload); err != nil {
+		return err
+	}
+	if flusher != nil {
+		flusher.Flush()
+	}
+	return nil
+}
+
+func sanitizeSSELine(value string) string {
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return strings.TrimSpace(value)
 }
 
 func parseAgentSessionID(c *gin.Context) (int64, bool) {

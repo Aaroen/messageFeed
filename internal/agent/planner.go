@@ -55,6 +55,7 @@ type PlanOutput struct {
 func (p *Planner) Build(ctx context.Context, input PlanInput) PlanOutput {
 	now := p.now().UTC()
 	capabilityKeys := p.selectCapabilities(input.Goal)
+	scheduleConfirmed := looksLikeScheduleConfirmation(strings.ToLower(strings.TrimSpace(input.Goal))) && containsString(capabilityKeys, "agent.schedule_task")
 	steps := make([]domain.AgentPlanStep, 0, len(capabilityKeys))
 	allowedScopes := make([]string, 0, len(capabilityKeys))
 	decisions := make([]PolicyResult, 0, len(capabilityKeys))
@@ -77,12 +78,20 @@ func (p *Planner) Build(ctx context.Context, input PlanInput) PlanOutput {
 			Title:           capability.Name,
 			InputSummary:    safePlanText(input.Goal, 500),
 			ExpectedOutput:  expectedCapabilityOutput(capability.Key),
-			FailureStrategy: "return structured observation to controller and ask for clarification or stop",
-			CreatedAt:       now,
-			UpdatedAt:       now,
+			FailureStrategy: "retry once when failure is transient; otherwise return structured observation to controller and ask for clarification or stop",
+			MaxRetries:      1,
+			RetryMetadata: domain.AgentJSON{
+				"permission": capabilityPermissionMetadata(capability, decision),
+			},
+			CreatedAt: now,
+			UpdatedAt: now,
 		})
 	}
 	policyDecision, policyReason := aggregatePolicy(decisions)
+	if scheduleConfirmed && policyDecision == PolicyDecisionPrompt {
+		policyDecision = PolicyDecisionAllow
+		policyReason = "user explicitly confirmed previous scheduled task request"
+	}
 	status := domain.AgentPlanStatusDraft
 	confirmationPolicy := "auto"
 	switch policyDecision {
@@ -113,10 +122,13 @@ func (p *Planner) Build(ctx context.Context, input PlanInput) PlanOutput {
 		PolicyDecision:     string(policyDecision),
 		PolicyReason:       policyReason,
 		Metadata: domain.AgentJSON{
-			"planner":       "deterministic-minimal-v1",
-			"capabilities":  capabilityKeys,
-			"planned_at":    now.Format(time.RFC3339),
-			"external_read": containsExternalCapability(p.registry, capabilityKeys),
+			"planner":               "deterministic-minimal-v2",
+			"capabilities":          capabilityKeys,
+			"planned_at":            now.Format(time.RFC3339),
+			"external_read":         containsExternalCapability(p.registry, capabilityKeys),
+			"permission_governance": p.permissionGovernance(capabilityKeys, decisions),
+			"budget_governance":     p.budgetGovernance(input.Goal, capabilityKeys),
+			"planner_quality":       plannerQualityChecks(input.Goal, capabilityKeys, steps, policyDecision),
 		},
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -134,8 +146,11 @@ func (p *Planner) selectCapabilities(goal string) []string {
 	if strings.Contains(text, "来源") || strings.Contains(text, "source") {
 		keys = append(keys, "source.query_latest_items")
 	}
-	if strings.Contains(text, "历史") || strings.Contains(text, "之前") || strings.Contains(text, "记得") || strings.Contains(text, "聊天") {
+	if strings.Contains(text, "历史") || strings.Contains(text, "之前") || strings.Contains(text, "记得") || strings.Contains(text, "聊天") || strings.Contains(text, "偏好") || strings.Contains(text, "第一条") || strings.Contains(text, "最早") {
 		keys = append(keys, "conversation.query_history")
+	}
+	if looksLikeScheduleRequest(text) || looksLikeScheduleConfirmation(text) {
+		keys = append(keys, "agent.schedule_task")
 	}
 	if looksLikeWebRequest(text) {
 		keys = append(keys, "web.search")
@@ -150,6 +165,28 @@ func (p *Planner) selectCapabilities(goal string) []string {
 		}
 	}
 	return uniqueStrings(keys)
+}
+
+func looksLikeScheduleRequest(text string) bool {
+	for _, keyword := range []string{"提醒", "定时", "稍后", "明天", "后天", "每天", "每周", "日报", "周报", "到点", "闹钟", "schedule", "remind"} {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeScheduleConfirmation(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return false
+	}
+	for _, keyword := range []string{"确认创建", "确认上一条", "上一条任务", "上一条提醒", "是的", "确认", "可以", "对"} {
+		if strings.Contains(trimmed, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func looksLikeWebRequest(text string) bool {
@@ -244,6 +281,145 @@ func containsExternalCapability(registry *CapabilityRegistry, keys []string) boo
 	return false
 }
 
+func (p *Planner) permissionGovernance(keys []string, decisions []PolicyResult) domain.AgentJSON {
+	items := make([]domain.AgentJSON, 0, len(keys))
+	for index, key := range keys {
+		capability, ok := p.registry.Get(key)
+		if !ok {
+			continue
+		}
+		decision := PolicyResult{Decision: PolicyDecisionForbidden, Reason: "capability is not registered"}
+		if index < len(decisions) {
+			decision = decisions[index]
+		}
+		items = append(items, capabilityPermissionMetadata(capability, decision))
+	}
+	return domain.AgentJSON{
+		"items":                 items,
+		"has_external_access":   containsExternalCapability(p.registry, keys),
+		"has_state_change":      containsMutatingCapability(p.registry, keys),
+		"requires_confirmation": requiresPrompt(decisions),
+		"boundary":              "only registered capability scopes may execute; mutating and scheduled capabilities require approval",
+	}
+}
+
+func capabilityPermissionMetadata(capability Capability, decision PolicyResult) domain.AgentJSON {
+	decisionValue := string(decision.Decision)
+	if decisionValue == "" {
+		decisionValue = string(PolicyDecisionForbidden)
+	}
+	return domain.AgentJSON{
+		"capability_key":        capability.Key,
+		"risk":                  string(capability.Risk),
+		"data_domain":           capability.DataDomain,
+		"mode":                  string(capability.Mode),
+		"external_access":       capability.ExternalAccess,
+		"mutates":               capability.Mutates,
+		"schedulable":           capability.Schedulable,
+		"reusable":              capability.Reusable,
+		"decision":              decisionValue,
+		"reason":                decision.Reason,
+		"requires_confirmation": decision.Decision == PolicyDecisionPrompt,
+	}
+}
+
+func containsMutatingCapability(registry *CapabilityRegistry, keys []string) bool {
+	for _, key := range keys {
+		capability, ok := registry.Get(key)
+		if ok && capability.Mutates {
+			return true
+		}
+	}
+	return false
+}
+
+func requiresPrompt(decisions []PolicyResult) bool {
+	for _, decision := range decisions {
+		if decision.Decision == PolicyDecisionPrompt {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Planner) budgetGovernance(goal string, keys []string) domain.AgentJSON {
+	toolCalls := len(keys)
+	externalCalls := 0
+	for _, key := range keys {
+		if capability, ok := p.registry.Get(key); ok && capability.ExternalAccess {
+			externalCalls++
+		}
+	}
+	contextChars := len([]rune(goal))
+	contextBudget := 6000
+	toolBudget := 8
+	externalBudget := 4
+	replyBudget := 768
+	status := "within_budget"
+	degradation := ""
+	if contextChars > contextBudget || toolCalls > toolBudget || externalCalls > externalBudget {
+		status = "degraded"
+		degradation = "reduce sources, shorten time range, or ask for confirmation before continuing"
+	}
+	return domain.AgentJSON{
+		"status":                status,
+		"context_chars":         contextChars,
+		"context_budget_chars":  contextBudget,
+		"tool_calls":            toolCalls,
+		"tool_call_budget":      toolBudget,
+		"external_calls":        externalCalls,
+		"external_call_budget":  externalBudget,
+		"reply_token_budget":    replyBudget,
+		"degradation_strategy":  degradation,
+		"budget_policy_version": "deterministic-budget-v1",
+	}
+}
+
+func plannerQualityChecks(goal string, keys []string, steps []domain.AgentPlanStep, policyDecision PolicyDecision) domain.AgentJSON {
+	checks := []domain.AgentJSON{
+		{"key": "goal_coverage", "status": qualityStatus(strings.TrimSpace(goal) != "" && len(steps) > 0), "summary": "selected capabilities should cover the user goal"},
+		{"key": "evidence_required", "status": qualityStatus(capabilitySetHasEvidence(keys)), "summary": "plan should include evidence-producing capability or local source reference"},
+		{"key": "risk_explained", "status": qualityStatus(policyDecision != ""), "summary": "plan records policy decision and risk level"},
+		{"key": "failure_strategy", "status": qualityStatus(allStepsHaveFailureStrategy(steps)), "summary": "each step has a bounded retry or stop strategy"},
+	}
+	status := "passed"
+	for _, check := range checks {
+		if check["status"] != "passed" {
+			status = "failed"
+			break
+		}
+	}
+	return domain.AgentJSON{"status": status, "checks": checks}
+}
+
+func qualityStatus(ok bool) string {
+	if ok {
+		return "passed"
+	}
+	return "failed"
+}
+
+func capabilitySetHasEvidence(keys []string) bool {
+	for _, key := range keys {
+		if strings.HasPrefix(key, "feed.") || strings.HasPrefix(key, "source.") || strings.HasPrefix(key, "conversation.") || strings.HasPrefix(key, "web.") || strings.HasPrefix(key, "repo.") {
+			return true
+		}
+	}
+	return false
+}
+
+func allStepsHaveFailureStrategy(steps []domain.AgentPlanStep) bool {
+	if len(steps) == 0 {
+		return false
+	}
+	for _, step := range steps {
+		if strings.TrimSpace(step.FailureStrategy) == "" {
+			return false
+		}
+	}
+	return true
+}
+
 func expectedCapabilityOutput(key string) string {
 	switch key {
 	case "conversation.query_history":
@@ -256,6 +432,8 @@ func expectedCapabilityOutput(key string) string {
 		return "title, site, publication metadata, summary and links"
 	case "agent.schedule_message":
 		return "confirmation request or queued notification job reference"
+	case "agent.schedule_task":
+		return "confirmation request or persisted scheduled agent task reference"
 	case "repo.search":
 		return "repository candidates with URL, description, language, license and update time"
 	case "repo.inspect_remote":
@@ -270,8 +448,8 @@ func planSummary(goal string, capabilityKeys []string) string {
 }
 
 func impactSummary(capabilityKeys []string) string {
-	if containsString(capabilityKeys, "agent.schedule_message") {
-		return "may create a scheduled outbound notification after explicit confirmation"
+	if containsString(capabilityKeys, "agent.schedule_task") || containsString(capabilityKeys, "agent.schedule_message") {
+		return "may create a scheduled agent task or outbound notification after explicit confirmation"
 	}
 	if containsString(capabilityKeys, "web.search") || containsString(capabilityKeys, "web.fetch_page") || containsString(capabilityKeys, "web.extract_page") || containsString(capabilityKeys, "repo.search") || containsString(capabilityKeys, "repo.inspect_remote") {
 		return "performs bounded external HTTP reads and records sources"

@@ -81,6 +81,55 @@ func TestWeChatWorkAppClientSendTextGetsTokenAndSendsMessage(t *testing.T) {
 	}
 }
 
+func TestWeChatWorkAppClientSendTemplateCard(t *testing.T) {
+	var sent sendTemplateCardRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cgi-bin/gettoken":
+			_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok","access_token":"token-a","expires_in":7200}`))
+		case "/cgi-bin/message/send":
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Fatalf("decode send request: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok","msgid":"msg-card-1"}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewWeChatWorkAppClient(WeChatWorkAppConfig{
+		CorpID:     "corp-a",
+		AgentID:    "1000002",
+		Secret:     "secret-a",
+		APIBaseURL: server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewWeChatWorkAppClient() error = %v", err)
+	}
+	result, err := client.SendTemplateCard(context.Background(), WeChatWorkTemplateCardMessage{
+		ToUser:      "zhangsan",
+		Title:       "Agent 实时工作进度",
+		Description: "执行中",
+		URL:         "https://example.test/agent/plans/1",
+		Buttons: []WeChatWorkTemplateCardButton{
+			{Key: "view_progress", Text: "查看进度", URL: "https://example.test/agent/plans/1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendTemplateCard() error = %v", err)
+	}
+	if result.MessageID != "msg-card-1" {
+		t.Fatalf("MessageID = %q", result.MessageID)
+	}
+	if sent.MsgType != "template_card" || sent.TemplateCard.CardType != "text_notice" {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if sent.TemplateCard.MainTitle.Title != "Agent 实时工作进度" || sent.TemplateCard.CardAction.URL == "" || len(sent.TemplateCard.JumpList) != 1 {
+		t.Fatalf("template card = %#v", sent.TemplateCard)
+	}
+}
+
 func TestWeChatWorkAppClientCachesAccessToken(t *testing.T) {
 	tokenCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,2 @@
+DROP TRIGGER IF EXISTS update_agent_notification_preferences_updated_at ON agent_notification_preferences;
+DROP TABLE IF EXISTS agent_notification_preferences;

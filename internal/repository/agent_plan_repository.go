@@ -53,6 +53,11 @@ type agentPlanStepModel struct {
 	ObservationRef  string
 	ArtifactRefs    []string `gorm:"column:artifact_refs_json;serializer:json;type:jsonb;not null"`
 	ErrorMessage    string
+	RetryCount      int
+	MaxRetries      int
+	LastRetryAt     *time.Time
+	RetryReason     string
+	RetryMetadata   domain.AgentJSON `gorm:"column:retry_metadata_json;serializer:json;type:jsonb;not null"`
 	StartedAt       *time.Time
 	CompletedAt     *time.Time
 	CreatedAt       time.Time
@@ -210,6 +215,29 @@ func (r *AgentRepository) UpdateAgentPlanStatus(ctx context.Context, userID int6
 	return r.GetAgentPlan(ctx, userID, planID)
 }
 
+func (r *AgentRepository) UpdateAgentPlanMetadata(ctx context.Context, userID int64, planID int64, metadata domain.AgentJSON, now time.Time) (domain.AgentPlan, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_plan.update_metadata", "update", "agent_plans")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	if metadata == nil {
+		metadata = domain.AgentJSON{}
+	}
+	result := r.db.WithContext(ctx).Model(&agentPlanModel{}).Where("id = ? AND user_id = ?", planID, userID).Updates(map[string]any{
+		"metadata_json": clause.Expr{SQL: "?", Vars: []any{metadata}},
+		"updated_at":    now.UTC(),
+	})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.AgentPlan{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return domain.AgentPlan{}, opErr
+	}
+	return r.GetAgentPlan(ctx, userID, planID)
+}
+
 func (r *AgentRepository) UpdateAgentPlanStepStatus(ctx context.Context, userID int64, step domain.AgentPlanStep) (domain.AgentPlanStep, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_plan_step.update_status", "update", "agent_plan_steps")
 	var opErr error
@@ -229,9 +257,17 @@ func (r *AgentRepository) UpdateAgentPlanStepStatus(ctx context.Context, userID 
 				Vars: []any{step.ArtifactRefs},
 			},
 			"error_message": step.ErrorMessage,
-			"started_at":    step.StartedAt,
-			"completed_at":  step.CompletedAt,
-			"updated_at":    time.Now().UTC(),
+			"retry_count":   step.RetryCount,
+			"max_retries":   step.MaxRetries,
+			"last_retry_at": step.LastRetryAt,
+			"retry_reason":  step.RetryReason,
+			"retry_metadata_json": clause.Expr{
+				SQL:  "?",
+				Vars: []any{step.RetryMetadata},
+			},
+			"started_at":   step.StartedAt,
+			"completed_at": step.CompletedAt,
+			"updated_at":   time.Now().UTC(),
 		})
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
@@ -320,6 +356,16 @@ func normalizeAgentPlanStep(step domain.AgentPlanStep) domain.AgentPlanStep {
 	}
 	if step.ArtifactRefs == nil {
 		step.ArtifactRefs = []string{}
+	}
+	if step.MaxRetries < 0 {
+		step.MaxRetries = 0
+	}
+	if step.RetryCount < 0 {
+		step.RetryCount = 0
+	}
+	step.RetryReason = strings.TrimSpace(step.RetryReason)
+	if step.RetryMetadata == nil {
+		step.RetryMetadata = domain.AgentJSON{}
 	}
 	return step
 }
@@ -433,6 +479,11 @@ func agentPlanStepModelFromDomain(step domain.AgentPlanStep) agentPlanStepModel 
 		ObservationRef:  step.ObservationRef,
 		ArtifactRefs:    append([]string(nil), step.ArtifactRefs...),
 		ErrorMessage:    step.ErrorMessage,
+		RetryCount:      step.RetryCount,
+		MaxRetries:      step.MaxRetries,
+		LastRetryAt:     step.LastRetryAt,
+		RetryReason:     step.RetryReason,
+		RetryMetadata:   cloneAgentJSON(step.RetryMetadata),
 		StartedAt:       step.StartedAt,
 		CompletedAt:     step.CompletedAt,
 		CreatedAt:       step.CreatedAt,
@@ -457,6 +508,11 @@ func agentPlanStepModelToDomain(model agentPlanStepModel) domain.AgentPlanStep {
 		ObservationRef:  model.ObservationRef,
 		ArtifactRefs:    append([]string(nil), model.ArtifactRefs...),
 		ErrorMessage:    model.ErrorMessage,
+		RetryCount:      model.RetryCount,
+		MaxRetries:      model.MaxRetries,
+		LastRetryAt:     model.LastRetryAt,
+		RetryReason:     model.RetryReason,
+		RetryMetadata:   cloneAgentJSON(model.RetryMetadata),
 		StartedAt:       model.StartedAt,
 		CompletedAt:     model.CompletedAt,
 		CreatedAt:       model.CreatedAt,

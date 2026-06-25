@@ -4,6 +4,7 @@ import "time"
 
 const (
 	AgentProviderWeChatWorkApp = "wechat_work_app"
+	AgentProviderWeb           = "web"
 )
 
 type ExternalAccountBindingStatus string
@@ -291,4 +292,32 @@ type AgentAuditLog struct {
 	RequestID string
 	TraceID   string
 	CreatedAt time.Time
+}
+
+type AgentAuditLogListOptions struct {
+	UserID    int64
+	SessionID int64
+	TurnID    int64
+	Limit     int
+}
+
+type AgentNotificationPreference struct {
+	UserID                       int64
+	ProcessNotificationsEnabled  bool
+	FinalReportsEnabled          bool
+	FailureNotificationsEnabled  bool
+	RecoveryNotificationsEnabled bool
+	MaxConcurrentTasks           int
+	MaxQueuedTasks               int
+	AutoRecoveryEnabled          bool
+	QualityHandoffThreshold      float64
+	HandoffOnFailure             bool
+	HandoffOnPermission          bool
+	HandoffOnBudget              bool
+	CapabilityPolicy             AgentJSON
+	DailyTaskQuota               int
+	DailyExternalCallQuota       int
+	DailyCapabilityCallQuota     int
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
 }

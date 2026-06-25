@@ -101,6 +101,11 @@ type AgentPlanStep struct {
 	ObservationRef  string
 	ArtifactRefs    []string
 	ErrorMessage    string
+	RetryCount      int
+	MaxRetries      int
+	LastRetryAt     *time.Time
+	RetryReason     string
+	RetryMetadata   AgentJSON
 	StartedAt       *time.Time
 	CompletedAt     *time.Time
 	CreatedAt       time.Time

@@ -93,7 +93,8 @@ func TestTurnRunnerSystemPromptGuidesScheduledMessageConfirmation(t *testing.T) 
 		"不得克隆仓库",
 		"来源、抓取时间和摘要",
 		"归一化为 scheduled_at",
-		"再次调用 agent.schedule_message",
+		"优先使用 agent.schedule_task",
+		"再次调用 agent.schedule_task",
 		"confirmed=true",
 	} {
 		if !strings.Contains(prompt, required) {
@@ -112,20 +113,25 @@ func TestTurnRunnerRejectsToolOutsideCurrentScope(t *testing.T) {
 					{ID: "call-1", Name: "web__search", Arguments: `{"query":"messageFeed"}`},
 				},
 			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "该能力未获批准，不能执行联网搜索。"},
 		},
 	}
 	toolExecutor := &runnerFakeToolExecutor{}
+	audit := &runnerFakeAuditLogger{}
 	runner := NewTurnRunner(TurnRunnerOptions{
+		Store:        &runnerFakeTurnStore{},
+		AuditLogger:  audit,
 		ToolExecutor: toolExecutor,
-		ToolKeys:     []string{"conversation.query_history"},
+		ToolKeys:     []string{"conversation.query_history", "web.search"},
 		LLMClient:    chat,
 		SystemPrompt: "系统提示",
 	})
 
-	_, err := runner.Run(context.Background(), TurnRunInput{
-		UserID:  1,
-		Session: domain.AgentSession{ID: 10, UserID: 1},
-		Turn:    domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		AllowedToolKeys: []string{"conversation.query_history"},
 		InboundMessage: domain.AgentInboundMessage{
 			ID:     30,
 			UserID: 1,
@@ -133,11 +139,17 @@ func TestTurnRunnerRejectsToolOutsideCurrentScope(t *testing.T) {
 		MessageType: "text",
 		MessageText: "联网搜索 messageFeed",
 	})
-	if err == nil {
-		t.Fatal("Run() error = nil, want scope error")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
 	}
 	if toolExecutor.input.Capability.Key != "" {
 		t.Fatalf("tool was executed outside scope: %#v", toolExecutor.input)
+	}
+	if len(result.Context.Observations) != 1 || result.Context.Observations[0].Decision != string(PolicyDecisionForbidden) {
+		t.Fatalf("observations = %#v", result.Context.Observations)
+	}
+	if len(audit.events) == 0 || audit.events[0].EventType != "agent.capability_scope_denied" {
+		t.Fatalf("audit events = %#v", audit.events)
 	}
 }
 
@@ -193,4 +205,13 @@ func (s *runnerFakeTurnStore) AppendTranscriptEntry(_ context.Context, entry dom
 
 func (s *runnerFakeTurnStore) UpdateInboundMessageStatus(_ context.Context, _ int64, _ int64, status domain.AgentInboundMessageStatus, now time.Time) (domain.AgentInboundMessage, error) {
 	return domain.AgentInboundMessage{Status: status, UpdatedAt: now}, nil
+}
+
+type runnerFakeAuditLogger struct {
+	events []AuditEvent
+}
+
+func (l *runnerFakeAuditLogger) Record(_ context.Context, event AuditEvent) error {
+	l.events = append(l.events, event)
+	return nil
 }

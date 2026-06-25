@@ -36,9 +36,11 @@ type Capability struct {
 	Description    string
 	Mode           CapabilityMode
 	Risk           CapabilityRisk
+	DataDomain     string
 	Mutates        bool
 	ExternalAccess bool
 	Schedulable    bool
+	Reusable       bool
 	Parameters     map[string]any
 }
 
@@ -54,6 +56,8 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description: "读取当前用户最近订阅条目。",
 		Mode:        CapabilityModeCore,
 		Risk:        CapabilityRiskLow,
+		DataDomain:  "local_feed",
+		Reusable:    true,
 	})
 	registry.Register(Capability{
 		Key:         "source.query_latest_items",
@@ -61,6 +65,8 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description: "按来源名称或来源 ID 读取最新条目。",
 		Mode:        CapabilityModeCore,
 		Risk:        CapabilityRiskLow,
+		DataDomain:  "local_feed",
+		Reusable:    true,
 	})
 	registry.Register(Capability{
 		Key:         "conversation.query_history",
@@ -68,6 +74,8 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description: "按关键词、时间、角色或会话边界读取当前用户企微长期会话的历史聊天原文。",
 		Mode:        CapabilityModeCore,
 		Risk:        CapabilityRiskLow,
+		DataDomain:  "long_term_memory",
+		Reusable:    true,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -101,9 +109,10 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 	registry.Register(Capability{
 		Key:         "agent.schedule_message",
 		Name:        "定时发送消息",
-		Description: "创建当前企微用户的定时提醒或定时发送消息任务。模型负责把自然语言时间归一化为 scheduled_at；后端只做校验和写入。默认需要用户明确确认后才能创建。",
+		Description: "兼容旧入口：创建当前企微用户的定时提醒或定时发送消息任务。新任务应优先使用 agent.schedule_task。",
 		Mode:        CapabilityModeDeferred,
 		Risk:        CapabilityRiskMedium,
+		DataDomain:  "notification",
 		Mutates:     true,
 		Schedulable: true,
 		Parameters: map[string]any{
@@ -144,12 +153,71 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		},
 	})
 	registry.Register(Capability{
+		Key:         "agent.schedule_task",
+		Name:        "创建定时 Agent 任务",
+		Description: "创建当前用户的定时 Agent 任务。任务到点后应复用 controller run 闭环执行，可用于提醒、定时检索、定时总结和定时汇报。默认需要用户明确确认。",
+		Mode:        CapabilityModeDeferred,
+		Risk:        CapabilityRiskMedium,
+		DataDomain:  "scheduled_task",
+		Mutates:     true,
+		Schedulable: true,
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"task_type": map[string]any{
+					"type":        "string",
+					"description": "任务类型，例如 reminder、send_message、digest、research 或 agent_task。",
+				},
+				"goal": map[string]any{
+					"type":        "string",
+					"description": "到点后 controller run 需要完成的目标。",
+				},
+				"content": map[string]any{
+					"type":        "string",
+					"description": "兼容提醒类任务的用户可见内容；如果 goal 为空，可作为 goal 使用。",
+				},
+				"scheduled_at": map[string]any{
+					"type":        "string",
+					"description": "模型归一化后的明确触发时间，优先使用 RFC3339。",
+				},
+				"time_hint": map[string]any{
+					"type":        "string",
+					"description": "原始自然语言时间表达，仅作为辅助证据。",
+				},
+				"time_zone": map[string]any{
+					"type":        "string",
+					"description": "用于解释 scheduled_at 或 time_hint 的时区，默认 Asia/Shanghai。",
+				},
+				"target_channel": map[string]any{
+					"type":        "string",
+					"description": "结果投递通道，默认 wechat_work_app。",
+				},
+				"freshness_policy": map[string]any{
+					"type":        "string",
+					"description": "到点执行时的信息新鲜度策略，默认 latest_at_run。",
+				},
+				"allowed_capabilities": map[string]any{
+					"type":        "array",
+					"description": "到点任务允许使用的 capability key 列表。",
+					"items":       map[string]any{"type": "string"},
+				},
+				"confirmed": map[string]any{
+					"type":        "boolean",
+					"description": "仅当用户已经明确确认创建该定时任务时才为 true。",
+				},
+			},
+			"required": []string{"task_type", "goal"},
+		},
+	})
+	registry.Register(Capability{
 		Key:            "web.search",
 		Name:           "搜索网页",
 		Description:    "根据查询词返回候选网页，输出来源、抓取时间和摘要。",
 		Mode:           CapabilityModeDeferred,
 		Risk:           CapabilityRiskLow,
+		DataDomain:     "external_web",
 		ExternalAccess: true,
+		Reusable:       true,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -173,7 +241,9 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description:    "按 URL 获取网页响应元数据和受限大小的正文片段。",
 		Mode:           CapabilityModeDeferred,
 		Risk:           CapabilityRiskLow,
+		DataDomain:     "external_web",
 		ExternalAccess: true,
+		Reusable:       true,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -191,7 +261,9 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description:    "按 URL 抓取页面并抽取标题、正文摘要、主要链接和来源信息。",
 		Mode:           CapabilityModeDeferred,
 		Risk:           CapabilityRiskLow,
+		DataDomain:     "external_web",
 		ExternalAccess: true,
+		Reusable:       true,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -209,7 +281,9 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description:    "根据查询词返回远端仓库候选，输出仓库 URL、描述、语言、许可和更新时间。",
 		Mode:           CapabilityModeDeferred,
 		Risk:           CapabilityRiskLow,
+		DataDomain:     "external_repo",
 		ExternalAccess: true,
+		Reusable:       true,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -233,7 +307,9 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description:    "只读检查 GitHub 远端仓库 README、license、默认分支和基础元数据，不克隆到本地。",
 		Mode:           CapabilityModeDeferred,
 		Risk:           CapabilityRiskLow,
+		DataDomain:     "external_repo",
 		ExternalAccess: true,
+		Reusable:       true,
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -251,6 +327,8 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description: "对用户输入或条目摘要生成简短总结。",
 		Mode:        CapabilityModeCore,
 		Risk:        CapabilityRiskLow,
+		DataDomain:  "derived_content",
+		Reusable:    true,
 	})
 	registry.Register(Capability{
 		Key:         "agent.write_transcript",
@@ -258,6 +336,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description: "写入本轮 transcript。",
 		Mode:        CapabilityModeHidden,
 		Risk:        CapabilityRiskLow,
+		DataDomain:  "agent_internal",
 	})
 	registry.Register(Capability{
 		Key:         "agent.write_audit",
@@ -265,6 +344,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Description: "写入本轮审计事件。",
 		Mode:        CapabilityModeHidden,
 		Risk:        CapabilityRiskLow,
+		DataDomain:  "agent_internal",
 	})
 	return registry
 }

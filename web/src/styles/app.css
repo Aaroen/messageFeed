@@ -2397,6 +2397,17 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   cursor: pointer;
 }
 
+.settings-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 40px;
+  color: var(--mf-text);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
 .settings-switch input {
   position: absolute;
   opacity: 0;

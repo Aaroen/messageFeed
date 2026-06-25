@@ -52,6 +52,21 @@ func (r *AgentApprovalRepository) GetByTokenHash(ctx context.Context, userID int
 	return agentApprovalModelToDomain(model), nil
 }
 
+func (r *AgentApprovalRepository) GetByID(ctx context.Context, userID int64, approvalID int64) (domain.AgentApproval, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_approval.get_by_id", "select", "agent_approvals")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model agentApprovalModel
+	if err := r.db.WithContext(ctx).
+		Where("id = ? AND user_id = ?", approvalID, userID).
+		First(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentApproval{}, opErr
+	}
+	return agentApprovalModelToDomain(model), nil
+}
+
 func (r *AgentApprovalRepository) Decide(ctx context.Context, userID int64, tokenHash string, status domain.AgentApprovalStatus, now time.Time) (domain.AgentApproval, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_approval.decide", "update", "agent_approvals")
 	var opErr error
@@ -65,6 +80,38 @@ func (r *AgentApprovalRepository) Decide(ctx context.Context, userID int64, toke
 			"user_id = ? AND approval_token_hash = ? AND status = ? AND expires_at > ?",
 			userID,
 			strings.TrimSpace(tokenHash),
+			string(domain.AgentApprovalStatusPending),
+			now.UTC(),
+		).
+		Updates(map[string]any{
+			"status":     string(status),
+			"decided_at": now.UTC(),
+			"updated_at": now.UTC(),
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.AgentApproval{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return domain.AgentApproval{}, opErr
+	}
+	return agentApprovalModelToDomain(model), nil
+}
+
+func (r *AgentApprovalRepository) DecideByID(ctx context.Context, userID int64, approvalID int64, status domain.AgentApprovalStatus, now time.Time) (domain.AgentApproval, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_approval.decide_by_id", "update", "agent_approvals")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model agentApprovalModel
+	result := r.db.WithContext(ctx).
+		Model(&model).
+		Clauses(clause.Returning{}).
+		Where(
+			"id = ? AND user_id = ? AND status = ? AND expires_at > ?",
+			approvalID,
+			userID,
 			string(domain.AgentApprovalStatusPending),
 			now.UTC(),
 		).
@@ -115,6 +162,19 @@ func (r *AgentApprovalRepository) UpdateAgentPlanStatusForApproval(ctx context.C
 		return opErr
 	}
 	return nil
+}
+
+func (r *AgentApprovalRepository) CreateAuditLog(ctx context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_approval.audit.create", "insert", "agent_audit_logs")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	model := agentAuditLogModelFromDomain(log)
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentAuditLog{}, opErr
+	}
+	return agentAuditLogModelToDomain(model), nil
 }
 
 func agentApprovalModelToDomain(model agentApprovalModel) domain.AgentApproval {

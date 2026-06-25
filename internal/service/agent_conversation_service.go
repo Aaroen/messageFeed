@@ -9,6 +9,7 @@ import (
 	"messagefeed/internal/metrics"
 	"messagefeed/internal/notifier"
 	"messagefeed/internal/observability"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ const (
 )
 
 type AgentConversationRepository interface {
+	EnsureExternalAccount(ctx context.Context, account domain.ExternalAccount) (domain.ExternalAccount, error)
 	CreateInboundMessage(ctx context.Context, message domain.AgentInboundMessage) (domain.AgentInboundMessage, bool, error)
 	UpdateInboundMessageStatus(ctx context.Context, userID int64, id int64, status domain.AgentInboundMessageStatus, now time.Time) (domain.AgentInboundMessage, error)
 	GetOrCreateSession(ctx context.Context, session domain.AgentSession) (domain.AgentSession, error)
@@ -40,10 +42,15 @@ type AgentConversationRepository interface {
 	CreateAgentObservation(ctx context.Context, observation domain.AgentObservation) (domain.AgentObservation, error)
 	CreateAgentArtifact(ctx context.Context, artifact domain.AgentArtifact) (domain.AgentArtifact, error)
 	CreateAgentPlan(ctx context.Context, plan domain.AgentPlan, steps []domain.AgentPlanStep) (domain.AgentPlan, error)
+	ListAgentPlans(ctx context.Context, userID int64, sessionID int64, turnID int64, limit int) ([]domain.AgentPlan, error)
+	ListAgentScheduledTasks(ctx context.Context, options domain.AgentScheduledTaskListOptions) ([]domain.AgentScheduledTask, error)
+	UpdateAgentScheduledTask(ctx context.Context, task domain.AgentScheduledTask) (domain.AgentScheduledTask, error)
 	UpdateAgentPlanStatus(ctx context.Context, userID int64, planID int64, status domain.AgentPlanStatus, now time.Time, errorMessage string) (domain.AgentPlan, error)
+	UpdateAgentPlanMetadata(ctx context.Context, userID int64, planID int64, metadata domain.AgentJSON, now time.Time) (domain.AgentPlan, error)
 	UpdateAgentPlanStepStatus(ctx context.Context, userID int64, step domain.AgentPlanStep) (domain.AgentPlanStep, error)
 	CreateAgentApproval(ctx context.Context, approval domain.AgentApproval) (domain.AgentApproval, error)
 	CreateAgentCapabilityAuditLog(ctx context.Context, log domain.AgentCapabilityAuditLog) (domain.AgentCapabilityAuditLog, error)
+	GetAgentNotificationPreference(ctx context.Context, userID int64) (domain.AgentNotificationPreference, error)
 }
 
 type AgentExternalAccountResolver interface {
@@ -83,6 +90,7 @@ type AgentConversationService struct {
 	recentItems        AgentRecentItemsProvider
 	sourceProvider     AgentSourceProvider
 	notificationJobs   AgentNotificationJobStore
+	scheduledTasks     AgentScheduleEvalRepository
 	turnRunner         *agent.TurnRunner
 	runManager         *agent.RunManager
 	planner            *agent.Planner
@@ -141,6 +149,12 @@ func WithAgentConversationNotificationJobStore(store AgentNotificationJobStore) 
 	}
 }
 
+func WithAgentConversationScheduledTaskStore(store AgentScheduleEvalRepository) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.scheduledTasks = store
+	}
+}
+
 func WithAgentConversationInlineProcessing(enabled bool) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		service.processInline = enabled
@@ -190,6 +204,11 @@ func NewAgentConversationService(repository AgentConversationRepository, options
 	for _, option := range options {
 		option(service)
 	}
+	if service.scheduledTasks == nil {
+		if store, ok := any(repository).(AgentScheduleEvalRepository); ok {
+			service.scheduledTasks = store
+		}
+	}
 	service.runManager = agent.NewRunManager(agent.RunManagerOptions{Store: repository, Now: service.now})
 	service.planner = agent.NewPlanner(agent.PlannerOptions{Registry: service.capabilityRegistry, Policy: service.policyEngine, Now: service.now})
 	service.rebuildTurnRunner()
@@ -220,7 +239,7 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 		ContextBuilder: contextBuilder,
 		ToolExecutor:   s.agentCapabilityExecutor(),
 		ToolRegistry:   s.capabilityRegistry,
-		ToolKeys:       []string{"conversation.query_history", "agent.schedule_message", "web.search", "web.fetch_page", "web.extract_page", "repo.search", "repo.inspect_remote"},
+		ToolKeys:       []string{"conversation.query_history", "agent.schedule_task", "agent.schedule_message", "web.search", "web.fetch_page", "web.extract_page", "repo.search", "repo.inspect_remote", "content.summarize_text"},
 		LLMClient:      s.llmClient,
 		Now:            s.now,
 		SystemPrompt:   llm.MessageFeedAgentSystemPrompt,
@@ -236,6 +255,7 @@ func (s *AgentConversationService) agentCapabilityExecutor() agentRunRecordingEx
 			recentItems:      s.recentItems,
 			sourceProvider:   s.sourceProvider,
 			notificationJobs: s.notificationJobs,
+			scheduledTasks:   s.scheduledTasks,
 			now:              s.now,
 		},
 		runManager: s.runManager,
@@ -265,11 +285,43 @@ type ReceiveWeChatWorkAppMessageResult struct {
 	InboundMessage  domain.AgentInboundMessage
 	Session         domain.AgentSession
 	Turn            domain.AgentTurn
+	Plan            domain.AgentPlan
 	Reply           string
 	SendResult      notifier.WeChatWorkSendResult
 	Duplicate       bool
 	BindingRequired bool
 	ProcessingAsync bool
+}
+
+type ReceiveWebAgentTaskInput struct {
+	Message   string
+	SessionID int64
+	Channel   string
+	RequestID string
+	TraceID   string
+}
+
+type AgentTurnResponse struct {
+	ID               int64  `json:"id"`
+	SessionID        int64  `json:"session_id"`
+	InboundMessageID int64  `json:"inbound_message_id"`
+	Status           string `json:"status"`
+	InputText        string `json:"input_text"`
+	OutputText       string `json:"output_text"`
+	ErrorMessage     string `json:"error_message"`
+	StartedAt        string `json:"started_at"`
+	FinishedAt       string `json:"finished_at,omitempty"`
+	CreatedAt        string `json:"created_at"`
+	UpdatedAt        string `json:"updated_at"`
+}
+
+type ReceiveWebAgentTaskResult struct {
+	Session     AgentSessionResponse `json:"session"`
+	Turn        AgentTurnResponse    `json:"turn"`
+	Plan        AgentPlanResponse    `json:"plan"`
+	Reply       string               `json:"reply"`
+	ProgressURL string               `json:"progress_url"`
+	Duplicate   bool                 `json:"duplicate"`
 }
 
 func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Context, input ReceiveWeChatWorkAppMessageInput) (ReceiveWeChatWorkAppMessageResult, error) {
@@ -316,7 +368,7 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 			reply := "请先登录 messageFeed，在设置页完成企业微信绑定后再发送消息。"
 			sendResult := notifier.WeChatWorkSendResult{}
 			sendCount := 0
-			if s.sender != nil {
+			if s.shouldSendWeChatWorkReply(input) {
 				sendResult, sendCount, _ = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
 				metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "binding_required").Add(float64(sendCount))
 			}
@@ -337,6 +389,27 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		opErr = domain.NewAppError(domain.ErrorKindUnavailable, "agent_external_account_disabled", "external account binding is disabled", "service.agent.receive_wechat_work", false, nil)
 		metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "failed").Inc()
 		return ReceiveWeChatWorkAppMessageResult{}, opErr
+	}
+	admission := s.agentTaskAdmissionDecision(ctx, account.UserID, "wechat_work", 0)
+	if !admission.Allowed {
+		status = "throttled"
+		reply := "当前 Agent 任务达到用户级运行限制。\n原因：" + admission.Reason + "\n下一步：" + admission.NextAction
+		sendResult := notifier.WeChatWorkSendResult{}
+		if s.shouldSendWeChatWorkReply(input) {
+			sendResult, _, _ = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
+		}
+		_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+			UserID:    account.UserID,
+			EventType: "agent.task_admission_throttled",
+			Status:    admission.Status,
+			Message:   admission.Reason,
+			Metadata:  admission.Metadata,
+			RequestID: input.RequestID,
+			TraceID:   input.TraceID,
+			CreatedAt: now,
+		})
+		metrics.AgentInboundMessagesTotal.WithLabelValues(input.Provider, input.MsgType, "throttled").Inc()
+		return ReceiveWeChatWorkAppMessageResult{ExternalAccount: account, Reply: reply, SendResult: sendResult}, nil
 	}
 
 	inbound, created, err := s.repository.CreateInboundMessage(ctx, domain.AgentInboundMessage{
@@ -420,11 +493,28 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		Metadata: domain.AgentJSON{
 			"provider_message_id": input.ProviderMessageID,
 			"msg_type":            input.MsgType,
+			"admission_policy":    admission.Metadata,
 		},
 		RequestID: input.RequestID,
 		TraceID:   input.TraceID,
 		CreatedAt: now,
 	})
+
+	if handled, handledResult, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, input); err != nil {
+		status = "failed"
+		opErr = err
+		return ReceiveWeChatWorkAppMessageResult{}, err
+	} else if handled {
+		return handledResult, nil
+	}
+
+	if handled, handledResult, err := s.handleWeChatButtonCallback(ctx, account, inbound, session, turn, input); err != nil {
+		status = "failed"
+		opErr = err
+		return ReceiveWeChatWorkAppMessageResult{}, err
+	} else if handled {
+		return handledResult, nil
+	}
 
 	result := ReceiveWeChatWorkAppMessageResult{
 		ExternalAccount: account,
@@ -453,6 +543,187 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	return result, nil
 }
 
+func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth CurrentAuth, input ReceiveWebAgentTaskInput) (ReceiveWebAgentTaskResult, error) {
+	if s == nil || s.repository == nil {
+		return ReceiveWebAgentTaskResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_conversation_unavailable", "agent conversation service is unavailable", "service.agent.receive_web_task", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return ReceiveWebAgentTaskResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	input.Message = strings.TrimSpace(input.Message)
+	if input.Message == "" {
+		return ReceiveWebAgentTaskResult{}, fmt.Errorf("%w: message is required", domain.ErrInvalidInput)
+	}
+	channel := normalizeWebAgentChannel(input.Channel)
+	now := s.now().UTC()
+	admission := s.agentTaskAdmissionDecision(ctx, auth.User.ID, "web", 0)
+	if !admission.Allowed {
+		_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+			UserID:    auth.User.ID,
+			EventType: "agent.task_admission_throttled",
+			Status:    admission.Status,
+			Message:   admission.Reason,
+			Metadata:  admission.Metadata,
+			RequestID: strings.TrimSpace(input.RequestID),
+			TraceID:   strings.TrimSpace(input.TraceID),
+			CreatedAt: now,
+		})
+		return ReceiveWebAgentTaskResult{}, domain.NewAppError(domain.ErrorKindConflict, "agent_task_throttled", admission.Reason, "service.agent.receive_web_task", false, nil)
+	}
+	requestID := strings.TrimSpace(input.RequestID)
+	if requestID == "" {
+		requestID = fmt.Sprintf("web-%d-%d", auth.User.ID, now.UnixNano())
+	}
+	traceID := strings.TrimSpace(input.TraceID)
+	externalUserID := fmt.Sprintf("user:%d", auth.User.ID)
+
+	account, err := s.repository.EnsureExternalAccount(ctx, domain.ExternalAccount{
+		UserID:         auth.User.ID,
+		Provider:       domain.AgentProviderWeb,
+		CorpID:         domain.AgentProviderWeb,
+		AgentID:        channel,
+		ExternalUserID: externalUserID,
+		DisplayName:    strings.TrimSpace(auth.User.DisplayName),
+		BindingStatus:  domain.ExternalAccountBindingStatusActive,
+		VerifiedAt:     &now,
+		LastSeenAt:     &now,
+	})
+	if err != nil {
+		return ReceiveWebAgentTaskResult{}, err
+	}
+
+	providerMessageID := fmt.Sprintf("web:%d:%s", auth.User.ID, requestID)
+	inbound, created, err := s.repository.CreateInboundMessage(ctx, domain.AgentInboundMessage{
+		UserID:            account.UserID,
+		ExternalAccountID: account.ID,
+		Provider:          domain.AgentProviderWeb,
+		ProviderMessageID: providerMessageID,
+		CorpID:            domain.AgentProviderWeb,
+		AgentID:           channel,
+		ExternalUserID:    externalUserID,
+		ChatID:            webAgentSessionKey(auth.User.ID, channel),
+		ChatType:          channel,
+		MsgType:           "text",
+		TextContent:       input.Message,
+		Payload: domain.AgentJSON{
+			"channel":    channel,
+			"session_id": input.SessionID,
+		},
+		RequestID: requestID,
+		TraceID:   traceID,
+		Status:    domain.AgentInboundMessageStatusReceived,
+	})
+	if err != nil {
+		return ReceiveWebAgentTaskResult{}, err
+	}
+	if !created {
+		return ReceiveWebAgentTaskResult{
+			Duplicate: true,
+		}, nil
+	}
+
+	session, err := s.resolveWebConversationSession(ctx, account, input.SessionID, channel, now)
+	if err != nil {
+		return ReceiveWebAgentTaskResult{}, err
+	}
+	turn, err := s.repository.CreateTurn(ctx, domain.AgentTurn{
+		SessionID:        session.ID,
+		InboundMessageID: inbound.ID,
+		UserID:           account.UserID,
+		Status:           domain.AgentTurnStatusRunning,
+		InputText:        input.Message,
+		StartedAt:        now,
+	})
+	if err != nil {
+		return ReceiveWebAgentTaskResult{}, err
+	}
+	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
+		SessionID: session.ID,
+		TurnID:    turn.ID,
+		UserID:    account.UserID,
+		Role:      domain.AgentTranscriptRoleUser,
+		Content:   input.Message,
+		Metadata: domain.AgentJSON{
+			"provider_message_id": providerMessageID,
+			"channel":             channel,
+			"admission_policy":    admission.Metadata,
+		},
+		CreatedAt: now,
+	})
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: session.ID,
+		TurnID:    turn.ID,
+		UserID:    account.UserID,
+		EventType: "web.agent_task_created",
+		Status:    "queued",
+		Message:   "web agent task created for turn processing",
+		Metadata: domain.AgentJSON{
+			"provider_message_id": providerMessageID,
+			"channel":             channel,
+		},
+		RequestID: requestID,
+		TraceID:   traceID,
+		CreatedAt: now,
+	})
+
+	if handled, handledResult, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, ReceiveWeChatWorkAppMessageInput{
+		Provider:          domain.AgentProviderWeb,
+		ProviderMessageID: providerMessageID,
+		CorpID:            domain.AgentProviderWeb,
+		AgentID:           channel,
+		ExternalUserID:    externalUserID,
+		ChatID:            webAgentSessionKey(auth.User.ID, channel),
+		ChatType:          channel,
+		MsgType:           "text",
+		TextContent:       input.Message,
+		RequestID:         requestID,
+		TraceID:           traceID,
+	}); err != nil {
+		return ReceiveWebAgentTaskResult{}, err
+	} else if handled {
+		progressURL := ""
+		if handledResult.Plan.ID > 0 {
+			progressURL = s.agentPlanURL(handledResult.Plan.ID)
+		}
+		return ReceiveWebAgentTaskResult{
+			Session:     agentSessionResponse(handledResult.Session, domain.AgentSessionStats{}, false),
+			Turn:        agentTurnResponse(handledResult.Turn),
+			Plan:        agentPlanResponse(handledResult.Plan, true),
+			Reply:       handledResult.Reply,
+			ProgressURL: progressURL,
+		}, nil
+	}
+
+	processed, err := s.processTurn(context.WithoutCancel(ctx), account, inbound, session, turn, ReceiveWeChatWorkAppMessageInput{
+		Provider:          domain.AgentProviderWeb,
+		ProviderMessageID: providerMessageID,
+		CorpID:            domain.AgentProviderWeb,
+		AgentID:           channel,
+		ExternalUserID:    externalUserID,
+		ChatID:            webAgentSessionKey(auth.User.ID, channel),
+		ChatType:          channel,
+		MsgType:           "text",
+		TextContent:       input.Message,
+		RequestID:         requestID,
+		TraceID:           traceID,
+	})
+	if err != nil {
+		return ReceiveWebAgentTaskResult{}, err
+	}
+	plan := processed.Plan
+	progressURL := ""
+	if plan.ID > 0 {
+		progressURL = s.agentPlanURL(plan.ID)
+	}
+	return ReceiveWebAgentTaskResult{
+		Session:     agentSessionResponse(processed.Session, domain.AgentSessionStats{}, false),
+		Turn:        agentTurnResponse(processed.Turn),
+		Plan:        agentPlanResponse(plan, true),
+		Reply:       processed.Reply,
+		ProgressURL: progressURL,
+	}, nil
+}
+
 func (s *AgentConversationService) resolveConversationSession(ctx context.Context, account domain.ExternalAccount, input ReceiveWeChatWorkAppMessageInput, now time.Time) (domain.AgentSession, error) {
 	if account.ActiveAgentSessionID > 0 {
 		session, err := s.repository.GetAgentSession(ctx, account.UserID, account.ActiveAgentSessionID)
@@ -475,6 +746,827 @@ func (s *AgentConversationService) resolveConversationSession(ctx context.Contex
 		StartedAt:         now,
 		LastActiveAt:      now,
 	})
+}
+
+func (s *AgentConversationService) resolveWebConversationSession(ctx context.Context, account domain.ExternalAccount, sessionID int64, channel string, now time.Time) (domain.AgentSession, error) {
+	if sessionID > 0 {
+		session, err := s.repository.GetAgentSession(ctx, account.UserID, sessionID)
+		if err != nil {
+			return domain.AgentSession{}, err
+		}
+		if session.Status != domain.AgentSessionStatusActive {
+			return domain.AgentSession{}, fmt.Errorf("%w: agent session is not active", domain.ErrInvalidInput)
+		}
+		_ = s.repository.TouchAgentSession(ctx, account.UserID, session.ID, now)
+		session.LastActiveAt = now
+		return session, nil
+	}
+	return s.repository.GetOrCreateSession(ctx, domain.AgentSession{
+		UserID:            account.UserID,
+		ExternalAccountID: account.ID,
+		Provider:          domain.AgentProviderWeb,
+		ChannelSessionKey: webAgentSessionKey(account.UserID, channel),
+		Status:            domain.AgentSessionStatusActive,
+		Title:             "Web Agent 任务",
+		StartedAt:         now,
+		LastActiveAt:      now,
+	})
+}
+
+type agentFollowupIntent string
+
+const (
+	agentFollowupIntentNewTask           agentFollowupIntent = "new_task"
+	agentFollowupIntentStop              agentFollowupIntent = "stop"
+	agentFollowupIntentAppendConstraints agentFollowupIntent = "append_constraints"
+	agentFollowupIntentRetry             agentFollowupIntent = "retry"
+	agentFollowupIntentQuestion          agentFollowupIntent = "followup_question"
+	agentFollowupIntentDeriveTask        agentFollowupIntent = "derive_task"
+)
+
+type agentButtonControlResult struct {
+	Plan        domain.AgentPlan
+	Task        domain.AgentScheduledTask
+	Status      string
+	Summary     string
+	ControlType string
+	Changed     bool
+	Metadata    domain.AgentJSON
+}
+
+func (s *AgentConversationService) handleWeChatButtonCallback(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	inbound domain.AgentInboundMessage,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+) (bool, ReceiveWeChatWorkAppMessageResult, error) {
+	if s == nil || s.repository == nil || input.Provider != domain.AgentProviderWeChatWorkApp {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	actionKey := normalizeAgentButtonCallbackKey(input.EventKey)
+	handler := agentButtonCallbackHandler(actionKey)
+	if actionKey == "" || handler == "" {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	plans, err := s.repository.ListAgentPlans(ctx, account.UserID, session.ID, 0, 1)
+	if err != nil {
+		return false, ReceiveWeChatWorkAppMessageResult{}, err
+	}
+	plan := domain.AgentPlan{}
+	if len(plans) > 0 {
+		plan = plans[0]
+	}
+	control, err := s.applyAgentButtonDirectControl(ctx, account.UserID, session.ID, actionKey, handler, plan, input)
+	if err != nil {
+		return false, ReceiveWeChatWorkAppMessageResult{}, err
+	}
+	plan = control.Plan
+	reply := s.agentButtonCallbackReply(actionKey, handler, control)
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: session.ID,
+		TurnID:    turn.ID,
+		UserID:    account.UserID,
+		EventType: "agent.button_direct_control",
+		Status:    control.Status,
+		Message:   control.Summary,
+		Metadata: domain.AgentJSON{
+			"event_key":           input.EventKey,
+			"action_key":          actionKey,
+			"handler":             handler,
+			"plan_id":             plan.ID,
+			"scheduled_task_id":   control.Task.ID,
+			"control_type":        control.ControlType,
+			"changed":             control.Changed,
+			"control_metadata":    control.Metadata,
+			"provider_message_id": input.ProviderMessageID,
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: s.now().UTC(),
+	})
+	result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "button_callback")
+	result.Plan = plan
+	return true, result, err
+}
+
+func (s *AgentConversationService) applyAgentButtonDirectControl(ctx context.Context, userID int64, sessionID int64, actionKey string, handler string, plan domain.AgentPlan, input ReceiveWeChatWorkAppMessageInput) (agentButtonControlResult, error) {
+	now := s.now().UTC()
+	result := agentButtonControlResult{
+		Plan:        plan,
+		Status:      "succeeded",
+		Summary:     "wechat work button callback opened control entry",
+		ControlType: "control_entry",
+		Metadata: domain.AgentJSON{
+			"handler": handler,
+		},
+	}
+	if plan.ID < 1 {
+		result.Status = "no_plan"
+		result.Summary = "wechat work button callback has no associated agent plan"
+		result.ControlType = "no_associated_plan"
+		return result, nil
+	}
+	switch actionKey {
+	case "approval":
+		result.ControlType = "approval"
+		if plan.Status == domain.AgentPlanStatusAwaitingApproval {
+			updated, err := s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, domain.AgentPlanStatusApproved, now, "")
+			if err != nil {
+				return result, err
+			}
+			result.Plan = updated
+			result.Changed = true
+			result.Summary = "wechat work approval button approved agent plan"
+			result.Metadata["from_status"] = string(plan.Status)
+			result.Metadata["to_status"] = string(domain.AgentPlanStatusApproved)
+			return result, nil
+		}
+		result.Status = "skipped"
+		result.Summary = "approval button callback skipped because plan is not awaiting approval"
+		result.Metadata["plan_status"] = string(plan.Status)
+		return result, nil
+	case "retry_plan":
+		result.ControlType = "retry"
+		if plan.Status != domain.AgentPlanStatusFailed {
+			result.Status = "skipped"
+			result.Summary = "retry button callback skipped because plan is not failed"
+			result.Metadata["plan_status"] = string(plan.Status)
+			return result, nil
+		}
+		queued, skipped, exhausted := 0, 0, 0
+		for _, step := range plan.Steps {
+			if step.Status != domain.AgentPlanStepStatusFailed {
+				skipped++
+				continue
+			}
+			updatedStep, retryErr := prepareAgentPlanStepRetry(step, "wechat button retry", now)
+			if retryErr != nil {
+				if appErr, ok := retryErr.(*domain.AppError); ok && appErr.Code == "agent_plan_step_retry_exhausted" {
+					exhausted++
+				} else {
+					skipped++
+				}
+				continue
+			}
+			if _, err := s.repository.UpdateAgentPlanStepStatus(ctx, userID, updatedStep); err != nil {
+				return result, err
+			}
+			queued++
+		}
+		result.Metadata["queued"] = queued
+		result.Metadata["skipped"] = skipped
+		result.Metadata["exhausted"] = exhausted
+		if queued == 0 {
+			result.Status = "skipped"
+			result.Summary = "retry button callback found no retryable failed steps"
+			return result, nil
+		}
+		updated, err := s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, domain.AgentPlanStatusExecuting, now, "")
+		if err != nil {
+			return result, err
+		}
+		result.Plan = updated
+		result.Changed = true
+		result.Summary = "wechat work retry button queued failed plan steps"
+		return result, nil
+	case "recover_plan":
+		result.ControlType = "recover"
+		if plan.Status != domain.AgentPlanStatusExecuting && plan.Status != domain.AgentPlanStatusFailed {
+			result.Status = "skipped"
+			result.Summary = "recovery button callback skipped because plan is not recoverable"
+			result.Metadata["plan_status"] = string(plan.Status)
+			return result, nil
+		}
+		recoveredSteps := 0
+		for _, step := range plan.Steps {
+			if step.Status != domain.AgentPlanStepStatusExecuting {
+				continue
+			}
+			step.Status = domain.AgentPlanStepStatusApproved
+			step.OutputSummary = "recovered from wechat button"
+			step.ErrorMessage = ""
+			step.StartedAt = nil
+			step.CompletedAt = nil
+			step.UpdatedAt = now
+			metadata := cloneServiceAgentJSON(step.RetryMetadata)
+			metadata["previous_status"] = string(domain.AgentPlanStepStatusExecuting)
+			metadata["recovered_at"] = now.Format(time.RFC3339)
+			metadata["recover_reason"] = "wechat button recovery"
+			step.RetryMetadata = metadata
+			if _, err := s.repository.UpdateAgentPlanStepStatus(ctx, userID, step); err != nil {
+				return result, err
+			}
+			recoveredSteps++
+		}
+		if recoveredSteps == 0 && plan.Status == domain.AgentPlanStatusFailed {
+			result.Status = "skipped"
+			result.Summary = "recovery button callback found no interrupted executing steps"
+			return result, nil
+		}
+		plan.Metadata = cloneServiceAgentJSON(plan.Metadata)
+		recoveryMetadata := buildAgentPlanRecoveryMetadata(plan, recoveredSteps, "wechat button recovery", now)
+		plan.Metadata["recovery"] = recoveryMetadata
+		updated, err := s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, domain.AgentPlanStatusExecuting, now, "")
+		if err != nil {
+			return result, err
+		}
+		updated, err = s.repository.UpdateAgentPlanMetadata(ctx, userID, plan.ID, plan.Metadata, now)
+		if err != nil {
+			return result, err
+		}
+		result.Plan = updated
+		result.Changed = true
+		result.Summary = "wechat work recovery button recovered agent plan"
+		result.Metadata["recovered_steps"] = recoveredSteps
+		return result, nil
+	case "cancel_scheduled_task":
+		result.ControlType = "cancel_scheduled_task"
+		tasks, err := s.repository.ListAgentScheduledTasks(ctx, domain.AgentScheduledTaskListOptions{UserID: userID, Limit: 50})
+		if err != nil {
+			return result, err
+		}
+		for _, task := range tasks {
+			if task.PlanID != plan.ID || !agentScheduledTaskCancelable(task.Status) {
+				continue
+			}
+			task.Status = domain.AgentScheduledTaskStatusCanceled
+			task.LastError = ""
+			task.NextRunAt = nil
+			task.CompletedAt = &now
+			task.UpdatedAt = now
+			updated, err := s.repository.UpdateAgentScheduledTask(ctx, task)
+			if err != nil {
+				return result, err
+			}
+			result.Task = updated
+			result.Changed = true
+			result.Summary = "wechat work cancel button canceled scheduled task"
+			result.Metadata["task_status"] = string(updated.Status)
+			return result, nil
+		}
+		result.Status = "skipped"
+		result.Summary = "cancel button callback found no cancelable scheduled task"
+		return result, nil
+	case "view_progress", "view_final_report":
+		result.ControlType = "view"
+		result.Summary = "wechat work button callback opened agent progress view"
+		return result, nil
+	default:
+		return result, nil
+	}
+}
+
+func agentScheduledTaskCancelable(status domain.AgentScheduledTaskStatus) bool {
+	return status == domain.AgentScheduledTaskStatusQueued ||
+		status == domain.AgentScheduledTaskStatusRunning ||
+		status == domain.AgentScheduledTaskStatusInputRequired
+}
+
+func normalizeAgentButtonCallbackKey(eventKey string) string {
+	key := strings.TrimSpace(strings.ToLower(eventKey))
+	if key == "" {
+		return ""
+	}
+	for _, separator := range []string{"?", "&", "=", ":", "|"} {
+		if index := strings.Index(key, separator); index > 0 {
+			key = key[:index]
+			break
+		}
+	}
+	switch key {
+	case "progress", "view":
+		return "view_progress"
+	case "approve", "approval":
+		return "approval"
+	case "retry":
+		return "retry_plan"
+	case "recover", "recovery":
+		return "recover_plan"
+	case "cancel":
+		return "cancel_scheduled_task"
+	case "report", "final_report":
+		return "view_final_report"
+	default:
+		return key
+	}
+}
+
+func (s *AgentConversationService) agentButtonCallbackReply(actionKey string, handler string, control agentButtonControlResult) string {
+	plan := control.Plan
+	if plan.ID < 1 {
+		return fmt.Sprintf("已收到企业微信按钮动作：%s。\n处理器：%s。\n结果：%s。\n当前没有可关联的 Agent 计划，请在 Web 任务工作台查看最近任务。", actionKey, handler, control.Summary)
+	}
+	progressURL := s.agentPlanURL(plan.ID)
+	switch actionKey {
+	case "view_progress":
+		return fmt.Sprintf("已打开计划 #%d 的进度。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
+	case "approval":
+		return fmt.Sprintf("已处理计划 #%d 的审批按钮回调。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
+	case "retry_plan":
+		return fmt.Sprintf("已处理计划 #%d 的重试按钮回调。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
+	case "recover_plan":
+		return fmt.Sprintf("已处理计划 #%d 的恢复按钮回调。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
+	case "cancel_scheduled_task":
+		if control.Task.ID > 0 {
+			return fmt.Sprintf("已处理计划 #%d 的取消按钮回调。\n任务 #%d 状态：%s\n结果：%s\n进度：%s", plan.ID, control.Task.ID, string(control.Task.Status), control.Summary, progressURL)
+		}
+		return fmt.Sprintf("已处理计划 #%d 的取消按钮回调。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
+	case "view_final_report":
+		return fmt.Sprintf("计划 #%d 的最终报告入口已确认。\n状态：%s\n结果：%s\n详情：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
+	default:
+		return fmt.Sprintf("已收到企业微信按钮动作：%s。\n处理器：%s。\n关联计划：#%d\n结果：%s\n进度：%s", actionKey, handler, plan.ID, control.Summary, progressURL)
+	}
+}
+
+func (s *AgentConversationService) handleMultiTurnMessage(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	inbound domain.AgentInboundMessage,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+) (bool, ReceiveWeChatWorkAppMessageResult, error) {
+	message := strings.TrimSpace(input.TextContent)
+	if s == nil || s.repository == nil || message == "" {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	intent := classifyAgentFollowupIntent(message)
+	if intent == agentFollowupIntentNewTask || intent == agentFollowupIntentDeriveTask {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	plan, found, stale, err := s.selectMultiTurnPlan(ctx, account.UserID, session.ID, intent)
+	if err != nil {
+		return false, ReceiveWeChatWorkAppMessageResult{}, err
+	}
+	if !found {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	now := s.now().UTC()
+	if stale && intent == agentFollowupIntentQuestion {
+		plan.Metadata = updateResultReuseMetadata(plan, message, now, true)
+		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_result_stale", "stale", message)
+		reply := s.staleResultReply(updated)
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "followup_stale")
+		result.Plan = updated
+		return true, result, err
+	}
+	if stale {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	switch intent {
+	case agentFollowupIntentStop:
+		if !isActiveMultiTurnPlan(plan.Status) {
+			return false, ReceiveWeChatWorkAppMessageResult{}, nil
+		}
+		updated, err := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, now, "stopped by user")
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		updated.Metadata = updateMultiTurnMetadata(updated, intent, message, now)
+		updated, err = s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, updated.ID, updated.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_stopped", "stopped", message)
+		reply := fmt.Sprintf("已记录停止请求，计划 #%d 已标记为失败并停止继续编排。\n进度：%s", updated.ID, s.agentPlanURL(updated.ID))
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "stopped")
+		result.Plan = updated
+		return true, result, err
+	case agentFollowupIntentAppendConstraints:
+		if !isActiveMultiTurnPlan(plan.Status) {
+			return false, ReceiveWeChatWorkAppMessageResult{}, nil
+		}
+		plan.Metadata = updateMultiTurnMetadata(plan, intent, message, now)
+		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_input_appended", "succeeded", message)
+		reply := fmt.Sprintf("已将补充要求追加到计划 #%d。\n当前状态：%s\n进度：%s", updated.ID, string(updated.Status), s.agentPlanURL(updated.ID))
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "constraint_appended")
+		result.Plan = updated
+		return true, result, err
+	case agentFollowupIntentRetry:
+		if plan.Status != domain.AgentPlanStatusFailed {
+			if !isActiveMultiTurnPlan(plan.Status) {
+				return false, ReceiveWeChatWorkAppMessageResult{}, nil
+			}
+			s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_retry_requested", "skipped", message)
+			reply := fmt.Sprintf("计划 #%d 当前状态为 %s，尚不需要重试。\n进度：%s", plan.ID, string(plan.Status), s.agentPlanURL(plan.ID))
+			result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "retry_skipped")
+			result.Plan = plan
+			return true, result, err
+		}
+		plan.Metadata = updateMultiTurnMetadata(plan, intent, message, now)
+		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_retry_requested", "queued", message)
+		reply := fmt.Sprintf("已记录计划 #%d 的重试请求。可在 Web 进度页查看失败步骤并触发重试。\n进度：%s", updated.ID, s.agentPlanURL(updated.ID))
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "retry_requested")
+		result.Plan = updated
+		return true, result, err
+	case agentFollowupIntentQuestion:
+		plan.Metadata = updateResultReuseMetadata(plan, message, now, false)
+		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_result_reused", "succeeded", message)
+		reply := s.multiTurnFollowupReply(updated, message)
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "followup_reused")
+		result.Plan = updated
+		return true, result, err
+	default:
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+}
+
+func classifyAgentFollowupIntent(message string) agentFollowupIntent {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return agentFollowupIntentNewTask
+	}
+	if containsAny(normalized, []string{"停止", "取消", "终止", "不用了", "别做了", "先停", "暂停"}) {
+		return agentFollowupIntentStop
+	}
+	if isDerivedTaskMessage(normalized) {
+		return agentFollowupIntentDeriveTask
+	}
+	if containsAny(normalized, []string{"重试", "再试", "重新执行", "重新跑", "恢复执行"}) {
+		return agentFollowupIntentRetry
+	}
+	if containsAny(normalized, []string{"修改", "改成", "补充", "追加", "另外", "同时", "继续", "按刚才", "按上面", "约束", "范围", "只看", "只要", "不要"}) {
+		return agentFollowupIntentAppendConstraints
+	}
+	if containsAny(normalized, []string{"刚才", "上一个", "这个任务", "该任务", "结果", "进度", "完成了吗", "为什么", "依据", "证据", "展开", "详细"}) {
+		return agentFollowupIntentQuestion
+	}
+	return agentFollowupIntentNewTask
+}
+
+func isDerivedTaskMessage(message string) bool {
+	return containsAny(message, []string{"基于刚才", "基于上一个", "基于这个结果", "基于结果", "根据刚才", "根据上一个", "用刚才", "用上一个"}) &&
+		containsAny(message, []string{"创建", "生成", "分析", "汇总", "整理", "任务", "刷新", "重新"})
+}
+
+func (s *AgentConversationService) selectMultiTurnPlan(ctx context.Context, userID int64, sessionID int64, intent agentFollowupIntent) (domain.AgentPlan, bool, bool, error) {
+	plans, err := s.repository.ListAgentPlans(ctx, userID, sessionID, 0, 10)
+	if err != nil {
+		return domain.AgentPlan{}, false, false, err
+	}
+	now := s.now().UTC()
+	var completed domain.AgentPlan
+	completedStale := false
+	for _, plan := range plans {
+		stale := isStaleMultiTurnPlan(plan, now)
+		if isActiveMultiTurnPlan(plan.Status) {
+			return plan, true, stale, nil
+		}
+		if plan.Status == domain.AgentPlanStatusCompleted && completed.ID == 0 {
+			completed = plan
+			completedStale = stale
+		}
+	}
+	if intent == agentFollowupIntentQuestion && completed.ID > 0 {
+		return completed, true, completedStale, nil
+	}
+	return domain.AgentPlan{}, false, false, nil
+}
+
+func isActiveMultiTurnPlan(status domain.AgentPlanStatus) bool {
+	switch status {
+	case domain.AgentPlanStatusAwaitingApproval, domain.AgentPlanStatusApproved, domain.AgentPlanStatusExecuting, domain.AgentPlanStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func isStaleMultiTurnPlan(plan domain.AgentPlan, now time.Time) bool {
+	if plan.Status == domain.AgentPlanStatusFailed {
+		reference := plan.UpdatedAt
+		if reference.IsZero() {
+			reference = plan.CreatedAt
+		}
+		if reference.IsZero() {
+			return false
+		}
+		return now.Sub(reference.UTC()) > 72*time.Hour
+	}
+	freshness := planResultFreshness(plan, now)
+	return freshness.Stale
+}
+
+func updateMultiTurnMetadata(plan domain.AgentPlan, intent agentFollowupIntent, message string, now time.Time) domain.AgentJSON {
+	metadata := cloneApprovalMetadata(plan.Metadata)
+	raw, _ := metadata["multi_turn"].(map[string]any)
+	if raw == nil {
+		if typed, ok := metadata["multi_turn"].(domain.AgentJSON); ok {
+			raw = map[string]any(typed)
+		}
+	}
+	multiTurn := make(map[string]any, len(raw)+6)
+	for key, value := range raw {
+		multiTurn[key] = value
+	}
+	if originalGoal, _ := multiTurn["original_goal"].(string); strings.TrimSpace(originalGoal) == "" {
+		multiTurn["original_goal"] = plan.Goal
+	}
+	multiTurn["latest_user_instruction"] = message
+	multiTurn["latest_intent"] = string(intent)
+	multiTurn["updated_at"] = now.UTC().Format(time.RFC3339)
+	switch intent {
+	case agentFollowupIntentAppendConstraints:
+		multiTurn["appended_inputs"] = appendMultiTurnEntry(multiTurn["appended_inputs"], message, now)
+	case agentFollowupIntentQuestion:
+		multiTurn["followup_questions"] = appendMultiTurnEntry(multiTurn["followup_questions"], message, now)
+	case agentFollowupIntentRetry:
+		multiTurn["retry_requests"] = appendMultiTurnEntry(multiTurn["retry_requests"], message, now)
+	case agentFollowupIntentStop:
+		multiTurn["stopped"] = true
+		multiTurn["stopped_reason"] = message
+		multiTurn["stopped_at"] = now.UTC().Format(time.RFC3339)
+	}
+	metadata["multi_turn"] = multiTurn
+	return metadata
+}
+
+type agentResultFreshness struct {
+	Status      string
+	Hint        string
+	ReferenceAt time.Time
+	StaleAfter  time.Duration
+	Stale       bool
+}
+
+func planResultFreshness(plan domain.AgentPlan, now time.Time) agentResultFreshness {
+	reference := plan.UpdatedAt
+	if plan.CompletedAt != nil && !plan.CompletedAt.IsZero() {
+		reference = *plan.CompletedAt
+	}
+	if reference.IsZero() {
+		reference = plan.CreatedAt
+	}
+	staleAfter := 24 * time.Hour
+	hint := "默认任务结果 24 小时内可直接复用。"
+	if planUsesCapability(plan, "web.") {
+		staleAfter = 6 * time.Hour
+		hint = "联网结果 6 小时后建议刷新。"
+	} else if planUsesCapability(plan, "feed.") || planUsesCapability(plan, "source.") {
+		staleAfter = 12 * time.Hour
+		hint = "订阅源结果 12 小时后建议刷新。"
+	} else if planUsesCapability(plan, "conversation.") {
+		staleAfter = 30 * 24 * time.Hour
+		hint = "历史对话结果属于同用户会话记忆，30 天内可作为上下文引用。"
+	}
+	stale := !reference.IsZero() && now.Sub(reference.UTC()) > staleAfter
+	status := "fresh"
+	if stale {
+		status = "stale"
+	}
+	return agentResultFreshness{Status: status, Hint: hint, ReferenceAt: reference.UTC(), StaleAfter: staleAfter, Stale: stale}
+}
+
+func planUsesCapability(plan domain.AgentPlan, prefix string) bool {
+	for _, scope := range plan.AllowedScopes {
+		if strings.HasPrefix(scope, prefix) {
+			return true
+		}
+	}
+	for _, step := range plan.Steps {
+		if strings.HasPrefix(step.CapabilityKey, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func updateResultReuseMetadata(plan domain.AgentPlan, question string, now time.Time, stale bool) domain.AgentJSON {
+	metadata := updateMultiTurnMetadata(plan, agentFollowupIntentQuestion, question, now)
+	raw, _ := metadata["multi_turn"].(map[string]any)
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	reuse := buildPlanResultReuseMetadata(plan, now)
+	if stale {
+		reuse["freshness_status"] = "stale"
+		reuse["reuse_allowed"] = false
+	}
+	reuse["question"] = question
+	reuse["reused_at"] = now.UTC().Format(time.RFC3339)
+	raw["result_reuse"] = reuse
+	raw["memory_scope"] = "task_result"
+	metadata["multi_turn"] = raw
+	metadata["memory_governance"] = domain.AgentJSON{
+		"short_term_context": "current_session",
+		"long_term_memory":   "agent_transcript_and_recall_events",
+		"task_result_memory": "agent_plan_steps_artifacts_and_observations",
+		"external_evidence":  "artifact_source_refs_and_capability_evidence_refs",
+		"redaction_policy":   "secret, token, webhook url and database dsn are excluded from reusable metadata",
+		"updated_at":         now.UTC().Format(time.RFC3339),
+	}
+	return metadata
+}
+
+func buildPlanResultReuseMetadata(plan domain.AgentPlan, now time.Time) map[string]any {
+	freshness := planResultFreshness(plan, now)
+	refs := planEvidenceRefs(plan)
+	reuseAllowed := freshness.Status == "fresh"
+	output := map[string]any{
+		"source_plan_id":    plan.ID,
+		"source_session_id": plan.SessionID,
+		"source_turn_id":    plan.TurnID,
+		"source_goal":       plan.Goal,
+		"source_status":     string(plan.Status),
+		"freshness_status":  freshness.Status,
+		"freshness_hint":    freshness.Hint,
+		"reuse_allowed":     reuseAllowed,
+		"evidence_refs":     refs,
+		"memory_type":       "task_result",
+	}
+	if !freshness.ReferenceAt.IsZero() {
+		output["result_updated_at"] = freshness.ReferenceAt.Format(time.RFC3339)
+		output["stale_after"] = freshness.ReferenceAt.Add(freshness.StaleAfter).Format(time.RFC3339)
+	}
+	return output
+}
+
+func planEvidenceRefs(plan domain.AgentPlan) []string {
+	refs := []string{"agent_plan:" + strconv.FormatInt(plan.ID, 10)}
+	if plan.TurnID > 0 {
+		refs = append(refs, "agent_turn:"+strconv.FormatInt(plan.TurnID, 10))
+	}
+	for _, step := range plan.Steps {
+		if step.ID > 0 {
+			refs = append(refs, "agent_plan_step:"+strconv.FormatInt(step.ID, 10))
+		}
+		if strings.TrimSpace(step.ObservationRef) != "" {
+			refs = append(refs, step.ObservationRef)
+		}
+		refs = append(refs, compactNonEmptyStrings(step.ArtifactRefs)...)
+	}
+	return compactNonEmptyStrings(refs)
+}
+
+func (s *AgentConversationService) selectDerivedParentPlan(ctx context.Context, userID int64, sessionID int64, message string) (domain.AgentPlan, bool, bool, error) {
+	if !isDerivedTaskMessage(strings.ToLower(strings.TrimSpace(message))) {
+		return domain.AgentPlan{}, false, false, nil
+	}
+	plans, err := s.repository.ListAgentPlans(ctx, userID, sessionID, 0, 10)
+	if err != nil {
+		return domain.AgentPlan{}, false, false, err
+	}
+	now := s.now().UTC()
+	for _, plan := range plans {
+		if plan.Status == domain.AgentPlanStatusCompleted {
+			return plan, true, isStaleMultiTurnPlan(plan, now), nil
+		}
+	}
+	return domain.AgentPlan{}, false, false, nil
+}
+
+func updateDerivedPlanMetadata(plan domain.AgentPlan, parent domain.AgentPlan, message string, now time.Time, parentStale bool) domain.AgentJSON {
+	metadata := cloneApprovalMetadata(plan.Metadata)
+	reuse := buildPlanResultReuseMetadata(parent, now)
+	if parentStale {
+		reuse["freshness_status"] = "stale"
+		reuse["reuse_allowed"] = false
+	}
+	metadata["parent_plan"] = domain.AgentJSON{
+		"id":               parent.ID,
+		"session_id":       parent.SessionID,
+		"turn_id":          parent.TurnID,
+		"goal":             parent.Goal,
+		"status":           string(parent.Status),
+		"derive_reason":    message,
+		"derived_at":       now.UTC().Format(time.RFC3339),
+		"freshness_status": reuse["freshness_status"],
+		"freshness_hint":   reuse["freshness_hint"],
+		"evidence_refs":    reuse["evidence_refs"],
+	}
+	metadata["result_reuse"] = reuse
+	metadata["memory_governance"] = domain.AgentJSON{
+		"short_term_context": "current_session",
+		"long_term_memory":   "agent_transcript_and_recall_events",
+		"task_result_memory": "parent_agent_plan",
+		"external_evidence":  "parent_plan_artifact_refs",
+		"redaction_policy":   "secret, token, webhook url and database dsn are excluded from reusable metadata",
+		"updated_at":         now.UTC().Format(time.RFC3339),
+	}
+	return metadata
+}
+
+func appendMultiTurnEntry(raw any, message string, now time.Time) []any {
+	entries, _ := raw.([]any)
+	copied := append([]any(nil), entries...)
+	copied = append(copied, map[string]any{
+		"message":    message,
+		"created_at": now.UTC().Format(time.RFC3339),
+	})
+	if len(copied) > 20 {
+		copied = copied[len(copied)-20:]
+	}
+	return copied
+}
+
+func (s *AgentConversationService) recordMultiTurnAudit(ctx context.Context, userID int64, sessionID int64, turnID int64, plan domain.AgentPlan, input ReceiveWeChatWorkAppMessageInput, eventType string, status string, message string) {
+	if s == nil || s.repository == nil {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: sessionID,
+		TurnID:    turnID,
+		UserID:    userID,
+		EventType: eventType,
+		Status:    status,
+		Message:   message,
+		Metadata: domain.AgentJSON{
+			"plan_id":      plan.ID,
+			"plan_status":  string(plan.Status),
+			"progress_url": s.agentPlanURL(plan.ID),
+			"metadata":     cloneApprovalMetadata(plan.Metadata),
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentConversationService) multiTurnFollowupReply(plan domain.AgentPlan, question string) string {
+	freshness := planResultFreshness(plan, s.now().UTC())
+	refs := planEvidenceRefs(plan)
+	var builder strings.Builder
+	builder.WriteString("已关联到计划 #")
+	builder.WriteString(strconv.FormatInt(plan.ID, 10))
+	builder.WriteString("。\n状态：")
+	builder.WriteString(string(plan.Status))
+	builder.WriteString("\n结果新鲜度：")
+	builder.WriteString(freshness.Status)
+	builder.WriteString("，")
+	builder.WriteString(freshness.Hint)
+	if plan.Summary != "" {
+		builder.WriteString("\n计划摘要：")
+		builder.WriteString(plan.Summary)
+	}
+	if plan.ImpactSummary != "" {
+		builder.WriteString("\n影响摘要：")
+		builder.WriteString(plan.ImpactSummary)
+	}
+	if plan.ErrorMessage != "" {
+		builder.WriteString("\n错误信息：")
+		builder.WriteString(plan.ErrorMessage)
+	}
+	if len(refs) > 0 {
+		builder.WriteString("\n证据引用：")
+		builder.WriteString(strings.Join(refs, ", "))
+	}
+	builder.WriteString("\n最近问题：")
+	builder.WriteString(question)
+	builder.WriteString("\n进度：")
+	builder.WriteString(s.agentPlanURL(plan.ID))
+	return builder.String()
+}
+
+func (s *AgentConversationService) staleResultReply(plan domain.AgentPlan) string {
+	freshness := planResultFreshness(plan, s.now().UTC())
+	var builder strings.Builder
+	builder.WriteString("已找到历史计划 #")
+	builder.WriteString(strconv.FormatInt(plan.ID, 10))
+	builder.WriteString("，但该结果已过期，不能作为当前事实直接复用。")
+	if !freshness.ReferenceAt.IsZero() {
+		builder.WriteString("\n结果时间：")
+		builder.WriteString(freshness.ReferenceAt.Format(time.RFC3339))
+	}
+	builder.WriteString("\n新鲜度：")
+	builder.WriteString(freshness.Status)
+	builder.WriteString("，")
+	builder.WriteString(freshness.Hint)
+	builder.WriteString("\n建议发送“基于刚才结果刷新任务”或重新描述目标，以创建新的执行计划。")
+	builder.WriteString("\n历史进度：")
+	builder.WriteString(s.agentPlanURL(plan.ID))
+	return builder.String()
+}
+
+func planStoppedByUser(plan domain.AgentPlan) bool {
+	if strings.Contains(strings.ToLower(plan.ErrorMessage), "stopped by user") {
+		return true
+	}
+	raw, _ := plan.Metadata["multi_turn"].(map[string]any)
+	if raw == nil {
+		if typed, ok := plan.Metadata["multi_turn"].(domain.AgentJSON); ok {
+			raw = map[string]any(typed)
+		}
+	}
+	stopped, _ := raw["stopped"].(bool)
+	return stopped
 }
 
 func (s *AgentConversationService) processTurn(
@@ -518,10 +1610,20 @@ func (s *AgentConversationService) processTurn(
 			plan = executingPlan
 		}
 	}
+	if plan.Status == domain.AgentPlanStatusRejected {
+		reply := "计划已被 capability 策略拒绝。\n计划：" + plan.Summary + "\n策略：" + planCapabilityPolicySummary(plan) + "\n进度地址：" + s.agentPlanURL(plan.ID)
+		_, _ = s.runManager.CompleteRun(ctx, controllerRun, "plan_rejected_by_capability_policy")
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "rejected")
+		result.Plan = plan
+		return result, err
+	}
 	if !s.processInline {
 		s.sendPlanStartedFeedback(ctx, account, session, turn, input, plan)
 	}
 	if plan.Status == domain.AgentPlanStatusAwaitingApproval {
+		if !s.processInline {
+			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "approval_waiting", "等待用户确认")
+		}
 		reply := s.approvalRequiredReply(plan, approvalToken)
 		_, _ = s.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 			RunID:     controllerRun.ID,
@@ -537,7 +1639,9 @@ func (s *AgentConversationService) processTurn(
 			RedactionStatus: "redacted",
 		})
 		_, _ = s.runManager.CompleteRun(ctx, controllerRun, "plan_approval")
-		return s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "awaiting_approval")
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "awaiting_approval")
+		result.Plan = plan
+		return result, err
 	}
 	runResult, err := s.turnRunner.Run(ctx, agent.TurnRunInput{
 		UserID:          account.UserID,
@@ -545,6 +1649,7 @@ func (s *AgentConversationService) processTurn(
 		Turn:            turn,
 		InboundMessage:  inbound,
 		ControllerRunID: controllerRun.ID,
+		AllowedToolKeys: append([]string(nil), plan.AllowedScopes...),
 		MessageType:     input.MsgType,
 		MessageText:     input.TextContent,
 		RequestID:       input.RequestID,
@@ -554,22 +1659,31 @@ func (s *AgentConversationService) processTurn(
 		s.recordControllerTrace(ctx, controllerRun, runResult, "controller_error")
 		failedPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, s.now().UTC(), err.Error())
 		if failedPlan.ID > 0 {
-			plan = failedPlan
+			plan = s.applyAgentPlanTerminalMetadata(ctx, account.UserID, failedPlan)
+		}
+		if !s.processInline {
+			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "failed", "处理失败")
 		}
 		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
 		opErr = err
-		return s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, plan, err), nil
+		result := s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, plan, err)
+		result.Plan = plan
+		return result, nil
 	}
 	s.recordControllerTrace(ctx, controllerRun, runResult, "controller_output")
 	updatedPlan, _ := s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
 	if updatedPlan.ID > 0 {
 		plan = updatedPlan
 	}
+	if !s.processInline && plan.Status == domain.AgentPlanStatusFailed {
+		s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "step_failed", "计划步骤失败")
+	}
 	_, _ = s.runManager.CompleteRun(ctx, controllerRun, "turn_output")
 	reply := runResult.Reply
 	if !s.processInline {
 		reply = s.agentTurnCompletionReply(plan, reply)
 	}
+	reply = sanitizeAgentReportText(reply)
 	observations := runResult.Context.Observations
 	turn = runResult.Turn
 	span.SetAttributes(
@@ -581,7 +1695,7 @@ func (s *AgentConversationService) processTurn(
 
 	sendResult := notifier.WeChatWorkSendResult{}
 	sendCount := 0
-	if s.sender != nil {
+	if s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "final") {
 		sendResult, sendCount, err = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
 		if err != nil {
 			opErr = err
@@ -600,7 +1714,7 @@ func (s *AgentConversationService) processTurn(
 				TraceID:   input.TraceID,
 				CreatedAt: s.now().UTC(),
 			})
-			return ReceiveWeChatWorkAppMessageResult{Turn: turn}, err
+			return ReceiveWeChatWorkAppMessageResult{Turn: turn, Plan: plan}, err
 		}
 	}
 	metrics.AgentReplyBytes.WithLabelValues(input.Provider, "succeeded").Observe(float64(len([]byte(reply))))
@@ -632,6 +1746,7 @@ func (s *AgentConversationService) processTurn(
 		InboundMessage:  inbound,
 		Session:         session,
 		Turn:            turn,
+		Plan:            plan,
 		Reply:           reply,
 		SendResult:      sendResult,
 	}, nil
@@ -682,7 +1797,60 @@ func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Conte
 		status = domain.AgentPlanStatusFailed
 		errorMessage = "one or more plan steps failed"
 	}
-	return s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, status, now, errorMessage)
+	plans, err := s.repository.ListAgentPlans(ctx, userID, plan.SessionID, 0, 20)
+	if err == nil {
+		for _, latest := range plans {
+			if latest.ID == plan.ID && planStoppedByUser(latest) {
+				return latest, nil
+			}
+		}
+	}
+	updated, err := s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, status, now, errorMessage)
+	if err != nil {
+		return domain.AgentPlan{}, err
+	}
+	updated.Metadata = cloneApprovalMetadata(updated.Metadata)
+	updated.Metadata["result_quality"] = buildAgentResultQualityMetadata(updated, now)
+	updated.Metadata["cost_summary"] = buildAgentCostSummaryMetadata(updated, s.relatedScheduledTasksForPlan(ctx, userID, updated.ID), 0, now)
+	updated.Metadata["deployment_acceptance"] = buildAgentDeploymentAcceptanceMetadata(updated, now)
+	updated.Metadata["handoff"] = buildAgentHandoffMetadata(updated, s.agentNotificationPreference(ctx, userID), now)
+	updated.Metadata["runtime_observability"] = buildAgentRuntimeObservabilityMetadata(updated, metadataMap(updated.Metadata, "admission_policy"), now)
+	return s.repository.UpdateAgentPlanMetadata(ctx, userID, updated.ID, updated.Metadata, now)
+}
+
+func (s *AgentConversationService) applyAgentPlanTerminalMetadata(ctx context.Context, userID int64, plan domain.AgentPlan) domain.AgentPlan {
+	if s == nil || s.repository == nil || plan.ID == 0 {
+		return plan
+	}
+	now := s.now().UTC()
+	plan.Metadata = cloneApprovalMetadata(plan.Metadata)
+	plan.Metadata["result_quality"] = buildAgentResultQualityMetadata(plan, now)
+	plan.Metadata["cost_summary"] = buildAgentCostSummaryMetadata(plan, s.relatedScheduledTasksForPlan(ctx, userID, plan.ID), 0, now)
+	plan.Metadata["deployment_acceptance"] = buildAgentDeploymentAcceptanceMetadata(plan, now)
+	plan.Metadata["handoff"] = buildAgentHandoffMetadata(plan, s.agentNotificationPreference(ctx, userID), now)
+	plan.Metadata["runtime_observability"] = buildAgentRuntimeObservabilityMetadata(plan, metadataMap(plan.Metadata, "admission_policy"), now)
+	updated, err := s.repository.UpdateAgentPlanMetadata(ctx, userID, plan.ID, plan.Metadata, now)
+	if err != nil {
+		return plan
+	}
+	return updated
+}
+
+func (s *AgentConversationService) relatedScheduledTasksForPlan(ctx context.Context, userID int64, planID int64) []domain.AgentScheduledTask {
+	if s == nil || s.repository == nil || userID < 1 || planID < 1 {
+		return nil
+	}
+	tasks, err := s.repository.ListAgentScheduledTasks(ctx, domain.AgentScheduledTaskListOptions{UserID: userID, Limit: 100})
+	if err != nil {
+		return nil
+	}
+	filtered := make([]domain.AgentScheduledTask, 0)
+	for _, task := range tasks {
+		if task.PlanID == planID {
+			filtered = append(filtered, task)
+		}
+	}
+	return filtered
 }
 
 func (s *AgentConversationService) createPlanForTurn(
@@ -696,6 +1864,10 @@ func (s *AgentConversationService) createPlanForTurn(
 	if s.planner == nil || s.repository == nil {
 		return domain.AgentPlan{}, "", nil
 	}
+	parentPlan, hasParent, parentStale, err := s.selectDerivedParentPlan(ctx, account.UserID, session.ID, input.TextContent)
+	if err != nil {
+		return domain.AgentPlan{}, "", err
+	}
 	output := s.planner.Build(ctx, agent.PlanInput{
 		UserID:          account.UserID,
 		SessionID:       session.ID,
@@ -707,6 +1879,47 @@ func (s *AgentConversationService) createPlanForTurn(
 	if err != nil {
 		return domain.AgentPlan{}, "", err
 	}
+	if hasParent {
+		plan.Metadata = updateDerivedPlanMetadata(plan, parentPlan, input.TextContent, s.now().UTC(), parentStale)
+		if updated, updateErr := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, s.now().UTC()); updateErr == nil {
+			plan = updated
+		} else {
+			return domain.AgentPlan{}, "", updateErr
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_derived", "created", input.TextContent)
+	}
+	admission := s.agentTaskAdmissionDecision(ctx, account.UserID, input.Provider, 0)
+	plan.Metadata = cloneApprovalMetadata(plan.Metadata)
+	plan.Metadata["admission_policy"] = admission.Metadata
+	if updated, updateErr := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, s.now().UTC()); updateErr == nil {
+		plan = updated
+	} else {
+		return domain.AgentPlan{}, "", updateErr
+	}
+	plan, err = s.applyCapabilityPolicyToPlan(ctx, account.UserID, session.ID, turn.ID, plan, input)
+	if err != nil {
+		return domain.AgentPlan{}, "", err
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: session.ID,
+		TurnID:    turn.ID,
+		UserID:    account.UserID,
+		EventType: "agent.plan_governance_recorded",
+		Status:    planBudgetStatus(plan),
+		Message:   "agent plan permission and budget governance recorded",
+		Metadata: domain.AgentJSON{
+			"plan_id":     plan.ID,
+			"permission":  metadataMap(plan.Metadata, "permission_governance"),
+			"budget":      metadataMap(plan.Metadata, "budget_governance"),
+			"quality":     metadataMap(plan.Metadata, "planner_quality"),
+			"admission":   metadataMap(plan.Metadata, "admission_policy"),
+			"capability":  metadataMap(plan.Metadata, "capability_policy"),
+			"next_action": agentProgressNextAction(string(plan.Status), true, plan, nil),
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: s.now().UTC(),
+	})
 	for _, step := range plan.Steps {
 		_, _ = s.repository.CreateAgentCapabilityAuditLog(ctx, domain.AgentCapabilityAuditLog{
 			UserID:        account.UserID,
@@ -722,6 +1935,7 @@ func (s *AgentConversationService) createPlanForTurn(
 			Status:        "planned",
 			Metadata: domain.AgentJSON{
 				"capability_scope": step.CapabilityScope,
+				"policy":           metadataMap(plan.Metadata, "capability_policy"),
 				"request_id":       input.RequestID,
 				"trace_id":         input.TraceID,
 			},
@@ -738,12 +1952,16 @@ func (s *AgentConversationService) createPlanForTurn(
 	now := s.now().UTC()
 	planID := plan.ID
 	externalAccountID := account.ID
+	approvalChannel := strings.TrimSpace(input.Provider)
+	if approvalChannel == "" {
+		approvalChannel = domain.AgentProviderWeChatWorkApp
+	}
 	_, err = s.repository.CreateAgentApproval(ctx, domain.AgentApproval{
 		PlanID:            &planID,
 		UserID:            account.UserID,
 		ExternalAccountID: &externalAccountID,
 		ApprovalTokenHash: hashSecret(token),
-		Channel:           "wechat_work_app",
+		Channel:           approvalChannel,
 		Status:            domain.AgentApprovalStatusPending,
 		ExpiresAt:         now.Add(30 * time.Minute),
 		RequestID:         input.RequestID,
@@ -764,18 +1982,69 @@ func (s *AgentConversationService) createPlanForTurn(
 	return plan, token, nil
 }
 
+func (s *AgentConversationService) applyCapabilityPolicyToPlan(ctx context.Context, userID int64, sessionID int64, turnID int64, plan domain.AgentPlan, input ReceiveWeChatWorkAppMessageInput) (domain.AgentPlan, error) {
+	if s == nil || s.repository == nil || plan.ID == 0 {
+		return plan, nil
+	}
+	now := s.now().UTC()
+	metadata := buildAgentCapabilityPolicyMetadata(plan, s.agentNotificationPreference(ctx, userID), now)
+	plan.Metadata = cloneApprovalMetadata(plan.Metadata)
+	plan.Metadata["capability_policy"] = metadata
+	updated, err := s.repository.UpdateAgentPlanMetadata(ctx, userID, plan.ID, plan.Metadata, now)
+	if err != nil {
+		return domain.AgentPlan{}, err
+	}
+	plan = updated
+	status := metadataString(metadataMap(plan.Metadata, "capability_policy"), "status")
+	switch status {
+	case "reject":
+		plan, err = s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, domain.AgentPlanStatusRejected, now, "capability policy rejected one or more plan steps")
+	case "confirm", "degrade":
+		if plan.Status != domain.AgentPlanStatusAwaitingApproval {
+			plan, err = s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, domain.AgentPlanStatusAwaitingApproval, now, "")
+		}
+	}
+	if err != nil {
+		return domain.AgentPlan{}, err
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: sessionID,
+		TurnID:    turnID,
+		UserID:    userID,
+		EventType: "agent.capability_policy_applied",
+		Status:    status,
+		Message:   "agent capability policy applied to plan",
+		Metadata:  metadata,
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: now,
+	})
+	return plan, nil
+}
+
 func (s *AgentConversationService) approvalRequiredReply(plan domain.AgentPlan, token string) string {
 	var builder strings.Builder
 	builder.WriteString("该操作需要确认后才能继续。\n计划：")
 	builder.WriteString(plan.Summary)
+	builder.WriteString("\n状态锚点：approval_required/")
+	builder.WriteString(string(plan.Status))
 	builder.WriteString("\n影响：")
 	builder.WriteString(plan.ImpactSummary)
+	builder.WriteString("\n权限：")
+	builder.WriteString(planPermissionSummary(plan))
+	builder.WriteString("\n预算：")
+	builder.WriteString(planBudgetSummary(plan))
+	builder.WriteString("\n进度摘要：")
+	builder.WriteString(s.agentPlanProgressText(plan))
 	builder.WriteString("\n审批地址：")
 	builder.WriteString(s.agentApprovalURL(token))
 	if plan.ID > 0 {
 		builder.WriteString("\n进度地址：")
 		builder.WriteString(s.agentPlanURL(plan.ID))
 	}
+	builder.WriteString("\n下一步：打开审批地址确认或拒绝；如需查看实时执行细节，请打开进度地址。")
+	builder.WriteString("\n")
+	builder.WriteString(s.agentWeChatActionFallbackText(plan, token))
 	return builder.String()
 }
 
@@ -787,26 +2056,60 @@ func (s *AgentConversationService) sendPlanStartedFeedback(
 	input ReceiveWeChatWorkAppMessageInput,
 	plan domain.AgentPlan,
 ) {
-	if s == nil || s.sender == nil || plan.ID == 0 {
+	if s == nil || plan.ID == 0 || !s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "process") {
 		return
 	}
-	reply := s.agentPlanStartedReply(plan)
+	s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "started", "工作已开始")
+}
+
+func (s *AgentConversationService) sendPlanProgressNotification(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	plan domain.AgentPlan,
+	stage string,
+	title string,
+) {
+	if s == nil || plan.ID == 0 {
+		return
+	}
+	notificationKind := "process"
+	if strings.Contains(stage, "failed") || stage == "failed" {
+		notificationKind = "failure"
+	}
+	if !s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, notificationKind) {
+		return
+	}
+	stage = strings.TrimSpace(stage)
+	if stage == "" {
+		stage = "progress"
+	}
+	reply := s.agentPlanProgressNotificationText(plan, stage, title)
 	sendResult, sendCount, err := s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
 	status := "succeeded"
-	message := "agent plan started feedback sent"
+	message := "agent plan progress notification sent"
 	if err != nil {
 		status = "failed"
 		message = err.Error()
+	}
+	eventType := "agent.plan_progress_notification"
+	if stage == "started" {
+		eventType = "agent.plan_started_feedback"
 	}
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
 		TurnID:    turn.ID,
 		UserID:    account.UserID,
-		EventType: "agent.plan_started_feedback",
+		EventType: eventType,
 		Status:    status,
 		Message:   message,
 		Metadata: domain.AgentJSON{
 			"plan_id":             plan.ID,
+			"stage":               stage,
+			"target_channel":      input.Provider,
+			"target_ref":          input.ExternalUserID,
 			"provider_message_id": input.ProviderMessageID,
 			"wechat_msgid":        sendResult.MessageID,
 			"send_count":          sendCount,
@@ -818,10 +2121,65 @@ func (s *AgentConversationService) sendPlanStartedFeedback(
 	})
 }
 
+func (s *AgentConversationService) agentPlanProgressNotificationText(plan domain.AgentPlan, stage string, title string) string {
+	if stage == "started" {
+		return s.agentPlanStartedReply(plan)
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "进度更新"
+	}
+	var builder strings.Builder
+	builder.WriteString(title)
+	builder.WriteString("。\n")
+	builder.WriteString("状态锚点：")
+	builder.WriteString(stage)
+	builder.WriteString("/")
+	builder.WriteString(string(plan.Status))
+	builder.WriteString("\n")
+	builder.WriteString("计划 #")
+	builder.WriteString(strconv.FormatInt(plan.ID, 10))
+	builder.WriteString(" / 状态：")
+	builder.WriteString(string(plan.Status))
+	builder.WriteString("\n进度摘要：")
+	builder.WriteString(s.agentPlanProgressText(plan))
+	builder.WriteString("\n权限：")
+	builder.WriteString(planPermissionSummary(plan))
+	builder.WriteString("\n预算：")
+	builder.WriteString(planBudgetSummary(plan))
+	builder.WriteString("\n下一步：")
+	builder.WriteString(agentProgressNextAction(string(plan.Status), true, plan, nil))
+	builder.WriteString("\n进度地址：")
+	builder.WriteString(s.agentPlanURL(plan.ID))
+	builder.WriteString("\n")
+	builder.WriteString(s.agentWeChatActionFallbackText(plan, ""))
+	if failedStep := firstFailedPlanStep(plan); failedStep.ID > 0 {
+		builder.WriteString("\n失败步骤：")
+		builder.WriteString(planStepLabel(failedStep))
+		if failedStep.ErrorMessage != "" {
+			builder.WriteString(" / ")
+			builder.WriteString(safeSummary(failedStep.ErrorMessage, 160))
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
 func (s *AgentConversationService) agentPlanStartedReply(plan domain.AgentPlan) string {
 	var builder strings.Builder
 	builder.WriteString("工作已开始。\n")
+	builder.WriteString("状态锚点：started/")
+	builder.WriteString(string(plan.Status))
+	builder.WriteString("\n")
 	builder.WriteString("调度方式：controller 生成执行计划，executor 按步骤调用授权能力。\n")
+	builder.WriteString("进度摘要：")
+	builder.WriteString(s.agentPlanProgressText(plan))
+	builder.WriteString("\n")
+	builder.WriteString("权限：")
+	builder.WriteString(planPermissionSummary(plan))
+	builder.WriteString("\n")
+	builder.WriteString("预算：")
+	builder.WriteString(planBudgetSummary(plan))
+	builder.WriteString("\n")
 	if plan.Summary != "" {
 		builder.WriteString("计划：")
 		builder.WriteString(plan.Summary)
@@ -837,6 +2195,11 @@ func (s *AgentConversationService) agentPlanStartedReply(plan domain.AgentPlan) 
 		builder.WriteString(s.agentPlanURL(plan.ID))
 		builder.WriteString("\n")
 	}
+	builder.WriteString("下一步：")
+	builder.WriteString(agentProgressNextAction(string(plan.Status), true, plan, nil))
+	builder.WriteString("\n")
+	builder.WriteString(s.agentWeChatActionFallbackText(plan, ""))
+	builder.WriteString("\n")
 	if len(plan.Steps) > 0 {
 		builder.WriteString("实施步骤：")
 		for index, step := range plan.Steps {
@@ -866,11 +2229,72 @@ func (s *AgentConversationService) agentTurnCompletionReply(plan domain.AgentPla
 	}
 	var builder strings.Builder
 	builder.WriteString(reply)
-	builder.WriteString("\n\n状态：")
+	builder.WriteString("\n\n状态锚点：completed/")
+	builder.WriteString(string(plan.Status))
+	builder.WriteString("\n状态：")
 	builder.WriteString(status)
+	builder.WriteString("\n进度摘要：")
+	builder.WriteString(s.agentPlanProgressText(plan))
+	builder.WriteString("\n权限：")
+	builder.WriteString(planPermissionSummary(plan))
+	builder.WriteString("\n预算：")
+	builder.WriteString(planBudgetSummary(plan))
+	builder.WriteString("\n质量：")
+	builder.WriteString(planResultQualitySummary(plan))
+	builder.WriteString("\n成本：")
+	builder.WriteString(planCostSummary(plan))
+	builder.WriteString("\n部署验收：")
+	builder.WriteString(planDeploymentAcceptanceSummary(plan))
+	builder.WriteString("\n运行观测：")
+	builder.WriteString(planRuntimeObservabilitySummary(plan))
+	builder.WriteString("\n人工接管：")
+	builder.WriteString(planHandoffSummary(plan))
+	if refs := planEvidenceRefs(plan); len(refs) > 0 {
+		builder.WriteString("\n证据引用：")
+		builder.WriteString(strings.Join(refs, ", "))
+	}
+	builder.WriteString("\n下一步：")
+	builder.WriteString(agentProgressNextAction(string(plan.Status), true, plan, nil))
 	builder.WriteString("\n进度地址：")
 	builder.WriteString(s.agentPlanURL(plan.ID))
+	builder.WriteString("\n")
+	builder.WriteString(s.agentWeChatActionFallbackText(plan, ""))
 	return builder.String()
+}
+
+func (s *AgentConversationService) agentWeChatActionFallbackText(plan domain.AgentPlan, approvalToken string) string {
+	progressURL := s.agentPlanURL(plan.ID)
+	approvalURL := progressURL
+	if strings.TrimSpace(approvalToken) != "" {
+		approvalURL = s.agentApprovalURL(approvalToken)
+	}
+	actions := []string{
+		"view_progress=" + progressURL,
+		"approval=" + approvalURL,
+		"retry_plan=" + progressURL,
+		"recover_plan=" + progressURL,
+		"cancel_scheduled_task=" + progressURL,
+	}
+	return "企微动作组件：" + strings.Join(actions, "；")
+}
+
+func (s *AgentConversationService) agentPlanProgressText(plan domain.AgentPlan) string {
+	updatedAt := plan.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = s.now().UTC()
+	}
+	response := agentPlanResponse(plan, true)
+	return AgentProgressTextSummary(AgentProgressSnapshot{
+		SubjectType: "plan",
+		SubjectID:   plan.ID,
+		Status:      string(plan.Status),
+		Summary:     plan.Summary,
+		NextAction:  agentProgressNextAction(string(plan.Status), true, plan, nil),
+		Version:     updatedAt.UnixNano(),
+		EventCursor: fmt.Sprintf("plan:%d:%s", plan.ID, updatedAt.UTC().Format(time.RFC3339Nano)),
+		UpdatedAt:   formatOptionalTime(&updatedAt),
+		Plan:        &response,
+	})
 }
 
 func planStepLabel(step domain.AgentPlanStep) string {
@@ -885,6 +2309,15 @@ func planStepLabel(step domain.AgentPlanStep) string {
 		return title
 	}
 	return title + "（" + step.CapabilityKey + "）"
+}
+
+func firstFailedPlanStep(plan domain.AgentPlan) domain.AgentPlanStep {
+	for _, step := range plan.Steps {
+		if step.Status == domain.AgentPlanStepStatusFailed {
+			return step
+		}
+	}
+	return domain.AgentPlanStep{}
 }
 
 func (s *AgentConversationService) agentPlanURL(planID int64) string {
@@ -915,6 +2348,7 @@ func (s *AgentConversationService) finishTurnWithReply(
 	auditStatus string,
 ) (ReceiveWeChatWorkAppMessageResult, error) {
 	now := s.now().UTC()
+	reply = sanitizeAgentReportText(reply)
 	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
 		SessionID: session.ID,
 		TurnID:    turn.ID,
@@ -934,7 +2368,7 @@ func (s *AgentConversationService) finishTurnWithReply(
 
 	sendResult := notifier.WeChatWorkSendResult{}
 	sendCount := 0
-	if s.sender != nil {
+	if s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "final") {
 		var err error
 		sendResult, sendCount, err = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
 		if err != nil {
@@ -1102,10 +2536,11 @@ func (s *AgentConversationService) sendTurnFailureFeedback(
 	if !s.processInline {
 		reply = s.agentTurnCompletionReply(plan, reply)
 	}
+	reply = sanitizeAgentReportText(reply)
 	sendResult := notifier.WeChatWorkSendResult{}
 	sendCount := 0
 	sendStatus := "skipped"
-	if s.sender != nil {
+	if s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "failure") {
 		var sendErr error
 		sendResult, sendCount, sendErr = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
 		if sendErr != nil {
@@ -1328,4 +2763,89 @@ func validateReceiveWeChatWorkInput(input ReceiveWeChatWorkAppMessageInput) erro
 
 func weChatWorkSessionKey(input ReceiveWeChatWorkAppMessageInput) string {
 	return input.CorpID + ":" + input.AgentID + ":" + input.ExternalUserID
+}
+
+func (s *AgentConversationService) shouldSendWeChatWorkReply(input ReceiveWeChatWorkAppMessageInput) bool {
+	return s != nil &&
+		s.sender != nil &&
+		input.Provider == domain.AgentProviderWeChatWorkApp &&
+		strings.TrimSpace(input.ExternalUserID) != ""
+}
+
+func (s *AgentConversationService) shouldSendWeChatWorkNotification(ctx context.Context, userID int64, input ReceiveWeChatWorkAppMessageInput, kind string) bool {
+	if !s.shouldSendWeChatWorkReply(input) {
+		return false
+	}
+	preference := s.agentNotificationPreference(ctx, userID)
+	switch strings.TrimSpace(kind) {
+	case "process":
+		return preference.ProcessNotificationsEnabled
+	case "failure":
+		return preference.FailureNotificationsEnabled
+	case "recovery":
+		return preference.RecoveryNotificationsEnabled
+	case "final":
+		return preference.FinalReportsEnabled
+	default:
+		return true
+	}
+}
+
+func (s *AgentConversationService) agentNotificationPreference(ctx context.Context, userID int64) domain.AgentNotificationPreference {
+	if s == nil || s.repository == nil || userID < 1 {
+		return defaultAgentNotificationPreference(userID, time.Time{})
+	}
+	preference, err := s.repository.GetAgentNotificationPreference(ctx, userID)
+	if err != nil {
+		return defaultAgentNotificationPreference(userID, s.now().UTC())
+	}
+	return preference
+}
+
+func (s *AgentConversationService) agentTaskAdmissionDecision(ctx context.Context, userID int64, entry string, currentScheduledTaskID int64) agentTaskAdmissionDecision {
+	now := s.now().UTC()
+	preference := s.agentNotificationPreference(ctx, userID)
+	var plans []domain.AgentPlan
+	var scheduledTasks []domain.AgentScheduledTask
+	if s != nil && s.repository != nil && userID > 0 {
+		plans, _ = s.repository.ListAgentPlans(ctx, userID, 0, 0, 100)
+		scheduledTasks, _ = s.repository.ListAgentScheduledTasks(ctx, domain.AgentScheduledTaskListOptions{UserID: userID, Limit: 100})
+	}
+	return evaluateAgentTaskAdmission(agentTaskAdmissionInput{
+		UserID:                 userID,
+		Entry:                  entry,
+		Preference:             preference,
+		Plans:                  plans,
+		ScheduledTasks:         scheduledTasks,
+		CurrentScheduledTaskID: currentScheduledTaskID,
+		Now:                    now,
+	})
+}
+
+func normalizeWebAgentChannel(channel string) string {
+	channel = strings.TrimSpace(channel)
+	if channel == "" {
+		return "web"
+	}
+	return channel
+}
+
+func webAgentSessionKey(userID int64, channel string) string {
+	return fmt.Sprintf("web:user:%d:%s", userID, normalizeWebAgentChannel(channel))
+}
+
+func agentTurnResponse(turn domain.AgentTurn) AgentTurnResponse {
+	return AgentTurnResponse{
+		ID:               turn.ID,
+		SessionID:        turn.SessionID,
+		InboundMessageID: turn.InboundMessageID,
+		Status:           string(turn.Status),
+		InputText:        turn.InputText,
+		OutputText:       turn.OutputText,
+		ErrorMessage:     turn.ErrorMessage,
+		StartedAt:        formatOptionalTime(&turn.StartedAt),
+		FinishedAt:       formatOptionalTime(turn.FinishedAt),
+		CreatedAt:        formatOptionalTime(&turn.CreatedAt),
+		UpdatedAt:        formatOptionalTime(&turn.UpdatedAt),
+	}
 }

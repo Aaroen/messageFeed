@@ -39,11 +39,14 @@ import {
   clearAgentSessionContext,
   createAgentSession,
   deleteAgentSession,
+  getAgentNotificationPreference,
   listAgentSessions,
   listAgentTranscripts,
   rebuildAgentSessionContext,
   selectAgentSession,
+  updateAgentNotificationPreference,
   type AgentExternalAccount,
+  type AgentNotificationPreference,
   type AgentSession,
   type AgentTranscriptEntry,
 } from '@/api/agent'
@@ -56,6 +59,27 @@ import {
 const route = useRoute()
 const router = useRouter()
 const sourceTimelinePreload = ref(true)
+const agentNotificationPreference = ref<AgentNotificationPreference>({
+  process_notifications_enabled: true,
+  final_reports_enabled: true,
+  failure_notifications_enabled: true,
+  recovery_notifications_enabled: true,
+  max_concurrent_tasks: 2,
+  max_queued_tasks: 20,
+  auto_recovery_enabled: true,
+  quality_handoff_threshold: 0.65,
+  handoff_on_failure: true,
+  handoff_on_permission: true,
+  handoff_on_budget: true,
+  capability_policy: {},
+  daily_task_quota: 50,
+  daily_external_call_quota: 200,
+  daily_capability_call_quota: 500,
+})
+const capabilityPolicyText = ref('')
+const agentNotificationPreferenceLoading = ref(false)
+const agentNotificationPreferenceSaving = ref(false)
+const agentNotificationPreferenceResult = ref('')
 const authStatus = ref<CurrentAuth | null>(null)
 const authLoading = ref(false)
 const authError = ref('')
@@ -462,6 +486,9 @@ async function confirmDeleteAgentSession() {
 async function refreshPage() {
   loadSettings()
   await loadAuthStatus()
+  if (isSettingsSectionActive('preferences')) {
+    await loadAgentNotificationPreference()
+  }
   if (isOwner.value && sectionNeedsAdminConfig()) {
     await loadAdminConfig()
     return
@@ -474,6 +501,64 @@ async function refreshPage() {
 
 function updateSourceTimelinePreload() {
   updateSourceTimelinePreloadSetting(sourceTimelinePreload.value)
+}
+
+async function loadAgentNotificationPreference() {
+  agentNotificationPreferenceLoading.value = true
+  agentNotificationPreferenceResult.value = ''
+  try {
+    agentNotificationPreference.value = await getAgentNotificationPreference()
+    capabilityPolicyText.value = formatCapabilityPolicy(agentNotificationPreference.value.capability_policy)
+  } catch (error) {
+    agentNotificationPreferenceResult.value = formatAPIError(error)
+  } finally {
+    agentNotificationPreferenceLoading.value = false
+  }
+}
+
+async function saveAgentNotificationPreference() {
+  agentNotificationPreferenceSaving.value = true
+  agentNotificationPreferenceResult.value = ''
+  try {
+    agentNotificationPreference.value = await updateAgentNotificationPreference({
+      ...agentNotificationPreference.value,
+      capability_policy: parseCapabilityPolicy(capabilityPolicyText.value),
+    })
+    capabilityPolicyText.value = formatCapabilityPolicy(agentNotificationPreference.value.capability_policy)
+    agentNotificationPreferenceResult.value = 'Agent 通知偏好已保存'
+  } catch (error) {
+    agentNotificationPreferenceResult.value = formatAPIError(error)
+  } finally {
+    agentNotificationPreferenceSaving.value = false
+  }
+}
+
+function formatCapabilityPolicy(policy: Record<string, string> | undefined) {
+  if (!policy) {
+    return ''
+  }
+  return Object.entries(policy)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')
+}
+
+function parseCapabilityPolicy(text: string) {
+  const policy: Record<string, string> = {}
+  text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const separator = line.includes('=') ? '=' : ':'
+      const [rawKey, rawValue] = line.split(separator, 2)
+      const key = rawKey?.trim()
+      const value = rawValue?.trim()
+      if (key && value) {
+        policy[key] = value
+      }
+    })
+  return policy
 }
 
 function applyProfile(profile: UserProfile) {
@@ -1128,6 +1213,122 @@ defineExpose({ refreshPage })
               <input v-model="sourceTimelinePreload" type="checkbox" @change="updateSourceTimelinePreload" />
               <span />
             </label>
+          </div>
+          <div class="settings-panel__header">
+            <div>
+              <div class="settings-panel__title">Agent 通知</div>
+              <div class="settings-panel__meta">
+                {{ agentNotificationPreferenceLoading ? '加载中' : '企业微信过程通知与最终汇报' }}
+              </div>
+            </div>
+            <button
+              class="settings-action-button"
+              type="button"
+              :disabled="agentNotificationPreferenceSaving"
+              @click="saveAgentNotificationPreference"
+            >
+              {{ agentNotificationPreferenceSaving ? '保存中' : '保存' }}
+            </button>
+          </div>
+          <div class="settings-form-grid">
+            <div class="settings-switch-row">
+              <span>过程通知</span>
+              <label class="settings-switch">
+                <input v-model="agentNotificationPreference.process_notifications_enabled" type="checkbox" />
+                <span />
+              </label>
+            </div>
+            <div class="settings-switch-row">
+              <span>最终汇报</span>
+              <label class="settings-switch">
+                <input v-model="agentNotificationPreference.final_reports_enabled" type="checkbox" />
+                <span />
+              </label>
+            </div>
+            <div class="settings-switch-row">
+              <span>失败通知</span>
+              <label class="settings-switch">
+                <input v-model="agentNotificationPreference.failure_notifications_enabled" type="checkbox" />
+                <span />
+              </label>
+            </div>
+            <div class="settings-switch-row">
+              <span>恢复通知</span>
+              <label class="settings-switch">
+                <input v-model="agentNotificationPreference.recovery_notifications_enabled" type="checkbox" />
+                <span />
+              </label>
+            </div>
+            <label class="settings-field">
+              <span>最大并发任务</span>
+              <input v-model.number="agentNotificationPreference.max_concurrent_tasks" type="number" min="1" max="20" />
+            </label>
+            <label class="settings-field">
+              <span>最大排队任务</span>
+              <input v-model.number="agentNotificationPreference.max_queued_tasks" type="number" min="1" max="200" />
+            </label>
+            <label class="settings-field">
+              <span>低质量接管阈值</span>
+              <input
+                v-model.number="agentNotificationPreference.quality_handoff_threshold"
+                type="number"
+                min="0.1"
+                max="1"
+                step="0.05"
+              />
+            </label>
+            <label class="settings-field">
+              <span>每日任务配额</span>
+              <input v-model.number="agentNotificationPreference.daily_task_quota" type="number" min="1" max="10000" />
+            </label>
+            <label class="settings-field">
+              <span>每日外部访问配额</span>
+              <input v-model.number="agentNotificationPreference.daily_external_call_quota" type="number" min="1" max="100000" />
+            </label>
+            <label class="settings-field">
+              <span>每日能力调用配额</span>
+              <input v-model.number="agentNotificationPreference.daily_capability_call_quota" type="number" min="1" max="100000" />
+            </label>
+            <div class="settings-switch-row">
+              <span>自动恢复</span>
+              <label class="settings-switch">
+                <input v-model="agentNotificationPreference.auto_recovery_enabled" type="checkbox" />
+                <span />
+              </label>
+            </div>
+            <div class="settings-switch-row">
+              <span>失败接管</span>
+              <label class="settings-switch">
+                <input v-model="agentNotificationPreference.handoff_on_failure" type="checkbox" />
+                <span />
+              </label>
+            </div>
+            <div class="settings-switch-row">
+              <span>权限接管</span>
+              <label class="settings-switch">
+                <input v-model="agentNotificationPreference.handoff_on_permission" type="checkbox" />
+                <span />
+              </label>
+            </div>
+            <div class="settings-switch-row">
+              <span>预算接管</span>
+              <label class="settings-switch">
+                <input v-model="agentNotificationPreference.handoff_on_budget" type="checkbox" />
+                <span />
+              </label>
+            </div>
+            <label class="settings-field settings-field--wide">
+              <span>Capability 策略</span>
+              <textarea
+                v-model="capabilityPolicyText"
+                class="settings-textarea"
+                rows="5"
+                placeholder="web.search=confirm&#10;repo.*=reject"
+              />
+            </label>
+          </div>
+          <div v-if="agentNotificationPreferenceResult" class="settings-inline-alert">
+            {{ agentNotificationPreferenceResult }}
           </div>
         </section>
 

@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/notifier"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -80,7 +82,7 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	if len(repository.transcripts) != 2 {
 		t.Fatalf("transcript count = %d, want 2", len(repository.transcripts))
 	}
-	if len(repository.audits) != 3 || repository.audits[2].Status != "succeeded" {
+	if !fakeAuditContains(repository.audits, "agent.plan_governance_recorded") || !fakeAuditContains(repository.audits, "wechat_work.reply_sent") {
 		t.Fatalf("audits = %#v", repository.audits)
 	}
 	if len(llmClient.lastRequest.Messages) != 2 {
@@ -131,6 +133,500 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	}
 	if plan.Steps[0].ExecutorRunID == 0 || plan.Steps[0].ObservationRef == "" {
 		t.Fatalf("plan step was not bound to executor observation: %#v", plan.Steps[0])
+	}
+}
+
+func TestAgentConversationServiceHandlesWeChatButtonCallback(t *testing.T) {
+	now := time.Date(2026, 6, 24, 17, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{
+		ID:                2,
+		UserID:            1,
+		ExternalAccountID: 10,
+		Provider:          domain.AgentProviderWeChatWorkApp,
+		Status:            domain.AgentSessionStatusActive,
+		StartedAt:         now.Add(-time.Hour),
+		LastActiveAt:      now.Add(-time.Minute),
+	}
+	repository.plans = []domain.AgentPlan{
+		{ID: 9, UserID: 1, SessionID: 2, Status: domain.AgentPlanStatusExecuting, Summary: "执行任务", CreatedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-time.Minute)},
+	}
+	account := testAgentExternalAccount(now)
+	account.ActiveAgentSessionID = 2
+	resolver := &fakeAgentExternalAccountResolver{account: account}
+	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-button-1"}}
+	llmClient := &fakeAgentConversationLLM{response: llm.ChatResponse{Content: "不应调用"}}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "button-msg-1",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "event",
+		EventType:         "template_card_event",
+		EventKey:          "view_progress",
+		RequestID:         "request-button-1",
+		TraceID:           "trace-button-1",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Plan.ID != 9 || !strings.Contains(result.Reply, "计划 #9") || !strings.Contains(result.Reply, "https://messagefeed.example/agent/plans/9") {
+		t.Fatalf("result = %#v", result)
+	}
+	if llmClient.calls != 0 {
+		t.Fatalf("llm calls = %d, want 0", llmClient.calls)
+	}
+	if !fakeAuditContains(repository.audits, "agent.button_direct_control") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+	if repository.inbound.Status != domain.AgentInboundMessageStatusSucceeded {
+		t.Fatalf("inbound status = %q", repository.inbound.Status)
+	}
+	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "计划 #9") {
+		t.Fatalf("sent = %#v calls=%d", sender.sent, sender.calls)
+	}
+}
+
+func TestAgentConversationServiceButtonCallbackRetriesFailedPlan(t *testing.T) {
+	now := time.Date(2026, 6, 24, 17, 40, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 2, UserID: 1, ExternalAccountID: 10, Provider: domain.AgentProviderWeChatWorkApp, Status: domain.AgentSessionStatusActive, StartedAt: now.Add(-time.Hour), LastActiveAt: now.Add(-time.Minute)}
+	repository.plans = []domain.AgentPlan{
+		{
+			ID:        9,
+			UserID:    1,
+			SessionID: 2,
+			Status:    domain.AgentPlanStatusFailed,
+			Summary:   "执行失败任务",
+			CreatedAt: now.Add(-time.Minute),
+			UpdatedAt: now.Add(-time.Minute),
+			Steps: []domain.AgentPlanStep{
+				{ID: 11, PlanID: 9, Status: domain.AgentPlanStepStatusFailed, MaxRetries: 2, RetryCount: 0, FailureStrategy: "retry", ErrorMessage: "timeout", UpdatedAt: now.Add(-time.Minute)},
+			},
+		},
+	}
+	account := testAgentExternalAccount(now)
+	account.ActiveAgentSessionID = 2
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(&fakeAgentExternalAccountResolver{account: account}),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "button-retry-1",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "event",
+		EventType:         "template_card_event",
+		EventKey:          "retry_plan",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Plan.Status != domain.AgentPlanStatusExecuting || !strings.Contains(result.Reply, "重试按钮回调") {
+		t.Fatalf("result = %#v", result)
+	}
+	if repository.plans[0].Steps[0].Status != domain.AgentPlanStepStatusApproved || repository.plans[0].Steps[0].RetryCount != 1 {
+		t.Fatalf("step = %#v", repository.plans[0].Steps[0])
+	}
+	if !fakeAuditContains(repository.audits, "agent.button_direct_control") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
+func TestAgentConversationServiceButtonCallbackCancelsScheduledTask(t *testing.T) {
+	now := time.Date(2026, 6, 24, 17, 50, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 2, UserID: 1, ExternalAccountID: 10, Provider: domain.AgentProviderWeChatWorkApp, Status: domain.AgentSessionStatusActive, StartedAt: now.Add(-time.Hour), LastActiveAt: now.Add(-time.Minute)}
+	repository.plans = []domain.AgentPlan{{ID: 9, UserID: 1, SessionID: 2, Status: domain.AgentPlanStatusExecuting, Summary: "执行定时任务", CreatedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-time.Minute)}}
+	repository.scheduledTasks = []domain.AgentScheduledTask{
+		{ID: 30, UserID: 1, SessionID: 2, PlanID: 9, Status: domain.AgentScheduledTaskStatusQueued, Goal: "日报", ScheduledAt: now.Add(time.Hour), UpdatedAt: now.Add(-time.Minute)},
+	}
+	account := testAgentExternalAccount(now)
+	account.ActiveAgentSessionID = 2
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationSender(&fakeAgentConversationSender{}),
+		WithAgentConversationExternalAccountResolver(&fakeAgentExternalAccountResolver{account: account}),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "button-cancel-1",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "event",
+		EventType:         "template_card_event",
+		EventKey:          "cancel_scheduled_task",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if !strings.Contains(result.Reply, "任务 #30") || repository.scheduledTasks[0].Status != domain.AgentScheduledTaskStatusCanceled {
+		t.Fatalf("result = %#v task = %#v", result, repository.scheduledTasks[0])
+	}
+	if !fakeAuditContains(repository.audits, "agent.button_direct_control") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
+func TestAgentConversationServiceReceivesWebAgentTask(t *testing.T) {
+	now := time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	llmClient := &fakeAgentConversationLLM{
+		response: llm.ChatResponse{
+			Provider: "openai_compatible",
+			Model:    "custom-model",
+			Content:  "Web 任务已处理",
+		},
+	}
+	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-msg-1"}}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+	)
+
+	result, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
+		Authenticated: true,
+		User: domain.User{
+			ID:          7,
+			Username:    "web-user",
+			DisplayName: "Web User",
+		},
+	}, ReceiveWebAgentTaskInput{
+		Message:   "请总结最近订阅内容",
+		Channel:   "web",
+		RequestID: "request-1",
+		TraceID:   "trace-1",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
+	}
+	if repository.account.Provider != domain.AgentProviderWeb || repository.account.UserID != 7 {
+		t.Fatalf("web account = %#v", repository.account)
+	}
+	if repository.inbound.Provider != domain.AgentProviderWeb || repository.inbound.ProviderMessageID != "web:7:request-1" {
+		t.Fatalf("inbound = %#v", repository.inbound)
+	}
+	if result.Session.Provider != domain.AgentProviderWeb || result.Session.ID == 0 {
+		t.Fatalf("session = %#v", result.Session)
+	}
+	if result.Turn.Status != string(domain.AgentTurnStatusSucceeded) {
+		t.Fatalf("turn = %#v", result.Turn)
+	}
+	wantProgressURL := "https://messagefeed.example/agent/plans/" + strconv.FormatInt(result.Plan.ID, 10)
+	if result.Plan.ID == 0 || result.ProgressURL != wantProgressURL {
+		t.Fatalf("plan/progress = %#v / %q, want %q", result.Plan, result.ProgressURL, wantProgressURL)
+	}
+	if sender.sent.ToUser != "" || sender.sent.Content != "" {
+		t.Fatalf("web task should not send wechat work reply: %#v", sender.sent)
+	}
+}
+
+func TestAgentConversationServiceThrottlesWebAgentTaskByUserPolicy(t *testing.T) {
+	now := time.Date(2026, 6, 25, 10, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.preference = defaultAgentNotificationPreference(7, now)
+	repository.preference.MaxConcurrentTasks = 1
+	repository.plans = append(repository.plans, domain.AgentPlan{
+		ID:        99,
+		UserID:    7,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "已有任务",
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	})
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
+
+	_, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
+		Authenticated: true,
+		User:          domain.User{ID: 7, Username: "web-user"},
+	}, ReceiveWebAgentTaskInput{Message: "再开一个任务", Channel: "web", RequestID: "request-throttle"})
+	if err == nil {
+		t.Fatal("ReceiveWebAgentTask() error = nil, want throttled")
+	}
+	if len(repository.audits) != 1 || repository.audits[0].EventType != "agent.task_admission_throttled" {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+	if repository.inbound.ID != 0 {
+		t.Fatalf("inbound should not be created: %#v", repository.inbound)
+	}
+}
+
+func TestAgentConversationServiceRejectsWebAgentTaskWhenDailyQuotaExceeded(t *testing.T) {
+	now := time.Date(2026, 6, 25, 10, 45, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.preference = defaultAgentNotificationPreference(7, now)
+	repository.preference.DailyTaskQuota = 1
+	repository.plans = append(repository.plans, domain.AgentPlan{
+		ID:        99,
+		UserID:    7,
+		Status:    domain.AgentPlanStatusCompleted,
+		Goal:      "今日任务",
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Minute),
+	})
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	_, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
+		Authenticated: true,
+		User:          domain.User{ID: 7, Username: "web-user"},
+	}, ReceiveWebAgentTaskInput{Message: "今日第二个任务", Channel: "web", RequestID: "request-quota"})
+	if err == nil {
+		t.Fatal("ReceiveWebAgentTask() error = nil, want quota exceeded")
+	}
+	if len(repository.audits) != 1 || repository.audits[0].Status != "quota_exceeded" {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+	if repository.audits[0].Metadata["daily_task_quota"] != 1 {
+		t.Fatalf("audit metadata = %#v", repository.audits[0].Metadata)
+	}
+}
+
+func TestAgentConversationServiceAppendsConstraintToActiveWebPlan(t *testing.T) {
+	now := time.Date(2026, 6, 25, 11, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{
+		ID:                10,
+		UserID:            7,
+		ExternalAccountID: 1,
+		Provider:          domain.AgentProviderWeb,
+		Status:            domain.AgentSessionStatusActive,
+		StartedAt:         now.Add(-time.Minute),
+		LastActiveAt:      now.Add(-time.Minute),
+	}
+	repository.plans = []domain.AgentPlan{{
+		ID:        20,
+		UserID:    7,
+		SessionID: 10,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "汇总订阅源",
+		Metadata:  domain.AgentJSON{},
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+	)
+
+	result, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
+		Authenticated: true,
+		User:          domain.User{ID: 7, Username: "web-user"},
+	}, ReceiveWebAgentTaskInput{
+		SessionID: 10,
+		Message:   "补充：只看未读内容",
+		Channel:   "web",
+		RequestID: "request-append",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
+	}
+	if result.Plan.ID != 20 || len(repository.plans) != 1 {
+		t.Fatalf("plan result = %#v, plans = %#v", result.Plan, repository.plans)
+	}
+	multiTurn, _ := repository.plans[0].Metadata["multi_turn"].(map[string]any)
+	if multiTurn["latest_intent"] != string(agentFollowupIntentAppendConstraints) || !strings.Contains(result.Reply, "已将补充要求追加") {
+		t.Fatalf("multi_turn = %#v, reply = %q", multiTurn, result.Reply)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_input_appended") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
+func TestAgentConversationServiceStopsActiveWebPlan(t *testing.T) {
+	now := time.Date(2026, 6, 25, 11, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 11, UserID: 7, ExternalAccountID: 1, Provider: domain.AgentProviderWeb, Status: domain.AgentSessionStatusActive}
+	repository.plans = []domain.AgentPlan{{
+		ID:        21,
+		UserID:    7,
+		SessionID: 11,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "分析订阅源",
+		Metadata:  domain.AgentJSON{},
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}}
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	result, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
+		Authenticated: true,
+		User:          domain.User{ID: 7, Username: "web-user"},
+	}, ReceiveWebAgentTaskInput{SessionID: 11, Message: "停止这个任务", Channel: "web"})
+	if err != nil {
+		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
+	}
+	if result.Plan.Status != string(domain.AgentPlanStatusFailed) || repository.plans[0].ErrorMessage != "stopped by user" {
+		t.Fatalf("plan = %#v stored = %#v", result.Plan, repository.plans[0])
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_stopped") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
+func TestAgentConversationServiceReusesCompletedPlanForFollowup(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 12, UserID: 7, ExternalAccountID: 1, Provider: domain.AgentProviderWeb, Status: domain.AgentSessionStatusActive}
+	repository.plans = []domain.AgentPlan{{
+		ID:            22,
+		UserID:        7,
+		SessionID:     12,
+		Status:        domain.AgentPlanStatusCompleted,
+		Goal:          "汇总 AI 新闻",
+		Summary:       "已汇总三条 AI 新闻",
+		ImpactSummary: "主要影响为模型发布节奏加快",
+		Metadata:      domain.AgentJSON{},
+		AllowedScopes: []string{"web.search", "content.summarize_text"},
+		Steps: []domain.AgentPlanStep{{
+			ID:             2201,
+			PlanID:         22,
+			CapabilityKey:  "web.search",
+			ObservationRef: "agent_observation:31",
+			ArtifactRefs:   []string{"agent_artifact:41"},
+		}},
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}}
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	result, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
+		Authenticated: true,
+		User:          domain.User{ID: 7, Username: "web-user"},
+	}, ReceiveWebAgentTaskInput{SessionID: 12, Message: "刚才结果的依据是什么", Channel: "web"})
+	if err != nil {
+		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
+	}
+	if result.Plan.ID != 22 || !strings.Contains(result.Reply, "已关联到计划 #22") {
+		t.Fatalf("result = %#v reply = %q", result.Plan, result.Reply)
+	}
+	if !strings.Contains(result.Reply, "结果新鲜度：fresh") || !strings.Contains(result.Reply, "agent_artifact:41") {
+		t.Fatalf("reply missing freshness or evidence refs: %q", result.Reply)
+	}
+	multiTurn, _ := repository.plans[0].Metadata["multi_turn"].(map[string]any)
+	reuse, _ := multiTurn["result_reuse"].(map[string]any)
+	if reuse["source_plan_id"] != int64(22) && reuse["source_plan_id"] != 22 {
+		t.Fatalf("result_reuse = %#v", reuse)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_result_reused") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
+func TestAgentConversationServiceDoesNotReuseStaleCompletedPlanAsCurrentFact(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 13, UserID: 7, ExternalAccountID: 1, Provider: domain.AgentProviderWeb, Status: domain.AgentSessionStatusActive}
+	oldCompletedAt := now.Add(-8 * time.Hour)
+	repository.plans = []domain.AgentPlan{{
+		ID:            23,
+		UserID:        7,
+		SessionID:     13,
+		Status:        domain.AgentPlanStatusCompleted,
+		Goal:          "联网检索模型新闻",
+		Summary:       "旧新闻摘要",
+		AllowedScopes: []string{"web.search"},
+		CompletedAt:   &oldCompletedAt,
+		Metadata:      domain.AgentJSON{},
+		CreatedAt:     oldCompletedAt,
+		UpdatedAt:     oldCompletedAt,
+	}}
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	result, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
+		Authenticated: true,
+		User:          domain.User{ID: 7, Username: "web-user"},
+	}, ReceiveWebAgentTaskInput{SessionID: 13, Message: "刚才结果是什么", Channel: "web"})
+	if err != nil {
+		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
+	}
+	if result.Plan.ID != 23 || !strings.Contains(result.Reply, "该结果已过期") {
+		t.Fatalf("result = %#v reply = %q", result.Plan, result.Reply)
+	}
+	if strings.Contains(result.Reply, "旧新闻摘要") {
+		t.Fatalf("stale reply reused old fact: %q", result.Reply)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_result_stale") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
+func TestAgentConversationServiceRecordsParentPlanForDerivedWebTask(t *testing.T) {
+	now := time.Date(2026, 6, 25, 13, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{ID: 14, UserID: 7, ExternalAccountID: 1, Provider: domain.AgentProviderWeb, Status: domain.AgentSessionStatusActive}
+	repository.plans = []domain.AgentPlan{{
+		ID:        24,
+		UserID:    7,
+		SessionID: 14,
+		Status:    domain.AgentPlanStatusCompleted,
+		Goal:      "汇总数据库新闻",
+		Metadata:  domain.AgentJSON{},
+		Steps: []domain.AgentPlanStep{{
+			ID:             2401,
+			PlanID:         24,
+			CapabilityKey:  "feed.query_recent_items",
+			ObservationRef: "agent_observation:51",
+			ArtifactRefs:   []string{"agent_artifact:61"},
+		}},
+		CreatedAt: now.Add(-time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}}
+	llmClient := &fakeAgentConversationLLM{response: llm.ChatResponse{Provider: "openai_compatible", Model: "custom-model", Content: "派生任务已处理"}}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
+
+	result, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
+		Authenticated: true,
+		User:          domain.User{ID: 7, Username: "web-user"},
+	}, ReceiveWebAgentTaskInput{SessionID: 14, Message: "基于刚才结果创建一个刷新汇总任务", Channel: "web"})
+	if err != nil {
+		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
+	}
+	if result.Plan.ID == 0 || result.Plan.ID == 24 {
+		t.Fatalf("derived plan = %#v", result.Plan)
+	}
+	created := repository.plans[len(repository.plans)-1]
+	parent, _ := created.Metadata["parent_plan"].(domain.AgentJSON)
+	if parent == nil {
+		if typed, ok := created.Metadata["parent_plan"].(map[string]any); ok {
+			parent = domain.AgentJSON(typed)
+		}
+	}
+	if parent["id"] != int64(24) && parent["id"] != 24 {
+		t.Fatalf("parent_plan = %#v metadata = %#v", parent, created.Metadata)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_derived") {
+		t.Fatalf("audits = %#v", repository.audits)
 	}
 }
 
@@ -333,6 +829,9 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 		t.Fatal("agent start feedback was not sent")
 	}
 	if !strings.Contains(startedMessage.Content, "工作已开始") ||
+		!strings.Contains(startedMessage.Content, "状态锚点：started/") ||
+		!strings.Contains(startedMessage.Content, "下一步：") ||
+		!strings.Contains(startedMessage.Content, "企微动作组件：view_progress=") ||
 		!strings.Contains(startedMessage.Content, "调度方式") ||
 		!strings.Contains(startedMessage.Content, "https://messagefeed.example/agent/plans/") {
 		t.Fatalf("start feedback = %q", startedMessage.Content)
@@ -351,7 +850,10 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 		t.Fatal("async reply was not sent")
 	}
 	if !strings.Contains(completionMessage.Content, "异步回复") ||
+		!strings.Contains(completionMessage.Content, "状态锚点：completed/") ||
 		!strings.Contains(completionMessage.Content, "状态：已完成") ||
+		!strings.Contains(completionMessage.Content, "下一步：") ||
+		!strings.Contains(completionMessage.Content, "企微动作组件：view_progress=") ||
 		!strings.Contains(completionMessage.Content, "https://messagefeed.example/agent/plans/") {
 		t.Fatalf("completion feedback = %q", completionMessage.Content)
 	}
@@ -360,6 +862,176 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	}
 	if repository.inbound.Status != domain.AgentInboundMessageStatusSucceeded {
 		t.Fatalf("inbound status = %q", repository.inbound.Status)
+	}
+}
+
+func TestAgentConversationServiceSendsWeChatProgressNotificationWithAudit(t *testing.T) {
+	repository := newFakeAgentConversationRepository()
+	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-progress-1"}}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationSender(sender),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+	)
+	plan := domain.AgentPlan{
+		ID:      9,
+		UserID:  1,
+		Status:  domain.AgentPlanStatusFailed,
+		Summary: "汇总订阅",
+		Metadata: domain.AgentJSON{
+			"permission_governance": domain.AgentJSON{"has_external_access": true, "requires_confirmation": false},
+			"budget_governance":     domain.AgentJSON{"status": "within_budget", "tool_calls": 1, "tool_call_budget": 8, "external_calls": 1, "external_call_budget": 4},
+		},
+		Steps: []domain.AgentPlanStep{
+			{ID: 10, Status: domain.AgentPlanStepStatusFailed, Title: "联网查询", CapabilityKey: "web.search", ErrorMessage: "network timeout"},
+		},
+		UpdatedAt: time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC),
+	}
+
+	service.sendPlanProgressNotification(
+		context.Background(),
+		domain.ExternalAccount{UserID: 1},
+		domain.AgentSession{ID: 2},
+		domain.AgentTurn{ID: 3},
+		ReceiveWeChatWorkAppMessageInput{
+			Provider:          domain.AgentProviderWeChatWorkApp,
+			ProviderMessageID: "msg-progress",
+			ExternalUserID:    "zhangsan",
+		},
+		plan,
+		"step_failed",
+		"计划步骤失败",
+	)
+
+	if sender.calls != 1 || sender.sent.ToUser != "zhangsan" {
+		t.Fatalf("sent = %#v calls=%d", sender.sent, sender.calls)
+	}
+	if !strings.Contains(sender.sent.Content, "计划 #9") ||
+		!strings.Contains(sender.sent.Content, "状态锚点：step_failed/failed") ||
+		!strings.Contains(sender.sent.Content, "失败步骤") ||
+		!strings.Contains(sender.sent.Content, "权限：") ||
+		!strings.Contains(sender.sent.Content, "预算：") ||
+		!strings.Contains(sender.sent.Content, "下一步：") ||
+		!strings.Contains(sender.sent.Content, "企微动作组件：view_progress=https://messagefeed.example/agent/plans/9") ||
+		!strings.Contains(sender.sent.Content, "https://messagefeed.example/agent/plans/9") {
+		t.Fatalf("content = %q", sender.sent.Content)
+	}
+	if len(repository.audits) != 1 || repository.audits[0].EventType != "agent.plan_progress_notification" || repository.audits[0].Status != "succeeded" {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+	if repository.audits[0].Metadata["target_channel"] != domain.AgentProviderWeChatWorkApp {
+		t.Fatalf("audit metadata = %#v", repository.audits[0].Metadata)
+	}
+}
+
+func TestAgentConversationServiceBindPlanStepsWritesQualityAndDeploymentMetadata(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	plan := domain.AgentPlan{
+		ID:        10,
+		UserID:    1,
+		SessionID: 2,
+		TurnID:    3,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "汇总订阅",
+		Summary:   "执行订阅汇总",
+		RiskLevel: "low",
+		Metadata:  domain.AgentJSON{},
+		Steps: []domain.AgentPlanStep{
+			{ID: 11, PlanID: 10, Status: domain.AgentPlanStepStatusExecuting, CapabilityKey: "web.search", Title: "联网查询"},
+		},
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}
+	repository.plans = append(repository.plans, plan)
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	updated, err := service.bindPlanStepsToObservations(context.Background(), 1, plan, []agent.CapabilityObservation{
+		{
+			Capability:     "web.search",
+			Status:         "succeeded",
+			Summary:        "完成查询",
+			RunID:          20,
+			ObservationRef: "observation:20:web.search",
+			ArtifactRefs:   []string{"artifact:web:1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("bindPlanStepsToObservations() error = %v", err)
+	}
+	if updated.Status != domain.AgentPlanStatusCompleted {
+		t.Fatalf("updated status = %q", updated.Status)
+	}
+	if metadataMap(updated.Metadata, "result_quality") == nil || metadataMap(updated.Metadata, "cost_summary") == nil || metadataMap(updated.Metadata, "deployment_acceptance") == nil {
+		t.Fatalf("metadata = %#v", updated.Metadata)
+	}
+	if metadataNumber(metadataMap(updated.Metadata, "cost_summary"), "tool_calls") != 1 || metadataNumber(metadataMap(updated.Metadata, "cost_summary"), "external_calls") != 1 {
+		t.Fatalf("cost summary = %#v", updated.Metadata["cost_summary"])
+	}
+	if metadataString(metadataMap(updated.Metadata, "deployment_acceptance"), "status") != "ready" {
+		t.Fatalf("deployment acceptance = %#v", updated.Metadata["deployment_acceptance"])
+	}
+}
+
+func TestAgentConversationServiceAppliesCapabilityPolicyToPlan(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.preference = defaultAgentNotificationPreference(1, now)
+	repository.preference.CapabilityPolicy = domain.AgentJSON{"web.search": "reject"}
+	plan := domain.AgentPlan{
+		ID:        10,
+		UserID:    1,
+		SessionID: 2,
+		TurnID:    3,
+		Status:    domain.AgentPlanStatusApproved,
+		Summary:   "联网查询",
+		Metadata:  domain.AgentJSON{},
+		Steps: []domain.AgentPlanStep{
+			{ID: 11, PlanID: 10, Status: domain.AgentPlanStepStatusApproved, CapabilityKey: "web.search", Title: "搜索网页"},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	repository.plans = append(repository.plans, plan)
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	updated, err := service.applyCapabilityPolicyToPlan(context.Background(), 1, 2, 3, plan, ReceiveWeChatWorkAppMessageInput{RequestID: "req-1"})
+	if err != nil {
+		t.Fatalf("applyCapabilityPolicyToPlan() error = %v", err)
+	}
+	if updated.Status != domain.AgentPlanStatusRejected {
+		t.Fatalf("status = %q", updated.Status)
+	}
+	policy := metadataMap(updated.Metadata, "capability_policy")
+	if metadataString(policy, "status") != "reject" {
+		t.Fatalf("policy = %#v", policy)
+	}
+	if len(repository.audits) != 1 || repository.audits[0].EventType != "agent.capability_policy_applied" || repository.audits[0].Status != "reject" {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
+func TestAgentConversationServiceSkipsWebProgressNotification(t *testing.T) {
+	repository := newFakeAgentConversationRepository()
+	sender := &fakeAgentConversationSender{}
+	service := NewAgentConversationService(repository, WithAgentConversationSender(sender))
+
+	service.sendPlanProgressNotification(
+		context.Background(),
+		domain.ExternalAccount{UserID: 1},
+		domain.AgentSession{ID: 2},
+		domain.AgentTurn{ID: 3},
+		ReceiveWeChatWorkAppMessageInput{Provider: domain.AgentProviderWeb, ExternalUserID: "user:1"},
+		domain.AgentPlan{ID: 9, UserID: 1, Status: domain.AgentPlanStatusExecuting},
+		"started",
+		"工作已开始",
+	)
+
+	if sender.calls != 0 {
+		t.Fatalf("sender calls = %d, want 0", sender.calls)
+	}
+	if len(repository.audits) != 0 {
+		t.Fatalf("audits = %#v", repository.audits)
 	}
 }
 
@@ -410,7 +1082,7 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextWithoutPublishi
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
 	systemPrompt := llmClient.lastRequest.Messages[0].Content
-	if !strings.Contains(systemPrompt, "最近条目") || !strings.Contains(systemPrompt, "Go 1.26 发布") {
+	if !strings.Contains(systemPrompt, "最近条目") || !strings.Contains(systemPrompt, "Go 工具链说明") || !strings.Contains(systemPrompt, "Evidence ref：item:2") {
 		t.Fatalf("system prompt missing recent items context: %q", systemPrompt)
 	}
 	if !strings.Contains(systemPrompt, "匹配来源最新条目") || !strings.Contains(systemPrompt, "Go 官方博客") || !strings.Contains(systemPrompt, "Go 工具链说明") {
@@ -724,6 +1396,52 @@ func TestAgentConversationServiceScheduleMessageRequiresConfirmation(t *testing.
 	}
 }
 
+func TestAgentConversationServicePlanStartedReplyIncludesProgressSummary(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	service := NewAgentConversationService(newFakeAgentConversationRepository(), WithAgentConversationNow(func() time.Time { return now }))
+	reply := service.agentPlanStartedReply(domain.AgentPlan{
+		ID:            7,
+		Status:        domain.AgentPlanStatusExecuting,
+		Summary:       "执行网页检索",
+		AllowedScopes: []string{"web.search"},
+		UpdatedAt:     now,
+	})
+	if !strings.Contains(reply, "进度摘要：") || !strings.Contains(reply, "状态：执行中") || !strings.Contains(reply, "进度版本：") {
+		t.Fatalf("reply = %q", reply)
+	}
+	if !strings.Contains(reply, "状态锚点：started/executing") || !strings.Contains(reply, "进度地址：") || !strings.Contains(reply, "下一步：") {
+		t.Fatalf("reply = %q", reply)
+	}
+	if !strings.Contains(reply, "企微动作组件：view_progress=/agent/plans/7") || !strings.Contains(reply, "cancel_scheduled_task=/agent/plans/7") {
+		t.Fatalf("reply = %q", reply)
+	}
+}
+
+func TestAgentConversationServiceApprovalRequiredReplyIncludesActionAnchors(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	service := NewAgentConversationService(
+		newFakeAgentConversationRepository(),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
+	reply := service.approvalRequiredReply(domain.AgentPlan{
+		ID:            11,
+		Status:        domain.AgentPlanStatusAwaitingApproval,
+		Summary:       "发送外部通知",
+		ImpactSummary: "将向绑定用户发送通知",
+		AllowedScopes: []string{"agent.schedule_message"},
+		UpdatedAt:     now,
+	}, "approval-token")
+	if !strings.Contains(reply, "状态锚点：approval_required/awaiting_approval") ||
+		!strings.Contains(reply, "审批地址：https://messagefeed.example/agent/approvals/approval-token") ||
+		!strings.Contains(reply, "进度地址：https://messagefeed.example/agent/plans/11") ||
+		!strings.Contains(reply, "下一步：") ||
+		!strings.Contains(reply, "企微动作组件：view_progress=https://messagefeed.example/agent/plans/11") ||
+		!strings.Contains(reply, "approval=https://messagefeed.example/agent/approvals/approval-token") {
+		t.Fatalf("reply = %q", reply)
+	}
+}
+
 func TestAgentConversationServiceScheduleMessageCreatesNotificationJobWhenConfirmed(t *testing.T) {
 	now := time.Date(2026, 6, 24, 12, 30, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -757,7 +1475,7 @@ func TestAgentConversationServiceScheduleMessageCreatesNotificationJobWhenConfir
 		AgentID:           "1000002",
 		ExternalUserID:    "zhangsan",
 		MsgType:           "text",
-		TextContent:       "确认创建明天上午9点提醒我检查部署状态",
+		TextContent:       "确认创建上一条任务",
 	}); err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
@@ -860,18 +1578,18 @@ func TestAgentConversationServiceSendsFallbackWhenScheduleCreationFails(t *testi
 		AgentID:           "1000002",
 		ExternalUserID:    "zhangsan",
 		MsgType:           "text",
-		TextContent:       "再在今晚10点10分提醒我到点了，我已经确认",
+		TextContent:       "确认创建上一条任务",
 	})
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if !strings.Contains(result.Reply, "没有设置成功") {
+	if !strings.Contains(result.Reply, "没有成功") {
 		t.Fatalf("fallback reply = %q", result.Reply)
 	}
-	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "没有设置成功") {
+	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "没有成功") {
 		t.Fatalf("sent fallback = %#v", sender.sent)
 	}
-	if len(repository.transcripts) < 2 || !strings.Contains(repository.transcripts[len(repository.transcripts)-1].Content, "没有设置成功") {
+	if len(repository.transcripts) < 2 || !strings.Contains(repository.transcripts[len(repository.transcripts)-1].Content, "没有成功") {
 		t.Fatalf("transcripts = %#v", repository.transcripts)
 	}
 }
@@ -891,7 +1609,9 @@ type fakeAgentConversationRepository struct {
 	observations   []domain.AgentObservation
 	artifacts      []domain.AgentArtifact
 	plans          []domain.AgentPlan
+	scheduledTasks []domain.AgentScheduledTask
 	approvals      []domain.AgentApproval
+	preference     domain.AgentNotificationPreference
 	capabilityLogs []domain.AgentCapabilityAuditLog
 }
 
@@ -903,6 +1623,14 @@ func (r *fakeAgentConversationRepository) id() int64 {
 	id := r.nextID
 	r.nextID++
 	return id
+}
+
+func (r *fakeAgentConversationRepository) EnsureExternalAccount(_ context.Context, account domain.ExternalAccount) (domain.ExternalAccount, error) {
+	if r.account.ID == 0 {
+		account.ID = r.id()
+		r.account = account
+	}
+	return r.account, nil
 }
 
 func (r *fakeAgentConversationRepository) CreateInboundMessage(_ context.Context, message domain.AgentInboundMessage) (domain.AgentInboundMessage, bool, error) {
@@ -1113,6 +1841,12 @@ func (r *fakeAgentConversationRepository) CreateAgentArtifact(_ context.Context,
 
 func (r *fakeAgentConversationRepository) CreateAgentPlan(_ context.Context, plan domain.AgentPlan, steps []domain.AgentPlanStep) (domain.AgentPlan, error) {
 	plan.ID = r.id()
+	if plan.CreatedAt.IsZero() {
+		plan.CreatedAt = time.Now().UTC()
+	}
+	if plan.UpdatedAt.IsZero() {
+		plan.UpdatedAt = plan.CreatedAt
+	}
 	for index := range steps {
 		steps[index].ID = r.id()
 		steps[index].PlanID = plan.ID
@@ -1123,6 +1857,56 @@ func (r *fakeAgentConversationRepository) CreateAgentPlan(_ context.Context, pla
 	plan.Steps = append([]domain.AgentPlanStep(nil), steps...)
 	r.plans = append(r.plans, plan)
 	return plan, nil
+}
+
+func (r *fakeAgentConversationRepository) ListAgentPlans(_ context.Context, userID int64, sessionID int64, turnID int64, limit int) ([]domain.AgentPlan, error) {
+	plans := make([]domain.AgentPlan, 0, len(r.plans))
+	for _, plan := range r.plans {
+		if userID > 0 && plan.UserID != userID {
+			continue
+		}
+		if sessionID > 0 && plan.SessionID != sessionID {
+			continue
+		}
+		if turnID > 0 && plan.TurnID != turnID {
+			continue
+		}
+		plans = append(plans, plan)
+	}
+	sort.Slice(plans, func(i, j int) bool {
+		if plans[i].CreatedAt.Equal(plans[j].CreatedAt) {
+			return plans[i].ID > plans[j].ID
+		}
+		return plans[i].CreatedAt.After(plans[j].CreatedAt)
+	})
+	if limit > 0 && len(plans) > limit {
+		plans = plans[:limit]
+	}
+	return plans, nil
+}
+
+func (r *fakeAgentConversationRepository) ListAgentScheduledTasks(_ context.Context, options domain.AgentScheduledTaskListOptions) ([]domain.AgentScheduledTask, error) {
+	tasks := make([]domain.AgentScheduledTask, 0, len(r.scheduledTasks))
+	for _, task := range r.scheduledTasks {
+		if options.UserID > 0 && task.UserID != options.UserID {
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+	if options.Limit > 0 && len(tasks) > options.Limit {
+		tasks = tasks[:options.Limit]
+	}
+	return tasks, nil
+}
+
+func (r *fakeAgentConversationRepository) UpdateAgentScheduledTask(_ context.Context, task domain.AgentScheduledTask) (domain.AgentScheduledTask, error) {
+	for index := range r.scheduledTasks {
+		if r.scheduledTasks[index].ID == task.ID && r.scheduledTasks[index].UserID == task.UserID {
+			r.scheduledTasks[index] = task
+			return task, nil
+		}
+	}
+	return domain.AgentScheduledTask{}, domain.ErrNotFound
 }
 
 func (r *fakeAgentConversationRepository) UpdateAgentPlanStatus(_ context.Context, userID int64, planID int64, status domain.AgentPlanStatus, now time.Time, errorMessage string) (domain.AgentPlan, error) {
@@ -1137,6 +1921,17 @@ func (r *fakeAgentConversationRepository) UpdateAgentPlanStatus(_ context.Contex
 			case domain.AgentPlanStatusFailed:
 				r.plans[i].FailedAt = &now
 			}
+			return r.plans[i], nil
+		}
+	}
+	return domain.AgentPlan{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) UpdateAgentPlanMetadata(_ context.Context, userID int64, planID int64, metadata domain.AgentJSON, now time.Time) (domain.AgentPlan, error) {
+	for i := range r.plans {
+		if r.plans[i].ID == planID && r.plans[i].UserID == userID {
+			r.plans[i].Metadata = cloneApprovalMetadata(metadata)
+			r.plans[i].UpdatedAt = now
 			return r.plans[i], nil
 		}
 	}
@@ -1170,9 +1965,25 @@ func (r *fakeAgentConversationRepository) CreateAgentCapabilityAuditLog(_ contex
 	return log, nil
 }
 
+func (r *fakeAgentConversationRepository) GetAgentNotificationPreference(_ context.Context, userID int64) (domain.AgentNotificationPreference, error) {
+	if r.preference.UserID == userID && userID > 0 {
+		return r.preference, nil
+	}
+	return defaultAgentNotificationPreference(userID, time.Now().UTC()), nil
+}
+
 func fakeTranscriptRoleAllowed(role domain.AgentTranscriptRole, roles []domain.AgentTranscriptRole) bool {
 	for _, allowed := range roles {
 		if role == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func fakeAuditContains(audits []domain.AgentAuditLog, eventType string) bool {
+	for _, audit := range audits {
+		if audit.EventType == eventType {
 			return true
 		}
 	}

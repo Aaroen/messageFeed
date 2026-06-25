@@ -13,8 +13,11 @@ import (
 
 type AgentApprovalStore interface {
 	GetByTokenHash(ctx context.Context, userID int64, tokenHash string) (domain.AgentApproval, error)
+	GetByID(ctx context.Context, userID int64, approvalID int64) (domain.AgentApproval, error)
 	Decide(ctx context.Context, userID int64, tokenHash string, status domain.AgentApprovalStatus, now time.Time) (domain.AgentApproval, error)
+	DecideByID(ctx context.Context, userID int64, approvalID int64, status domain.AgentApprovalStatus, now time.Time) (domain.AgentApproval, error)
 	UpdateAgentPlanStatusForApproval(ctx context.Context, userID int64, planID int64, status domain.AgentPlanStatus, now time.Time) error
+	CreateAuditLog(ctx context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error)
 }
 
 type AgentApprovalService struct {
@@ -77,6 +80,35 @@ func (s *AgentApprovalService) Get(ctx context.Context, userID int64, token stri
 	return s.detail(approval), nil
 }
 
+func (s *AgentApprovalService) DecideByID(ctx context.Context, userID int64, approvalID int64, input AgentApprovalDecisionInput) (AgentApprovalDetail, error) {
+	if s == nil || s.store == nil {
+		return AgentApprovalDetail{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_approval_unavailable", "agent approval service is unavailable", "service.agent_approval.decide_by_id", false, nil)
+	}
+	if userID < 1 || approvalID < 1 {
+		return AgentApprovalDetail{}, fmt.Errorf("%w: user id and approval id are required", domain.ErrInvalidInput)
+	}
+	decision := domain.AgentApprovalDecision(strings.TrimSpace(input.Decision))
+	if !decision.Valid() {
+		return AgentApprovalDetail{}, fmt.Errorf("%w: unsupported approval decision", domain.ErrInvalidInput)
+	}
+	status := domain.AgentApprovalStatusApproved
+	if decision == domain.AgentApprovalDecisionReject {
+		status = domain.AgentApprovalStatusRejected
+	}
+	approval, err := s.store.DecideByID(ctx, userID, approvalID, status, s.now().UTC())
+	if err != nil {
+		if domain.ClassifyError(err) == domain.ErrorKindNotFound {
+			return AgentApprovalDetail{}, domain.NewAppError(domain.ErrorKindConflict, "agent_approval_not_pending", "approval is not pending or has expired", "service.agent_approval.decide_by_id", false, err)
+		}
+		return AgentApprovalDetail{}, err
+	}
+	if err := s.applyPlanDecision(ctx, approval, status); err != nil {
+		return AgentApprovalDetail{}, err
+	}
+	s.recordDecisionAudit(ctx, approval, status)
+	return s.detail(approval), nil
+}
+
 func (s *AgentApprovalService) Decide(ctx context.Context, userID int64, token string, input AgentApprovalDecisionInput) (AgentApprovalDetail, error) {
 	if s == nil || s.store == nil {
 		return AgentApprovalDetail{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_approval_unavailable", "agent approval service is unavailable", "service.agent_approval.decide", false, nil)
@@ -108,17 +140,46 @@ func (s *AgentApprovalService) Decide(ctx context.Context, userID int64, token s
 		return AgentApprovalDetail{}, err
 	}
 	if approval.PlanID != nil && *approval.PlanID > 0 {
-		planStatus := domain.AgentPlanStatusApproved
-		if status == domain.AgentApprovalStatusRejected {
-			planStatus = domain.AgentPlanStatusRejected
-		}
-		if err := s.store.UpdateAgentPlanStatusForApproval(ctx, userID, *approval.PlanID, planStatus, s.now().UTC()); err != nil {
+		if err := s.applyPlanDecision(ctx, approval, status); err != nil {
 			opErr = err
 			return AgentApprovalDetail{}, err
 		}
 	}
+	s.recordDecisionAudit(ctx, approval, status)
 	span.SetAttributes(attribute.Int64("agent.approval_id", approval.ID))
 	return s.detail(approval), nil
+}
+
+func (s *AgentApprovalService) applyPlanDecision(ctx context.Context, approval domain.AgentApproval, status domain.AgentApprovalStatus) error {
+	if approval.PlanID == nil || *approval.PlanID < 1 {
+		return nil
+	}
+	planStatus := domain.AgentPlanStatusApproved
+	if status == domain.AgentApprovalStatusRejected {
+		planStatus = domain.AgentPlanStatusRejected
+	}
+	return s.store.UpdateAgentPlanStatusForApproval(ctx, approval.UserID, *approval.PlanID, planStatus, s.now().UTC())
+}
+
+func (s *AgentApprovalService) recordDecisionAudit(ctx context.Context, approval domain.AgentApproval, status domain.AgentApprovalStatus) {
+	planID := int64(0)
+	if approval.PlanID != nil {
+		planID = *approval.PlanID
+	}
+	_, _ = s.store.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    approval.UserID,
+		EventType: "agent.approval_decided",
+		Status:    string(status),
+		Message:   "agent approval decision recorded",
+		Metadata: domain.AgentJSON{
+			"approval_id": approval.ID,
+			"plan_id":     planID,
+			"channel":     approval.Channel,
+		},
+		RequestID: approval.RequestID,
+		TraceID:   approval.TraceID,
+		CreatedAt: s.now().UTC(),
+	})
 }
 
 func (s *AgentApprovalService) detail(approval domain.AgentApproval) AgentApprovalDetail {
