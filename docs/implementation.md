@@ -1,193 +1,138 @@
-# messageFeed 剩余实施计划
+# messageFeed 实施进度台账
 
 **最后更新**：2026-06-25
 
-已实现内容已归档到 `docs/nowdoit/archive/implementation-implemented-summary-2026-06-24.md`。本文件只保留后续未完成事项和当前落地顺序。
+本文件是当前实现进度的主台账。每轮迭代除更新 `docs/nowdoit` 活动文档外，必须同步更新本文档以及相关设计文档，例如 `docs/agent-plan.md`。历史已完成活动文档保留在 `docs/nowdoit/archive/`。
 
-## 1. 当前剩余总览
+## 1. 当前目标
 
-| 优先级 | 模块 | 状态 | 目标 |
-| --- | --- | --- | --- |
-| P0 | Agent Controller / Executor 运行时 | 已完成 P0 | 建立唯一主控 Agent 和一次性执行 AgentRun |
-| P0 | Agent 上下文追溯 | 已完成 P0 | executor 的完整模型可见上下文、工具上下文和输出可追溯 |
-| P0 | 阶段二收尾 | 已完成 | Web 条目状态操作、筛选、分页、阅读偏好完整绑定 |
-| P0 | 阶段三收尾 | 已完成 | 完整 Compose 环境端到端观测验收 |
-| P1 | 阶段四收尾 | 已完成 | 源目录健康检查、许可状态、热度和更多过滤维度；Web 源目录 UI 改造按用户要求排除 |
-| P1 | Agent 原子闭环 | 当前实施包 | 入口、会话、controller、context trace、plan、approval、executor、capability、memory、web/repo、schedule、eval 的最小闭环 |
-| P1 | Agent 记忆与历史查询 | 纳入当前实施包 | 企微短期窗口、历史原文查询、冷热归档索引和回忆预算 |
-| P1 | 联网信息获取 | 纳入当前实施包 | web/repo 信息获取 capability |
-| P2 | 调度、通知、推荐、金融和工程化增强 | 部分纳入当前实施包 | 定时任务和评测进入 Agent 闭环；推荐、金融和工程化增强后续扩展 |
+最终目标保持为统一的 `messageFeed AI Agent`：
 
-## 2. 当前第一实施包
+1. 用户可以从企业微信或 Web 发起 Agent 任务。
+2. Web 端可以查看 Agent 实时进度、计划步骤、执行细节、证据、审批、回放和恢复状态。
+3. 企业微信侧应向用户投递可在 Web 浏览器打开的进度地址。
+4. 任务完成后，系统通过企业微信向用户汇报结果。
+5. Agent 运行时、能力注册、策略审批、上下文记忆、调度、评测、审计和通知必须保持可追溯。
+6. 代码结构必须维持清晰职责边界；大文件继续拆分治理，避免把新能力堆叠到既有长文件中。
 
-上一实施包 `docs/nowdoit/stage-four-source-catalog-governance-plan.md` 已完成并归档到 `docs/nowdoit/archive/stage-four-source-catalog-governance-plan-implemented-2026-06-25.md`。
+## 2. 当前仓库状态
 
-当前第一实施包以 `docs/nowdoit/agent-plan-approval-execution-plan.md` 为准。该文档已从单点计划审批扩展为 Agent 原子闭环长程实施包。
+| 项目 | 当前状态 |
+| --- | --- |
+| 分支 | `master` |
+| 工作区 | 最近核对为干净，且已与 `origin/master` 同步 |
+| 当前活动文档 | `docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md` |
+| 最近全量验证 | `go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build` 已在上一轮通过 |
+| 最近提交 | `ac20538`、`97ba0f7`、`bd9fcc1`、`d629dc5`、`4bd3063` |
 
-目标：
+## 3. 已完成能力
 
-```text
-入口消息、session / turn、controller run 和 context trace 归档
-结构化 plan、policy、approval、executor task 和 capability scope 约束
-memory、web/repo 信息获取、schedule、observation、artifact、eval 和安全审计闭环
-```
+### 3.1 Agent 基础运行时
 
-必须先完成：
+- 已具备 Agent session、turn、run、plan、approval、scheduled task、eval、recovery、audit 等基础对象和服务面。
+- Web 侧已有 Agent 任务入口、任务工作台、计划进度页、审批页、证据与回放相关视图。
+- 后端已形成任务聚合接口，用于向 Web 工作台提供任务、SLA、成本、告警、部署验证、企业微信联动、进度证据、恢复策略和评测摘要。
+- 已具备任务进度 URL 字段，并在 Web 发起任务后可跳转进度页。
 
-1. 梳理现有 Agent session、turn、run、approval、context trace 和 handler 实现。
-2. 修正或补齐当前 P0 Agent run 相关未提交实现，使其成为稳定基线。
-3. 新增 plan、plan step、approval 关联、capability audit、scheduled task 和 eval 相关模型与迁移。
-4. 实现 `AgentCapabilityRegistry`、`ContextBudgetManager`、`ContextTraceStore`、`AgentPlanner`、`PolicyEngine` 和 plan service。
-5. 实现 executor task 与 plan step 的绑定、capability scope 二次校验和 observation / artifact 回写。
-6. 接入企业微信与 Web 查询审批面，形成 controller -> plan -> approval -> executor -> observation -> response 链路。
-7. 接入 memory、web/repo 信息获取、定时任务和评测安全能力。
-8. 运行 `go test ./...`、`go vet ./...`、`npm --prefix web run type-check`、前端构建和 Compose 冒烟验证。
+### 3.2 企业微信接入与交互
 
-## 3. Agent 剩余实施步骤
+- 已具备企业微信自建应用 callback、OAuth、文本消息发送和模板卡片发送基础能力。
+- 已具备企业微信审批按钮、回放、恢复、模板卡片、灰度、签收、最终报告、反馈闭环等多项治理摘要。
+- 已完成真实交互自动化摘要 `real_interaction_automation` 的后端和前端展示。
+- 已完成 `wechat_web_progress_link` 后端聚合摘要和审计快照，字段覆盖进度地址、地址来源、投递通道、模板状态、fallback 状态、浏览器目标和审计引用。
 
-以下 3.1 至 3.6 不再作为相互独立的短程实施包处理，当前长程任务必须按 `docs/nowdoit/agent-plan-approval-execution-plan.md` 将其收敛为同一个 Agent 原子闭环。
+### 3.3 Web 进度与治理展示
 
-### 3.1 运行时
+- Web 任务工作台已展示多数 Agent 运行、企业微信、审批、回放、恢复和真实交互自动化摘要。
+- Web 进度页已支持计划 ID 或调度任务 ID 维度的进度查询、轮询、步骤、证据和审批状态展示。
+- 前端已有任务创建表单，并通过 `createAgentTask` 以 `channel=web` 发起任务。
 
-- [ ] `ControllerAgent`：理解用户输入、生成 executor task、汇总 observation、决定继续或结束。
-- [ ] `ExecutorAgentRun`：接收明确任务包和 capability scope，只执行一个任务。
-- [ ] `RunLoop`：支持 controller run 与 executor run 的状态流转。
-- [ ] `ContextFitEstimator`：估算 controller 与 executor 是否能在各自上下文预算内完成。
-- [ ] `ContextBudgetManager`：管理模型可见投影视图、工具结果裁剪和工具调用对保护。
-- [ ] `ContextTraceStore`：保存模型请求、模型响应、工具 schema、工具调用、observation 和裁剪记录。
+### 3.4 质量与验证
 
-### 3.2 能力与策略
+- 后端已有 `agent_progress_service_test.go` 对 `WeChatWebProgressLink` 的返回字段进行断言。
+- 最近一轮全量验证已覆盖 Go 测试、Go vet、前端测试、类型检查和前端构建。
+- 当前新增治理文件将部分逻辑从大文件中抽离，包括：
+  - `internal/service/agent_real_interaction_automation_governance.go`
+  - `internal/service/agent_wechat_web_progress_link_governance.go`
+  - `internal/service/agent_dual_end_run_loop_governance.go`
+  - `internal/service/agent_dual_end_task_closure_governance.go`
+  - `internal/service/agent_governance_checks.go`
 
-- [ ] `AgentCapabilityRegistry`：注册、查询、检索、执行 capability。
-- [ ] `AgentCapabilitySearch`：延迟能力发现。
-- [ ] `PolicyEngine`：输出 `allow`、`prompt`、`forbidden`。
-- [ ] `AgentPlanner`：生成结构化 plan、step、executor task 和影响评估。
-- [ ] `AgentExecutor`：只能调用已注册 capability 和既有 service。
-- [ ] `agent_approvals` 前后端确认链路：展示计划、批准、拒绝、过期和二次校验。
+## 4. 当前未完成缺口
 
-### 3.3 记忆与上下文
+| 优先级 | 缺口 | 当前判断 |
+| --- | --- | --- |
+| P0 | 前端 API 类型尚未声明 `AgentWeChatWebProgressLink`，`AgentTaskListResult` 尚未暴露 `wechat_web_progress_link` 字段 | 后端已有字段，前端类型和展示需要补齐 |
+| P0 | Web 任务工作台尚未展示企业微信 Web 进度地址投递摘要 | 当前活动文档的下一项实现 |
+| P0 | 企业微信真实消息投递 Web 进度地址尚未接入完整 notifier / conversation / worker 流程 | 当前仅为聚合摘要和审计层，不能视为真实投递完成 |
+| P0 | 任务完成后的企业微信最终结果汇报需要继续核实真实发送路径 | 已有最终报告摘要，但仍需以真实发送证据闭环 |
+| P1 | Web 浏览器进度地址权限校验与企业微信身份绑定仍需继续强化 | 已有 OAuth 与审批基础，需与进度地址投递闭环结合 |
+| P1 | Agent 能力注册、上下文记忆、计划执行和评测体系仍需按设计持续补齐 | 已有较多基础对象，但未能证明全部设计均已完整实现 |
+| P1 | 大文件职责边界仍不理想 | 需要继续拆分 `agent_session_service.go`、`agent_workflow_governance.go`、`AgentPlanView.vue` |
 
-- [ ] 企微短期聊天窗口。
-- [ ] `conversation.query_history` 按关键词、时间、角色、turn 和 transcript entry 查询原文。
-- [ ] transcript 冷热归档索引。
-- [ ] 召回预算和召回审计。
-- [ ] 用户偏好、订阅和画像查询 capability。
-- [ ] 清空数据库上下文、切换当前企微 session、新建 session 和删除 session 的 Web 管理入口持续完善。
+## 5. 架构质量核对
 
-### 3.4 联网信息获取
+当前关键大文件规模：
 
-- [ ] `web.search`：搜索候选网页。
-- [ ] `web.fetch_page`：抓取页面响应和元数据。
-- [ ] `web.extract_page`：正文、标题、发布时间、作者、站点名和主要链接抽取。
-- [ ] `repo.search`：搜索参考仓库候选。
-- [ ] `repo.inspect_remote`：不克隆读取 README、目录树、license 和指定文件片段。
-- [ ] `repo.clone_reference`：浅克隆到受控 `references/`，记录审计，不进入构建、测试、部署。
-- [ ] `web.browse_page`：后置，仅用于静态 HTTP 与正文抽取不能满足任务的页面。
+| 文件 | 行数 | 判断 |
+| --- | ---: | --- |
+| `internal/service/agent_session_service.go` | 6247 | 明显过大，承担聚合、响应结构、审计快照和部分运行逻辑，后续应拆分响应 DTO、聚合 builder、审计 recorder 和服务编排 |
+| `internal/service/agent_workflow_governance.go` | 4588 | 明显过大，虽然近期已有拆分，但仍不符合长期可维护目标 |
+| `web/src/views/AgentPlanView.vue` | 3680 | 明显过大，后续应拆分 composable、摘要面板组件和任务卡片组件 |
 
-### 3.5 定时任务
+结论：这些文件达到数千行不能简单视为正常的企业级设计结果。当前实现虽然有业务闭环推进价值，但从企业级代码质量角度看，必须持续进行模块化拆分、职责收敛和测试保护。后续新增能力不得继续扩大上述文件，除非是短期兼容性必要改动；优先使用独立 service 文件、独立前端组件或 composable。
 
-- [ ] 将 `agent.schedule_message` 升级为 `agent.schedule_task`。
-- [ ] 保存定时契约：目标、执行窗口、投递时间、新鲜度策略、允许能力、模型策略和失败策略。
-- [ ] 到点后创建 controller `AgentRun`，不另起一套执行逻辑。
-- [ ] 支持提前执行、准时投递、失败汇报和用户确认。
+## 6. 当前活动文档执行状态
 
-### 3.6 评测与安全
+当前活动文档：`docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md`
 
-- [ ] `agent_eval_cases`、`agent_eval_runs`、`agent_eval_results`。
-- [ ] 固定用例覆盖企业微信入口、订阅管理、推荐画像、AI 源、主动采集、通知、金融分析、上下文记忆和安全对抗。
-- [ ] 安全用例覆盖 prompt injection、敏感信息泄露、未授权通知目标、默认永久删除和绕过访问限制。
-- [ ] 输出任务成功率、工具选择准确率、权限决策正确率、越权拦截率、事实引用完整率和召回准确率。
+执行状态：
 
-## 4. 非 Agent 收尾事项
+1. 已完成：梳理任务进度 URL、企业微信模板发送摘要和任务聚合结果。
+2. 已完成：新增 Web 进度地址投递摘要 builder。
+3. 已完成：`ListTasks` 接入地址投递摘要并写入审计快照。
+4. 已完成：服务层测试补充地址投递字段断言。
+5. 未完成：前端 API 类型和 Agent 任务工作台展示地址投递摘要。
+6. 未完成：企业微信真实模板消息或文本 fallback 中实际投递进度地址。
+7. 未完成：本轮完成后归档活动文档并创建下一轮活动文档。
 
-### 4.1 阶段二收尾
+## 7. 下一轮实施顺序
 
-- [x] Web 界面支持已读、收藏、隐藏和取消状态。
-- [x] Web 界面支持时间线筛选、分页加载和阅读模式偏好持久化。
-- [x] 独立 `/items/:id` 详情路由。
-- [x] `ActionBar` 状态操作组件。
-- [x] OpenAPI 契约覆盖已实现条目状态、筛选、详情和偏好接口。
-- [x] 前后端联调验收和构建测试。
+1. 补齐前端 `wechat_web_progress_link` 类型、状态加载和工作台展示。
+2. 运行前端验证：`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
+3. 提交并推送前端展示实现。
+4. 接入企业微信真实进度地址发送路径，优先复用 `WeChatWorkAppClient.SendTemplateCard`，并保留文本 fallback。
+5. 将真实发送结果写入 audit，确保 Web 进度地址投递状态不再只是摘要推导。
+6. 运行后端与前端验证矩阵，提交并推送。
+7. 归档当前活动文档，创建下一轮活动文档，继续推进任务完成后企微结果汇报与架构拆分。
 
-### 4.2 阶段三收尾
+## 8. 最小验证命令
 
-- [x] 使用完整 Compose 环境做一次端到端验收。
-- [x] 确认同一请求可通过 `request_id` 关联响应和日志；当前 Compose 配置关闭 trace，`trace_id` 链路已文档化为关闭状态。
-- [ ] 继续抽象统一错误类型，供 AI、通知、金融和自然语言控制模块复用。
-
-### 4.3 阶段四收尾
-
-- [x] 源目录自动健康检查。
-- [x] 许可状态治理。
-- [x] 热度字段。
-- [x] 最近校验时间更新流程。
-- [x] 语言、国家、健康状态等过滤维度。
-
-## 5. 后续阶段
-
-### 阶段六：主动采集与内容理解
-
-- [ ] `web_acquisition_tasks` 和 `web_snapshots`。
-- [ ] `WebAcquisitionProvider`、`SearchProvider`、`PageExtractor`、`SnapshotStore`。
-- [ ] 静态网页抓取和正文抽取。
-- [ ] 网页变化监控。
-- [ ] 搜索型采集、去重和来源评估。
-- [ ] 采集结果与 `items`、AI 源和推荐候选池打通。
-
-### 阶段七：推荐、摘要与通知
-
-- [ ] 推荐画像与反馈闭环。
-- [ ] 摘要、日报、周报和热点条目生成。
-- [ ] 通知规则、通知渠道和冷却策略。
-- [ ] 高优先级 AI 源条目或告警推送。
-
-### 阶段八：金融与跨领域分析
-
-- [ ] 行情源接入。
-- [ ] 市场日历、行情快照和事件关联。
-- [ ] 金融资讯与行情异动解释。
-- [ ] 风险提示与通知规则。
-
-### 阶段九：工程化增强
-
-- [ ] E2E 测试。
-- [ ] API 契约校验。
-- [ ] 性能压测。
-- [ ] 数据保留与归档策略。
-
-### 阶段十：来源扩展与分布式升级验证
-
-- [ ] 更多来源桥接。
-- [ ] 多节点 API 验证。
-- [ ] 共享任务锁验证。
-- [ ] Redis 作为可选缓存、队列、限流或分布式锁实现。
-
-## 6. 最小验收命令
+当前阶段每轮代码实现后至少运行：
 
 ```text
 go test ./...
 go vet ./...
+npm --prefix web run test
 npm --prefix web run type-check
-docker compose ps
-curl -sk https://localhost:8443/healthz
+npm --prefix web run build
 ```
 
-完整 Agent P0 完成后，还必须补充：
+涉及真实企业微信发送链路时，还必须补充：
 
 ```text
-查询 controller run
-查询 executor run
-查询 executor context trace
-查询 observation
-查询 artifact
-验证企业微信重复回调幂等
-验证敏感配置不进入 context trace
+查询 agent.wechat_web_progress_link_snapshot 审计事件
+查询 wechat_work.reply_sent 或 wechat_work.reply_failed 审计事件
+核对企业微信消息是否包含 Web 浏览器可打开的进度地址
+核对模板不可用时文本 fallback 是否包含同一地址
 ```
 
-## 7. 当前禁止事项
+## 9. 当前禁止事项
 
+- 不得删除用户文件或通过 git 操作导致文件消失，除非用户明确要求。
 - 模型不得直接写数据库。
 - controller 不得绕过 executor 直接调用业务变更 capability。
 - executor 不得获得超出本次任务的 capability scope。
-- `repo.clone_reference` 不得写入产品源码目录，不得自动修改 `go.mod`、构建、测试或部署配置。
 - 密钥、token、Webhook URL、数据库 DSN 不得进入模型上下文或 context trace。
+- 企业微信进度地址投递不得绕过 Web 登录、权限、审批和审计边界。
+- 后续迭代不得以继续扩大大文件作为常态实现方式。

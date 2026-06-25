@@ -2,6 +2,8 @@
 
 **创建日期**：2026-06-25
 
+**最近同步**：2026-06-25
+
 ## 1. 本轮目标
 
 在真实交互自动化数据面和审计面完成后，推进企业微信向用户投递可在 Web 浏览器打开的 Agent 实时进度地址。用户从企业微信或 Web 发起任务后，应能通过企业微信消息中的 Web 地址查看实时进度、详细步骤、证据、回放和恢复状态；任务完成后继续通过企业微信汇报结果。
@@ -26,18 +28,43 @@
 
 ## 2.1 本轮实施清单
 
-1. 梳理现有任务进度 URL、企业微信 notifier 和任务聚合结果。
-2. 新增 Web 进度地址投递摘要 builder。
-3. `ListTasks` 接入地址投递摘要并写入审计快照。
-4. 服务层测试补充地址投递字段和审计事件断言。
-5. 前端 API 类型和 Agent 任务工作台展示地址投递摘要。
-6. 完成验证矩阵：
+1. [x] 梳理现有任务进度 URL、企业微信 notifier 和任务聚合结果。
+2. [x] 新增 Web 进度地址投递摘要 builder。
+3. [x] `ListTasks` 接入地址投递摘要并写入审计快照。
+4. [x] 服务层测试补充地址投递字段断言。
+5. [ ] 前端 API 类型和 Agent 任务工作台展示地址投递摘要。
+6. [ ] 接入企业微信真实模板卡片或文本 fallback 的 Web 进度地址投递。
+7. [ ] 完成验证矩阵：
    - `go test ./...`
    - `go vet ./...`
    - `npm --prefix web run test`
    - `npm --prefix web run type-check`
    - `npm --prefix web run build`
-7. 记录实施结果和验证记录，归档本文档并创建下一轮文档。
+8. [ ] 记录实施结果和验证记录，归档本文档并创建下一轮文档。
+
+## 2.2 当前实现记录
+
+已完成后端聚合摘要：
+
+- 新增 `internal/service/agent_wechat_web_progress_link_governance.go`，通过任务进度 URL、企业微信模板发送摘要和真实交互自动化摘要构造 `AgentWeChatWebProgressLinkResponse`。
+- `AgentTaskListResult` 已包含 `wechat_web_progress_link` 后端 JSON 字段。
+- `ListTasks` 已构建 `wechatWebProgressLink` 并调用 `recordAgentWeChatWebProgressLinkSnapshot` 写入 `agent.wechat_web_progress_link_snapshot` 审计事件。
+- `internal/service/agent_progress_service_test.go` 已断言进度地址、投递通道和浏览器目标。
+
+当前未完成项：
+
+- `web/src/api/agent.ts` 尚未声明 `AgentWeChatWebProgressLink` 类型，也尚未在 `AgentTaskListResult` 中暴露 `wechat_web_progress_link` 字段。
+- `web/src/views/AgentPlanView.vue` 尚未读取和展示 `wechat_web_progress_link`。
+- 企业微信真实发送链路尚未保证模板卡片或文本 fallback 中包含可在 Web 浏览器打开的进度地址。
+- 当前摘要不能替代真实投递证据，后续需要通过 `wechat_work.reply_sent` 或失败审计证明。
+
+## 2.3 文档同步要求
+
+本轮恢复任务前已同步更新：
+
+- `docs/implementation.md`：记录当前总目标、已完成能力、缺口、架构风险和下一步。
+- `docs/agent-plan.md`：追加当前实现对照、缺口和架构治理要求。
+- 本活动文档：记录当前执行清单和后端已完成项。
 
 ## 3. 非目标
 
@@ -56,3 +83,10 @@
 ## 5. 后续衔接
 
 本轮完成后，继续推进企业微信真实模板消息适配、Web 浏览器进度页权限校验、实时刷新稳定性和任务完成后的企业微信结果汇报。
+
+## 6. 架构约束
+
+- 不继续扩大 `agent_workflow_governance.go` 的职责范围。
+- 尽量不继续扩大 `agent_session_service.go`；短期兼容字段可保留，新增聚合逻辑应放入独立 governance 文件。
+- 前端展示优先使用现有任务工作台模式补齐，后续需要拆分 `AgentPlanView.vue` 的大组件职责。
+- 当前大文件规模不是理想终态，后续每轮应在实现功能的同时持续拆分职责。

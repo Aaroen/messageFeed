@@ -1,6 +1,6 @@
 # messageFeed AI Agent 阶段重组计划
 
-**最后更新**：2026-06-24
+**最后更新**：2026-06-25
 
 ## 1. 背景与目标
 
@@ -1636,3 +1636,45 @@ EvalCase
 ```
 
 该闭环完成后，项目将先具备“用户通过企业微信自建应用提问，系统可审计地回答”的 Agent 入口能力。普通来源负责稳定输入，`messageFeed AI` 负责沉淀分析和执行结果；智能机器人、主动通知、摘要推送、金融告警和更复杂的执行能力在后续阶段统一接入策略、审计和通知模型。
+
+## 15. 当前实现对照
+
+本节记录截至 2026-06-25 的实际实现状态，用于和主进度台账 `docs/implementation.md` 保持一致。
+
+### 15.1 已落地能力
+
+- Web 侧已有 Agent 任务入口、任务工作台、计划进度页、审批页、证据和回放相关页面。
+- 企业微信侧已有自建应用 callback、OAuth、文本消息发送和模板卡片发送基础能力。
+- 后端已有 Agent session、turn、run、plan、approval、scheduled task、eval、recovery、audit 等基础能力。
+- 后端任务聚合已暴露多项企业微信双端治理摘要，包括进度卡片、模板渲染、模板发送、模板集成、试点指标、真实交互自动化等。
+- 后端已新增 `wechat_web_progress_link` 聚合摘要，覆盖进度地址、地址来源、企业微信投递通道、模板状态、fallback 状态、浏览器目标和审计引用。
+- 最近一轮完整验证已通过 `go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check` 和 `npm --prefix web run build`。
+
+### 15.2 当前缺口
+
+- `wechat_web_progress_link` 目前是聚合摘要和审计快照，不能等同于企业微信真实消息已经向用户投递 Web 进度地址。
+- 前端 API 类型与 Agent 任务工作台尚未展示 `wechat_web_progress_link`。
+- 任务完成后的企业微信结果汇报仍需以真实发送审计和用户可见消息形成闭环。
+- Agent 能力、架构、上下文记忆、执行策略和评测系统已有基础实现，但尚未有证据证明本设计文档中的全部能力均完整完成。
+
+### 15.3 架构治理要求
+
+当前大文件规模需要作为持续治理对象：
+
+| 文件 | 当前行数 | 治理要求 |
+| --- | ---: | --- |
+| `internal/service/agent_session_service.go` | 6247 | 拆分响应 DTO、聚合 builder、审计 recorder 和服务编排逻辑 |
+| `internal/service/agent_workflow_governance.go` | 4588 | 继续抽离独立治理模块，降低单文件职责范围 |
+| `web/src/views/AgentPlanView.vue` | 3680 | 拆分任务摘要组件、组合式状态逻辑和展示面板 |
+
+上述文件达到数千行不应被视为理想的企业级终态。后续实现必须优先新增职责明确的小文件或组件，并在必要时逐步迁出既有逻辑。
+
+### 15.4 当前活动文档
+
+当前活动文档为 `docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md`。本轮剩余工作优先级为：
+
+1. 补齐前端 API 类型、任务状态加载和工作台展示。
+2. 提交并推送前端展示实现。
+3. 将企业微信真实模板卡片或文本 fallback 投递 Web 进度地址接入 notifier、conversation 或 worker 流程。
+4. 以审计事件和验证命令证明真实投递闭环。
+5. 归档当前活动文档并创建下一轮活动文档。
