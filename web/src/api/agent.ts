@@ -1681,6 +1681,70 @@ export interface AgentDualEndTaskClosure {
   checks: AgentDeploymentCheck[]
 }
 
+export interface AgentWeChatTemplatePilotMetric {
+  status: string
+  summary: string
+  batch_id: string
+  target_user_scope: string
+  send_status: string
+  fallback_count: number
+  message_id_status: string
+  audit_ref: string
+  checks: AgentDeploymentCheck[]
+}
+
+export interface AgentWebEvidenceOperation {
+  status: string
+  summary: string
+  filter_entry: string
+  expand_entry: string
+  timeline_entry: string
+  replay_request_entry: string
+  permission_gate: string
+  audit_event: string
+  operation_count: number
+  checks: AgentDeploymentCheck[]
+}
+
+export interface AgentCallbackReplayResultQuery {
+  status: string
+  summary: string
+  query_entry: string
+  execution_result: string
+  idempotency_result: string
+  approval_decision: string
+  signature_result: string
+  failure_reason: string
+  audit_ref: string
+  checks: AgentDeploymentCheck[]
+}
+
+export interface AgentRecoveryAutomationExecution {
+  status: string
+  summary: string
+  execution_mode: string
+  current_percent: number
+  next_percent: number
+  advance_decision: string
+  pause_gate: string
+  rollback_gate: string
+  approval_gate: string
+  audit_ref: string
+  checks: AgentDeploymentCheck[]
+}
+
+export interface AgentRealInteractionAutomation {
+  status: string
+  summary: string
+  pilot_metric_status: string
+  evidence_operation_status: string
+  replay_query_status: string
+  recovery_execution_status: string
+  audit_status: string
+  next_action: string
+  checks: AgentDeploymentCheck[]
+}
+
 export interface AgentCallbackReplayInput {
   plan_id?: number
   callback_key?: string
@@ -1811,6 +1875,11 @@ export interface AgentTaskListResult {
   callback_replay_result_trace: AgentCallbackReplayResultTrace
   recovery_policy_automation: AgentRecoveryPolicyAutomation
   dual_end_task_closure: AgentDualEndTaskClosure
+  wechat_template_pilot_metric: AgentWeChatTemplatePilotMetric
+  web_evidence_operation: AgentWebEvidenceOperation
+  callback_replay_result_query: AgentCallbackReplayResultQuery
+  recovery_automation_execution: AgentRecoveryAutomationExecution
+  real_interaction_automation: AgentRealInteractionAutomation
   report: AgentTaskReport
 }
 

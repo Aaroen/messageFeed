@@ -41,6 +41,7 @@ import {
   type AgentCallbackReplayApproval,
   type AgentCallbackReplayExecution,
   type AgentCallbackReplayPermission,
+  type AgentCallbackReplayResultQuery,
   type AgentCallbackReplayResultTrace,
   type AgentCallbackReplaySafetyAudit,
   type AgentCallbackReplayTool,
@@ -84,10 +85,12 @@ import {
   type AgentProductionDrill,
   type AgentProgressSnapshot,
   type AgentRealIntegration,
+  type AgentRealInteractionAutomation,
   type AgentReleaseApproval,
   type AgentReleaseWindowExecution,
   type AgentReleaseWindowReadiness,
   type AgentRecoveryPolicyConfig,
+  type AgentRecoveryAutomationExecution,
   type AgentRecoveryPolicyAutomation,
   type AgentRecoveryPolicyAudit,
   type AgentRecoveryPolicyGrayRelease,
@@ -107,6 +110,7 @@ import {
   type AgentWebEvidenceInteraction,
   type AgentWebEvidenceDetailView,
   type AgentWebEvidenceInteractionDetail,
+  type AgentWebEvidenceOperation,
   type AgentWebEvidenceUserAction,
   type AgentWebEvidenceRoute,
   type AgentMonitorAlertDrill,
@@ -130,6 +134,7 @@ import {
   type AgentWeChatProgressCard,
   type AgentWeChatTemplateIntegration,
   type AgentWeChatTemplatePilot,
+  type AgentWeChatTemplatePilotMetric,
   type AgentWeChatTemplateSend,
   type AgentWeChatTemplateRender,
   type AgentWeChatSignoff,
@@ -282,6 +287,11 @@ const taskWebEvidenceUserAction = ref<AgentWebEvidenceUserAction | null>(null)
 const taskCallbackReplayResultTrace = ref<AgentCallbackReplayResultTrace | null>(null)
 const taskRecoveryPolicyAutomation = ref<AgentRecoveryPolicyAutomation | null>(null)
 const taskDualEndTaskClosure = ref<AgentDualEndTaskClosure | null>(null)
+const taskWeChatTemplatePilotMetric = ref<AgentWeChatTemplatePilotMetric | null>(null)
+const taskWebEvidenceOperation = ref<AgentWebEvidenceOperation | null>(null)
+const taskCallbackReplayResultQuery = ref<AgentCallbackReplayResultQuery | null>(null)
+const taskRecoveryAutomationExecution = ref<AgentRecoveryAutomationExecution | null>(null)
+const taskRealInteractionAutomation = ref<AgentRealInteractionAutomation | null>(null)
 const taskReport = ref<AgentTaskReport | null>(null)
 const tasksLoading = ref(false)
 const tasksError = ref('')
@@ -1358,6 +1368,70 @@ const taskClosureSummaryItems = computed(() =>
     },
   ].filter((item) => item.summary),
 )
+const taskWeChatTemplatePilotMetricSummary = computed(() => {
+  if (!taskWeChatTemplatePilotMetric.value) {
+    return ''
+  }
+  return `${statusLabel(taskWeChatTemplatePilotMetric.value.status)} / 批次 ${taskWeChatTemplatePilotMetric.value.batch_id} / 发送 ${taskWeChatTemplatePilotMetric.value.send_status} / fallback ${taskWeChatTemplatePilotMetric.value.fallback_count} / 消息 ${taskWeChatTemplatePilotMetric.value.message_id_status}`
+})
+const taskWebEvidenceOperationSummary = computed(() => {
+  if (!taskWebEvidenceOperation.value) {
+    return ''
+  }
+  return `${statusLabel(taskWebEvidenceOperation.value.status)} / 操作 ${taskWebEvidenceOperation.value.operation_count} / 筛选 ${taskWebEvidenceOperation.value.filter_entry} / 回放 ${taskWebEvidenceOperation.value.replay_request_entry} / 权限 ${taskWebEvidenceOperation.value.permission_gate}`
+})
+const taskCallbackReplayResultQuerySummary = computed(() => {
+  if (!taskCallbackReplayResultQuery.value) {
+    return ''
+  }
+  return `${statusLabel(taskCallbackReplayResultQuery.value.status)} / 查询 ${taskCallbackReplayResultQuery.value.query_entry} / 结果 ${taskCallbackReplayResultQuery.value.execution_result} / 幂等 ${taskCallbackReplayResultQuery.value.idempotency_result} / 审批 ${taskCallbackReplayResultQuery.value.approval_decision}`
+})
+const taskRecoveryAutomationExecutionSummary = computed(() => {
+  if (!taskRecoveryAutomationExecution.value) {
+    return ''
+  }
+  return `${statusLabel(taskRecoveryAutomationExecution.value.status)} / 模式 ${taskRecoveryAutomationExecution.value.execution_mode} / 当前 ${taskRecoveryAutomationExecution.value.current_percent}% / 下一 ${taskRecoveryAutomationExecution.value.next_percent}% / 决策 ${taskRecoveryAutomationExecution.value.advance_decision}`
+})
+const taskRealInteractionAutomationSummary = computed(() => {
+  if (!taskRealInteractionAutomation.value) {
+    return ''
+  }
+  return `${statusLabel(taskRealInteractionAutomation.value.status)} / 指标 ${taskRealInteractionAutomation.value.pilot_metric_status} / 证据 ${taskRealInteractionAutomation.value.evidence_operation_status} / 回放 ${taskRealInteractionAutomation.value.replay_query_status} / 恢复 ${taskRealInteractionAutomation.value.recovery_execution_status} / ${taskRealInteractionAutomation.value.next_action}`
+})
+const taskRealInteractionSummaryItems = computed(() =>
+  [
+    {
+      key: 'wechat-template-pilot-metric',
+      title: '企微试运行指标',
+      summary: taskWeChatTemplatePilotMetricSummary.value,
+      checks: taskWeChatTemplatePilotMetric.value?.checks?.slice(0, 8) || [],
+    },
+    {
+      key: 'web-evidence-operation',
+      title: 'Web 证据操作',
+      summary: taskWebEvidenceOperationSummary.value,
+      checks: taskWebEvidenceOperation.value?.checks?.slice(0, 8) || [],
+    },
+    {
+      key: 'callback-replay-result-query',
+      title: '回放结果查询',
+      summary: taskCallbackReplayResultQuerySummary.value,
+      checks: taskCallbackReplayResultQuery.value?.checks?.slice(0, 8) || [],
+    },
+    {
+      key: 'recovery-automation-execution',
+      title: '恢复自动化执行',
+      summary: taskRecoveryAutomationExecutionSummary.value,
+      checks: taskRecoveryAutomationExecution.value?.checks?.slice(0, 8) || [],
+    },
+    {
+      key: 'real-interaction-automation',
+      title: '真实交互自动化',
+      summary: taskRealInteractionAutomationSummary.value,
+      checks: taskRealInteractionAutomation.value?.checks?.slice(0, 8) || [],
+    },
+  ].filter((item) => item.summary),
+)
 const hasMultiTurnContext = computed(() =>
   Boolean(
     multiTurnOriginalGoal.value ||
@@ -1606,6 +1680,11 @@ async function loadTasks() {
     taskCallbackReplayResultTrace.value = result.callback_replay_result_trace
     taskRecoveryPolicyAutomation.value = result.recovery_policy_automation
     taskDualEndTaskClosure.value = result.dual_end_task_closure
+    taskWeChatTemplatePilotMetric.value = result.wechat_template_pilot_metric
+    taskWebEvidenceOperation.value = result.web_evidence_operation
+    taskCallbackReplayResultQuery.value = result.callback_replay_result_query
+    taskRecoveryAutomationExecution.value = result.recovery_automation_execution
+    taskRealInteractionAutomation.value = result.real_interaction_automation
     taskReport.value = result.report
   } catch (error) {
     tasksError.value = formatAPIError(error)
@@ -3019,6 +3098,14 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div v-for="item in taskClosureSummaryItems" :key="item.key" class="agent-plan-summary">
+        <div class="agent-plan-summary__meta">
+          <span>{{ item.title }} {{ item.summary }}</span>
+          <span v-for="check in item.checks" :key="`${item.key}-${check.key}`">
+            {{ check.key }} {{ statusLabel(check.status) }}
+          </span>
+        </div>
+      </div>
+      <div v-for="item in taskRealInteractionSummaryItems" :key="item.key" class="agent-plan-summary">
         <div class="agent-plan-summary__meta">
           <span>{{ item.title }} {{ item.summary }}</span>
           <span v-for="check in item.checks" :key="`${item.key}-${check.key}`">
