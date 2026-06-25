@@ -21,7 +21,7 @@
 | --- | --- |
 | 分支 | `master` |
 | 工作区 | 最近核对为干净，且已与 `origin/master` 同步 |
-| 当前活动文档 | `docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md` |
+| 当前活动文档 | `docs/nowdoit/agent-wechat-final-result-report-delivery-plan.md` |
 | 最近全量验证 | `go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build` 已在上一轮通过 |
 | 最近提交 | `ac20538`、`97ba0f7`、`bd9fcc1`、`d629dc5`、`4bd3063` |
 
@@ -84,9 +84,11 @@
 
 ## 6. 当前活动文档执行状态
 
-当前活动文档：`docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md`
+上一活动文档 `docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-wechat-web-progress-link-delivery-plan-implemented-2026-06-25.md`。
 
-执行状态：
+当前活动文档：`docs/nowdoit/agent-wechat-final-result-report-delivery-plan.md`
+
+上一轮完成项：
 
 1. 已完成：梳理任务进度 URL、企业微信模板发送摘要和任务聚合结果。
 2. 已完成：新增 Web 进度地址投递摘要 builder。
@@ -96,14 +98,15 @@
 6. 已验证：`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
 7. 已完成：企业微信真实模板消息或文本 fallback 中实际投递进度地址。
 8. 已验证：`go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
-9. 未完成：本轮完成后归档活动文档并创建下一轮活动文档。
+9. 已完成：本轮完成后归档活动文档并创建下一轮活动文档。
 
 ## 7. 下一轮实施顺序
 
-1. 提交并推送企业微信真实进度地址投递实现。
-2. 归档当前活动文档，创建下一轮活动文档。
-3. 继续推进任务完成后的企业微信结果汇报真实发送闭环。
-4. 继续推进 Web 浏览器进度页权限校验与大文件拆分治理。
+1. 梳理最终结果汇报路径，包括最终回复、失败反馈和调度任务 worker。
+2. 实现企业微信最终结果汇报模板卡片优先和文本 fallback。
+3. 将最终结果真实发送结果写入审计，并在任务聚合摘要中暴露。
+4. 运行完整验证矩阵，提交并推送。
+5. 继续推进 Web 浏览器进度页权限校验与大文件拆分治理。
 
 ## 8. 最小验证命令
 

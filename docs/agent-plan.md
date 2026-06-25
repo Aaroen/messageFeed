@@ -1671,8 +1671,11 @@ EvalCase
 
 ### 15.4 当前活动文档
 
-当前活动文档为 `docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md`。本轮剩余工作优先级为：
+上一活动文档 `docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-wechat-web-progress-link-delivery-plan-implemented-2026-06-25.md`。
 
-1. 提交并推送企业微信 Web 进度地址真实投递实现。
-2. 归档当前活动文档并创建下一轮活动文档。
-3. 继续推进任务完成后的企业微信结果汇报真实发送闭环。
+当前活动文档为 `docs/nowdoit/agent-wechat-final-result-report-delivery-plan.md`。本轮剩余工作优先级为：
+
+1. 梳理最终结果汇报路径，包括最终回复、失败反馈和调度任务 worker。
+2. 实现企业微信最终结果汇报模板卡片优先和文本 fallback。
+3. 将最终结果真实发送结果写入审计，并在任务聚合摘要中暴露。
+4. 运行完整验证矩阵，归档当前活动文档并创建下一轮活动文档。
