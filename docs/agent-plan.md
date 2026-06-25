@@ -1698,4 +1698,6 @@ EvalCase
 3. 已保持 `ListTasks` 聚合结果、JSON 字段、企业微信按钮 key、fallback 文案和审计语义不变；`agent_workflow_governance.go` 当前降至 3717 行。
 4. `go test ./...` 和 `go vet ./...` 已通过。
 
-当前活动文档为 `docs/nowdoit/agent-workflow-governance-release-ops-builder-modularization-plan.md`。已新增 `internal/service/agent_workflow_release_ops_builders.go`，迁出发布、运维、灰度、告警通道、上线演练、企业微信原生按钮联调、发布执行、审批、日报、监控、按钮回调闭环、发布窗口、外部监控、按钮直控、企业微信验收、生产发布、上线交接、运行态参数、监控回读、放量推荐、企业微信用户反馈、运营面板和异常自动汇报相关 50 个纯 builder，并迁入 1 个企业微信最终汇报审计读取 helper；`agent_workflow_governance.go` 当前降至 2127 行。下一小轮继续拆分剩余灰度阶段、反馈循环和运维处置相关纯 builder，并在归档当前活动文档后创建下一轮活动文档。
+上一活动文档 `docs/nowdoit/agent-workflow-governance-release-ops-builder-modularization-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-workflow-governance-release-ops-builder-modularization-plan-implemented-2026-06-26.md`。已新增 `internal/service/agent_workflow_release_ops_builders.go`，迁出发布、运维、灰度、告警通道、上线演练、企业微信原生按钮联调、发布执行、审批、日报、监控、按钮回调闭环、发布窗口、外部监控、按钮直控、企业微信验收、生产发布、上线交接、运行态参数、监控回读、放量推荐、企业微信用户反馈、运营面板和异常自动汇报相关 50 个纯 builder，并迁入 1 个企业微信最终汇报审计读取 helper；`agent_workflow_governance.go` 当前降至 2127 行。
+
+当前活动文档为 `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md`。下一小轮继续拆分剩余运维处置、灰度阶段、反馈工单、告警升级、写审批、证据交互和双端进度相关纯 builder，并新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，避免继续扩大 release/ops 承接文件。

@@ -21,7 +21,7 @@
 | --- | --- |
 | 分支 | `master` |
 | 工作区 | 本轮文档记录按 4.5 运行态与反馈闭环 Builder 迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
-| 当前活动文档 | `docs/nowdoit/agent-workflow-governance-release-ops-builder-modularization-plan.md` |
+| 当前活动文档 | `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md` |
 | 最近本轮验证 | `go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
 
@@ -271,6 +271,17 @@ Workflow governance 运行态与反馈闭环 builder 拆分阶段性结果：
 4. `agent_workflow_governance.go` 从 2442 行降至 2127 行；`agent_workflow_release_ops_builders.go` 从 1284 行增至 1599 行。
 5. 当前 workflow governance builder 拆分累计新增 4 个小文件，合计承接 79 个低风险纯函数；release/ops 承接文件累计承接 50 个纯函数和 1 个审计读取 helper，文件数量增加与职责拆分相匹配，不属于冗余扩张。
 6. 已验证：`go test ./...`、`go vet ./...`。
+
+已归档活动文档：`docs/nowdoit/archive/agent-workflow-governance-release-ops-builder-modularization-plan-implemented-2026-06-26.md`
+
+新活动文档：`docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md`
+
+新一轮目标：
+
+1. 梳理 `agent_workflow_governance.go` 中剩余运维处置、灰度阶段、反馈工单、证据交互和双端进度相关 builder 群组。
+2. 优先迁出输入输出为响应 DTO、无 repository 访问、无审计写入副作用的纯聚合函数。
+3. 新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，避免继续扩大 release/ops 承接文件。
+4. 验证通过后同步主文档和设计文档并提交推送。
 
 ## 8. 最小验证命令
 
