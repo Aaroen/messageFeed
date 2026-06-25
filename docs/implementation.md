@@ -64,6 +64,7 @@
   - `internal/service/agent_workflow_metadata_builders.go`
   - `internal/service/agent_workflow_foundation_builders.go`
   - `internal/service/agent_workflow_wechat_builders.go`
+  - `internal/service/agent_workflow_release_ops_builders.go`
 
 ## 4. 当前未完成缺口
 
@@ -80,7 +81,7 @@
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 5936 | 仍明显过大；本轮已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper，后续应继续拆分聚合 builder、审计 recorder 和服务编排 |
-| `internal/service/agent_workflow_governance.go` | 3717 | 仍偏大；本轮已迁出 metadata builder、基础聚合 builder 和企业微信组件 builder 群组，后续继续拆分发布、运维等治理摘要 builder |
+| `internal/service/agent_workflow_governance.go` | 3381 | 仍偏大；已迁出 metadata builder、基础聚合 builder、企业微信组件 builder 和 release/ops 基础 builder 群组，后续继续拆分发布执行、日报、监控和按钮闭环等治理摘要 builder |
 | `web/src/views/AgentPlanView.vue` | 3680 | 仍明显过大；本轮已迁出两个企业微信摘要组件，后续应继续拆分 composable、摘要面板组件和任务卡片组件 |
 
 结论：这些文件达到数千行不能简单视为正常的企业级设计结果。当前实现虽然有业务闭环推进价值，但从企业级代码质量角度看，必须持续进行模块化拆分、职责收敛和测试保护。后续新增能力不得继续扩大上述文件，除非是短期兼容性必要改动；优先使用独立 service 文件、独立前端组件或 composable。
@@ -229,6 +230,14 @@ Workflow governance 企业微信组件 builder 拆分阶段性结果：
 2. 优先迁出输入输出为响应 DTO、无 repository 访问、无审计写入副作用的纯聚合函数。
 3. 保持 `ListTasks` 聚合结果、JSON 字段、状态取值和审计语义不变。
 4. 验证通过后同步主文档和设计文档并提交推送。
+
+Workflow governance release/ops 基础 builder 拆分阶段性结果：
+
+1. 已新增 `internal/service/agent_workflow_release_ops_builders.go`，承接发布、运维、灰度、告警通道、上线演练和企业微信原生按钮联调相关基础 builder。
+2. 已从 `internal/service/agent_workflow_governance.go` 迁出 10 个纯函数，不改变聚合摘要 JSON 字段、状态取值、summary 文案或 `ListTasks` 调用顺序。
+3. `agent_workflow_governance.go` 从 3717 行降至 3381 行；新增文件为 345 行。
+4. 本轮 workflow governance builder 拆分累计新增 4 个小文件，合计承接 39 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
+5. 已验证：`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
 
