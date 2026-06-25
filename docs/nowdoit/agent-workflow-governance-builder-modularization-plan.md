@@ -107,6 +107,15 @@
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
 
+实施结果：
+
+1. 已新增 `internal/service/agent_workflow_foundation_builders.go`，承接成本、告警、趋势、部署验证和生产演练相关基础聚合 builder。
+2. 已从 `internal/service/agent_workflow_governance.go` 迁出 9 个纯函数，不改变聚合摘要 JSON 字段、状态取值或 `ListTasks` 调用顺序。
+3. `agent_workflow_governance.go` 从 4296 行降至 3893 行；新增文件为 412 行。
+4. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。

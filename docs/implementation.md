@@ -77,7 +77,7 @@
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 5936 | 仍明显过大；本轮已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper，后续应继续拆分聚合 builder、审计 recorder 和服务编排 |
-| `internal/service/agent_workflow_governance.go` | 4296 | 仍明显过大；本轮已迁出 metadata builder 群组，后续继续拆分治理摘要 builder |
+| `internal/service/agent_workflow_governance.go` | 3893 | 仍偏大；本轮已迁出 metadata builder 和基础聚合 builder 群组，后续继续拆分企业微信、发布、运维等治理摘要 builder |
 | `web/src/views/AgentPlanView.vue` | 3680 | 仍明显过大；本轮已迁出两个企业微信摘要组件，后续应继续拆分 composable、摘要面板组件和任务卡片组件 |
 
 结论：这些文件达到数千行不能简单视为正常的企业级设计结果。当前实现虽然有业务闭环推进价值，但从企业级代码质量角度看，必须持续进行模块化拆分、职责收敛和测试保护。后续新增能力不得继续扩大上述文件，除非是短期兼容性必要改动；优先使用独立 service 文件、独立前端组件或 composable。
@@ -199,6 +199,13 @@ Workflow governance metadata builder 拆分阶段性结果：
 1. 已新增 `internal/service/agent_workflow_metadata_builders.go`，承接 capability policy、handoff、runtime observability、recovery、quality、deployment acceptance 和 cost summary metadata builder。
 2. 已从 `internal/service/agent_workflow_governance.go` 迁出 13 个纯函数，不改变 metadata 字段名、调用方或任务聚合顺序。
 3. `agent_workflow_governance.go` 从 4626 行降至 4296 行；新增文件为 338 行。
+4. 已验证：`go test ./...`、`go vet ./...`。
+
+Workflow governance 基础聚合 builder 拆分阶段性结果：
+
+1. 已新增 `internal/service/agent_workflow_foundation_builders.go`，承接成本、告警、趋势、部署验证和生产演练相关基础聚合 builder。
+2. 已从 `internal/service/agent_workflow_governance.go` 迁出 9 个纯函数，不改变聚合摘要 JSON 字段、状态取值或 `ListTasks` 调用顺序。
+3. `agent_workflow_governance.go` 从 4296 行降至 3893 行；新增文件为 412 行。
 4. 已验证：`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
