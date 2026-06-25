@@ -140,6 +140,13 @@
 3. `docs/implementation.md`：同步主进度台账。
 4. `docs/agent-plan.md`：同步 Agent 设计对照状态。
 
+下一小轮已写入活动文档，计划新增两个前端小组件：
+
+1. `web/src/components/agent/AgentWeChatFinalReportSummary.vue`
+2. `web/src/components/agent/AgentWeChatWebProgressLinkSummary.vue`
+
+目标是迁出 `AgentPlanView.vue` 中企业微信最终汇报和 Web 进度地址摘要展示逻辑，不改变后端接口、字段语义和现有页面行为。
+
 ## 8. 最小验证命令
 
 当前阶段每轮代码实现后至少运行：

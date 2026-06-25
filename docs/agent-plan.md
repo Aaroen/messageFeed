@@ -1682,4 +1682,4 @@ EvalCase
 1. 已完成 Agent 进度和计划详情 API 的用户归属校验测试。
 2. 已完成企业微信 OAuth 和 external account 绑定对 Web 进度页访问的支持状态梳理。
 3. 已补齐 OAuth state 归属绑定、当前用户 bindings 返回和 disabled binding 拒绝测试。
-4. 下一步拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑，并重新运行完整验证矩阵。
+4. 下一步拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑，计划新增 `web/src/components/agent/AgentWeChatFinalReportSummary.vue` 和 `web/src/components/agent/AgentWeChatWebProgressLinkSummary.vue`，并重新运行前端类型检查、构建和必要测试。

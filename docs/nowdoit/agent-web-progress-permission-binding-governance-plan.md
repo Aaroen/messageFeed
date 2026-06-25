@@ -77,6 +77,29 @@
 
 - `AgentPlanView.vue` 摘要展示逻辑仍需拆分。
 
+## 4.2 下一实施单元：Agent 工作台摘要拆分
+
+本小轮先处理前端职责边界，不改变后端接口和业务语义。
+
+拆分目标：
+
+1. 将企业微信最终结果汇报摘要从 `AgentPlanView.vue` 中迁出为独立展示组件。
+2. 将企业微信 Web 进度地址摘要从 `AgentPlanView.vue` 中迁出为独立展示组件。
+3. 保留现有字段、链接、状态文案和空状态行为，避免引入视觉或交互语义变化。
+4. `AgentPlanView.vue` 只保留数据获取、刷新和页面级编排职责，减少继续增长。
+
+拟新增文件：
+
+1. `web/src/components/agent/AgentWeChatFinalReportSummary.vue`
+2. `web/src/components/agent/AgentWeChatWebProgressLinkSummary.vue`
+
+验收方式：
+
+1. `npm --prefix web run type-check`
+2. `npm --prefix web run build`
+3. 如前端测试受影响，执行 `npm --prefix web run test`
+4. 完成后同步 `docs/implementation.md` 和 `docs/agent-plan.md`，并提交推送。
+
 ## 5. 非目标
 
 - 本轮不重写完整登录系统。
