@@ -58,3 +58,35 @@
 ## 5. 后续衔接
 
 本轮完成后，继续推进企业微信真实模板发送适配、Web 证据操作端到端交互、回放执行审批闭环和恢复策略自动推进落库。
+
+## 6. 实施结果
+
+1. 后端 `ListTasks` 聚合结果已新增真实交互自动化五类摘要：
+   - 企业微信模板试运行指标。
+   - Web 证据页面实际操作。
+   - 回放执行结果查询。
+   - 恢复策略自动化执行建议。
+   - 真实交互自动化总览。
+2. 后端已新增 `internal/service/agent_real_interaction_automation_governance.go`，将本轮 builder 与既有宽治理文件隔离，保持文件职责边界。
+3. 后端已写入本轮五类审计快照事件：
+   - `agent.wechat_template_pilot_metric_snapshot`
+   - `agent.web_evidence_operation_snapshot`
+   - `agent.callback_replay_result_query_snapshot`
+   - `agent.recovery_automation_execution_snapshot`
+   - `agent.real_interaction_automation_snapshot`
+4. 服务层测试已覆盖本轮新增字段和审计事件。
+5. 前端 API 类型和 Agent 任务工作台已展示本轮新增真实交互自动化摘要。
+6. 本轮未绕过权限、审批、审计和回滚约束；恢复策略执行仍保持建议模式和审批门禁。
+
+## 7. 验证记录
+
+1. `go test ./internal/service`：通过。
+2. `go test ./...`：通过。
+3. `go vet ./...`：通过。
+4. `npm --prefix web run test`：通过，3 个测试文件、9 个测试用例通过。
+5. `npm --prefix web run type-check`：通过。
+6. `npm --prefix web run build`：通过。
+
+## 8. 归档结论
+
+本轮已将真实交互自动化从摘要展示推进到可查询的数据面和审计面。根据最新目标，下一轮应优先推进企业微信向用户发送可在 Web 浏览器打开的实时进度地址，并确保该地址能够展示 Agent 实时进度和详细细节。
