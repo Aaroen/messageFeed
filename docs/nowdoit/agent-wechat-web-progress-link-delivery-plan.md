@@ -63,6 +63,18 @@
 - 企业微信真实发送链路尚未保证模板卡片或文本 fallback 中包含可在 Web 浏览器打开的进度地址。
 - 当前摘要不能替代真实投递证据，后续需要通过 `wechat_work.reply_sent` 或失败审计证明。
 
+## 2.4 真实企业微信投递接入方案
+
+本阶段将进度地址投递接入真实企业微信发送路径：
+
+1. 扩展 Agent 对话服务的企业微信发送抽象，使其支持模板卡片发送。
+2. 在 `sendPlanProgressNotification` 中优先发送模板卡片，卡片主动作指向 `agentPlanURL(plan.ID)`。
+3. 模板卡片发送失败时保留文本 fallback，fallback 文本必须包含同一个 Web 进度地址。
+4. 审计事件继续使用 `agent.plan_progress_notification` 或 `agent.plan_started_feedback`，但 metadata 需记录模板状态、fallback 状态、进度地址、企业微信消息 ID 和错误信息。
+5. 测试需覆盖模板发送成功、模板失败后文本 fallback 成功，以及审计中包含进度地址。
+
+本阶段不改变企业微信最终结果汇报逻辑；任务完成后的企业微信结果汇报将在模板进度地址真实投递完成后继续推进。
+
 ## 2.3 文档同步要求
 
 本轮恢复任务前已同步更新：

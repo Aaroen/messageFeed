@@ -1673,7 +1673,6 @@ EvalCase
 
 当前活动文档为 `docs/nowdoit/agent-wechat-web-progress-link-delivery-plan.md`。本轮剩余工作优先级为：
 
-1. 提交并推送前端展示实现。
-2. 将企业微信真实模板卡片或文本 fallback 投递 Web 进度地址接入 notifier、conversation 或 worker 流程。
-3. 以审计事件和验证命令证明真实投递闭环。
-4. 归档当前活动文档并创建下一轮活动文档。
+1. 将企业微信真实模板卡片或文本 fallback 投递 Web 进度地址接入 notifier、conversation 或 worker 流程。
+2. 以审计事件和验证命令证明真实投递闭环。
+3. 归档当前活动文档并创建下一轮活动文档。
