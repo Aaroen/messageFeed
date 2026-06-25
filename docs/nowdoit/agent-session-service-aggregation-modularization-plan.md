@@ -43,6 +43,29 @@
    - `go vet ./...`
 5. 本次变更不影响前端 API 类型文件和页面展示逻辑，因此未补跑前端验证。
 
+## 4.2 第二实施单元：任务摘要 DTO 与转换函数迁出
+
+本小轮继续在当前活动文档范围内推进后端模块化，目标是迁出任务列表中单项任务摘要和任务报告相关的纯响应定义与转换函数。
+
+拟迁出内容：
+
+1. `AgentTaskSummaryResponse`
+2. `AgentTaskReportResponse`
+3. `agentTaskSummaryFromPlan`
+4. `agentTaskSummaryFromScheduledTask`
+
+实施约束：
+
+1. 不改变 `ListTasks` 的查询流程、排序策略、审计记录和 JSON 字段。
+2. 不改变前端 `web/src/api/agent.ts` 的类型定义。
+3. 迁出后继续使用 `internal/service/agent_task_list_responses.go` 承接任务列表响应边界。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
 ## 5. 非目标
 
 - 本轮不重写 `ListTasks` 的数据查询流程。
