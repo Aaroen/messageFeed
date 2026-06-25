@@ -32,14 +32,14 @@
 2. [x] 新增 Web 进度地址投递摘要 builder。
 3. [x] `ListTasks` 接入地址投递摘要并写入审计快照。
 4. [x] 服务层测试补充地址投递字段断言。
-5. [ ] 前端 API 类型和 Agent 任务工作台展示地址投递摘要。
+5. [x] 前端 API 类型和 Agent 任务工作台展示地址投递摘要。
 6. [ ] 接入企业微信真实模板卡片或文本 fallback 的 Web 进度地址投递。
 7. [ ] 完成验证矩阵：
    - `go test ./...`
    - `go vet ./...`
-   - `npm --prefix web run test`
-   - `npm --prefix web run type-check`
-   - `npm --prefix web run build`
+   - [x] `npm --prefix web run test`
+   - [x] `npm --prefix web run type-check`
+   - [x] `npm --prefix web run build`
 8. [ ] 记录实施结果和验证记录，归档本文档并创建下一轮文档。
 
 ## 2.2 当前实现记录
@@ -51,10 +51,15 @@
 - `ListTasks` 已构建 `wechatWebProgressLink` 并调用 `recordAgentWeChatWebProgressLinkSnapshot` 写入 `agent.wechat_web_progress_link_snapshot` 审计事件。
 - `internal/service/agent_progress_service_test.go` 已断言进度地址、投递通道和浏览器目标。
 
+已完成前端展示：
+
+- `web/src/api/agent.ts` 已声明 `AgentWeChatWebProgressLink` 类型，并在 `AgentTaskListResult` 中暴露 `wechat_web_progress_link` 字段。
+- `web/src/views/AgentPlanView.vue` 已读取 `wechat_web_progress_link`，并在任务工作台展示进度地址、投递通道、模板状态、fallback 状态、下一步和检查项。
+- 进度地址在 Web 工作台中以链接形式展示，便于核对浏览器可打开地址。
+- 已通过 `npm --prefix web run test`、`npm --prefix web run type-check` 和 `npm --prefix web run build`。
+
 当前未完成项：
 
-- `web/src/api/agent.ts` 尚未声明 `AgentWeChatWebProgressLink` 类型，也尚未在 `AgentTaskListResult` 中暴露 `wechat_web_progress_link` 字段。
-- `web/src/views/AgentPlanView.vue` 尚未读取和展示 `wechat_web_progress_link`。
 - 企业微信真实发送链路尚未保证模板卡片或文本 fallback 中包含可在 Web 浏览器打开的进度地址。
 - 当前摘要不能替代真实投递证据，后续需要通过 `wechat_work.reply_sent` 或失败审计证明。
 

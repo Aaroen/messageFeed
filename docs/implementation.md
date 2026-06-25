@@ -44,6 +44,7 @@
 ### 3.3 Web 进度与治理展示
 
 - Web 任务工作台已展示多数 Agent 运行、企业微信、审批、回放、恢复和真实交互自动化摘要。
+- Web 任务工作台已展示 `wechat_web_progress_link` 摘要，包括进度地址、投递通道、模板状态、fallback 状态、浏览器目标和检查项。
 - Web 进度页已支持计划 ID 或调度任务 ID 维度的进度查询、轮询、步骤、证据和审批状态展示。
 - 前端已有任务创建表单，并通过 `createAgentTask` 以 `channel=web` 发起任务。
 
@@ -62,8 +63,6 @@
 
 | 优先级 | 缺口 | 当前判断 |
 | --- | --- | --- |
-| P0 | 前端 API 类型尚未声明 `AgentWeChatWebProgressLink`，`AgentTaskListResult` 尚未暴露 `wechat_web_progress_link` 字段 | 后端已有字段，前端类型和展示需要补齐 |
-| P0 | Web 任务工作台尚未展示企业微信 Web 进度地址投递摘要 | 当前活动文档的下一项实现 |
 | P0 | 企业微信真实消息投递 Web 进度地址尚未接入完整 notifier / conversation / worker 流程 | 当前仅为聚合摘要和审计层，不能视为真实投递完成 |
 | P0 | 任务完成后的企业微信最终结果汇报需要继续核实真实发送路径 | 已有最终报告摘要，但仍需以真实发送证据闭环 |
 | P1 | Web 浏览器进度地址权限校验与企业微信身份绑定仍需继续强化 | 已有 OAuth 与审批基础，需与进度地址投递闭环结合 |
@@ -92,19 +91,18 @@
 2. 已完成：新增 Web 进度地址投递摘要 builder。
 3. 已完成：`ListTasks` 接入地址投递摘要并写入审计快照。
 4. 已完成：服务层测试补充地址投递字段断言。
-5. 未完成：前端 API 类型和 Agent 任务工作台展示地址投递摘要。
-6. 未完成：企业微信真实模板消息或文本 fallback 中实际投递进度地址。
-7. 未完成：本轮完成后归档活动文档并创建下一轮活动文档。
+5. 已完成：前端 API 类型和 Agent 任务工作台展示地址投递摘要。
+6. 已验证：`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
+7. 未完成：企业微信真实模板消息或文本 fallback 中实际投递进度地址。
+8. 未完成：本轮完成后归档活动文档并创建下一轮活动文档。
 
 ## 7. 下一轮实施顺序
 
-1. 补齐前端 `wechat_web_progress_link` 类型、状态加载和工作台展示。
-2. 运行前端验证：`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build`。
-3. 提交并推送前端展示实现。
-4. 接入企业微信真实进度地址发送路径，优先复用 `WeChatWorkAppClient.SendTemplateCard`，并保留文本 fallback。
-5. 将真实发送结果写入 audit，确保 Web 进度地址投递状态不再只是摘要推导。
-6. 运行后端与前端验证矩阵，提交并推送。
-7. 归档当前活动文档，创建下一轮活动文档，继续推进任务完成后企微结果汇报与架构拆分。
+1. 提交并推送前端展示实现。
+2. 接入企业微信真实进度地址发送路径，优先复用 `WeChatWorkAppClient.SendTemplateCard`，并保留文本 fallback。
+3. 将真实发送结果写入 audit，确保 Web 进度地址投递状态不再只是摘要推导。
+4. 运行后端与前端验证矩阵，提交并推送。
+5. 归档当前活动文档，创建下一轮活动文档，继续推进任务完成后企微结果汇报与架构拆分。
 
 ## 8. 最小验证命令
 

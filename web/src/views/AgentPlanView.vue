@@ -137,6 +137,7 @@ import {
   type AgentWeChatTemplatePilotMetric,
   type AgentWeChatTemplateSend,
   type AgentWeChatTemplateRender,
+  type AgentWeChatWebProgressLink,
   type AgentWeChatSignoff,
   type AgentWriteApprovalButton,
   type AgentWriteAuditReview,
@@ -292,6 +293,7 @@ const taskWebEvidenceOperation = ref<AgentWebEvidenceOperation | null>(null)
 const taskCallbackReplayResultQuery = ref<AgentCallbackReplayResultQuery | null>(null)
 const taskRecoveryAutomationExecution = ref<AgentRecoveryAutomationExecution | null>(null)
 const taskRealInteractionAutomation = ref<AgentRealInteractionAutomation | null>(null)
+const taskWeChatWebProgressLink = ref<AgentWeChatWebProgressLink | null>(null)
 const taskReport = ref<AgentTaskReport | null>(null)
 const tasksLoading = ref(false)
 const tasksError = ref('')
@@ -1398,6 +1400,12 @@ const taskRealInteractionAutomationSummary = computed(() => {
   }
   return `${statusLabel(taskRealInteractionAutomation.value.status)} / 指标 ${taskRealInteractionAutomation.value.pilot_metric_status} / 证据 ${taskRealInteractionAutomation.value.evidence_operation_status} / 回放 ${taskRealInteractionAutomation.value.replay_query_status} / 恢复 ${taskRealInteractionAutomation.value.recovery_execution_status} / ${taskRealInteractionAutomation.value.next_action}`
 })
+const taskWeChatWebProgressLinkSummary = computed(() => {
+  if (!taskWeChatWebProgressLink.value) {
+    return ''
+  }
+  return `${statusLabel(taskWeChatWebProgressLink.value.status)} / 地址 ${taskWeChatWebProgressLink.value.url_source} / 通道 ${taskWeChatWebProgressLink.value.delivery_channel} / 模板 ${taskWeChatWebProgressLink.value.template_status} / fallback ${taskWeChatWebProgressLink.value.fallback_status} / ${taskWeChatWebProgressLink.value.next_action}`
+})
 const taskRealInteractionSummaryItems = computed(() =>
   [
     {
@@ -1405,30 +1413,42 @@ const taskRealInteractionSummaryItems = computed(() =>
       title: '企微试运行指标',
       summary: taskWeChatTemplatePilotMetricSummary.value,
       checks: taskWeChatTemplatePilotMetric.value?.checks?.slice(0, 8) || [],
+      progressURL: '',
     },
     {
       key: 'web-evidence-operation',
       title: 'Web 证据操作',
       summary: taskWebEvidenceOperationSummary.value,
       checks: taskWebEvidenceOperation.value?.checks?.slice(0, 8) || [],
+      progressURL: '',
     },
     {
       key: 'callback-replay-result-query',
       title: '回放结果查询',
       summary: taskCallbackReplayResultQuerySummary.value,
       checks: taskCallbackReplayResultQuery.value?.checks?.slice(0, 8) || [],
+      progressURL: '',
     },
     {
       key: 'recovery-automation-execution',
       title: '恢复自动化执行',
       summary: taskRecoveryAutomationExecutionSummary.value,
       checks: taskRecoveryAutomationExecution.value?.checks?.slice(0, 8) || [],
+      progressURL: '',
     },
     {
       key: 'real-interaction-automation',
       title: '真实交互自动化',
       summary: taskRealInteractionAutomationSummary.value,
       checks: taskRealInteractionAutomation.value?.checks?.slice(0, 8) || [],
+      progressURL: '',
+    },
+    {
+      key: 'wechat-web-progress-link',
+      title: '企微 Web 进度地址',
+      summary: taskWeChatWebProgressLinkSummary.value,
+      checks: taskWeChatWebProgressLink.value?.checks?.slice(0, 8) || [],
+      progressURL: taskWeChatWebProgressLink.value?.progress_url || '',
     },
   ].filter((item) => item.summary),
 )
@@ -1685,6 +1705,7 @@ async function loadTasks() {
     taskCallbackReplayResultQuery.value = result.callback_replay_result_query
     taskRecoveryAutomationExecution.value = result.recovery_automation_execution
     taskRealInteractionAutomation.value = result.real_interaction_automation
+    taskWeChatWebProgressLink.value = result.wechat_web_progress_link
     taskReport.value = result.report
   } catch (error) {
     tasksError.value = formatAPIError(error)
@@ -3108,6 +3129,9 @@ onBeforeUnmount(() => {
       <div v-for="item in taskRealInteractionSummaryItems" :key="item.key" class="agent-plan-summary">
         <div class="agent-plan-summary__meta">
           <span>{{ item.title }} {{ item.summary }}</span>
+          <a v-if="item.progressURL" :href="item.progressURL" target="_blank" rel="noreferrer">
+            {{ item.progressURL }}
+          </a>
           <span v-for="check in item.checks" :key="`${item.key}-${check.key}`">
             {{ check.key }} {{ statusLabel(check.status) }}
           </span>

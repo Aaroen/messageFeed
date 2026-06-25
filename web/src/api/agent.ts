@@ -1745,6 +1745,20 @@ export interface AgentRealInteractionAutomation {
   checks: AgentDeploymentCheck[]
 }
 
+export interface AgentWeChatWebProgressLink {
+  status: string
+  summary: string
+  progress_url: string
+  url_source: string
+  delivery_channel: string
+  template_status: string
+  fallback_status: string
+  browser_target: string
+  audit_ref: string
+  next_action: string
+  checks: AgentDeploymentCheck[]
+}
+
 export interface AgentCallbackReplayInput {
   plan_id?: number
   callback_key?: string
@@ -1880,6 +1894,7 @@ export interface AgentTaskListResult {
   callback_replay_result_query: AgentCallbackReplayResultQuery
   recovery_automation_execution: AgentRecoveryAutomationExecution
   real_interaction_automation: AgentRealInteractionAutomation
+  wechat_web_progress_link: AgentWeChatWebProgressLink
   report: AgentTaskReport
 }
 
