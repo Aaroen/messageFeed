@@ -1667,7 +1667,7 @@ EvalCase
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 6255 | 拆分响应 DTO、聚合 builder、审计 recorder 和服务编排逻辑 |
 | `internal/service/agent_workflow_governance.go` | 4626 | 继续抽离独立治理模块，降低单文件职责范围 |
-| `web/src/views/AgentPlanView.vue` | 3707 | 拆分任务摘要组件、组合式状态逻辑和展示面板 |
+| `web/src/views/AgentPlanView.vue` | 3680 | 已迁出企业微信最终汇报和 Web 进度地址两个小组件；仍需继续拆分任务摘要组件、组合式状态逻辑和展示面板 |
 
 上述文件达到数千行不应被视为理想的企业级终态。后续实现必须优先新增职责明确的小文件或组件，并在必要时逐步迁出既有逻辑。
 
@@ -1682,4 +1682,4 @@ EvalCase
 1. 已完成 Agent 进度和计划详情 API 的用户归属校验测试。
 2. 已完成企业微信 OAuth 和 external account 绑定对 Web 进度页访问的支持状态梳理。
 3. 已补齐 OAuth state 归属绑定、当前用户 bindings 返回和 disabled binding 拒绝测试。
-4. 下一步拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑，计划新增 `web/src/components/agent/AgentWeChatFinalReportSummary.vue` 和 `web/src/components/agent/AgentWeChatWebProgressLinkSummary.vue`，并重新运行前端类型检查、构建和必要测试。
+4. 已拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑，新增 `web/src/components/agent/AgentWeChatFinalReportSummary.vue` 和 `web/src/components/agent/AgentWeChatWebProgressLinkSummary.vue`；`npm --prefix web run type-check`、`npm --prefix web run build` 和 `npm --prefix web run test` 已通过。

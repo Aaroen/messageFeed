@@ -41,7 +41,7 @@
 1. [x] 梳理 Agent 进度、证据、审批 API 的用户归属校验。
 2. [x] 梳理企业微信 OAuth 和 external account 绑定对 Web 进度页访问的支持状态。
 3. [x] 补齐权限测试，覆盖跨用户访问拒绝、未登录拒绝、OAuth state 归属绑定和 disabled binding 拒绝。
-4. [ ] 拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑。
+4. [x] 拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑。
 5. [x] 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
 6. [x] 完成验证矩阵：
    - [x] `go test ./...`
@@ -75,7 +75,7 @@
 
 当前仍未完成：
 
-- `AgentPlanView.vue` 摘要展示逻辑仍需拆分。
+- 归档本文档并创建下一轮活动文档。
 
 ## 4.2 下一实施单元：Agent 工作台摘要拆分
 
@@ -99,6 +99,17 @@
 2. `npm --prefix web run build`
 3. 如前端测试受影响，执行 `npm --prefix web run test`
 4. 完成后同步 `docs/implementation.md` 和 `docs/agent-plan.md`，并提交推送。
+
+实施结果：
+
+1. 已新增 `web/src/components/agent/AgentWeChatFinalReportSummary.vue`，承接企业微信最终汇报摘要、进度地址链接和检查项展示。
+2. 已新增 `web/src/components/agent/AgentWeChatWebProgressLinkSummary.vue`，承接企业微信 Web 进度地址摘要、进度地址链接和检查项展示。
+3. `AgentPlanView.vue` 已移除对应父级 summary computed 和模板分支，保留数据获取与页面编排职责；文件规模从 3707 行降至 3680 行。
+4. 新增组件各 33 行，属于小职责展示组件，未新增生产后端文件。
+5. 已通过：
+   - `npm --prefix web run type-check`
+   - `npm --prefix web run build`
+   - `npm --prefix web run test`
 
 ## 5. 非目标
 

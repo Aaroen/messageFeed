@@ -16,6 +16,8 @@ import {
   approveAgentApprovalRecord,
   rejectAgentApprovalRecord,
 } from '@/api/approvals'
+import AgentWeChatFinalReportSummary from '@/components/agent/AgentWeChatFinalReportSummary.vue'
+import AgentWeChatWebProgressLinkSummary from '@/components/agent/AgentWeChatWebProgressLinkSummary.vue'
 import {
   agentProgressStreamURL,
   cancelAgentScheduledTask,
@@ -901,13 +903,6 @@ const taskWriteRampPolicySummary = computed(() => {
   return `${statusLabel(taskWriteRampPolicy.value.status)} / ${taskWriteRampPolicy.value.ramp_percent}% / 范围 ${taskWriteRampPolicy.value.user_scope} / 回滚 ${taskWriteRampPolicy.value.rollback_threshold} / 默认 ${taskWriteRampPolicy.value.default_action}`
 })
 const visibleWriteRampPolicyChecks = computed(() => taskWriteRampPolicy.value?.checks?.slice(0, 8) || [])
-const taskWeChatFinalReportSummary = computed(() => {
-  if (!taskWeChatFinalReport.value) {
-    return ''
-  }
-  return `${statusLabel(taskWeChatFinalReport.value.status)} / 通知 ${taskWeChatFinalReport.value.completion_notice_status} / 投递 ${taskWeChatFinalReport.value.delivery_status} / 模板 ${taskWeChatFinalReport.value.template_status} / 文本 ${taskWeChatFinalReport.value.text_status} / 入口 ${taskWeChatFinalReport.value.final_report_entry} / ${taskWeChatFinalReport.value.next_action}`
-})
-const visibleWeChatFinalReportChecks = computed(() => taskWeChatFinalReport.value?.checks?.slice(0, 8) || [])
 const taskLaunchRuntimeOverviewSummary = computed(() => {
   if (!taskLaunchRuntimeOverview.value) {
     return ''
@@ -1400,12 +1395,6 @@ const taskRealInteractionAutomationSummary = computed(() => {
   }
   return `${statusLabel(taskRealInteractionAutomation.value.status)} / 指标 ${taskRealInteractionAutomation.value.pilot_metric_status} / 证据 ${taskRealInteractionAutomation.value.evidence_operation_status} / 回放 ${taskRealInteractionAutomation.value.replay_query_status} / 恢复 ${taskRealInteractionAutomation.value.recovery_execution_status} / ${taskRealInteractionAutomation.value.next_action}`
 })
-const taskWeChatWebProgressLinkSummary = computed(() => {
-  if (!taskWeChatWebProgressLink.value) {
-    return ''
-  }
-  return `${statusLabel(taskWeChatWebProgressLink.value.status)} / 地址 ${taskWeChatWebProgressLink.value.url_source} / 通道 ${taskWeChatWebProgressLink.value.delivery_channel} / 模板 ${taskWeChatWebProgressLink.value.template_status} / fallback ${taskWeChatWebProgressLink.value.fallback_status} / ${taskWeChatWebProgressLink.value.next_action}`
-})
 const taskRealInteractionSummaryItems = computed(() =>
   [
     {
@@ -1442,13 +1431,6 @@ const taskRealInteractionSummaryItems = computed(() =>
       summary: taskRealInteractionAutomationSummary.value,
       checks: taskRealInteractionAutomation.value?.checks?.slice(0, 8) || [],
       progressURL: '',
-    },
-    {
-      key: 'wechat-web-progress-link',
-      title: '企微 Web 进度地址',
-      summary: taskWeChatWebProgressLinkSummary.value,
-      checks: taskWeChatWebProgressLink.value?.checks?.slice(0, 8) || [],
-      progressURL: taskWeChatWebProgressLink.value?.progress_url || '',
     },
   ].filter((item) => item.summary),
 )
@@ -2644,17 +2626,7 @@ onBeforeUnmount(() => {
           </span>
         </div>
       </div>
-      <div v-if="taskWeChatFinalReportSummary" class="agent-plan-summary">
-        <div class="agent-plan-summary__meta">
-          <span>企微最终汇报 {{ taskWeChatFinalReportSummary }}</span>
-          <a v-if="taskWeChatFinalReport?.progress_url" :href="taskWeChatFinalReport.progress_url" target="_blank" rel="noreferrer">
-            {{ taskWeChatFinalReport.progress_url }}
-          </a>
-          <span v-for="check in visibleWeChatFinalReportChecks" :key="`wechat-final-report-${check.key}`">
-            {{ check.key }} {{ statusLabel(check.status) }}
-          </span>
-        </div>
-      </div>
+      <AgentWeChatFinalReportSummary :report="taskWeChatFinalReport" :status-label="statusLabel" />
       <div v-if="taskLaunchRuntimeOverviewSummary" class="agent-plan-summary">
         <div class="agent-plan-summary__meta">
           <span>上线运行总览 {{ taskLaunchRuntimeOverviewSummary }}</span>
@@ -3140,6 +3112,7 @@ onBeforeUnmount(() => {
           </span>
         </div>
       </div>
+      <AgentWeChatWebProgressLinkSummary :progress-link="taskWeChatWebProgressLink" :status-label="statusLabel" />
       <div v-if="taskReport" class="agent-plan-step__meta">
         <span>状态 {{ reportPairs(taskReport.by_status) }}</span>
         <span>入口 {{ reportPairs(taskReport.by_entry) }}</span>

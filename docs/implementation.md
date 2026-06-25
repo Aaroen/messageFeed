@@ -78,7 +78,7 @@
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 6255 | 明显过大，承担聚合、响应结构、审计快照和部分运行逻辑，后续应拆分响应 DTO、聚合 builder、审计 recorder 和服务编排 |
 | `internal/service/agent_workflow_governance.go` | 4626 | 明显过大，虽然近期已有拆分，但仍不符合长期可维护目标 |
-| `web/src/views/AgentPlanView.vue` | 3707 | 明显过大，后续应拆分 composable、摘要面板组件和任务卡片组件 |
+| `web/src/views/AgentPlanView.vue` | 3680 | 仍明显过大；本轮已迁出两个企业微信摘要组件，后续应继续拆分 composable、摘要面板组件和任务卡片组件 |
 
 结论：这些文件达到数千行不能简单视为正常的企业级设计结果。当前实现虽然有业务闭环推进价值，但从企业级代码质量角度看，必须持续进行模块化拆分、职责收敛和测试保护。后续新增能力不得继续扩大上述文件，除非是短期兼容性必要改动；优先使用独立 service 文件、独立前端组件或 composable。
 
@@ -140,12 +140,18 @@
 3. `docs/implementation.md`：同步主进度台账。
 4. `docs/agent-plan.md`：同步 Agent 设计对照状态。
 
-下一小轮已写入活动文档，计划新增两个前端小组件：
+前端摘要拆分小轮已完成，新增两个前端小组件：
 
 1. `web/src/components/agent/AgentWeChatFinalReportSummary.vue`
 2. `web/src/components/agent/AgentWeChatWebProgressLinkSummary.vue`
 
-目标是迁出 `AgentPlanView.vue` 中企业微信最终汇报和 Web 进度地址摘要展示逻辑，不改变后端接口、字段语义和现有页面行为。
+已迁出 `AgentPlanView.vue` 中企业微信最终汇报和 Web 进度地址摘要展示逻辑，未改变后端接口、字段语义和现有页面行为。`AgentPlanView.vue` 从 3707 行降至 3680 行，两个新增组件各 33 行，文件数量增加与职责拆分相匹配，不属于冗余扩张。
+
+本小轮验证已通过：
+
+1. `npm --prefix web run type-check`
+2. `npm --prefix web run build`
+3. `npm --prefix web run test`
 
 ## 8. 最小验证命令
 
