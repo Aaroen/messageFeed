@@ -28,7 +28,7 @@
 2. [x] 新增独立治理 builder 文件，迁出低风险纯函数。
 3. [x] 运行 `go test ./...` 和 `go vet ./...`。
 4. [x] 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
-5. [ ] 记录实施结果，归档本文档并创建下一轮活动文档。
+5. [x] 记录实施结果，归档本文档并创建下一轮活动文档。
 
 ## 4.1 第一实施单元：Metadata Builder 迁出
 
@@ -65,6 +65,21 @@
 1. `go test ./...`
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
+实施结果：
+
+1. 已新增 `internal/service/agent_workflow_wechat_builders.go`，承接企业微信组件、callback readiness、原生动作定义、payload 构造和按钮 helper。
+2. 已从 `internal/service/agent_workflow_governance.go` 迁出 7 个纯函数，不改变企业微信按钮 key、fallback 文案、payload 字段、状态取值或 `ListTasks` 企业微信相关调用顺序。
+3. `agent_workflow_governance.go` 从 3893 行降至 3717 行；新增文件为 183 行。
+4. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
+本轮归档前结论：
+
+1. 已完成 metadata builder、基础聚合 builder 和企业微信组件 builder 三个低风险函数群组迁出。
+2. `agent_workflow_governance.go` 从本轮基线 4626 行降至 3717 行，累计减少 909 行。
+3. 新增的 3 个 builder 文件均保持 package 内部可见 helper，不扩大导出 API，不改变任务聚合响应语义。
 
 实施结果：
 
