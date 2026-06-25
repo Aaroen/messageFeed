@@ -28,12 +28,12 @@ func buildAgentWeChatTemplatePilot(integration AgentWeChatTemplateIntegrationRes
 		auditEvidence = "agent.wechat_template_integration_snapshot"
 	}
 	checks := []AgentDeploymentCheckResponse{
-		{Key: "pilot_batch", Status: readyIf(pilotBatch != ""), Summary: pilotBatch},
-		{Key: "target_scope", Status: readyIf(targetScope != ""), Summary: targetScope},
-		{Key: "template_status", Status: readyIf(templateStatus != ""), Summary: templateStatus},
-		{Key: "fallback_hit", Status: readyIf(fallbackHit != ""), Summary: fallbackHit},
-		{Key: "message_id_status", Status: readyIf(messageIDStatus != ""), Summary: messageIDStatus},
-		{Key: "audit_evidence", Status: readyIf(auditEvidence != ""), Summary: auditEvidence},
+		agentGovernanceTextCheck("pilot_batch", pilotBatch),
+		agentGovernanceTextCheck("target_scope", targetScope),
+		agentGovernanceTextCheck("template_status", templateStatus),
+		agentGovernanceTextCheck("fallback_hit", fallbackHit),
+		agentGovernanceTextCheck("message_id_status", messageIDStatus),
+		agentGovernanceTextCheck("audit_evidence", auditEvidence),
 	}
 	return AgentWeChatTemplatePilotResponse{
 		Status:          checksStatus(checks),
@@ -61,11 +61,11 @@ func buildAgentWebEvidenceUserAction(detail AgentWebEvidenceInteractionDetailRes
 		permissionResult = "allowed:task_owner_or_agent_operations"
 	}
 	checks := []AgentDeploymentCheckResponse{
-		{Key: "filter_action", Status: readyIf(filterAction != ""), Summary: filterAction},
-		{Key: "expand_action", Status: readyIf(expandAction != ""), Summary: expandAction},
-		{Key: "timeline_action", Status: readyIf(timelineAction != ""), Summary: timelineAction},
-		{Key: "replay_request", Status: readyIf(replayRequest != ""), Summary: replayRequest},
-		{Key: "permission_result", Status: readyIf(permissionResult != ""), Summary: permissionResult},
+		agentGovernanceTextCheck("filter_action", filterAction),
+		agentGovernanceTextCheck("expand_action", expandAction),
+		agentGovernanceTextCheck("timeline_action", timelineAction),
+		agentGovernanceTextCheck("replay_request", replayRequest),
+		agentGovernanceTextCheck("permission_result", permissionResult),
 	}
 	return AgentWebEvidenceUserActionResponse{
 		Status:           checksStatus(checks),
@@ -93,12 +93,12 @@ func buildAgentCallbackReplayResultTrace(safety AgentCallbackReplaySafetyAuditRe
 	}
 	auditRecord := "agent.callback_replay_safety_audit_snapshot"
 	checks := []AgentDeploymentCheckResponse{
-		{Key: "execution_result", Status: readyIf(executionResult != ""), Summary: executionResult},
-		{Key: "idempotency_hit", Status: readyIf(idempotencyHit != ""), Summary: idempotencyHit},
-		{Key: "approval_decision", Status: readyIf(approvalDecision != ""), Summary: approvalDecision},
-		{Key: "signature_result", Status: readyIf(signatureResult != ""), Summary: signatureResult},
-		{Key: "failure_reason", Status: readyIf(failureReason != ""), Summary: failureReason},
-		{Key: "audit_record", Status: readyIf(auditRecord != ""), Summary: auditRecord},
+		agentGovernanceTextCheck("execution_result", executionResult),
+		agentGovernanceTextCheck("idempotency_hit", idempotencyHit),
+		agentGovernanceTextCheck("approval_decision", approvalDecision),
+		agentGovernanceTextCheck("signature_result", signatureResult),
+		agentGovernanceTextCheck("failure_reason", failureReason),
+		agentGovernanceTextCheck("audit_record", auditRecord),
 	}
 	return AgentCallbackReplayResultTraceResponse{
 		Status:           checksStatus(checks),
@@ -135,12 +135,12 @@ func buildAgentRecoveryPolicyAutomation(gray AgentRecoveryPolicyGrayReleaseRespo
 		auditEvidence = "agent.recovery_policy_gray_release_snapshot"
 	}
 	checks := []AgentDeploymentCheckResponse{
-		{Key: "auto_advance", Status: readyIf(autoAdvance != ""), Summary: autoAdvance},
-		{Key: "pause_condition", Status: readyIf(pauseCondition != ""), Summary: pauseCondition},
-		{Key: "rollback_condition", Status: readyIf(rollbackCondition != ""), Summary: rollbackCondition},
-		{Key: "current_percent", Status: readyIf(currentPercent >= 0 && currentPercent <= 100), Summary: strconv.Itoa(currentPercent)},
-		{Key: "next_percent", Status: readyIf(nextPercent >= 0 && nextPercent <= 100), Summary: strconv.Itoa(nextPercent)},
-		{Key: "audit_evidence", Status: readyIf(auditEvidence != ""), Summary: auditEvidence},
+		agentGovernanceTextCheck("auto_advance", autoAdvance),
+		agentGovernanceTextCheck("pause_condition", pauseCondition),
+		agentGovernanceTextCheck("rollback_condition", rollbackCondition),
+		agentGovernanceCheck("current_percent", currentPercent >= 0 && currentPercent <= 100, strconv.Itoa(currentPercent)),
+		agentGovernanceCheck("next_percent", nextPercent >= 0 && nextPercent <= 100, strconv.Itoa(nextPercent)),
+		agentGovernanceTextCheck("audit_evidence", auditEvidence),
 	}
 	return AgentRecoveryPolicyAutomationResponse{
 		Status:            checksStatus(checks),

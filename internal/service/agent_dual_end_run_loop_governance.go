@@ -24,12 +24,12 @@ func buildAgentWeChatTemplateIntegration(send AgentWeChatTemplateSendResponse) A
 		auditEvidence = "agent.wechat_template_send_snapshot"
 	}
 	checks := []AgentDeploymentCheckResponse{
-		{Key: "send_path", Status: readyIf(sendPath != ""), Summary: sendPath},
-		{Key: "template_status", Status: readyIf(templateStatus != ""), Summary: templateStatus},
+		agentGovernanceTextCheck("send_path", sendPath),
+		agentGovernanceTextCheck("template_status", templateStatus),
 		{Key: "fallback_status", Status: fallbackStatus, Summary: send.FallbackText},
-		{Key: "degrade_strategy", Status: readyIf(degradeStrategy != ""), Summary: degradeStrategy},
-		{Key: "message_id_readback", Status: readyIf(messageIDReadback != ""), Summary: messageIDReadback},
-		{Key: "audit_evidence", Status: readyIf(auditEvidence != ""), Summary: auditEvidence},
+		agentGovernanceTextCheck("degrade_strategy", degradeStrategy),
+		agentGovernanceTextCheck("message_id_readback", messageIDReadback),
+		agentGovernanceTextCheck("audit_evidence", auditEvidence),
 	}
 	return AgentWeChatTemplateIntegrationResponse{
 		Status:            checksStatus(checks),
@@ -60,11 +60,11 @@ func buildAgentWebEvidenceInteractionDetail(view AgentWebEvidenceDetailViewRespo
 		permissionHint = "task_owner_or_agent_operations"
 	}
 	checks := []AgentDeploymentCheckResponse{
-		{Key: "filter_mode", Status: readyIf(filterMode != ""), Summary: filterMode},
-		{Key: "expand_mode", Status: readyIf(expandMode != ""), Summary: expandMode},
-		{Key: "audit_timeline", Status: readyIf(auditTimeline != ""), Summary: auditTimeline},
-		{Key: "replay_request_entry", Status: readyIf(replayRequestEntry != ""), Summary: replayRequestEntry},
-		{Key: "permission_hint", Status: readyIf(permissionHint != ""), Summary: permissionHint},
+		agentGovernanceTextCheck("filter_mode", filterMode),
+		agentGovernanceTextCheck("expand_mode", expandMode),
+		agentGovernanceTextCheck("audit_timeline", auditTimeline),
+		agentGovernanceTextCheck("replay_request_entry", replayRequestEntry),
+		agentGovernanceTextCheck("permission_hint", permissionHint),
 	}
 	return AgentWebEvidenceInteractionDetailResponse{
 		Status:             checksStatus(checks),
@@ -91,11 +91,11 @@ func buildAgentCallbackReplaySafetyAudit(execution AgentCallbackReplayExecutionR
 		failureAudit = "manual_review_without_replay"
 	}
 	checks := []AgentDeploymentCheckResponse{
-		{Key: "idempotency_check", Status: readyIf(execution.IdempotencyKey != ""), Summary: idempotencyCheck},
-		{Key: "approval_check", Status: readyIf(execution.ApprovalStatus != ""), Summary: approvalCheck},
-		{Key: "signature_check", Status: readyIf(signatureCheck != ""), Summary: signatureCheck},
-		{Key: "execution_result", Status: readyIf(executionResult != ""), Summary: executionResult},
-		{Key: "failure_audit", Status: readyIf(failureAudit != ""), Summary: failureAudit},
+		agentGovernanceCheck("idempotency_check", execution.IdempotencyKey != "", idempotencyCheck),
+		agentGovernanceCheck("approval_check", execution.ApprovalStatus != "", approvalCheck),
+		agentGovernanceTextCheck("signature_check", signatureCheck),
+		agentGovernanceTextCheck("execution_result", executionResult),
+		agentGovernanceTextCheck("failure_audit", failureAudit),
 	}
 	return AgentCallbackReplaySafetyAuditResponse{
 		Status:           checksStatus(checks),
@@ -123,11 +123,11 @@ func buildAgentRecoveryPolicyGrayRelease(version AgentRecoveryPolicyVersionRespo
 		auditEvidence = "agent.recovery_policy_version_snapshot"
 	}
 	checks := []AgentDeploymentCheckResponse{
-		{Key: "gray_stage", Status: readyIf(grayStage != ""), Summary: grayStage},
-		{Key: "release_percent", Status: readyIf(releasePercent >= 0 && releasePercent <= 100), Summary: strconv.Itoa(releasePercent)},
-		{Key: "rollback_condition", Status: readyIf(rollbackCondition != ""), Summary: rollbackCondition},
-		{Key: "approval_status", Status: readyIf(approvalStatus != ""), Summary: approvalStatus},
-		{Key: "audit_evidence", Status: readyIf(auditEvidence != ""), Summary: auditEvidence},
+		agentGovernanceTextCheck("gray_stage", grayStage),
+		agentGovernanceCheck("release_percent", releasePercent >= 0 && releasePercent <= 100, strconv.Itoa(releasePercent)),
+		agentGovernanceTextCheck("rollback_condition", rollbackCondition),
+		agentGovernanceTextCheck("approval_status", approvalStatus),
+		agentGovernanceTextCheck("audit_evidence", auditEvidence),
 	}
 	return AgentRecoveryPolicyGrayReleaseResponse{
 		Status:            checksStatus(checks),
