@@ -1666,7 +1666,7 @@ EvalCase
 | 文件 | 当前行数 | 治理要求 |
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 5936 | 已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper；继续拆分聚合 builder、审计 recorder 和服务编排逻辑 |
-| `internal/service/agent_workflow_governance.go` | 3381 | 已迁出 metadata builder、基础聚合 builder、企业微信组件 builder 和 release/ops 基础 builder 群组；继续抽离发布执行、日报、监控和按钮闭环等治理摘要 builder，降低单文件职责范围 |
+| `internal/service/agent_workflow_governance.go` | 3057 | 已迁出 metadata builder、基础聚合 builder、企业微信组件 builder、release/ops 基础 builder 和发布执行/日报闭环 builder 群组；继续抽离发布窗口、外部监控和按钮直控等治理摘要 builder，降低单文件职责范围 |
 | `web/src/views/AgentPlanView.vue` | 3680 | 已迁出企业微信最终汇报和 Web 进度地址两个小组件；仍需继续拆分任务摘要组件、组合式状态逻辑和展示面板 |
 
 上述文件达到数千行不应被视为理想的企业级终态。后续实现必须优先新增职责明确的小文件或组件，并在必要时逐步迁出既有逻辑。
@@ -1698,4 +1698,4 @@ EvalCase
 3. 已保持 `ListTasks` 聚合结果、JSON 字段、企业微信按钮 key、fallback 文案和审计语义不变；`agent_workflow_governance.go` 当前降至 3717 行。
 4. `go test ./...` 和 `go vet ./...` 已通过。
 
-当前活动文档为 `docs/nowdoit/agent-workflow-governance-release-ops-builder-modularization-plan.md`。已新增 `internal/service/agent_workflow_release_ops_builders.go`，迁出发布、运维、灰度、告警通道、上线演练和企业微信原生按钮联调相关 10 个纯 builder；`agent_workflow_governance.go` 当前降至 3381 行。下一小轮继续拆分发布执行、日报、监控和按钮闭环相关纯 builder。
+当前活动文档为 `docs/nowdoit/agent-workflow-governance-release-ops-builder-modularization-plan.md`。已新增 `internal/service/agent_workflow_release_ops_builders.go`，迁出发布、运维、灰度、告警通道、上线演练、企业微信原生按钮联调、发布执行、审批、日报、监控和按钮回调闭环相关 20 个纯 builder；`agent_workflow_governance.go` 当前降至 3057 行。下一小轮继续拆分发布窗口、外部监控、按钮直控和灰度扩展相关纯 builder。

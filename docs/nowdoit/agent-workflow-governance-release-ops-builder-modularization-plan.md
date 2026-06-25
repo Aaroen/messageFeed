@@ -75,7 +75,7 @@
 
 ## 4.2 第二实施单元：发布执行与日报闭环 Builder 迁出
 
-下一小轮继续迁出发布执行、审批、日报、监控和按钮回调闭环相关纯 builder。该组函数仍以响应 DTO 聚合为主，不访问 repository，不写审计事件。
+本小轮迁出发布执行、审批、日报、监控和按钮回调闭环相关纯 builder。该组函数仍以响应 DTO 聚合为主，不访问 repository，不写审计事件。
 
 拟迁出内容：
 
@@ -89,6 +89,48 @@
 8. `buildAgentPostLaunchMonitor`
 9. `buildAgentReleaseApprovalExecution`
 10. `buildAgentButtonCallback`
+
+拟承接文件：
+
+1. `internal/service/agent_workflow_release_ops_builders.go`
+
+实施约束：
+
+1. 不改变聚合摘要 JSON 字段、状态取值和 summary 文案。
+2. 不改变 `ListTasks` 中相关 builder 的调用顺序。
+3. helper 仍保持 package 内部可见，不扩大导出面。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
+实施结果：
+
+1. 已将 4.2 列出的 10 个发布执行、审批、日报、监控和按钮回调闭环 builder 追加迁入 `internal/service/agent_workflow_release_ops_builders.go`。
+2. 已从 `internal/service/agent_workflow_governance.go` 移除同一函数块，不改变聚合摘要 JSON 字段、状态取值、summary 文案或 `ListTasks` 中相关 builder 的调用顺序。
+3. `agent_workflow_governance.go` 从 3381 行降至 3057 行；`agent_workflow_release_ops_builders.go` 从 345 行增至 669 行。
+4. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
+## 4.3 第三实施单元：发布窗口与外部监控 Builder 迁出
+
+下一小轮继续迁出发布窗口、外部监控、按钮直控、灰度扩展和企业微信验收相关纯 builder。这组函数仍以响应 DTO 聚合为主，不访问 repository，不写审计事件。
+
+拟迁出内容：
+
+1. `buildAgentWriteAuditReview`
+2. `buildAgentDailySend`
+3. `buildAgentMonitorAlertDrill`
+4. `buildAgentButtonDirectControl`
+5. `buildAgentWeChatE2EAcceptance`
+6. `buildAgentReleaseWindowReadiness`
+7. `buildAgentWriteGrayExpansion`
+8. `buildAgentExternalMonitorIntegration`
+9. `buildAgentReleaseWindowExecution`
+10. `buildAgentExternalMonitorRuntime`
 
 拟承接文件：
 
