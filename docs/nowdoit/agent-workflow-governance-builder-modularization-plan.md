@@ -116,6 +116,36 @@
    - `go test ./...`
    - `go vet ./...`
 
+## 4.3 第三实施单元：企业微信组件 Builder 迁出
+
+本小轮迁出企业微信组件、callback readiness、原生动作定义和 payload 构造相关纯 builder。这组函数围绕企业微信交互摘要与按钮 payload，不访问 repository，不写审计事件。
+
+拟迁出内容：
+
+1. `buildAgentWeChatComponentSet`
+2. `buildAgentWeChatCallbackReadiness`
+3. `buildAgentWeChatNativeActions`
+4. `buildAgentWeChatNativePayload`
+5. `agentWeChatActionStyle`
+6. `nativeButtonHasURL`
+7. `nativeButtonExists`
+
+拟新增文件：
+
+1. `internal/service/agent_workflow_wechat_builders.go`
+
+实施约束：
+
+1. 不改变企业微信按钮 key、fallback 文案、payload 字段和状态取值。
+2. 不改变 `ListTasks` 中企业微信相关 builder 的调用顺序。
+3. helper 仍保持 package 内部可见，不扩大导出面。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
