@@ -1677,9 +1677,16 @@ EvalCase
 
 上一活动文档 `docs/nowdoit/agent-wechat-final-result-report-delivery-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-wechat-final-result-report-delivery-plan-implemented-2026-06-25.md`。
 
-当前活动文档为 `docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md`。本轮剩余工作优先级为：
+上一活动文档 `docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-web-progress-permission-binding-governance-plan-implemented-2026-06-26.md`。完成项为：
 
 1. 已完成 Agent 进度和计划详情 API 的用户归属校验测试。
 2. 已完成企业微信 OAuth 和 external account 绑定对 Web 进度页访问的支持状态梳理。
 3. 已补齐 OAuth state 归属绑定、当前用户 bindings 返回和 disabled binding 拒绝测试。
 4. 已拆分前端 Agent 工作台中进度地址和最终汇报摘要展示逻辑，新增 `web/src/components/agent/AgentWeChatFinalReportSummary.vue` 和 `web/src/components/agent/AgentWeChatWebProgressLinkSummary.vue`；`npm --prefix web run type-check`、`npm --prefix web run build` 和 `npm --prefix web run test` 已通过。
+
+当前活动文档为 `docs/nowdoit/agent-session-service-aggregation-modularization-plan.md`。本轮目标为：
+
+1. 梳理 `agent_session_service.go` 中任务聚合响应类型和 builder 可迁移边界。
+2. 优先迁出低风险、无副作用的响应 DTO 或纯函数 builder。
+3. 保持 `ListTasks` 的 JSON 字段、审计事件和前端 API 语义不变。
+4. 验证通过后同步主文档和设计文档并提交推送。

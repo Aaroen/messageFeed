@@ -21,7 +21,7 @@
 | --- | --- |
 | 分支 | `master` |
 | 工作区 | 最近核对为干净，且已与 `origin/master` 同步 |
-| 当前活动文档 | `docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md` |
+| 当前活动文档 | `docs/nowdoit/agent-session-service-aggregation-modularization-plan.md` |
 | 最近全量验证 | `go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check`、`npm --prefix web run build` 已在本轮通过 |
 | 最近核对提交 | `dbb989a`、`70f6d92`、`074228c`、`95e6009`、`0cbe844` |
 
@@ -88,7 +88,7 @@
 
 上一活动文档 `docs/nowdoit/agent-wechat-final-result-report-delivery-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-wechat-final-result-report-delivery-plan-implemented-2026-06-25.md`。
 
-当前活动文档：`docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md`
+已归档活动文档：`docs/nowdoit/archive/agent-web-progress-permission-binding-governance-plan-implemented-2026-06-26.md`
 
 上一轮完成项：
 
@@ -133,7 +133,7 @@
 
 ## 7.1 本轮文件变更核对
 
-当前阶段未新增生产文件，文件数量未扩张。变更集中在：
+OAuth 绑定治理阶段未新增生产文件，文件数量未扩张。变更集中在：
 
 1. `internal/service/auth_service_test.go`：新增 OAuth / external account 绑定语义测试，并扩展测试 fake repository 支持多用户断言。
 2. `docs/nowdoit/agent-web-progress-permission-binding-governance-plan.md`：同步本轮活动文档状态。
@@ -152,6 +152,17 @@
 1. `npm --prefix web run type-check`
 2. `npm --prefix web run build`
 3. `npm --prefix web run test`
+
+当前活动文档已归档到 `docs/nowdoit/archive/agent-web-progress-permission-binding-governance-plan-implemented-2026-06-26.md`。
+
+新活动文档：`docs/nowdoit/agent-session-service-aggregation-modularization-plan.md`
+
+新一轮目标：
+
+1. 梳理 `agent_session_service.go` 中任务聚合响应类型和 builder 可迁移边界。
+2. 优先迁出低风险、无副作用的响应 DTO 或纯函数 builder。
+3. 保持 `ListTasks` 的 JSON 字段、审计事件和前端 API 语义不变。
+4. 验证通过后同步主文档和设计文档并提交推送。
 
 ## 8. 最小验证命令
 
