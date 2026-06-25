@@ -288,7 +288,7 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(time.Now().UTC())}
 	llmStarted := make(chan struct{})
 	llmRelease := make(chan struct{})
-	sendDone := make(chan struct{})
+	sentEvents := make(chan notifier.WeChatWorkTextMessage, 2)
 	llmClient := &fakeAgentConversationLLM{
 		started: llmStarted,
 		release: llmRelease,
@@ -298,13 +298,14 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 			Content:  "异步回复",
 		},
 	}
-	sender := &fakeAgentConversationSender{sentSignal: sendDone}
+	sender := &fakeAgentConversationSender{sentEvents: sentEvents}
 	service := NewAgentConversationService(
 		repository,
 		WithAgentConversationLLM(llmClient),
 		WithAgentConversationSender(sender),
 		WithAgentConversationExternalAccountResolver(resolver),
 		WithAgentConversationProcessTimeout(time.Second),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
 	)
 
 	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
@@ -324,8 +325,17 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	if result.Turn.Status != domain.AgentTurnStatusRunning {
 		t.Fatalf("initial turn status = %q, want running", result.Turn.Status)
 	}
-	if sender.calls != 0 {
-		t.Fatalf("sender calls before release = %d, want 0", sender.calls)
+
+	var startedMessage notifier.WeChatWorkTextMessage
+	select {
+	case startedMessage = <-sentEvents:
+	case <-time.After(time.Second):
+		t.Fatal("agent start feedback was not sent")
+	}
+	if !strings.Contains(startedMessage.Content, "工作已开始") ||
+		!strings.Contains(startedMessage.Content, "调度方式") ||
+		!strings.Contains(startedMessage.Content, "https://messagefeed.example/agent/plans/") {
+		t.Fatalf("start feedback = %q", startedMessage.Content)
 	}
 
 	select {
@@ -334,10 +344,16 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 		t.Fatal("llm was not started asynchronously")
 	}
 	close(llmRelease)
+	var completionMessage notifier.WeChatWorkTextMessage
 	select {
-	case <-sendDone:
+	case completionMessage = <-sentEvents:
 	case <-time.After(time.Second):
 		t.Fatal("async reply was not sent")
+	}
+	if !strings.Contains(completionMessage.Content, "异步回复") ||
+		!strings.Contains(completionMessage.Content, "状态：已完成") ||
+		!strings.Contains(completionMessage.Content, "https://messagefeed.example/agent/plans/") {
+		t.Fatalf("completion feedback = %q", completionMessage.Content)
 	}
 	if repository.turns[0].Status != domain.AgentTurnStatusSucceeded {
 		t.Fatalf("final turn status = %q", repository.turns[0].Status)
@@ -1250,6 +1266,7 @@ type fakeAgentConversationSender struct {
 	sentMessages []notifier.WeChatWorkTextMessage
 	result       notifier.WeChatWorkSendResult
 	err          error
+	sentEvents   chan notifier.WeChatWorkTextMessage
 	sentSignal   chan struct{}
 	sentOnce     sync.Once
 }
@@ -1258,6 +1275,9 @@ func (f *fakeAgentConversationSender) SendText(_ context.Context, message notifi
 	f.calls++
 	f.sent = message
 	f.sentMessages = append(f.sentMessages, message)
+	if f.sentEvents != nil {
+		f.sentEvents <- message
+	}
 	if f.sentSignal != nil {
 		f.sentOnce.Do(func() { close(f.sentSignal) })
 	}

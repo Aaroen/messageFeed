@@ -90,6 +90,7 @@ type AgentConversationService struct {
 	policyEngine       *agent.PolicyEngine
 	now                func() time.Time
 	ownerID            int64
+	publicBaseURL      string
 	processInline      bool
 	processTimeout     time.Duration
 	lockMu             sync.Mutex
@@ -167,6 +168,12 @@ func WithAgentConversationOwnerID(ownerID int64) AgentConversationServiceOption 
 		if ownerID > 0 {
 			service.ownerID = ownerID
 		}
+	}
+}
+
+func WithAgentConversationPublicBaseURL(publicBaseURL string) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.publicBaseURL = strings.TrimRight(strings.TrimSpace(publicBaseURL), "/")
 	}
 }
 
@@ -505,8 +512,17 @@ func (s *AgentConversationService) processTurn(
 		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
 		return ReceiveWeChatWorkAppMessageResult{Turn: turn}, err
 	}
+	if plan.Status == domain.AgentPlanStatusApproved {
+		executingPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusExecuting, s.now().UTC(), "")
+		if executingPlan.ID > 0 {
+			plan = executingPlan
+		}
+	}
+	if !s.processInline {
+		s.sendPlanStartedFeedback(ctx, account, session, turn, input, plan)
+	}
 	if plan.Status == domain.AgentPlanStatusAwaitingApproval {
-		reply := approvalRequiredReply(plan, approvalToken)
+		reply := s.approvalRequiredReply(plan, approvalToken)
 		_, _ = s.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 			RunID:     controllerRun.ID,
 			TraceKind: "plan_awaiting_approval",
@@ -536,15 +552,24 @@ func (s *AgentConversationService) processTurn(
 	})
 	if err != nil {
 		s.recordControllerTrace(ctx, controllerRun, runResult, "controller_error")
-		_, _ = s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, s.now().UTC(), err.Error())
+		failedPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, s.now().UTC(), err.Error())
+		if failedPlan.ID > 0 {
+			plan = failedPlan
+		}
 		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
 		opErr = err
-		return s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, err), nil
+		return s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, plan, err), nil
 	}
 	s.recordControllerTrace(ctx, controllerRun, runResult, "controller_output")
-	_, _ = s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
+	updatedPlan, _ := s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
+	if updatedPlan.ID > 0 {
+		plan = updatedPlan
+	}
 	_, _ = s.runManager.CompleteRun(ctx, controllerRun, "turn_output")
 	reply := runResult.Reply
+	if !s.processInline {
+		reply = s.agentTurnCompletionReply(plan, reply)
+	}
 	observations := runResult.Context.Observations
 	turn = runResult.Turn
 	span.SetAttributes(
@@ -739,15 +764,143 @@ func (s *AgentConversationService) createPlanForTurn(
 	return plan, token, nil
 }
 
-func approvalRequiredReply(plan domain.AgentPlan, token string) string {
+func (s *AgentConversationService) approvalRequiredReply(plan domain.AgentPlan, token string) string {
 	var builder strings.Builder
 	builder.WriteString("该操作需要确认后才能继续。\n计划：")
 	builder.WriteString(plan.Summary)
 	builder.WriteString("\n影响：")
 	builder.WriteString(plan.ImpactSummary)
-	builder.WriteString("\n审批地址：/agent/approvals/")
-	builder.WriteString(token)
+	builder.WriteString("\n审批地址：")
+	builder.WriteString(s.agentApprovalURL(token))
+	if plan.ID > 0 {
+		builder.WriteString("\n进度地址：")
+		builder.WriteString(s.agentPlanURL(plan.ID))
+	}
 	return builder.String()
+}
+
+func (s *AgentConversationService) sendPlanStartedFeedback(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	plan domain.AgentPlan,
+) {
+	if s == nil || s.sender == nil || plan.ID == 0 {
+		return
+	}
+	reply := s.agentPlanStartedReply(plan)
+	sendResult, sendCount, err := s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
+	status := "succeeded"
+	message := "agent plan started feedback sent"
+	if err != nil {
+		status = "failed"
+		message = err.Error()
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: session.ID,
+		TurnID:    turn.ID,
+		UserID:    account.UserID,
+		EventType: "agent.plan_started_feedback",
+		Status:    status,
+		Message:   message,
+		Metadata: domain.AgentJSON{
+			"plan_id":             plan.ID,
+			"provider_message_id": input.ProviderMessageID,
+			"wechat_msgid":        sendResult.MessageID,
+			"send_count":          sendCount,
+			"progress_url":        s.agentPlanURL(plan.ID),
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentConversationService) agentPlanStartedReply(plan domain.AgentPlan) string {
+	var builder strings.Builder
+	builder.WriteString("工作已开始。\n")
+	builder.WriteString("调度方式：controller 生成执行计划，executor 按步骤调用授权能力。\n")
+	if plan.Summary != "" {
+		builder.WriteString("计划：")
+		builder.WriteString(plan.Summary)
+		builder.WriteString("\n")
+	}
+	if len(plan.AllowedScopes) > 0 {
+		builder.WriteString("授权范围：")
+		builder.WriteString(strings.Join(plan.AllowedScopes, "、"))
+		builder.WriteString("\n")
+	}
+	if plan.ID > 0 {
+		builder.WriteString("进度地址：")
+		builder.WriteString(s.agentPlanURL(plan.ID))
+		builder.WriteString("\n")
+	}
+	if len(plan.Steps) > 0 {
+		builder.WriteString("实施步骤：")
+		for index, step := range plan.Steps {
+			if index >= 6 {
+				builder.WriteString("\n")
+				builder.WriteString(fmt.Sprintf("%d. 其余步骤将在网页进度中显示", index+1))
+				break
+			}
+			builder.WriteString("\n")
+			builder.WriteString(fmt.Sprintf("%d. %s", index+1, planStepLabel(step)))
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func (s *AgentConversationService) agentTurnCompletionReply(plan domain.AgentPlan, reply string) string {
+	reply = strings.TrimSpace(reply)
+	if plan.ID == 0 {
+		return reply
+	}
+	status := "已完成"
+	if plan.Status == domain.AgentPlanStatusFailed {
+		status = "处理失败"
+	}
+	if reply == "" {
+		reply = status
+	}
+	var builder strings.Builder
+	builder.WriteString(reply)
+	builder.WriteString("\n\n状态：")
+	builder.WriteString(status)
+	builder.WriteString("\n进度地址：")
+	builder.WriteString(s.agentPlanURL(plan.ID))
+	return builder.String()
+}
+
+func planStepLabel(step domain.AgentPlanStep) string {
+	title := strings.TrimSpace(step.Title)
+	if title == "" {
+		title = strings.TrimSpace(step.CapabilityKey)
+	}
+	if title == "" {
+		return "执行计划步骤"
+	}
+	if step.CapabilityKey == "" {
+		return title
+	}
+	return title + "（" + step.CapabilityKey + "）"
+}
+
+func (s *AgentConversationService) agentPlanURL(planID int64) string {
+	path := fmt.Sprintf("/agent/plans/%d", planID)
+	if s == nil || s.publicBaseURL == "" {
+		return path
+	}
+	return s.publicBaseURL + path
+}
+
+func (s *AgentConversationService) agentApprovalURL(token string) string {
+	path := "/agent/approvals/" + strings.TrimSpace(token)
+	if s == nil || s.publicBaseURL == "" {
+		return path
+	}
+	return s.publicBaseURL + path
 }
 
 func (s *AgentConversationService) finishTurnWithReply(
@@ -939,12 +1092,16 @@ func (s *AgentConversationService) sendTurnFailureFeedback(
 	originalTurn domain.AgentTurn,
 	failedTurn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
+	plan domain.AgentPlan,
 	cause error,
 ) ReceiveWeChatWorkAppMessageResult {
 	if failedTurn.ID == 0 {
 		failedTurn = originalTurn
 	}
 	reply := agentTurnFailureFeedback(input.TextContent)
+	if !s.processInline {
+		reply = s.agentTurnCompletionReply(plan, reply)
+	}
 	sendResult := notifier.WeChatWorkSendResult{}
 	sendCount := 0
 	sendStatus := "skipped"

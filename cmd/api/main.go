@@ -223,6 +223,7 @@ func main() {
 				service.WithAgentConversationRecentItemsProvider(timelineService),
 				service.WithAgentConversationSourceProvider(sourceService),
 				service.WithAgentConversationNotificationJobStore(notificationRepository),
+				service.WithAgentConversationPublicBaseURL(cfg.Runtime.PublicBaseURL),
 			)
 		}
 

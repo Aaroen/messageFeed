@@ -6,6 +6,7 @@ import { getFeedViewMode, saveFeedViewMode, type FeedViewMode } from '@/api/feed
 const LoginView = () => import('@/views/LoginView.vue')
 const RegisterView = () => import('@/views/RegisterView.vue')
 const AgentApprovalView = () => import('@/views/AgentApprovalView.vue')
+const AgentPlanView = () => import('@/views/AgentPlanView.vue')
 const ItemDetailView = () => import('@/views/ItemDetailView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const SubscriptionFeedView = () => import('@/views/SubscriptionFeedView.vue')
@@ -94,6 +95,12 @@ const router = createRouter({
       name: 'agent-approval',
       component: AgentApprovalView,
       meta: { title: '操作确认', section: 'agent' },
+    },
+    {
+      path: '/agent/plans/:id',
+      name: 'agent-plan',
+      component: AgentPlanView,
+      meta: { title: '执行进度', section: 'agent' },
     },
     {
       path: '/timeline',
