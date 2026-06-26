@@ -392,7 +392,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 4. 当前 snapshot recorder 拆分累计承接 70 个审计快照 recorder；文件数量未继续扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
-下一实施单元尚未写入当前活动文档。后续应从 `recordAgentFeedbackSLAReportSnapshot` 开始，继续按 10 个左右的审计快照 recorder 小批量迁出。
+下一实施单元已写入当前活动文档：SLA 报表与进度证据 Recorder 迁出。拟继续迁出反馈 SLA 报表、告警自动恢复、运维证据、统一进度组件、证据详情页、回调重放工具、恢复策略配置、双端进度证据、企业微信进度卡片和 Web 证据交互相关 10 个 recorder。
 
 ## 8. 最小验证命令
 

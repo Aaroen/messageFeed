@@ -325,6 +325,39 @@
    - `go test ./...`
    - `go vet ./...`
 
+## 4.8 第八实施单元：SLA 报表与进度证据 Recorder 迁出
+
+本小轮继续迁出反馈 SLA 报表、告警自动恢复、运维证据、统一进度组件、证据详情页、回调重放工具、恢复策略配置、双端进度证据、企业微信进度卡片和 Web 证据交互相关 recorder。这组方法只把既有响应 DTO 序列化为审计 metadata，不改变任务聚合调用顺序。
+
+拟迁出内容：
+
+1. `recordAgentFeedbackSLAReportSnapshot`
+2. `recordAgentAlertAutoRecoverySnapshot`
+3. `recordAgentOperationsEvidenceSnapshot`
+4. `recordAgentUnifiedProgressComponentSnapshot`
+5. `recordAgentEvidenceDetailPageSnapshot`
+6. `recordAgentCallbackReplayToolSnapshot`
+7. `recordAgentRecoveryPolicyConfigSnapshot`
+8. `recordAgentDualEndProgressEvidenceSnapshot`
+9. `recordAgentWeChatProgressCardSnapshot`
+10. `recordAgentWebEvidenceInteractionSnapshot`
+
+拟承接文件：
+
+1. `internal/service/agent_session_snapshot_recorders.go`
+
+实施约束：
+
+1. 不改变审计事件类型、metadata 字段、状态取值和 summary 文案。
+2. 不改变 `ListTasks` 中 recorder 调用顺序。
+3. 方法仍保持 `AgentSessionService` receiver 和 package 内部可见。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
