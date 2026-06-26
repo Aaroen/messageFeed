@@ -21,8 +21,8 @@
 | --- | --- |
 | 分支 | `master` |
 | 工作区 | 最小 Agent 闭环交付已实现并验证；提交推送后以 `git status -sb` 为准 |
-| 当前活动文档 | `docs/nowdoit/agent-minimal-closed-loop-delivery-plan.md` |
-| 最近本轮验证 | `go test ./...`、`go vet ./...` 已通过 |
+| 当前活动文档 | `docs/nowdoit/agent-web-assistant-entry-plan.md` |
+| 最近本轮验证 | 计划阶段；实现后需运行前端类型检查、构建和测试 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
 
 ## 3. 已完成能力
@@ -73,7 +73,7 @@
 
 | 优先级 | 缺口 | 当前判断 |
 | --- | --- | --- |
-| P1 | Web 浏览器进度地址权限校验与企业微信身份绑定仍需继续强化 | 进度与计划接口用户归属校验已有测试；OAuth / external account 绑定链路已有服务测试；仍需完成前端进度摘要拆分和入口体验治理 |
+| P1 | Web 浏览器进度地址权限校验与企业微信身份绑定仍需继续强化 | 进度与计划接口用户归属校验已有测试；OAuth / external account 绑定链路已有服务测试；当前轮处理助理顶部入口、三页滑动和 Agent 工作台用户化整理 |
 | P1 | Agent 能力注册、上下文记忆、计划执行和评测体系仍需按设计持续补齐 | 已有较多基础对象，但未能证明全部设计均已完整实现 |
 | P1 | 大文件职责边界仍不理想 | 需要继续拆分 `agent_session_service.go`、`agent_workflow_governance.go`、`AgentPlanView.vue` |
 
@@ -414,6 +414,18 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 5. 已扩展 `TestAgentConversationServiceReceivesWebAgentTask`，覆盖 Web 发起、计划生成、进度地址、企业微信模板与文本投递、审计 metadata。
 6. 已验证：`go test ./...`、`go vet ./...`。
 7. 后续可恢复 `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` 中已写入但暂停的 4.8 recorder 拆分计划，或继续补强闭环的生产级异常路径。
+
+当前新活动文档：`docs/nowdoit/agent-web-assistant-entry-plan.md`
+
+助理 Web 入口与工作台整理目标：
+
+1. 顶部主入口从“订阅 / 推荐”扩展为“订阅 / 推荐 / 助理”。
+2. 三个页面使用同一 `FeedPager` 横向滑动模型，并同时挂载内容，避免滑动到目标页后才加载。
+3. `/agent`、`/agent/plans/:id` 和 `/agent/plans/:id/evidence/:recordKey` 归入助理顶部页签。
+4. 助理页复用现有 Agent 后端接入，不新增后端接口。
+5. 用户界面中最近任务不展示开发治理任务；无真实用户任务时显示为空状态。
+6. 评测基线从用户界面移除，评测仍作为开发者验证能力保留在后端。
+7. 执行进度移动到发起任务下方，减少用户查找成本。
 
 ## 8. 最小验证命令
 
