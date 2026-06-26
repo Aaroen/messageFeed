@@ -47,6 +47,7 @@ const props = withDefaults(
     morphingItemHeight?: number | null
     morphingPreviewProgress?: number
     backgroundRefresh?: boolean
+    preload?: boolean
   }>(),
   {
     mode: 'subscriptions',
@@ -64,6 +65,7 @@ const props = withDefaults(
     morphingItemHeight: null,
     morphingPreviewProgress: 0,
     backgroundRefresh: false,
+    preload: false,
   },
 )
 
@@ -374,14 +376,15 @@ function resetListState() {
 
 function loadInitialItems() {
   const restored = restoreItemsFromCache()
-  if (!props.active) {
+  if (!props.active && !props.preload) {
     return
   }
+  const background = !props.active && props.preload
   if (!restored) {
-    void loadItems({ refresh: isSourceMode.value })
+    void loadItems({ refresh: isSourceMode.value, background })
     return
   }
-  if (shouldRefreshVisibleSource.value) {
+  if (props.active && shouldRefreshVisibleSource.value) {
     void loadItems({ refresh: true })
     return
   }
@@ -1072,7 +1075,7 @@ watch(
       clearNotice: true,
       pullOwnerViewKey: previousViewKey,
     })
-    if (props.active) {
+    if (props.active || props.preload) {
       loadInitialItems()
     }
   },
@@ -1081,11 +1084,17 @@ watch(
 watch(
   cacheRevision,
   () => {
-    if (!props.active || loading.value || refreshing.value || loadingMore.value || backgroundRefreshing.value) {
+    if (
+      (!props.active && !props.preload) ||
+      loading.value ||
+      refreshing.value ||
+      loadingMore.value ||
+      backgroundRefreshing.value
+    ) {
       return
     }
     if (!hasItems.value) {
-      void loadItems({ refresh: isSourceMode.value })
+      void loadItems({ refresh: isSourceMode.value, background: !props.active && props.preload })
       return
     }
     void loadItems({ refresh: true, background: true })

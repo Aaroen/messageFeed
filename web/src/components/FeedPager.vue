@@ -64,6 +64,7 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
         <SubscriptionFeedView
           mode="subscriptions"
           :active="subscriptionsActive"
+          preload
           :scroll-top="feedScrollTop"
           :top-chrome-progress="topChromeProgress"
           :top-chrome-content-collapsed="topChromeContentCollapsed"
@@ -83,6 +84,7 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
         <SubscriptionFeedView
           mode="recommendations"
           :active="recommendationsActive"
+          preload
           :scroll-top="feedScrollTop"
           :top-chrome-progress="topChromeProgress"
           :top-chrome-content-collapsed="topChromeContentCollapsed"

@@ -71,3 +71,10 @@
 2. `messagefeed-api` 和 `messagefeed-web` 已重建并运行。
 3. `https://localhost:8443/healthz` 返回正常。
 4. `https://aroen.eu.cc/healthz` 返回正常。
+
+补充修复：
+
+1. 已为 `SubscriptionFeedView` 增加 `preload` 语义，隐藏的信息流 pane 首次挂载时也会后台加载内容。
+2. `FeedPager` 已对订阅和推荐 pane 开启 `preload`；助理 pane 挂载时继续执行自身任务数据加载。
+3. 已修正顶部三段页签盒模型，确保“订阅 / 推荐 / 助理”文字居中并位于对应选项框内部。
+4. 已验证：`npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test`。

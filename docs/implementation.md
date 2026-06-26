@@ -430,6 +430,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 7. 已完成：执行进度移动到发起任务下方，减少用户查找成本。
 8. 已验证：`npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test`、`go test ./...`、`go vet ./...`。
 9. 已部署：通过 `systemctl restart messagefeed-dev.service` 重建并启动生产 Cloudflare 模式；`https://localhost:8443/healthz` 和 `https://aroen.eu.cc/healthz` 均返回正常。
+10. 已补充修复：订阅和推荐隐藏 pane 启用首次后台预加载，助理 pane 挂载后加载自身任务数据；顶部三段页签修正盒模型，保证文字位于对应选项框内部。
 
 ## 8. 最小验证命令
 
