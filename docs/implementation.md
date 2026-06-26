@@ -316,6 +316,8 @@ Workflow governance 权限审批、模板发送与真实交互 builder 拆分阶
 4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 122 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
+下一实施单元已写入当前活动文档：剩余 SLA 与任务报表 Builder 收尾迁出。拟将 `buildAgentSLASummary` 和 `buildAgentTaskReport` 迁入既有 `internal/service/agent_workflow_foundation_builders.go`，使 `agent_workflow_governance.go` 进一步收敛为 admission、质量摘要和通用 helper。
+
 ## 8. 最小验证命令
 
 当前阶段每轮代码实现后至少运行：

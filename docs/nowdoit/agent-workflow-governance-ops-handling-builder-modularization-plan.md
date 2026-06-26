@@ -197,6 +197,31 @@
    - `go test ./...`
    - `go vet ./...`
 
+## 4.5 第五实施单元：剩余 SLA 与任务报表 Builder 收尾迁出
+
+本小轮迁出 `agent_workflow_governance.go` 中剩余的两个任务聚合统计 builder。两者属于基础聚合统计职责，承接文件选择既有 `internal/service/agent_workflow_foundation_builders.go`，避免继续扩大 ops handling 文件。
+
+拟迁出内容：
+
+1. `buildAgentSLASummary`
+2. `buildAgentTaskReport`
+
+拟承接文件：
+
+1. `internal/service/agent_workflow_foundation_builders.go`
+
+实施约束：
+
+1. 不改变聚合摘要 JSON 字段、状态取值和统计口径。
+2. 不改变 `ListTasks` 中相关 builder 的调用顺序。
+3. helper 仍保持 package 内部可见，不扩大导出面。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
