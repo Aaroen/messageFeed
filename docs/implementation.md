@@ -20,7 +20,7 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 本轮文档记录按 session snapshot recorder 第六实施单元迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
+| 工作区 | 本轮文档记录按 session snapshot recorder 第七实施单元迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` |
 | 最近本轮验证 | `go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
@@ -82,7 +82,7 @@
 
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
-| `internal/service/agent_session_service.go` | 4651 | 仍明显过大；已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数、任务摘要状态 helper、基础治理审计快照 recorder、发布执行/日报闭环 recorder、发布窗口/外部监控 recorder、生产发布/上线交接 recorder、运行态参数/反馈闭环 recorder 和放量阶段/运维处置 recorder，后续应继续拆分剩余审计 recorder、进度构造和服务编排 |
+| `internal/service/agent_session_service.go` | 4446 | 仍明显过大；已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数、任务摘要状态 helper、基础治理审计快照 recorder、发布执行/日报闭环 recorder、发布窗口/外部监控 recorder、生产发布/上线交接 recorder、运行态参数/反馈闭环 recorder、放量阶段/运维处置 recorder 和审批执行/工单 SLA recorder，后续应继续拆分剩余审计 recorder、进度构造和服务编排 |
 | `internal/service/agent_workflow_governance.go` | 739 | 已明显低于此前 5000 行级别；本轮已迁出所有 `buildAgent*` 纯 builder，剩余内容主要为 admission、质量摘要、通用 helper 和 plan/domain 转换辅助 |
 | `web/src/views/AgentPlanView.vue` | 3680 | 仍明显过大；本轮已迁出两个企业微信摘要组件，后续应继续拆分 composable、摘要面板组件和任务卡片组件 |
 
@@ -384,7 +384,15 @@ Agent session 放量阶段与运维处置 recorder 拆分阶段性结果：
 4. 当前 snapshot recorder 拆分累计承接 60 个审计快照 recorder；文件数量未继续扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
-下一实施单元已写入当前活动文档：审批执行与工单 SLA Recorder 迁出。拟继续迁出写入阶段审批、反馈工单生命周期、运维动作闭环、运维 API 执行、告警升级回执、写入审批按钮、反馈工单 SLA、运维执行、运维执行记录和企业微信审批回调相关 10 个 recorder。
+Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
+
+1. 已将 `recordAgentWriteStageApprovalSnapshot`、`recordAgentFeedbackTicketLifecycleSnapshot`、`recordAgentOperationsActionClosureSnapshot`、`recordAgentOpsAPIExecutionSnapshot`、`recordAgentAlertEscalationReceiptSnapshot`、`recordAgentWriteApprovalButtonSnapshot`、`recordAgentFeedbackTicketSLASnapshot`、`recordAgentOperationsExecutionSnapshot`、`recordAgentOpsExecutionRecordSnapshot` 和 `recordAgentWeChatApprovalCallbackSnapshot` 迁入 `internal/service/agent_session_snapshot_recorders.go`。
+2. 已从 `internal/service/agent_session_service.go` 移除同一方法块，不改变审计事件类型、metadata 字段、状态取值、summary 文案或 `ListTasks` 调用顺序。
+3. `agent_session_service.go` 从 4651 行降至 4446 行；`agent_session_snapshot_recorders.go` 从 1291 行增至 1496 行。
+4. 当前 snapshot recorder 拆分累计承接 70 个审计快照 recorder；文件数量未继续扩张。
+5. 已验证：`go test ./...`、`go vet ./...`。
+
+下一实施单元尚未写入当前活动文档。后续应从 `recordAgentFeedbackSLAReportSnapshot` 开始，继续按 10 个左右的审计快照 recorder 小批量迁出。
 
 ## 8. 最小验证命令
 
