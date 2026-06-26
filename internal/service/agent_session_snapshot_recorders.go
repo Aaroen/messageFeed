@@ -1077,3 +1077,215 @@ func (s *AgentSessionService) recordAgentMonitorAutoReportSnapshot(ctx context.C
 		CreatedAt: s.now().UTC(),
 	})
 }
+
+func (s *AgentSessionService) recordAgentWriteRampStageSnapshot(ctx context.Context, userID int64, stage AgentWriteRampStageResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.write_ramp_stage_snapshot",
+		Status:    stage.Status,
+		Message:   stage.Summary,
+		Metadata: domain.AgentJSON{
+			"current_stage":       stage.CurrentStage,
+			"next_stage":          stage.NextStage,
+			"entry_conditions":    stage.EntryConditions,
+			"exit_conditions":     stage.ExitConditions,
+			"rollback_conditions": stage.RollbackConditions,
+			"default_action":      stage.DefaultAction,
+			"check_count":         len(stage.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentWeChatFeedbackLoopSnapshot(ctx context.Context, userID int64, loop AgentWeChatFeedbackLoopResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.wechat_feedback_loop_snapshot",
+		Status:    loop.Status,
+		Message:   loop.Summary,
+		Metadata: domain.AgentJSON{
+			"completion_state": loop.CompletionState,
+			"failure_state":    loop.FailureState,
+			"button_state":     loop.ButtonState,
+			"web_trace_state":  loop.WebTraceState,
+			"processing_state": loop.ProcessingState,
+			"next_action":      loop.NextAction,
+			"check_count":      len(loop.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentOperationsClosedLoopSnapshot(ctx context.Context, userID int64, loop AgentOperationsClosedLoopResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.operations_closed_loop_snapshot",
+		Status:    loop.Status,
+		Message:   loop.Summary,
+		Metadata: domain.AgentJSON{
+			"ops_panel_status":        loop.OpsPanelStatus,
+			"monitor_report_status":   loop.MonitorReportStatus,
+			"write_ramp_stage_status": loop.WriteRampStageStatus,
+			"feedback_loop_status":    loop.FeedbackLoopStatus,
+			"audit_status":            loop.AuditStatus,
+			"next_action":             loop.NextAction,
+			"check_count":             len(loop.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentOpsDashboardInteractionSnapshot(ctx context.Context, userID int64, dashboard AgentOpsDashboardInteractionResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.ops_dashboard_interaction_snapshot",
+		Status:    dashboard.Status,
+		Message:   dashboard.Summary,
+		Metadata: domain.AgentJSON{
+			"actions":          dashboard.Actions,
+			"refresh_strategy": dashboard.RefreshStrategy,
+			"filters":          dashboard.Filters,
+			"links":            dashboard.Links,
+			"audit_event":      dashboard.AuditEvent,
+			"check_count":      len(dashboard.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentAlertDedupeEscalationSnapshot(ctx context.Context, userID int64, escalation AgentAlertDedupeEscalationResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.alert_dedupe_escalation_snapshot",
+		Status:    escalation.Status,
+		Message:   escalation.Summary,
+		Metadata: domain.AgentJSON{
+			"dedupe_key":            escalation.DedupeKey,
+			"dedupe_window_seconds": escalation.DedupeWindowSeconds,
+			"escalation_condition":  escalation.EscalationCondition,
+			"wechat_notify_status":  escalation.WeChatNotifyStatus,
+			"web_visibility_status": escalation.WebVisibilityStatus,
+			"check_count":           len(escalation.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentWriteStageRecordSnapshot(ctx context.Context, userID int64, record AgentWriteStageRecordResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.write_stage_record_snapshot",
+		Status:    record.Status,
+		Message:   record.Summary,
+		Metadata: domain.AgentJSON{
+			"current_stage":       record.CurrentStage,
+			"target_stage":        record.TargetStage,
+			"promotion_reason":    record.PromotionReason,
+			"blockers":            record.Blockers,
+			"rollback_conditions": record.RollbackConditions,
+			"default_action":      record.DefaultAction,
+			"check_count":         len(record.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentWeChatFeedbackTicketSnapshot(ctx context.Context, userID int64, ticket AgentWeChatFeedbackTicketResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.wechat_feedback_ticket_snapshot",
+		Status:    ticket.Status,
+		Message:   ticket.Summary,
+		Metadata: domain.AgentJSON{
+			"ticket_type":      ticket.TicketType,
+			"processing_state": ticket.ProcessingState,
+			"owner_entry":      ticket.OwnerEntry,
+			"user_next_action": ticket.UserNextAction,
+			"audit_event":      ticket.AuditEvent,
+			"check_count":      len(ticket.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentOperationsHandlingSnapshot(ctx context.Context, userID int64, handling AgentOperationsHandlingResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.operations_handling_snapshot",
+		Status:    handling.Status,
+		Message:   handling.Summary,
+		Metadata: domain.AgentJSON{
+			"dashboard_status":        handling.DashboardStatus,
+			"alert_escalation_status": handling.AlertEscalationStatus,
+			"write_stage_status":      handling.WriteStageStatus,
+			"feedback_ticket_status":  handling.FeedbackTicketStatus,
+			"audit_status":            handling.AuditStatus,
+			"next_action":             handling.NextAction,
+			"check_count":             len(handling.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentOpsActionDefinitionSnapshot(ctx context.Context, userID int64, definition AgentOpsActionDefinitionResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.ops_action_definition_snapshot",
+		Status:    definition.Status,
+		Message:   definition.Summary,
+		Metadata: domain.AgentJSON{
+			"actions":     definition.Actions,
+			"check_count": len(definition.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentAlertEscalationPolicySnapshot(ctx context.Context, userID int64, policy AgentAlertEscalationPolicyResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.alert_escalation_policy_snapshot",
+		Status:    policy.Status,
+		Message:   policy.Summary,
+		Metadata: domain.AgentJSON{
+			"escalation_level":       policy.EscalationLevel,
+			"notification_channels":  policy.NotificationChannels,
+			"repeat_suppression":     policy.RepeatSuppression,
+			"recipients":             policy.Recipients,
+			"recovery_notice_status": policy.RecoveryNoticeStatus,
+			"audit_evidence":         policy.AuditEvidence,
+			"check_count":            len(policy.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
