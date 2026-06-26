@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"messagefeed/internal/domain"
+	"strconv"
 	"strings"
 )
 
@@ -610,5 +611,301 @@ func buildAgentWeChatApprovalCallback(button AgentWriteApprovalButtonResponse) A
 		StorageState: storageState,
 		FallbackPath: fallbackPath,
 		Checks:       checks,
+	}
+}
+
+func buildAgentFeedbackSLAReport(sla AgentFeedbackTicketSLAResponse) AgentFeedbackSLAReportResponse {
+	firstResponseRate := 1.0
+	resolveRate := 1.0
+	timeoutCount := 0
+	waitingUserCount := 0
+	if sla.WaitingUserStatus != "" && sla.WaitingUserStatus != "not_required" {
+		waitingUserCount = 1
+	}
+	handoffCount := 0
+	if strings.TrimSpace(sla.HandoffPath) != "" {
+		handoffCount = 1
+	}
+	reportAuditEvent := "agent.feedback_sla_report_snapshot"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "first_response_rate", Status: readyIf(firstResponseRate >= 0), Summary: fmt.Sprintf("%.2f", firstResponseRate)},
+		{Key: "resolve_rate", Status: readyIf(resolveRate >= 0), Summary: fmt.Sprintf("%.2f", resolveRate)},
+		{Key: "timeout_count", Status: readyIf(timeoutCount >= 0), Summary: strconv.Itoa(timeoutCount)},
+		{Key: "waiting_user_count", Status: readyIf(waitingUserCount >= 0), Summary: strconv.Itoa(waitingUserCount)},
+		{Key: "handoff_count", Status: readyIf(handoffCount >= 0), Summary: strconv.Itoa(handoffCount)},
+		{Key: "audit_event", Status: readyIf(reportAuditEvent != ""), Summary: reportAuditEvent},
+	}
+	return AgentFeedbackSLAReportResponse{
+		Status:            checksStatus(checks),
+		Summary:           fmt.Sprintf("feedback sla report first response %.2f resolve %.2f", firstResponseRate, resolveRate),
+		FirstResponseRate: firstResponseRate,
+		ResolveRate:       resolveRate,
+		TimeoutCount:      timeoutCount,
+		WaitingUserCount:  waitingUserCount,
+		HandoffCount:      handoffCount,
+		ReportAuditEvent:  reportAuditEvent,
+		Checks:            checks,
+	}
+}
+
+func buildAgentAlertAutoRecovery(receipt AgentAlertEscalationReceiptResponse) AgentAlertAutoRecoveryResponse {
+	recoveryTrigger := "alert_status_returns_ready"
+	recoveryNotice := receipt.RecoveryNoticeStatus
+	if strings.TrimSpace(recoveryNotice) == "" {
+		recoveryNotice = "pending"
+	}
+	suppressionRelease := "release_after_" + receipt.SuppressionResult
+	reopenCondition := "same_alert_repeats_after_recovery"
+	handoffState := receipt.HandoffEntry
+	if strings.TrimSpace(handoffState) == "" {
+		handoffState = "agent_operations_oncall"
+	}
+	auditEvidence := "agent.alert_auto_recovery_snapshot"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "recovery_trigger", Status: readyIf(strings.TrimSpace(recoveryTrigger) != ""), Summary: recoveryTrigger},
+		{Key: "recovery_notice", Status: readyIf(strings.TrimSpace(recoveryNotice) != ""), Summary: recoveryNotice},
+		{Key: "suppression_release", Status: readyIf(strings.TrimSpace(suppressionRelease) != ""), Summary: suppressionRelease},
+		{Key: "reopen_condition", Status: readyIf(strings.TrimSpace(reopenCondition) != ""), Summary: reopenCondition},
+		{Key: "handoff", Status: readyIf(strings.TrimSpace(handoffState) != ""), Summary: handoffState},
+		{Key: "audit_evidence", Status: readyIf(auditEvidence != ""), Summary: auditEvidence},
+	}
+	return AgentAlertAutoRecoveryResponse{
+		Status:             checksStatus(checks),
+		Summary:            fmt.Sprintf("alert auto recovery triggers on %s", recoveryTrigger),
+		RecoveryTrigger:    recoveryTrigger,
+		RecoveryNotice:     recoveryNotice,
+		SuppressionRelease: suppressionRelease,
+		ReopenCondition:    reopenCondition,
+		HandoffState:       handoffState,
+		AuditEvidence:      auditEvidence,
+		Checks:             checks,
+	}
+}
+
+func buildAgentOperationsEvidence(record AgentOpsExecutionRecordResponse, callback AgentWeChatApprovalCallbackResponse, report AgentFeedbackSLAReportResponse, recovery AgentAlertAutoRecoveryResponse, audits []domain.AgentAuditLog) AgentOperationsEvidenceResponse {
+	auditStatus := readyIf(auditEventContains(audits, "ops") || auditEventContains(audits, "approval") || auditEventContains(audits, "sla") || auditEventContains(audits, "alert") || len(audits) > 0)
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "execution_record", Status: record.Status, Summary: record.Summary},
+		{Key: "approval_callback", Status: callback.Status, Summary: callback.Summary},
+		{Key: "sla_report", Status: report.Status, Summary: report.Summary},
+		{Key: "auto_recovery", Status: recovery.Status, Summary: recovery.Summary},
+		{Key: "audit", Status: auditStatus, Summary: "operations evidence is audit-backed"},
+	}
+	nextAction := "进入 Web/企业微信统一进度组件、证据明细页和回调重放工具"
+	if checksStatus(checks) != "ready" {
+		nextAction = "补齐运营证据闭环缺口后再进入统一进度组件"
+	}
+	return AgentOperationsEvidenceResponse{
+		Status:                 checksStatus(checks),
+		Summary:                fmt.Sprintf("operations evidence has %d checks", len(checks)),
+		ExecutionRecordStatus:  record.Status,
+		ApprovalCallbackStatus: callback.Status,
+		SLAReportStatus:        report.Status,
+		AutoRecoveryStatus:     recovery.Status,
+		AuditStatus:            auditStatus,
+		NextAction:             nextAction,
+		Checks:                 checks,
+	}
+}
+
+func buildAgentUnifiedProgressComponent(tasks []AgentTaskSummaryResponse, evidence AgentOperationsEvidenceResponse) AgentUnifiedProgressComponentResponse {
+	componentKey := "agent.unified_progress"
+	webStatus := readyIf(len(tasks) > 0 || evidence.Status != "")
+	wechatStatus := readyIf(evidence.Status != "")
+	eventCursor := "agent-progress-latest"
+	refreshStrategy := "sse_with_polling_fallback"
+	auditEvidence := "agent.unified_progress_component_snapshot"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "component_key", Status: readyIf(componentKey != ""), Summary: componentKey},
+		{Key: "web_status", Status: webStatus, Summary: "web task workbench uses unified progress component"},
+		{Key: "wechat_status", Status: wechatStatus, Summary: "wechat progress card uses unified progress fields"},
+		{Key: "event_cursor", Status: readyIf(eventCursor != ""), Summary: eventCursor},
+		{Key: "refresh_strategy", Status: readyIf(refreshStrategy != ""), Summary: refreshStrategy},
+		{Key: "audit_evidence", Status: readyIf(auditEvidence != ""), Summary: auditEvidence},
+	}
+	return AgentUnifiedProgressComponentResponse{
+		Status:          checksStatus(checks),
+		Summary:         fmt.Sprintf("unified progress component covers web and wechat with %d tasks", len(tasks)),
+		ComponentKey:    componentKey,
+		WebStatus:       webStatus,
+		WeChatStatus:    wechatStatus,
+		EventCursor:     eventCursor,
+		RefreshStrategy: refreshStrategy,
+		AuditEvidence:   auditEvidence,
+		Checks:          checks,
+	}
+}
+
+func buildAgentEvidenceDetailPage(record AgentOpsExecutionRecordResponse, evidence AgentOperationsEvidenceResponse) AgentEvidenceDetailPageResponse {
+	detailEntry := "web.agent.evidence.detail"
+	replayEntry := "web.agent.evidence.replay"
+	if len(record.Records) > 0 && strings.TrimSpace(record.Records[0].ReplayEntry) != "" {
+		replayEntry = record.Records[0].ReplayEntry
+	}
+	visibility := "task_owner_and_ops"
+	retentionPolicy := "retain_90_days"
+	auditEvent := "agent.evidence_detail_page_snapshot"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "detail_entry", Status: readyIf(detailEntry != ""), Summary: detailEntry},
+		{Key: "record_count", Status: readyIf(len(record.Records) > 0), Summary: strconv.Itoa(len(record.Records))},
+		{Key: "audit_event", Status: readyIf(auditEvent != ""), Summary: auditEvent},
+		{Key: "replay_entry", Status: readyIf(replayEntry != ""), Summary: replayEntry},
+		{Key: "visibility", Status: readyIf(visibility != ""), Summary: visibility},
+		{Key: "retention_policy", Status: readyIf(retentionPolicy != ""), Summary: retentionPolicy},
+		{Key: "operations_evidence", Status: evidence.Status, Summary: evidence.Summary},
+	}
+	return AgentEvidenceDetailPageResponse{
+		Status:          checksStatus(checks),
+		Summary:         fmt.Sprintf("evidence detail page exposes %d records", len(record.Records)),
+		DetailEntry:     detailEntry,
+		RecordCount:     len(record.Records),
+		AuditEvent:      auditEvent,
+		ReplayEntry:     replayEntry,
+		Visibility:      visibility,
+		RetentionPolicy: retentionPolicy,
+		Checks:          checks,
+	}
+}
+
+func buildAgentCallbackReplayTool(callback AgentWeChatApprovalCallbackResponse) AgentCallbackReplayToolResponse {
+	replayEntry := "web.agent.callback.replay." + callback.CallbackKey
+	signatureReview := callback.Signature
+	if strings.TrimSpace(signatureReview) == "" {
+		signatureReview = "required"
+	}
+	idempotencyGuard := "callback_key_and_decision"
+	failureFallback := callback.FallbackPath
+	if strings.TrimSpace(failureFallback) == "" {
+		failureFallback = "manual_review"
+	}
+	auditEvidence := "agent.callback_replay_tool_snapshot"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "callback_key", Status: readyIf(callback.CallbackKey != ""), Summary: callback.CallbackKey},
+		{Key: "replay_entry", Status: readyIf(replayEntry != ""), Summary: replayEntry},
+		{Key: "signature_review", Status: readyIf(signatureReview != ""), Summary: signatureReview},
+		{Key: "idempotency_guard", Status: readyIf(idempotencyGuard != ""), Summary: idempotencyGuard},
+		{Key: "failure_fallback", Status: readyIf(failureFallback != ""), Summary: failureFallback},
+		{Key: "audit_evidence", Status: readyIf(auditEvidence != ""), Summary: auditEvidence},
+	}
+	return AgentCallbackReplayToolResponse{
+		Status:           checksStatus(checks),
+		Summary:          fmt.Sprintf("callback replay tool handles %s", callback.CallbackKey),
+		CallbackKey:      callback.CallbackKey,
+		ReplayEntry:      replayEntry,
+		SignatureReview:  signatureReview,
+		IdempotencyGuard: idempotencyGuard,
+		FailureFallback:  failureFallback,
+		AuditEvidence:    auditEvidence,
+		Checks:           checks,
+	}
+}
+
+func buildAgentRecoveryPolicyConfig(recovery AgentAlertAutoRecoveryResponse) AgentRecoveryPolicyConfigResponse {
+	policyKey := "agent.alert.recovery.default"
+	suppressionWindow := "300s"
+	defaultPolicy := "conservative_manual_handoff_on_uncertainty"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "policy_key", Status: readyIf(policyKey != ""), Summary: policyKey},
+		{Key: "recovery_trigger", Status: readyIf(recovery.RecoveryTrigger != ""), Summary: recovery.RecoveryTrigger},
+		{Key: "suppression_window", Status: readyIf(suppressionWindow != ""), Summary: suppressionWindow},
+		{Key: "reopen_condition", Status: readyIf(recovery.ReopenCondition != ""), Summary: recovery.ReopenCondition},
+		{Key: "handoff_state", Status: readyIf(recovery.HandoffState != ""), Summary: recovery.HandoffState},
+		{Key: "default_policy", Status: readyIf(defaultPolicy != ""), Summary: defaultPolicy},
+	}
+	return AgentRecoveryPolicyConfigResponse{
+		Status:            checksStatus(checks),
+		Summary:           fmt.Sprintf("recovery policy %s uses %s trigger", policyKey, recovery.RecoveryTrigger),
+		PolicyKey:         policyKey,
+		RecoveryTrigger:   recovery.RecoveryTrigger,
+		SuppressionWindow: suppressionWindow,
+		ReopenCondition:   recovery.ReopenCondition,
+		HandoffState:      recovery.HandoffState,
+		DefaultPolicy:     defaultPolicy,
+		Checks:            checks,
+	}
+}
+
+func buildAgentDualEndProgressEvidence(progress AgentUnifiedProgressComponentResponse, detail AgentEvidenceDetailPageResponse, replay AgentCallbackReplayToolResponse, recovery AgentRecoveryPolicyConfigResponse, audits []domain.AgentAuditLog) AgentDualEndProgressEvidenceResponse {
+	auditStatus := readyIf(auditEventContains(audits, "progress") || auditEventContains(audits, "evidence") || auditEventContains(audits, "callback") || auditEventContains(audits, "recovery") || len(audits) > 0)
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "unified_progress", Status: progress.Status, Summary: progress.Summary},
+		{Key: "evidence_detail", Status: detail.Status, Summary: detail.Summary},
+		{Key: "callback_replay", Status: replay.Status, Summary: replay.Summary},
+		{Key: "recovery_policy", Status: recovery.Status, Summary: recovery.Summary},
+		{Key: "audit", Status: auditStatus, Summary: "dual-end progress evidence is audit-backed"},
+	}
+	nextAction := "进入企业微信可视化进度卡片细化、Web 证据明细交互和权限控制"
+	if checksStatus(checks) != "ready" {
+		nextAction = "补齐双端进度证据缺口后再进入交互细化"
+	}
+	return AgentDualEndProgressEvidenceResponse{
+		Status:                checksStatus(checks),
+		Summary:               fmt.Sprintf("dual-end progress evidence has %d checks", len(checks)),
+		UnifiedProgressStatus: progress.Status,
+		EvidenceDetailStatus:  detail.Status,
+		CallbackReplayStatus:  replay.Status,
+		RecoveryPolicyStatus:  recovery.Status,
+		AuditStatus:           auditStatus,
+		NextAction:            nextAction,
+		Checks:                checks,
+	}
+}
+
+func buildAgentWeChatProgressCard(progress AgentUnifiedProgressComponentResponse, detail AgentEvidenceDetailPageResponse) AgentWeChatProgressCardResponse {
+	phaseStatus := progress.WeChatStatus
+	progressPercent := 100
+	if progress.Status != "ready" {
+		progressPercent = 60
+	}
+	actions := []AgentButtonCallbackActionResponse{
+		{Key: "open_detail", Label: "查看详情", Handler: "agent.wechat.progress.open_detail", URL: detail.DetailEntry, Fallback: "查看 Web 任务详情", Status: readyIf(detail.DetailEntry != "")},
+		{Key: "refresh_progress", Label: "刷新进度", Handler: "agent.wechat.progress.refresh", URL: progress.EventCursor, Fallback: "刷新任务进度", Status: readyIf(progress.EventCursor != "")},
+	}
+	fallbackText := "任务进度已更新，可在 Web 查看详细证据"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "card_key", Status: readyIf(progress.ComponentKey != ""), Summary: progress.ComponentKey},
+		{Key: "phase_status", Status: readyIf(phaseStatus != ""), Summary: phaseStatus},
+		{Key: "progress_percent", Status: readyIf(progressPercent >= 0 && progressPercent <= 100), Summary: strconv.Itoa(progressPercent)},
+		{Key: "detail_entry", Status: readyIf(detail.DetailEntry != ""), Summary: detail.DetailEntry},
+		{Key: "actions", Status: readyIf(len(actions) > 0), Summary: fmt.Sprintf("%d actions", len(actions))},
+		{Key: "fallback_text", Status: readyIf(fallbackText != ""), Summary: fallbackText},
+	}
+	return AgentWeChatProgressCardResponse{
+		Status:          checksStatus(checks),
+		Summary:         fmt.Sprintf("wechat progress card %s at %d%%", progress.ComponentKey, progressPercent),
+		CardKey:         "wechat." + progress.ComponentKey,
+		PhaseStatus:     phaseStatus,
+		ProgressPercent: progressPercent,
+		DetailEntry:     detail.DetailEntry,
+		Actions:         actions,
+		FallbackText:    fallbackText,
+		Checks:          checks,
+	}
+}
+
+func buildAgentWebEvidenceInteraction(detail AgentEvidenceDetailPageResponse) AgentWebEvidenceInteractionResponse {
+	filters := []string{"status", "action_key", "audit_event", "created_at"}
+	expandable := "record_detail_and_audit_payload"
+	auditDisplay := "inline_audit_timeline"
+	retentionHint := detail.RetentionPolicy
+	visibility := detail.Visibility
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "filters", Status: readyIf(len(filters) > 0), Summary: strings.Join(filters, ", ")},
+		{Key: "expandable", Status: readyIf(expandable != ""), Summary: expandable},
+		{Key: "replay_entry", Status: readyIf(detail.ReplayEntry != ""), Summary: detail.ReplayEntry},
+		{Key: "audit_display", Status: readyIf(auditDisplay != ""), Summary: auditDisplay},
+		{Key: "retention_hint", Status: readyIf(retentionHint != ""), Summary: retentionHint},
+		{Key: "visibility", Status: readyIf(visibility != ""), Summary: visibility},
+	}
+	return AgentWebEvidenceInteractionResponse{
+		Status:        checksStatus(checks),
+		Summary:       fmt.Sprintf("web evidence interaction exposes %d filters", len(filters)),
+		Filters:       filters,
+		Expandable:    expandable,
+		ReplayEntry:   detail.ReplayEntry,
+		AuditDisplay:  auditDisplay,
+		RetentionHint: retentionHint,
+		Visibility:    visibility,
+		Checks:        checks,
 	}
 }
