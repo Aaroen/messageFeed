@@ -344,6 +344,8 @@ Agent session 基础治理快照 recorder 拆分阶段性结果：
 4. 本小轮新增文件数量与审计快照职责拆分相匹配，不属于冗余扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
+下一实施单元已写入当前活动文档：发布执行与日报闭环 Recorder 迁出。拟继续迁出写回放、上线审批、日报、预生产验收、按钮循环、写执行、日报持久化、上线后监控、发布审批和按钮回调相关 10 个 recorder，承接文件仍为 `internal/service/agent_session_snapshot_recorders.go`。
+
 ## 8. 最小验证命令
 
 当前阶段每轮代码实现后至少运行：

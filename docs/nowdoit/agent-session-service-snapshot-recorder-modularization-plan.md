@@ -67,6 +67,39 @@
    - `go test ./...`
    - `go vet ./...`
 
+## 4.2 第二实施单元：发布执行与日报闭环 Recorder 迁出
+
+本小轮继续迁出发布执行、审批、日报、预生产验收、按钮回调和监控相关 recorder。这组方法只把既有响应 DTO 序列化为审计 metadata，不改变任务聚合调用顺序。
+
+拟迁出内容：
+
+1. `recordAgentWriteReplaySnapshot`
+2. `recordAgentLaunchApprovalSnapshot`
+3. `recordAgentDailyReportSnapshot`
+4. `recordAgentPreprodAcceptanceSnapshot`
+5. `recordAgentButtonLoopSnapshot`
+6. `recordAgentWriteExecuteSnapshot`
+7. `recordAgentDailyPersistSnapshot`
+8. `recordAgentPostLaunchMonitorSnapshot`
+9. `recordAgentReleaseApprovalSnapshot`
+10. `recordAgentButtonCallbackSnapshot`
+
+拟承接文件：
+
+1. `internal/service/agent_session_snapshot_recorders.go`
+
+实施约束：
+
+1. 不改变审计事件类型、metadata 字段、状态取值和 summary 文案。
+2. 不改变 `ListTasks` 中 recorder 调用顺序。
+3. 方法仍保持 `AgentSessionService` receiver 和 package 内部可见。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
