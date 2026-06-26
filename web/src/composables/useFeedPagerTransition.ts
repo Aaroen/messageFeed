@@ -2,7 +2,15 @@ import { computed, readonly, ref } from 'vue'
 
 import { clampProgress } from '@/composables/feedChromeMetrics'
 
-export type FeedSwipeSurface = 'feed:subscriptions' | 'feed:recommendations'
+export type FeedSwipeSurface = 'feed:subscriptions' | 'feed:recommendations' | 'feed:agent'
+
+const feedPagerPages = [
+  { key: 'subscriptions', path: '/subscriptions', surface: 'feed:subscriptions' },
+  { key: 'recommendations', path: '/recommendations', surface: 'feed:recommendations' },
+  { key: 'agent', path: '/agent', surface: 'feed:agent' },
+] as const
+
+const lastFeedPagerIndex = feedPagerPages.length - 1
 
 type FeedPagerTransitionOptions = {
   getActiveKey: () => string | symbol | null | undefined
@@ -67,11 +75,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   let startedWithHiddenChrome = false
   let activePointerId: number | null = null
 
-  const activeIndex = computed(() => (options.getActiveKey() === 'recommendations' ? 1 : 0))
+  const activeIndex = computed(() => feedKeyIndex(options.getActiveKey()))
   const trackBaseIndex = computed(() => transitionBaseIndex.value ?? activeIndex.value)
-  const activeSurface = computed<FeedSwipeSurface>(() =>
-    activeIndex.value === 0 ? 'feed:subscriptions' : 'feed:recommendations',
-  )
+  const activeSurface = computed<FeedSwipeSurface>(() => feedPagerPages[activeIndex.value].surface)
 
   const trackStyle = computed(() => ({
     transform: `translate3d(calc(${-trackBaseIndex.value * 100}% + ${cssPx(dragOffset.value)}), 0, 0)`,
@@ -83,11 +89,11 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   )
 
   const targetKey = computed(() => {
-    if (dragOffset.value < -dragThreshold && activeIndex.value === 0) {
-      return 'recommendations'
+    if (dragOffset.value < -dragThreshold && activeIndex.value < lastFeedPagerIndex) {
+      return feedPagerPages[activeIndex.value + 1].key
     }
-    if (dragOffset.value > dragThreshold && activeIndex.value === 1) {
-      return 'subscriptions'
+    if (dragOffset.value > dragThreshold && activeIndex.value > 0) {
+      return feedPagerPages[activeIndex.value - 1].key
     }
     return ''
   })
@@ -98,17 +104,20 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   )
 
   function surfaceFromOffset(offset: number): FeedSwipeSurface | null {
-    if (offset < -dragThreshold && activeIndex.value === 0) {
-      return 'feed:recommendations'
+    if (offset < -dragThreshold && activeIndex.value < lastFeedPagerIndex) {
+      return feedPagerPages[activeIndex.value + 1].surface
     }
-    if (offset > dragThreshold && activeIndex.value === 1) {
-      return 'feed:subscriptions'
+    if (offset > dragThreshold && activeIndex.value > 0) {
+      return feedPagerPages[activeIndex.value - 1].surface
     }
     return null
   }
 
   function isBlockedDragDirection(deltaX: number) {
-    return (activeIndex.value === 0 && deltaX > 0) || (activeIndex.value === 1 && deltaX < 0)
+    return (
+      (activeIndex.value === 0 && deltaX > 0) ||
+      (activeIndex.value === lastFeedPagerIndex && deltaX < 0)
+    )
   }
 
   function canStartDrag(deltaX: number) {
@@ -116,23 +125,30 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function commitPath(deltaX: number, horizontal: boolean, switchDistance: number) {
-    if (activeIndex.value === 0 && horizontal && deltaX <= -switchDistance) {
-      return '/recommendations'
+    if (!horizontal) {
+      return null
     }
-    if (activeIndex.value === 1 && horizontal && deltaX >= switchDistance) {
-      return '/subscriptions'
+    if (deltaX <= -switchDistance && activeIndex.value < lastFeedPagerIndex) {
+      return feedPagerPages[activeIndex.value + 1].path
+    }
+    if (deltaX >= switchDistance && activeIndex.value > 0) {
+      return feedPagerPages[activeIndex.value - 1].path
     }
     return null
   }
 
   function feedPathIndex(path: string) {
-    if (path === '/subscriptions') {
-      return 0
+    const match = feedPagerPages.find((page) => page.path === path)
+    return match ? feedPagerPages.indexOf(match) : null
+  }
+
+  function feedKeyIndex(key: string | symbol | null | undefined) {
+    const text = typeof key === 'string' ? key : ''
+    const index = feedPagerPages.findIndex((page) => page.key === text)
+    if (index >= 0) {
+      return index
     }
-    if (path === '/recommendations') {
-      return 1
-    }
-    return null
+    return 0
   }
 
   function targetOffsetForPath(path: string) {
@@ -427,19 +443,15 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function setDragDelta(deltaX: number) {
-    if (activeIndex.value === 0) {
-      if (deltaX > 0) {
-        setDragOffset(blockedDragOffset(deltaX, options.getWindowWidth()))
-        return
-      }
-      setDragOffset(Math.max(deltaX, -options.getWindowWidth()))
-      return
-    }
-    if (deltaX < 0) {
+    if (isBlockedDragDirection(deltaX)) {
       setDragOffset(blockedDragOffset(deltaX, options.getWindowWidth()))
       return
     }
-    setDragOffset(Math.min(deltaX, options.getWindowWidth()))
+
+    const windowWidth = options.getWindowWidth()
+    const minOffset = activeIndex.value < lastFeedPagerIndex ? -windowWidth : 0
+    const maxOffset = activeIndex.value > 0 ? windowWidth : 0
+    setDragOffset(Math.min(maxOffset, Math.max(minOffset, deltaX)))
   }
 
   function updateDragDelta(deltaX: number, updateOptions: FeedPagerDragUpdateOptions = {}): FeedPagerDragUpdateResult {

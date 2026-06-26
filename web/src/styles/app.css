@@ -557,7 +557,7 @@ body[arco-theme='dark'] .settings-icon-button--active {
 
 .app-header-slot--feed {
   position: relative;
-  width: min(320px, calc(100vw - 126px));
+  width: min(372px, calc(100vw - 96px));
   min-height: 44px;
   margin: 0 auto;
 }
@@ -724,9 +724,9 @@ body[arco-theme='dark'] .app-header {
 
 .feed-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(88px, 1fr));
+  grid-template-columns: repeat(3, minmax(72px, 1fr));
   gap: 4px;
-  width: min(260px, 100%);
+  width: min(344px, 100%);
   padding: 4px;
   border: 1px solid var(--mf-border);
   border-radius: 14px;
@@ -804,7 +804,7 @@ body[arco-theme='dark'] .feed-tab--active {
 
 .feed-track {
   display: grid;
-  grid-template-columns: repeat(2, 100%);
+  grid-template-columns: repeat(3, 100%);
   width: 100%;
   will-change: transform;
 }
@@ -816,6 +816,10 @@ body[arco-theme='dark'] .feed-tab--active {
 .feed-pane {
   min-width: 0;
   padding: 0 24px;
+}
+
+.feed-pane--agent {
+  user-select: text;
 }
 
 .sources-page {
@@ -1997,6 +2001,27 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
 
 .agent-plan-page {
   max-width: 980px;
+}
+
+.agent-plan-page > .settings-panel {
+  order: 20;
+}
+
+.agent-plan-page__task-form-panel {
+  order: 1;
+}
+
+.agent-plan-page__progress-panel {
+  order: 2;
+}
+
+.agent-plan-page__tasks-panel {
+  order: 3;
+}
+
+.agent-plan-page__tasks-panel .agent-plan-summary,
+.agent-plan-page__tasks-panel .agent-plan-step__meta {
+  display: none;
 }
 
 .agent-plan-page__header {

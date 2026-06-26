@@ -23,13 +23,11 @@ import {
   cancelAgentScheduledTask,
   createAgentTask,
   getAgentProgress,
-  listAgentEvalRuns,
   listAgentTasks,
   recoverAgentPlan,
   recoverAgentScheduledTask,
   retryAgentPlan,
   retryAgentPlanStep,
-  runBuiltinAgentEval,
   type AgentAlertChannel,
   type AgentAlertAutoRecovery,
   type AgentAlertDedupeEscalation,
@@ -61,8 +59,6 @@ import {
   type AgentDualEndTaskClosure,
   type AgentE2EAcceptance,
   type AgentEvidenceDetailPage,
-  type AgentEvalTrend,
-  type AgentEvalRun,
   type AgentExternalMonitorIntegration,
   type AgentExternalMonitorRuntime,
   type AgentFeedbackTicketLifecycle,
@@ -299,12 +295,6 @@ const taskWeChatWebProgressLink = ref<AgentWeChatWebProgressLink | null>(null)
 const taskReport = ref<AgentTaskReport | null>(null)
 const tasksLoading = ref(false)
 const tasksError = ref('')
-const evalRuns = ref<AgentEvalRun[]>([])
-const evalTrend = ref<AgentEvalTrend | null>(null)
-const evalRunDetail = ref<AgentEvalRun | null>(null)
-const evalLoading = ref(false)
-const evalRunning = ref(false)
-const evalError = ref('')
 const controlError = ref('')
 const decidingApprovalID = ref(0)
 const cancelingTaskID = ref(0)
@@ -1696,36 +1686,6 @@ async function loadTasks() {
   }
 }
 
-async function loadEvalRuns() {
-  evalLoading.value = true
-  evalError.value = ''
-  try {
-    const result = await listAgentEvalRuns({ limit: 5 })
-    evalRuns.value = result.runs
-    evalTrend.value = result.trend
-    if (!evalRunDetail.value && evalRuns.value.length) {
-      evalRunDetail.value = evalRuns.value[0]
-    }
-  } catch (error) {
-    evalError.value = formatAPIError(error)
-  } finally {
-    evalLoading.value = false
-  }
-}
-
-async function runEval() {
-  evalRunning.value = true
-  evalError.value = ''
-  try {
-    evalRunDetail.value = await runBuiltinAgentEval({ trigger: 'web' })
-    await loadEvalRuns()
-  } catch (error) {
-    evalError.value = formatAPIError(error)
-  } finally {
-    evalRunning.value = false
-  }
-}
-
 async function openTask(task: AgentTaskSummary) {
   if (task.progress_url) {
     await router.push(task.progress_url)
@@ -2143,7 +2103,6 @@ watch([planID, scheduledTaskID], () => {
 
 onMounted(() => {
 	  void loadTasks()
-	  void loadEvalRuns()
 	  if (planID.value > 0 || scheduledTaskID.value > 0) {
     void loadPlan()
   }
@@ -2158,7 +2117,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="settings-page agent-plan-page">
-    <section class="settings-panel settings-panel--wide">
+    <section class="settings-panel settings-panel--wide agent-plan-page__task-form-panel">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">发起任务</div>
@@ -2186,7 +2145,7 @@ onBeforeUnmount(() => {
       </form>
     </section>
 
-    <section class="settings-panel settings-panel--wide">
+    <section class="settings-panel settings-panel--wide agent-plan-page__tasks-panel">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">最近任务</div>
@@ -3135,14 +3094,9 @@ onBeforeUnmount(() => {
               <span>{{ task.kind === 'scheduled_task' ? '定时任务' : '执行计划' }}</span>
               <span v-if="task.plan_id">plan #{{ task.plan_id }}</span>
               <span v-if="task.scheduled_task_id">task #{{ task.scheduled_task_id }}</span>
-              <span v-if="task.permission_status">权限 {{ task.permission_status }}</span>
-              <span v-if="task.budget_status">预算 {{ task.budget_status }}</span>
-              <span v-if="task.quality_status">质量 {{ task.quality_status }}</span>
-              <span v-if="task.handoff_status">接管 {{ task.handoff_status }}</span>
               <span>{{ formatTime(task.updated_at) }}</span>
             </div>
             <p>{{ task.latest_progress || task.summary || '无摘要' }}</p>
-            <p v-if="task.observability">运行观测：{{ task.observability }}</p>
             <p v-if="task.next_action">下一步：{{ task.next_action }}</p>
             <button class="settings-action-button" type="button" @click="openTask(task)">
               <IconPlayCircle />
@@ -3154,80 +3108,7 @@ onBeforeUnmount(() => {
       <div v-else class="agent-plan-empty">暂无任务</div>
 	    </section>
 
-	    <section class="settings-panel settings-panel--wide">
-	      <div class="settings-panel__header">
-	        <div>
-	          <div class="settings-panel__title">评测基线</div>
-	          <div class="settings-panel__meta">{{ evalLoading ? '加载中' : `${evalRuns.length} 次运行` }}</div>
-	        </div>
-	        <button class="settings-action-button" type="button" :disabled="evalRunning" @click="runEval">
-	          <IconPlayCircle />
-	          {{ evalRunning ? '运行中' : '运行评测' }}
-	        </button>
-	      </div>
-	      <div v-if="evalError" class="settings-inline-alert settings-inline-alert--warning">
-	        {{ evalError }}
-	      </div>
-	      <dl v-if="evalTrend" class="settings-description-list">
-	        <div>
-	          <dt>通过率</dt>
-	          <dd>{{ Math.round(evalTrend.pass_rate * 100) }}%</dd>
-	        </div>
-	        <div>
-	          <dt>运行</dt>
-	          <dd>{{ evalTrend.run_count }} 次 / {{ evalTrend.completed_count }} 完成</dd>
-	        </div>
-	        <div>
-	          <dt>失败</dt>
-	          <dd>{{ evalTrend.failed_result_count }} 个结果 / {{ evalTrend.failed_run_count }} 次运行</dd>
-	        </div>
-	        <div>
-	          <dt>最近</dt>
-	          <dd>{{ formatTime(evalTrend.latest_run_at) }}</dd>
-	        </div>
-	        <div>
-	          <dt>类型</dt>
-	          <dd>{{ joined(evalTrend.failure_summary) }}</dd>
-	        </div>
-	      </dl>
-	      <div v-if="evalRunDetail" class="agent-plan-summary">
-	        <div class="agent-plan-summary__status" :class="`agent-plan-summary__status--${statusTone(evalRunDetail.status)}`">
-	          <component :is="statusIcon(evalRunDetail.status)" />
-	          <span>{{ statusLabel(evalRunDetail.status) }}</span>
-	        </div>
-	        <div class="agent-plan-summary__meta">
-	          <span>run #{{ evalRunDetail.id }}</span>
-	          <span>{{ evalRunDetail.passed_count }}/{{ evalRunDetail.case_count }} 通过</span>
-	          <span v-if="evalRunDetail.failed_count">失败 {{ evalRunDetail.failed_count }}</span>
-	          <span>{{ formatTime(evalRunDetail.completed_at || evalRunDetail.updated_at) }}</span>
-	        </div>
-	      </div>
-	      <div v-if="evalRunDetail?.results?.length" class="agent-run-list">
-	        <article v-for="result in evalRunDetail.results" :key="result.id" class="agent-run-row">
-	          <div class="agent-run-row__icon" :class="`agent-run-row__icon--${statusTone(result.status)}`">
-	            <component :is="statusIcon(result.status)" />
-	          </div>
-	          <div class="agent-run-row__body">
-	            <div class="agent-run-row__top">
-	              <strong>case #{{ result.case_id }}</strong>
-	              <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(result.status)}`">
-	                {{ statusLabel(result.status) }}
-	              </span>
-	            </div>
-	            <div class="agent-run-row__meta">
-	              <span>score {{ result.score }}</span>
-	              <span>expected {{ result.expected || '无' }}</span>
-	              <span>actual {{ result.actual || '无' }}</span>
-	            </div>
-	            <p v-if="result.failure_reason" class="agent-plan-step__error">{{ result.failure_reason }}</p>
-	            <p>{{ joined(result.evidence_refs) }}</p>
-	          </div>
-	        </article>
-	      </div>
-	      <div v-else-if="!evalRunDetail" class="agent-plan-empty">暂无评测运行</div>
-	    </section>
-
-	    <section class="settings-panel settings-panel--wide">
+	    <section class="settings-panel settings-panel--wide agent-plan-page__progress-panel">
 	      <div class="settings-panel__header agent-plan-page__header">
         <div>
           <div class="settings-panel__title">Agent 执行进度</div>

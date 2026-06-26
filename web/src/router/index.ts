@@ -100,7 +100,7 @@ const router = createRouter({
       path: '/agent',
       name: 'agent',
       component: AgentPlanView,
-      meta: { title: 'Agent 任务', section: 'agent' },
+      meta: { title: '助理', section: 'agent' },
     },
     {
       path: '/agent/plans/:id',

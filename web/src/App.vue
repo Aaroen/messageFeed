@@ -49,6 +49,7 @@ import { chromeStyleIsInteractive } from '@/composables/chromeStyleInteractivity
 type SwipeSurface =
   | 'feed:subscriptions'
   | 'feed:recommendations'
+  | 'feed:agent'
   | 'reader:detail'
   | 'reader:source'
   | 'page:management'
@@ -187,6 +188,7 @@ const sourceTimelineId = computed(() => {
   }
   return subscription.id
 })
+const activeTopTabKey = computed(() => (route.meta.section === 'agent' ? 'agent' : route.name))
 
 function syncFeedScrollTop(scrollTop: number) {
   feedScroll.update(scrollTop)
@@ -434,7 +436,7 @@ const {
   canStartViewSwipe,
   canStartNavigationOpen,
 } = useAppSwipeGestureRuntime<SwipeSurface>({
-  getActiveKey: () => route.name,
+  getActiveKey: () => activeTopTabKey.value,
   windowWidth,
   isFeedRoute,
   detailReaderOpen,
@@ -1211,7 +1213,7 @@ const mainOutletRuntime = useAppMainOutletRuntime({
     isFeedRoute,
     readerDetailHeader: readerDetailHeaderState,
     feedTabs,
-    activeKey: () => route.name,
+    activeKey: () => activeTopTabKey.value,
     feedTabsLayerStyle,
     feedTabsTargetLayerStyle,
     viewSwipeTargetKey,

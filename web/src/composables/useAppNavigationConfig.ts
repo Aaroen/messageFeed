@@ -50,6 +50,7 @@ export function useAppNavigationConfig() {
   const feedTabs: AppFeedTab[] = [
     { key: 'subscriptions', label: '订阅', path: '/subscriptions' },
     { key: 'recommendations', label: '推荐', path: '/recommendations' },
+    { key: 'agent', label: '助理', path: '/agent' },
   ]
 
   return {

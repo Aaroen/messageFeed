@@ -49,7 +49,13 @@ export function useAppRouteSessionWatchers(options: AppRouteSessionWatchersOptio
   let routeChangeToken = 0
 
   function routeNameIsFeed(name: unknown) {
-    return name === 'subscriptions' || name === 'recommendations'
+    return (
+      name === 'subscriptions' ||
+      name === 'recommendations' ||
+      name === 'agent' ||
+      name === 'agent-plan' ||
+      name === 'agent-evidence-detail'
+    )
   }
 
   watch(

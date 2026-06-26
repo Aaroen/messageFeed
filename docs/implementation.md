@@ -20,9 +20,9 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 最小 Agent 闭环交付已实现并验证；提交推送后以 `git status -sb` 为准 |
+| 工作区 | 助理 Web 三页滑动工作台已实现并通过前端验证；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-web-assistant-entry-plan.md` |
-| 最近本轮验证 | 计划阶段；实现后需运行前端类型检查、构建和测试 |
+| 最近本轮验证 | `npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test`、`go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
 
 ## 3. 已完成能力
@@ -51,6 +51,8 @@
 - Web 任务工作台已展示 `wechat_web_progress_link` 摘要，包括进度地址、投递通道、模板状态、fallback 状态、浏览器目标和检查项。
 - Web 进度页已支持计划 ID 或调度任务 ID 维度的进度查询、轮询、步骤、证据和审批状态展示。
 - 前端已有任务创建表单，并通过 `createAgentTask` 以 `channel=web` 发起任务。
+- 顶部主入口已扩展为“订阅 / 推荐 / 助理”，助理与订阅、推荐共用三页横向滑动模型，并同时挂载三个 pane。
+- 助理页已复用现有 Agent 后端工作台；执行进度位于发起任务下方，评测基线不再展示给普通用户，最近任务不再展示开发治理摘要。
 
 ### 3.4 质量与验证
 
@@ -419,13 +421,14 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 
 助理 Web 入口与工作台整理目标：
 
-1. 顶部主入口从“订阅 / 推荐”扩展为“订阅 / 推荐 / 助理”。
-2. 三个页面使用同一 `FeedPager` 横向滑动模型，并同时挂载内容，避免滑动到目标页后才加载。
-3. `/agent`、`/agent/plans/:id` 和 `/agent/plans/:id/evidence/:recordKey` 归入助理顶部页签。
-4. 助理页复用现有 Agent 后端接入，不新增后端接口。
-5. 用户界面中最近任务不展示开发治理任务；无真实用户任务时显示为空状态。
-6. 评测基线从用户界面移除，评测仍作为开发者验证能力保留在后端。
-7. 执行进度移动到发起任务下方，减少用户查找成本。
+1. 已完成：顶部主入口从“订阅 / 推荐”扩展为“订阅 / 推荐 / 助理”。
+2. 已完成：三个页面使用同一 `FeedPager` 横向滑动模型，并同时挂载内容，避免滑动到目标页后才加载。
+3. 已完成：`/agent`、`/agent/plans/:id` 和 `/agent/plans/:id/evidence/:recordKey` 归入助理顶部页签。
+4. 已完成：助理页复用现有 Agent 后端接入，不新增后端接口。
+5. 已完成：用户界面中最近任务不展示开发治理摘要；任务行只保留用户可理解的任务信息。
+6. 已完成：评测基线从用户界面移除，评测仍作为开发者验证能力保留在后端。
+7. 已完成：执行进度移动到发起任务下方，减少用户查找成本。
+8. 已验证：`npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test`、`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
 

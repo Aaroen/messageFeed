@@ -2,6 +2,7 @@
 import { computed, type StyleValue } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
+import AgentPlanView from '@/views/AgentPlanView.vue'
 import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 
 type FeedSourceKind = 'subscriptions' | 'recommendations'
@@ -49,6 +50,7 @@ const emit = defineEmits<{
 const readerClosed = computed(() => !props.detailReaderOpen && !props.sourceReaderOpen)
 const subscriptionsActive = computed(() => props.activeKey === 'subscriptions' && readerClosed.value)
 const recommendationsActive = computed(() => props.activeKey === 'recommendations' && readerClosed.value)
+const agentActive = computed(() => props.activeKey === 'agent' && readerClosed.value)
 
 function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
   emit('open-item', item, sourceKind, originRect)
@@ -95,6 +97,9 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
           @top-pull-end="emit('top-pull-end', $event)"
           @open-item="handleOpenItem"
         />
+      </section>
+      <section class="feed-pane feed-pane--agent" :aria-hidden="!agentActive" :inert="!agentActive">
+        <AgentPlanView />
       </section>
     </div>
   </div>
