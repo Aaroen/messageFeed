@@ -308,6 +308,8 @@ Workflow governance 证据闭环与双端进度基础 builder 拆分阶段性结
 4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 109 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
+下一实施单元已写入当前活动文档：权限审批、模板发送与真实交互 Builder 迁出。拟继续迁出回调重放权限、恢复策略审计、双端交互、企业微信模板渲染、Web 证据路由、回调重放审批、恢复策略持久化、双端交互发布、企业微信模板发送、Web 证据详情、回调重放执行、恢复策略版本和双端真实交互相关 13 个纯 builder，承接文件仍为 `internal/service/agent_workflow_ops_handling_builders.go`。
+
 ## 8. 最小验证命令
 
 当前阶段每轮代码实现后至少运行：

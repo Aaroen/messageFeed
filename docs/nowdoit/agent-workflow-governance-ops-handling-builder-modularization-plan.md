@@ -151,6 +151,42 @@
    - `go test ./...`
    - `go vet ./...`
 
+## 4.4 第四实施单元：权限审批、模板发送与真实交互 Builder 迁出
+
+本小轮继续迁出回调重放权限、恢复策略审计、双端交互、企业微信模板渲染、Web 证据路由、回调重放审批、恢复策略持久化、双端交互发布、企业微信模板发送、Web 证据详情、回调重放执行、恢复策略版本和双端真实交互相关纯 builder。这组函数仍以响应 DTO 聚合为主，不访问 repository，不写审计事件。
+
+拟迁出内容：
+
+1. `buildAgentCallbackReplayPermission`
+2. `buildAgentRecoveryPolicyAudit`
+3. `buildAgentDualEndInteraction`
+4. `buildAgentWeChatTemplateRender`
+5. `buildAgentWebEvidenceRoute`
+6. `buildAgentCallbackReplayApproval`
+7. `buildAgentRecoveryPolicyPersist`
+8. `buildAgentDualEndInteractionLaunch`
+9. `buildAgentWeChatTemplateSend`
+10. `buildAgentWebEvidenceDetailView`
+11. `buildAgentCallbackReplayExecution`
+12. `buildAgentRecoveryPolicyVersion`
+13. `buildAgentDualEndRealInteraction`
+
+拟承接文件：
+
+1. `internal/service/agent_workflow_ops_handling_builders.go`
+
+实施约束：
+
+1. 不改变聚合摘要 JSON 字段、状态取值和 summary 文案。
+2. 不改变 `ListTasks` 中相关 builder 的调用顺序。
+3. helper 仍保持 package 内部可见，不扩大导出面。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
