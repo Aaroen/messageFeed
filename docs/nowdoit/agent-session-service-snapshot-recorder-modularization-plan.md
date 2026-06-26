@@ -57,6 +57,16 @@
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`。
 
+实施结果：
+
+1. 已新增 `internal/service/agent_session_snapshot_recorders.go`，承接第一批 10 个基础治理审计快照 recorder。
+2. 已从 `internal/service/agent_session_service.go` 移除同一方法块，不改变审计事件类型、metadata 字段、状态取值、summary 文案或 `ListTasks` 中 recorder 调用顺序。
+3. `agent_session_service.go` 从 5936 行降至 5731 行；新增 recorder 文件为 211 行。
+4. 本小轮新增文件数量与审计快照职责拆分相匹配，不属于冗余扩张。
+5. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
