@@ -153,6 +153,39 @@
    - `go test ./...`
    - `go vet ./...`
 
+## 4.4 第四实施单元：生产发布与上线交接 Recorder 迁出
+
+本小轮继续迁出灰度评审、企业微信验收复核、运维日报闭环、生产发布、外部监控配置、写放量、企业微信签收、运维交接、生产执行和监控集成相关 recorder。这组方法只把既有响应 DTO 序列化为审计 metadata，不改变任务聚合调用顺序。
+
+拟迁出内容：
+
+1. `recordAgentWriteGrayReviewSnapshot`
+2. `recordAgentWeChatAcceptanceReviewSnapshot`
+3. `recordAgentOperationsDailyClosureSnapshot`
+4. `recordAgentProductionReleaseSnapshot`
+5. `recordAgentExternalMonitorConfigSnapshot`
+6. `recordAgentWriteRampSnapshot`
+7. `recordAgentWeChatSignoffSnapshot`
+8. `recordAgentOperationsHandoffSnapshot`
+9. `recordAgentProductionExecutionSnapshot`
+10. `recordAgentMonitorIntegrationSnapshot`
+
+拟承接文件：
+
+1. `internal/service/agent_session_snapshot_recorders.go`
+
+实施约束：
+
+1. 不改变审计事件类型、metadata 字段、状态取值和 summary 文案。
+2. 不改变 `ListTasks` 中 recorder 调用顺序。
+3. 方法仍保持 `AgentSessionService` receiver 和 package 内部可见。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
