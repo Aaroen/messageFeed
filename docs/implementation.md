@@ -20,8 +20,8 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 本轮文档记录按 session snapshot recorder 第七实施单元迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
-| 当前活动文档 | `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` |
+| 工作区 | 本轮切换到最小 Agent 闭环交付；提交推送后以 `git status -sb` 为准 |
+| 当前活动文档 | `docs/nowdoit/agent-minimal-closed-loop-delivery-plan.md` |
 | 最近本轮验证 | `go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
 
@@ -392,7 +392,17 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 4. 当前 snapshot recorder 拆分累计承接 70 个审计快照 recorder；文件数量未继续扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
-下一实施单元已写入当前活动文档：SLA 报表与进度证据 Recorder 迁出。拟继续迁出反馈 SLA 报表、告警自动恢复、运维证据、统一进度组件、证据详情页、回调重放工具、恢复策略配置、双端进度证据、企业微信进度卡片和 Web 证据交互相关 10 个 recorder。
+当前优先级切换为最小完整闭环交付。`docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` 已写入的 4.8 recorder 拆分计划暂不归档、不删除，待闭环交付后继续执行。
+
+新活动文档：`docs/nowdoit/agent-minimal-closed-loop-delivery-plan.md`
+
+最小闭环本轮目标：
+
+1. 保留企业微信发起任务已有闭环能力。
+2. 补齐 Web 发起任务完成后向用户已绑定企业微信账号发送最终报告。
+3. 最终报告包含 Web 浏览器可打开的进度地址。
+4. 写入 Web 任务最终报告投递审计。
+5. 补充服务层测试验证 Web 发起、计划生成、进度地址、企业微信最终汇报和审计证据。
 
 ## 8. 最小验证命令
 

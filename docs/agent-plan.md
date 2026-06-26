@@ -1702,4 +1702,4 @@ EvalCase
 
 上一活动文档 `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-workflow-governance-ops-handling-builder-modularization-plan-implemented-2026-06-26.md`。已新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，迁出 43 个运维处置、审批执行、证据闭环、双端进度和真实交互相关纯 builder；剩余 SLA 摘要和任务报表 builder 已迁入 `agent_workflow_foundation_builders.go`。`agent_workflow_governance.go` 当前降至 739 行，已不再承接 `buildAgent*` 纯 builder。
 
-当前活动文档为 `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md`。已新增独立 `internal/service/agent_session_snapshot_recorders.go`，迁出基础治理、发布执行/日报闭环、发布窗口/外部监控、生产发布/上线交接、运行态参数/反馈闭环、放量阶段/运维处置、审批执行/工单 SLA 相关 70 个审计快照 recorder；`agent_session_service.go` 当前降至 4446 行。下一实施单元已写入活动文档，将继续迁出 SLA 报表与进度证据相关 10 个 recorder。
+当前活动文档切换为 `docs/nowdoit/agent-minimal-closed-loop-delivery-plan.md`。`docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` 已写入的 4.8 recorder 拆分计划暂不归档、不删除，待最小闭环交付后继续执行。当前闭环交付目标为：保留企业微信发起任务已有闭环能力，补齐 Web 发起任务完成后向用户已绑定企业微信账号发送最终报告，并确保最终报告包含 Web 浏览器可打开的进度地址和审计证据。
