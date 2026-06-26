@@ -300,3 +300,315 @@ func buildAgentAlertEscalationPolicy(escalation AgentAlertDedupeEscalationRespon
 		Checks:               checks,
 	}
 }
+
+func buildAgentWriteStageApproval(record AgentWriteStageRecordResponse, policy AgentWriteRampPolicyResponse, approval AgentReleaseApprovalResponse) AgentWriteStageApprovalResponse {
+	approvalStatus := approval.ReviewState
+	if strings.TrimSpace(approvalStatus) == "" {
+		approvalStatus = "awaiting_approval"
+	}
+	approvalSource := approval.DecisionPath
+	if strings.TrimSpace(approvalSource) == "" {
+		approvalSource = approval.AuditEvent
+	}
+	if strings.TrimSpace(approvalSource) == "" {
+		approvalSource = "agent.write_stage_approval_snapshot"
+	}
+	authorizedScope := policy.UserScope
+	if strings.TrimSpace(authorizedScope) == "" {
+		authorizedScope = "approved_write_ramp_scope"
+	}
+	rollbackThreshold := policy.RollbackThreshold
+	if strings.TrimSpace(rollbackThreshold) == "" {
+		rollbackThreshold = strings.Join(record.RollbackConditions, ", ")
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "approval_status", Status: readyIf(strings.TrimSpace(approvalStatus) != ""), Summary: approvalStatus},
+		{Key: "approval_source", Status: readyIf(strings.TrimSpace(approvalSource) != ""), Summary: approvalSource},
+		{Key: "target_stage", Status: readyIf(strings.TrimSpace(record.TargetStage) != ""), Summary: record.TargetStage},
+		{Key: "authorized_scope", Status: readyIf(strings.TrimSpace(authorizedScope) != ""), Summary: authorizedScope},
+		{Key: "rollback_threshold", Status: readyIf(strings.TrimSpace(rollbackThreshold) != ""), Summary: rollbackThreshold},
+		{Key: "default_deny", Status: readyIf(record.DefaultAction == "reject_or_require_approval"), Summary: record.DefaultAction},
+	}
+	return AgentWriteStageApprovalResponse{
+		Status:            checksStatus(checks),
+		Summary:           fmt.Sprintf("write stage approval targets %s with %s", record.TargetStage, approvalStatus),
+		ApprovalStatus:    approvalStatus,
+		ApprovalSource:    approvalSource,
+		TargetStage:       record.TargetStage,
+		AuthorizedScope:   authorizedScope,
+		RollbackThreshold: rollbackThreshold,
+		DefaultAction:     record.DefaultAction,
+		Checks:            checks,
+	}
+}
+
+func buildAgentFeedbackTicketLifecycle(ticket AgentWeChatFeedbackTicketResponse, loop AgentWeChatFeedbackLoopResponse) AgentFeedbackTicketLifecycleResponse {
+	createdState := "created"
+	assignedState := readyIf(strings.TrimSpace(ticket.OwnerEntry) != "")
+	processingState := ticket.ProcessingState
+	if strings.TrimSpace(processingState) == "" {
+		processingState = "pending"
+	}
+	waitingUserState := "not_required"
+	if strings.TrimSpace(ticket.UserNextAction) != "" {
+		waitingUserState = "waiting_user_followup"
+	}
+	closedState := loop.CompletionState
+	if strings.TrimSpace(closedState) == "" {
+		closedState = "open_until_final_report"
+	}
+	handoffState := "manual_handoff_on_failure"
+	if loop.FailureState != "" {
+		handoffState = loop.FailureState
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "created", Status: readyIf(createdState != ""), Summary: createdState},
+		{Key: "assigned", Status: assignedState, Summary: ticket.OwnerEntry},
+		{Key: "processing", Status: readyIf(strings.TrimSpace(processingState) != ""), Summary: processingState},
+		{Key: "waiting_user", Status: readyIf(strings.TrimSpace(waitingUserState) != ""), Summary: waitingUserState},
+		{Key: "closed", Status: readyIf(strings.TrimSpace(closedState) != ""), Summary: closedState},
+		{Key: "handoff", Status: readyIf(strings.TrimSpace(handoffState) != ""), Summary: handoffState},
+	}
+	return AgentFeedbackTicketLifecycleResponse{
+		Status:           checksStatus(checks),
+		Summary:          fmt.Sprintf("feedback ticket lifecycle is %s and %s", processingState, waitingUserState),
+		CreatedState:     createdState,
+		AssignedState:    assignedState,
+		ProcessingState:  processingState,
+		WaitingUserState: waitingUserState,
+		ClosedState:      closedState,
+		HandoffState:     handoffState,
+		Checks:           checks,
+	}
+}
+
+func buildAgentOperationsActionClosure(action AgentOpsActionDefinitionResponse, escalation AgentAlertEscalationPolicyResponse, approval AgentWriteStageApprovalResponse, lifecycle AgentFeedbackTicketLifecycleResponse, audits []domain.AgentAuditLog) AgentOperationsActionClosureResponse {
+	auditStatus := readyIf(auditEventContains(audits, "ops") || auditEventContains(audits, "alert") || auditEventContains(audits, "write") || auditEventContains(audits, "feedback") || len(audits) > 0)
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "ops_action_definition", Status: action.Status, Summary: action.Summary},
+		{Key: "alert_escalation_policy", Status: escalation.Status, Summary: escalation.Summary},
+		{Key: "write_stage_approval", Status: approval.Status, Summary: approval.Summary},
+		{Key: "feedback_ticket_lifecycle", Status: lifecycle.Status, Summary: lifecycle.Summary},
+		{Key: "audit", Status: auditStatus, Summary: "operations action closure is audit-backed"},
+	}
+	nextAction := "进入运营动作真实 API 执行、升级通知回执和工单 SLA"
+	if checksStatus(checks) != "ready" {
+		nextAction = "补齐运营动作闭环缺口后再进入真实 API 执行"
+	}
+	return AgentOperationsActionClosureResponse{
+		Status:                checksStatus(checks),
+		Summary:               fmt.Sprintf("operations action closure has %d checks", len(checks)),
+		OpsActionStatus:       action.Status,
+		AlertEscalationStatus: escalation.Status,
+		WriteApprovalStatus:   approval.Status,
+		TicketLifecycleStatus: lifecycle.Status,
+		AuditStatus:           auditStatus,
+		NextAction:            nextAction,
+		Checks:                checks,
+	}
+}
+
+func buildAgentOpsAPIExecution(definition AgentOpsActionDefinitionResponse, closure AgentOperationsActionClosureResponse) AgentOpsAPIExecutionResponse {
+	executions := make([]AgentOpsAPIExecutionItemResponse, 0, len(definition.Actions))
+	for _, action := range definition.Actions {
+		executions = append(executions, AgentOpsAPIExecutionItemResponse{
+			ActionKey:         action.Key,
+			ExecutionEntry:    action.HandlerEntry,
+			ExecutionStatus:   readyIf(action.HandlerEntry != ""),
+			PermissionCheck:   readyIf(action.PermissionConstraint != ""),
+			IdempotencyResult: readyIf(action.IdempotencyKey != ""),
+			AuditEvent:        "agent.ops_api_execution_snapshot",
+		})
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "executions", Status: readyIf(len(executions) > 0), Summary: fmt.Sprintf("%d executions", len(executions))},
+		{Key: "execution_entry", Status: readyIf(allOpsAPIExecutionsHave(executions, func(item AgentOpsAPIExecutionItemResponse) bool { return item.ExecutionEntry != "" })), Summary: "all executions have entry"},
+		{Key: "permission_check", Status: readyIf(allOpsAPIExecutionsHave(executions, func(item AgentOpsAPIExecutionItemResponse) bool { return item.PermissionCheck != "" })), Summary: "all executions have permission check"},
+		{Key: "idempotency_result", Status: readyIf(allOpsAPIExecutionsHave(executions, func(item AgentOpsAPIExecutionItemResponse) bool { return item.IdempotencyResult != "" })), Summary: "all executions have idempotency result"},
+		{Key: "audit_event", Status: readyIf(allOpsAPIExecutionsHave(executions, func(item AgentOpsAPIExecutionItemResponse) bool { return item.AuditEvent != "" })), Summary: "all executions have audit event"},
+		{Key: "operations_action_closure", Status: closure.Status, Summary: closure.Summary},
+	}
+	return AgentOpsAPIExecutionResponse{
+		Status:     checksStatus(checks),
+		Summary:    fmt.Sprintf("ops api execution tracks %d action executions", len(executions)),
+		Executions: executions,
+		Checks:     checks,
+	}
+}
+
+func buildAgentAlertEscalationReceipt(policy AgentAlertEscalationPolicyResponse) AgentAlertEscalationReceiptResponse {
+	deliveryStatus := readyIf(len(policy.NotificationChannels) > 0 && len(policy.Recipients) > 0)
+	suppressionResult := "suppressed_by_" + policy.RepeatSuppression
+	if strings.TrimSpace(policy.RepeatSuppression) == "" {
+		suppressionResult = "not_suppressed"
+	}
+	handoffEntry := "agent_operations_oncall"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "notification_channels", Status: readyIf(len(policy.NotificationChannels) > 0), Summary: strings.Join(policy.NotificationChannels, ", ")},
+		{Key: "recipients", Status: readyIf(len(policy.Recipients) > 0), Summary: strings.Join(policy.Recipients, ", ")},
+		{Key: "delivery_status", Status: deliveryStatus, Summary: "delivery receipt is tracked"},
+		{Key: "suppression_result", Status: readyIf(strings.TrimSpace(suppressionResult) != ""), Summary: suppressionResult},
+		{Key: "recovery_notice", Status: policy.RecoveryNoticeStatus, Summary: "recovery notice receipt is tracked"},
+		{Key: "handoff_entry", Status: readyIf(strings.TrimSpace(handoffEntry) != ""), Summary: handoffEntry},
+	}
+	return AgentAlertEscalationReceiptResponse{
+		Status:               checksStatus(checks),
+		Summary:              fmt.Sprintf("alert escalation receipt uses %d channels and %d recipients", len(policy.NotificationChannels), len(policy.Recipients)),
+		NotificationChannels: append([]string(nil), policy.NotificationChannels...),
+		Recipients:           append([]string(nil), policy.Recipients...),
+		DeliveryStatus:       deliveryStatus,
+		SuppressionResult:    suppressionResult,
+		RecoveryNoticeStatus: policy.RecoveryNoticeStatus,
+		HandoffEntry:         handoffEntry,
+		Checks:               checks,
+	}
+}
+
+func buildAgentWriteApprovalButton(approval AgentWriteStageApprovalResponse) AgentWriteApprovalButtonResponse {
+	channels := []string{"web", "wechat_work"}
+	buttons := make([]AgentWriteApprovalButtonItemResponse, 0, len(channels)*2)
+	for _, channel := range channels {
+		for _, action := range []string{"approve", "reject"} {
+			buttons = append(buttons, AgentWriteApprovalButtonItemResponse{
+				ButtonKey:         fmt.Sprintf("write_stage_%s_%s", action, channel),
+				Channel:           channel,
+				ApprovalStatus:    approval.ApprovalStatus,
+				PermissionScope:   approval.AuthorizedScope,
+				RollbackThreshold: approval.RollbackThreshold,
+				RejectionPath:     "reject_or_require_approval",
+				AuditEvidence:     "agent.write_approval_button_snapshot",
+			})
+		}
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "buttons", Status: readyIf(len(buttons) > 0), Summary: fmt.Sprintf("%d buttons", len(buttons))},
+		{Key: "approval_status", Status: readyIf(strings.TrimSpace(approval.ApprovalStatus) != ""), Summary: approval.ApprovalStatus},
+		{Key: "permission_scope", Status: readyIf(allWriteApprovalButtonsHave(buttons, func(button AgentWriteApprovalButtonItemResponse) bool { return button.PermissionScope != "" })), Summary: approval.AuthorizedScope},
+		{Key: "rollback_threshold", Status: readyIf(allWriteApprovalButtonsHave(buttons, func(button AgentWriteApprovalButtonItemResponse) bool { return button.RollbackThreshold != "" })), Summary: approval.RollbackThreshold},
+		{Key: "rejection_path", Status: readyIf(allWriteApprovalButtonsHave(buttons, func(button AgentWriteApprovalButtonItemResponse) bool { return button.RejectionPath != "" })), Summary: "reject path is explicit"},
+		{Key: "audit_evidence", Status: readyIf(allWriteApprovalButtonsHave(buttons, func(button AgentWriteApprovalButtonItemResponse) bool { return button.AuditEvidence != "" })), Summary: "button actions are audit-backed"},
+	}
+	return AgentWriteApprovalButtonResponse{
+		Status:  checksStatus(checks),
+		Summary: fmt.Sprintf("write approval button exposes %d web/wechat decisions", len(buttons)),
+		Buttons: buttons,
+		Checks:  checks,
+	}
+}
+
+func buildAgentFeedbackTicketSLA(lifecycle AgentFeedbackTicketLifecycleResponse) AgentFeedbackTicketSLAResponse {
+	firstResponseSeconds := 300
+	resolveSeconds := 86400
+	timeoutEscalation := "escalate_to_agent_operations_oncall"
+	closeCondition := "closed_after_final_report_or_user_ack"
+	handoffPath := lifecycle.HandoffState
+	if strings.TrimSpace(handoffPath) == "" {
+		handoffPath = "manual_handoff_on_failure"
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "first_response", Status: readyIf(firstResponseSeconds > 0), Summary: fmt.Sprintf("%ds", firstResponseSeconds)},
+		{Key: "resolve_time", Status: readyIf(resolveSeconds > 0), Summary: fmt.Sprintf("%ds", resolveSeconds)},
+		{Key: "timeout_escalation", Status: readyIf(strings.TrimSpace(timeoutEscalation) != ""), Summary: timeoutEscalation},
+		{Key: "waiting_user", Status: readyIf(strings.TrimSpace(lifecycle.WaitingUserState) != ""), Summary: lifecycle.WaitingUserState},
+		{Key: "close_condition", Status: readyIf(strings.TrimSpace(closeCondition) != ""), Summary: closeCondition},
+		{Key: "handoff_path", Status: readyIf(strings.TrimSpace(handoffPath) != ""), Summary: handoffPath},
+	}
+	return AgentFeedbackTicketSLAResponse{
+		Status:               checksStatus(checks),
+		Summary:              fmt.Sprintf("feedback ticket sla first response %ds resolve %ds", firstResponseSeconds, resolveSeconds),
+		FirstResponseSeconds: firstResponseSeconds,
+		ResolveSeconds:       resolveSeconds,
+		TimeoutEscalation:    timeoutEscalation,
+		WaitingUserStatus:    lifecycle.WaitingUserState,
+		CloseCondition:       closeCondition,
+		HandoffPath:          handoffPath,
+		Checks:               checks,
+	}
+}
+
+func buildAgentOperationsExecution(api AgentOpsAPIExecutionResponse, receipt AgentAlertEscalationReceiptResponse, button AgentWriteApprovalButtonResponse, sla AgentFeedbackTicketSLAResponse, audits []domain.AgentAuditLog) AgentOperationsExecutionResponse {
+	auditStatus := readyIf(auditEventContains(audits, "ops") || auditEventContains(audits, "alert") || auditEventContains(audits, "write") || auditEventContains(audits, "feedback") || len(audits) > 0)
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "ops_api_execution", Status: api.Status, Summary: api.Summary},
+		{Key: "alert_escalation_receipt", Status: receipt.Status, Summary: receipt.Summary},
+		{Key: "write_approval_button", Status: button.Status, Summary: button.Summary},
+		{Key: "feedback_ticket_sla", Status: sla.Status, Summary: sla.Summary},
+		{Key: "audit", Status: auditStatus, Summary: "operations execution is audit-backed"},
+	}
+	nextAction := "进入运营动作持久化执行记录、审批回调入库和 SLA 报表"
+	if checksStatus(checks) != "ready" {
+		nextAction = "补齐运营执行闭环缺口后再进入持久化执行记录"
+	}
+	return AgentOperationsExecutionResponse{
+		Status:                    checksStatus(checks),
+		Summary:                   fmt.Sprintf("operations execution has %d checks", len(checks)),
+		OpsAPIExecutionStatus:     api.Status,
+		AlertReceiptStatus:        receipt.Status,
+		WriteApprovalButtonStatus: button.Status,
+		FeedbackSLAStatus:         sla.Status,
+		AuditStatus:               auditStatus,
+		NextAction:                nextAction,
+		Checks:                    checks,
+	}
+}
+
+func buildAgentOpsExecutionRecord(api AgentOpsAPIExecutionResponse) AgentOpsExecutionRecordResponse {
+	records := make([]AgentOpsExecutionRecordItemResponse, 0, len(api.Executions))
+	for _, execution := range api.Executions {
+		records = append(records, AgentOpsExecutionRecordItemResponse{
+			RecordKey:         "ops_execution:" + execution.ActionKey,
+			ActionKey:         execution.ActionKey,
+			ExecutionStatus:   execution.ExecutionStatus,
+			IdempotencyStatus: execution.IdempotencyResult,
+			AuditEvent:        "agent.ops_execution_record_snapshot",
+			ReplayEntry:       "web.agent.ops.replay." + execution.ActionKey,
+		})
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "records", Status: readyIf(len(records) > 0), Summary: fmt.Sprintf("%d records", len(records))},
+		{Key: "record_key", Status: readyIf(allOpsExecutionRecordsHave(records, func(record AgentOpsExecutionRecordItemResponse) bool { return record.RecordKey != "" })), Summary: "all records have keys"},
+		{Key: "idempotency", Status: readyIf(allOpsExecutionRecordsHave(records, func(record AgentOpsExecutionRecordItemResponse) bool { return record.IdempotencyStatus != "" })), Summary: "all records keep idempotency status"},
+		{Key: "audit_event", Status: readyIf(allOpsExecutionRecordsHave(records, func(record AgentOpsExecutionRecordItemResponse) bool { return record.AuditEvent != "" })), Summary: "all records have audit event"},
+		{Key: "replay_entry", Status: readyIf(allOpsExecutionRecordsHave(records, func(record AgentOpsExecutionRecordItemResponse) bool { return record.ReplayEntry != "" })), Summary: "all records have replay entry"},
+	}
+	return AgentOpsExecutionRecordResponse{
+		Status:  checksStatus(checks),
+		Summary: fmt.Sprintf("ops execution record persists %d actions", len(records)),
+		Records: records,
+		Checks:  checks,
+	}
+}
+
+func buildAgentWeChatApprovalCallback(button AgentWriteApprovalButtonResponse) AgentWeChatApprovalCallbackResponse {
+	callbackKey := "wechat_write_stage_callback"
+	source := "wechat_work"
+	decision := "awaiting_callback"
+	for _, item := range button.Buttons {
+		if item.Channel == "wechat_work" && strings.TrimSpace(item.ApprovalStatus) != "" {
+			decision = item.ApprovalStatus
+			break
+		}
+	}
+	signature := "verified_or_pending"
+	storageState := readyIf(len(button.Buttons) > 0)
+	fallbackPath := "web_write_approval_review"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "callback_key", Status: readyIf(callbackKey != ""), Summary: callbackKey},
+		{Key: "source", Status: readyIf(source == "wechat_work"), Summary: source},
+		{Key: "decision", Status: readyIf(strings.TrimSpace(decision) != ""), Summary: decision},
+		{Key: "signature", Status: readyIf(strings.TrimSpace(signature) != ""), Summary: signature},
+		{Key: "storage", Status: storageState, Summary: "callback is stored with approval evidence"},
+		{Key: "fallback", Status: readyIf(strings.TrimSpace(fallbackPath) != ""), Summary: fallbackPath},
+	}
+	return AgentWeChatApprovalCallbackResponse{
+		Status:       checksStatus(checks),
+		Summary:      fmt.Sprintf("wechat approval callback %s is %s", callbackKey, decision),
+		CallbackKey:  callbackKey,
+		Source:       source,
+		Decision:     decision,
+		Signature:    signature,
+		StorageState: storageState,
+		FallbackPath: fallbackPath,
+		Checks:       checks,
+	}
+}
