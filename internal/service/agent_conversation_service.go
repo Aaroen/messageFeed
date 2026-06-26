@@ -24,6 +24,7 @@ const (
 
 type AgentConversationRepository interface {
 	EnsureExternalAccount(ctx context.Context, account domain.ExternalAccount) (domain.ExternalAccount, error)
+	ListExternalAccounts(ctx context.Context, userID int64) ([]domain.ExternalAccount, error)
 	CreateInboundMessage(ctx context.Context, message domain.AgentInboundMessage) (domain.AgentInboundMessage, bool, error)
 	UpdateInboundMessageStatus(ctx context.Context, userID int64, id int64, status domain.AgentInboundMessageStatus, now time.Time) (domain.AgentInboundMessage, error)
 	GetOrCreateSession(ctx context.Context, session domain.AgentSession) (domain.AgentSession, error)
@@ -714,6 +715,21 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 	progressURL := ""
 	if plan.ID > 0 {
 		progressURL = s.agentPlanURL(plan.ID)
+	}
+	if err := s.sendWebAgentTaskFinalReport(ctx, account, inbound, session, processed.Turn, plan, processed.Reply, ReceiveWeChatWorkAppMessageInput{
+		Provider:          domain.AgentProviderWeb,
+		ProviderMessageID: providerMessageID,
+		CorpID:            domain.AgentProviderWeb,
+		AgentID:           channel,
+		ExternalUserID:    externalUserID,
+		ChatID:            webAgentSessionKey(auth.User.ID, channel),
+		ChatType:          channel,
+		MsgType:           "text",
+		TextContent:       input.Message,
+		RequestID:         requestID,
+		TraceID:           traceID,
+	}); err != nil {
+		return ReceiveWebAgentTaskResult{}, err
 	}
 	return ReceiveWebAgentTaskResult{
 		Session:     agentSessionResponse(processed.Session, domain.AgentSessionStats{}, false),
@@ -1734,13 +1750,19 @@ func (s *AgentConversationService) processTurn(
 
 	finishedAt := s.now().UTC()
 	inbound, _ = s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusSucceeded, finishedAt)
+	replyEventType := "agent.turn_completed"
+	replyEventMessage := "agent turn completed"
+	if sendCount > 0 {
+		replyEventType = "wechat_work.reply_sent"
+		replyEventMessage = "wechat work reply sent"
+	}
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
 		TurnID:    turn.ID,
 		UserID:    account.UserID,
-		EventType: "wechat_work.reply_sent",
+		EventType: replyEventType,
 		Status:    "succeeded",
-		Message:   "wechat work reply sent",
+		Message:   replyEventMessage,
 		Metadata: domain.AgentJSON{
 			"provider_message_id": input.ProviderMessageID,
 			"wechat_msgid":        sendResult.MessageID,

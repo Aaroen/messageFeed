@@ -352,6 +352,20 @@ func TestAgentConversationServiceButtonCallbackCancelsScheduledTask(t *testing.T
 func TestAgentConversationServiceReceivesWebAgentTask(t *testing.T) {
 	now := time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
+	repository.externalAccounts = []domain.ExternalAccount{
+		{
+			ID:             42,
+			UserID:         7,
+			Provider:       domain.AgentProviderWeChatWorkApp,
+			CorpID:         "corp-a",
+			AgentID:        "1000002",
+			ExternalUserID: "zhangsan",
+			DisplayName:    "张三",
+			BindingStatus:  domain.ExternalAccountBindingStatusActive,
+			VerifiedAt:     &now,
+			LastSeenAt:     &now,
+		},
+	}
 	llmClient := &fakeAgentConversationLLM{
 		response: llm.ChatResponse{
 			Provider: "openai_compatible",
@@ -400,8 +414,17 @@ func TestAgentConversationServiceReceivesWebAgentTask(t *testing.T) {
 	if result.Plan.ID == 0 || result.ProgressURL != wantProgressURL {
 		t.Fatalf("plan/progress = %#v / %q, want %q", result.Plan, result.ProgressURL, wantProgressURL)
 	}
-	if sender.sent.ToUser != "" || sender.sent.Content != "" {
-		t.Fatalf("web task should not send wechat work reply: %#v", sender.sent)
+	if sender.templateCalls != 1 || sender.sentTemplate.ToUser != "zhangsan" || sender.sentTemplate.URL != wantProgressURL {
+		t.Fatalf("web task final report template = %#v calls=%d, want url %q", sender.sentTemplate, sender.templateCalls, wantProgressURL)
+	}
+	if sender.calls != 1 || sender.sent.ToUser != "zhangsan" || !strings.Contains(sender.sent.Content, wantProgressURL) {
+		t.Fatalf("web task final report text = %#v calls=%d, want progress url %q", sender.sent, sender.calls, wantProgressURL)
+	}
+	replyAudit := fakeAuditByType(repository.audits, "wechat_work.reply_sent")
+	if replyAudit.Metadata["source_provider"] != domain.AgentProviderWeb ||
+		replyAudit.Metadata["target_external_user_id"] != "zhangsan" ||
+		replyAudit.Metadata["progress_url"] != wantProgressURL {
+		t.Fatalf("web final report audit metadata = %#v", replyAudit.Metadata)
 	}
 }
 
@@ -1710,24 +1733,25 @@ func TestAgentConversationServiceSendsFallbackWhenScheduleCreationFails(t *testi
 }
 
 type fakeAgentConversationRepository struct {
-	nextID         int64
-	forceDuplicate bool
-	account        domain.ExternalAccount
-	inbound        domain.AgentInboundMessage
-	session        domain.AgentSession
-	turns          []domain.AgentTurn
-	transcripts    []domain.AgentTranscriptEntry
-	recalls        []domain.AgentRecallEvent
-	audits         []domain.AgentAuditLog
-	runs           []domain.AgentRun
-	contextTraces  []domain.AgentRunContextTrace
-	observations   []domain.AgentObservation
-	artifacts      []domain.AgentArtifact
-	plans          []domain.AgentPlan
-	scheduledTasks []domain.AgentScheduledTask
-	approvals      []domain.AgentApproval
-	preference     domain.AgentNotificationPreference
-	capabilityLogs []domain.AgentCapabilityAuditLog
+	nextID           int64
+	forceDuplicate   bool
+	account          domain.ExternalAccount
+	inbound          domain.AgentInboundMessage
+	session          domain.AgentSession
+	turns            []domain.AgentTurn
+	transcripts      []domain.AgentTranscriptEntry
+	recalls          []domain.AgentRecallEvent
+	audits           []domain.AgentAuditLog
+	runs             []domain.AgentRun
+	contextTraces    []domain.AgentRunContextTrace
+	observations     []domain.AgentObservation
+	artifacts        []domain.AgentArtifact
+	plans            []domain.AgentPlan
+	scheduledTasks   []domain.AgentScheduledTask
+	approvals        []domain.AgentApproval
+	preference       domain.AgentNotificationPreference
+	capabilityLogs   []domain.AgentCapabilityAuditLog
+	externalAccounts []domain.ExternalAccount
 }
 
 func newFakeAgentConversationRepository() *fakeAgentConversationRepository {
@@ -1746,6 +1770,16 @@ func (r *fakeAgentConversationRepository) EnsureExternalAccount(_ context.Contex
 		r.account = account
 	}
 	return r.account, nil
+}
+
+func (r *fakeAgentConversationRepository) ListExternalAccounts(_ context.Context, userID int64) ([]domain.ExternalAccount, error) {
+	accounts := make([]domain.ExternalAccount, 0, len(r.externalAccounts))
+	for _, account := range r.externalAccounts {
+		if account.UserID == userID {
+			accounts = append(accounts, account)
+		}
+	}
+	return accounts, nil
 }
 
 func (r *fakeAgentConversationRepository) CreateInboundMessage(_ context.Context, message domain.AgentInboundMessage) (domain.AgentInboundMessage, bool, error) {

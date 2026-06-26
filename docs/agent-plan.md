@@ -1651,6 +1651,7 @@ EvalCase
 - 前端已声明并展示 `wechat_web_progress_link`，Web 任务工作台可以查看企业微信 Web 进度地址投递摘要和地址链接。
 - 企业微信进度通知已接入真实模板卡片投递，模板失败时降级为文本 fallback，且聚合摘要读取真实审计事件。
 - 企业微信最终结果汇报已接入模板卡片入口加完整文本结果的组合投递，模板失败时文本仍可发送；`wechat_final_report` 聚合摘要和 Web 工作台已展示真实投递状态。
+- Web 发起任务完成后已可向用户启用的企业微信绑定投递最终报告，最终报告包含 Web 浏览器可打开的计划进度地址，并写入真实投递审计。
 - 企业微信 OAuth / external account / Web session 的访问关系已完成核对：OAuth URL 生成要求 Web 登录用户；callback 使用 state 中的 `user_id` 绑定 external account 并创建 Web session；`/api/v1/auth/me` 可返回当前用户 bindings；disabled binding 会被企业微信 external account 解析拒绝。
 - Web 进度页访问不依赖 URL 携带外部账号凭证，最终数据访问由 Web session 用户与 Agent 任务 owner 的归属校验决定；现有服务测试已覆盖未登录、跨用户计划进度、跨用户计划详情和跨用户调度任务进度拒绝。
 - 最近一轮完整验证已通过 `go test ./...`、`go vet ./...`、`npm --prefix web run test`、`npm --prefix web run type-check` 和 `npm --prefix web run build`。
@@ -1702,4 +1703,4 @@ EvalCase
 
 上一活动文档 `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-workflow-governance-ops-handling-builder-modularization-plan-implemented-2026-06-26.md`。已新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，迁出 43 个运维处置、审批执行、证据闭环、双端进度和真实交互相关纯 builder；剩余 SLA 摘要和任务报表 builder 已迁入 `agent_workflow_foundation_builders.go`。`agent_workflow_governance.go` 当前降至 739 行，已不再承接 `buildAgent*` 纯 builder。
 
-当前活动文档切换为 `docs/nowdoit/agent-minimal-closed-loop-delivery-plan.md`。`docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` 已写入的 4.8 recorder 拆分计划暂不归档、不删除，待最小闭环交付后继续执行。当前闭环交付目标为：保留企业微信发起任务已有闭环能力，补齐 Web 发起任务完成后向用户已绑定企业微信账号发送最终报告，并确保最终报告包含 Web 浏览器可打开的进度地址和审计证据。
+当前活动文档为 `docs/nowdoit/agent-minimal-closed-loop-delivery-plan.md`。本轮已补齐 Web 发起任务完成后向用户已绑定企业微信账号发送最终报告，最终报告包含 Web 浏览器可打开的进度地址并写入审计证据；`go test ./...` 和 `go vet ./...` 已通过。`docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` 已写入的 4.8 recorder 拆分计划暂不归档、不删除，后续可恢复执行。

@@ -36,3 +36,15 @@
 4. 审计日志应记录 Web 任务最终报告投递结果。
 5. `go test ./...` 和 `go vet ./...` 通过。
 6. `docs/implementation.md` 和 `docs/agent-plan.md` 同步记录本轮实际结果。
+
+## 6. 实施结果
+
+1. 已新增 `internal/service/agent_conversation_web_final_report_delivery.go`，承接 Web 发起任务完成后的企业微信最终报告投递逻辑。
+2. 已在 `ReceiveWebAgentTask` 完成处理后调用 Web 最终报告投递 helper；主流程只增加调用点，保持投递职责在独立文件内。
+3. 已扩展 `AgentConversationRepository` 能力边界，读取用户外部账号并选择启用的企业微信绑定作为最终报告目标。
+4. 已保持企业微信发起任务既有最终报告投递路径不变。
+5. 已修正无企业微信发送时的完成审计事件，避免 Web 任务误写空的 `wechat_work.reply_sent`；只有真实企业微信投递才写该事件。
+6. 已扩展 `TestAgentConversationServiceReceivesWebAgentTask`，覆盖 Web 发起任务、计划生成、进度地址、企业微信最终报告模板与文本投递、审计 metadata。
+7. 已通过：
+   - `go test ./...`
+   - `go vet ./...`

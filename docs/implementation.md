@@ -20,7 +20,7 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 本轮切换到最小 Agent 闭环交付；提交推送后以 `git status -sb` 为准 |
+| 工作区 | 最小 Agent 闭环交付已实现并验证；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-minimal-closed-loop-delivery-plan.md` |
 | 最近本轮验证 | `go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
@@ -42,6 +42,7 @@
 - 已完成 `wechat_web_progress_link` 后端聚合摘要和审计快照，字段覆盖进度地址、地址来源、投递通道、模板状态、fallback 状态、浏览器目标和审计引用。
 - 已接入企业微信进度通知真实投递：模板卡片优先，文本 fallback 保底，卡片和 fallback 均包含 Web 浏览器进度地址。
 - `wechat_web_progress_link` 聚合摘要已读取真实 `agent.plan_progress_notification` 或 `agent.plan_started_feedback` 审计事件中的进度地址、模板状态和 fallback 状态。
+- 已补齐 Web 发起任务完成后的企业微信最终报告投递：用户存在启用企业微信绑定时，最终报告通过模板卡片和文本结果组合投递，并记录真实投递审计。
 - 企业微信 OAuth 绑定链路已核对：OAuth URL 必须由已登录 Web 用户生成；callback 按 OAuth state 中的 `user_id` 绑定 external account 并创建同一用户的 Web session；`/api/v1/auth/me` 返回当前用户 bindings；disabled binding 在企业微信 external account 解析时被拒绝。
 
 ### 3.3 Web 进度与治理展示
@@ -403,6 +404,16 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 3. 最终报告包含 Web 浏览器可打开的进度地址。
 4. 写入 Web 任务最终报告投递审计。
 5. 补充服务层测试验证 Web 发起、计划生成、进度地址、企业微信最终汇报和审计证据。
+
+最小闭环实施结果：
+
+1. 已新增 `internal/service/agent_conversation_web_final_report_delivery.go`，承接 Web 任务完成后的企业微信最终报告投递职责。
+2. 已扩展 `AgentConversationRepository`，允许 `AgentConversationService` 查询用户外部账号并选择启用的企业微信绑定作为 Web 任务最终报告目标。
+3. `ReceiveWebAgentTask` 完成后会在存在启用企业微信绑定时复用既有 `sendWeChatWorkFinalReportDelivery`，向企业微信发送最终报告，报告包含 Web 浏览器可打开的计划进度地址。
+4. 已修正 Web 任务未发生企业微信发送时误写空 `wechat_work.reply_sent` 的审计行为；普通完成改写为 `agent.turn_completed`，真实企业微信投递仍写 `wechat_work.reply_sent`。
+5. 已扩展 `TestAgentConversationServiceReceivesWebAgentTask`，覆盖 Web 发起、计划生成、进度地址、企业微信模板与文本投递、审计 metadata。
+6. 已验证：`go test ./...`、`go vet ./...`。
+7. 后续可恢复 `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` 中已写入但暂停的 4.8 recorder 拆分计划，或继续补强闭环的生产级异常路径。
 
 ## 8. 最小验证命令
 
