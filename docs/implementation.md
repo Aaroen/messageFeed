@@ -376,7 +376,7 @@ Agent session 运行态参数与反馈闭环 recorder 拆分阶段性结果：
 4. 当前 snapshot recorder 拆分累计承接 50 个审计快照 recorder；文件数量未继续扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
-下一实施单元尚未写入当前活动文档。后续应从 `recordAgentWriteRampStageSnapshot` 开始，继续按 10 个左右的审计快照 recorder 小批量迁出。
+下一实施单元已写入当前活动文档：放量阶段与运维处置 Recorder 迁出。拟继续迁出放量阶段、企业微信反馈闭环、运维闭环、运维看板交互、告警去重升级、写入阶段记录、企业微信反馈工单、运维处置、运维动作定义和告警升级策略相关 10 个 recorder。
 
 ## 8. 最小验证命令
 
