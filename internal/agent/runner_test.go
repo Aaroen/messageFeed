@@ -161,9 +161,15 @@ func TestTurnRunnerFallsBackOnLLMEmptyResponseWithEvidence(t *testing.T) {
 		ContextBuilder: runnerFakeContextBuilder{snapshot: ContextSnapshot{
 			Blocks: []ContextBlock{
 				{
+					Name:          "最近条目",
+					CapabilityKey: "feed.query_recent_items",
+					Content:       "结果：\n1. 美伊谈判：中国用何利器削弱美国制裁（RFI 中文）\nURL：https://example.com/rfi",
+					ItemCount:     1,
+				},
+				{
 					Name:          "联网搜索结果",
 					CapabilityKey: "web.search",
-					Content:       "工具：web.search\n查询：搜索最新港股消息并分析\n结果：\n1. 港股市场新闻\nURL：https://example.com/hk",
+					Content:       "工具：web.search\n查询：港股\n结果：\n1. 港股市场新闻（财经新闻）\n发布时间：Fri, 26 Jun 2026 13:00:00 GMT\nURL：https://example.com/hk\n摘要：恒生指数下跌，科技股走弱。",
 					ItemCount:     1,
 				},
 			},
@@ -193,10 +199,10 @@ func TestTurnRunnerFallsBackOnLLMEmptyResponseWithEvidence(t *testing.T) {
 	if result.Turn.Status != domain.AgentTurnStatusSucceeded {
 		t.Fatalf("turn status = %q", result.Turn.Status)
 	}
-	if !strings.Contains(result.Reply, "参考结果") || !strings.Contains(result.Reply, "分析") || !strings.Contains(result.Reply, "港股市场新闻") {
+	if !strings.Contains(result.Reply, "结论：") || !strings.Contains(result.Reply, "依据：") || !strings.Contains(result.Reply, "分析过程：") || !strings.Contains(result.Reply, "港股市场新闻") {
 		t.Fatalf("fallback reply = %q", result.Reply)
 	}
-	for _, forbidden := range []string{"模型生成阶段没有返回可用内容", "用户上下文", "user_id", "web.search", "Evidence ref", "证据范围"} {
+	for _, forbidden := range []string{"模型生成阶段没有返回可用内容", "用户上下文", "user_id", "web.search", "Evidence ref", "证据范围", "美伊谈判", "https://example.com/hk"} {
 		if strings.Contains(result.Reply, forbidden) {
 			t.Fatalf("fallback reply leaked %q: %q", forbidden, result.Reply)
 		}

@@ -941,7 +941,29 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, endpoint)
 	results := []agentWebSearchResult{}
 	if err == nil && !isDuckDuckGoSearchChallenge(body, statusCode) {
-		results = parseDuckDuckGoResults(body, limit)
+		results = filterWebSearchResultsByQuery(parseDuckDuckGoResults(body, limit), query)
+	}
+	if len(results) == 0 {
+		for _, webEndpoint := range webHTMLSearchEndpoints(query) {
+			webBody, webFinalURL, webStatusCode, webContentType, webErr := e.fetchWebURL(ctx, webEndpoint)
+			if webErr != nil {
+				err = webErr
+				continue
+			}
+			webResults := filterWebSearchResultsByQuery(parseBingResults(webBody, limit), query)
+			if len(webResults) == 0 {
+				finalURL = webFinalURL
+				statusCode = webStatusCode
+				contentType = webContentType
+				continue
+			}
+			results = webResults
+			finalURL = webFinalURL
+			statusCode = webStatusCode
+			contentType = webContentType
+			err = nil
+			break
+		}
 	}
 	if len(results) == 0 {
 		for _, rssEndpoint := range newsRSSSearchEndpoints(query) {
@@ -950,7 +972,7 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 				err = rssErr
 				continue
 			}
-			rssResults := parseRSSSearchResults(rssBody, limit)
+			rssResults := filterWebSearchResultsByQuery(parseRSSSearchResults(rssBody, limit), query)
 			if len(rssResults) == 0 {
 				finalURL = rssFinalURL
 				statusCode = rssStatusCode
@@ -1639,6 +1661,42 @@ func parseDuckDuckGoResults(body []byte, limit int) []agentWebSearchResult {
 	return results
 }
 
+func parseBingResults(body []byte, limit int) []agentWebSearchResult {
+	document, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return nil
+	}
+	results := make([]agentWebSearchResult, 0, limit)
+	document.Find("li.b_algo").EachWithBreak(func(_ int, selection *goquery.Selection) bool {
+		if len(results) >= limit {
+			return false
+		}
+		link := selection.Find("h2 a").First()
+		title := cleanWhitespace(link.Text())
+		href, _ := link.Attr("href")
+		href = strings.TrimSpace(href)
+		if title == "" || href == "" {
+			return true
+		}
+		parsed, err := url.Parse(href)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return true
+		}
+		snippet := cleanWhitespace(selection.Find(".b_caption p").First().Text())
+		if snippet == "" {
+			snippet = cleanWhitespace(selection.Find("p").First().Text())
+		}
+		results = append(results, agentWebSearchResult{
+			Title:   title,
+			URL:     href,
+			Snippet: snippet,
+			Source:  hostNameForURL(href),
+		})
+		return true
+	})
+	return results
+}
+
 func normalizeWebSearchQuery(value string) string {
 	original := strings.TrimSpace(value)
 	normalized := strings.NewReplacer(
@@ -1689,6 +1747,51 @@ func newsRSSSearchEndpoints(query string) []string {
 		"mkt":     []string{"zh-CN"},
 	}.Encode()
 	return []string{googleNews, bingNews}
+}
+
+func webHTMLSearchEndpoints(query string) []string {
+	bingWeb := "https://www.bing.com/search?" + url.Values{
+		"q":       []string{query},
+		"setlang": []string{"zh-Hans"},
+		"mkt":     []string{"zh-CN"},
+	}.Encode()
+	return []string{bingWeb}
+}
+
+func filterWebSearchResultsByQuery(results []agentWebSearchResult, query string) []agentWebSearchResult {
+	terms := webSearchQueryTerms(query)
+	if len(terms) == 0 {
+		return results
+	}
+	filtered := make([]agentWebSearchResult, 0, len(results))
+	for _, result := range results {
+		haystack := result.Title + " " + result.Source + " " + result.Snippet
+		for _, term := range terms {
+			if strings.Contains(haystack, term) {
+				filtered = append(filtered, result)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+func webSearchQueryTerms(query string) []string {
+	fields := strings.Fields(strings.TrimSpace(query))
+	terms := make([]string, 0, len(fields))
+	seen := map[string]struct{}{}
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if len([]rune(field)) < 2 {
+			continue
+		}
+		if _, ok := seen[field]; ok {
+			continue
+		}
+		seen[field] = struct{}{}
+		terms = append(terms, field)
+	}
+	return terms
 }
 
 func isDuckDuckGoSearchChallenge(body []byte, statusCode int) bool {

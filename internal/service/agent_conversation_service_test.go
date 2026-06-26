@@ -150,6 +150,11 @@ func TestAgentWebSearchNormalizesQueryAndParsesRSSResults(t *testing.T) {
 	if got := normalizeWebSearchQuery("搜索最新港股消息并分析"); got != "港股" {
 		t.Fatalf("normalized query = %q, want 港股", got)
 	}
+	bingHTML := `<html><body><ol><li class="b_algo"><h2><a href="https://example.com/hk-web">港股收评：恒指下跌，科技股走弱</a></h2><div class="b_caption"><p>港股主要指数回落，市场关注南向资金。</p></div></li><li class="b_algo"><h2><a href="https://example.com/us">美股新闻</a></h2><div class="b_caption"><p>美股科技股上涨。</p></div></li></ol></body></html>`
+	bingResults := filterWebSearchResultsByQuery(parseBingResults([]byte(bingHTML), 5), "港股")
+	if len(bingResults) != 1 || bingResults[0].Title != "港股收评：恒指下跌，科技股走弱" {
+		t.Fatalf("bing results = %#v", bingResults)
+	}
 	body := `<?xml version="1.0" encoding="UTF-8"?><rss><channel><item><title>港股风向标：恒指反弹受阻</title><link>https://example.com/hk-news</link><description><![CDATA[<p>恒指反弹受阻，科技股成交额放大。</p>]]></description><pubDate>Fri, 26 Jun 2026 12:00:00 GMT</pubDate><source>财联社</source></item></channel></rss>`
 	results := parseRSSSearchResults([]byte(body), 5)
 	if len(results) != 1 {
@@ -184,9 +189,9 @@ func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvi
 				{
 					ID:          101,
 					SourceName:  "财经源",
-					Title:       "港股科技板块午后走强",
+					Title:       "美伊谈判：中国用何利器削弱美国制裁",
 					URL:         "https://example.com/feed/hk-tech",
-					Summary:     "港股科技股出现上涨，市场关注资金流向。",
+					Summary:     "这是一条与港股走势无关的订阅源新闻。",
 					PublishedAt: &publishedAt,
 					FetchedAt:   now,
 				},
@@ -198,9 +203,9 @@ func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvi
 				body := `<html><body><div class="anomaly-modal">challenge</div></body></html>`
 				return []byte(body), rawURL, 202, "text/html; charset=utf-8", nil
 			}
-			if strings.Contains(rawURL, "news.google.com") {
-				body := `<?xml version="1.0" encoding="UTF-8"?><rss><channel><item><title>港股收盘：恒指下跌，科技股走弱</title><link>https://example.com/hk-market-close</link><description><![CDATA[恒生指数下跌，市场关注美元与资金流向。]]></description><pubDate>Fri, 26 Jun 2026 13:00:00 GMT</pubDate><source>财经新闻</source></item></channel></rss>`
-				return []byte(body), rawURL, 200, "application/rss+xml; charset=utf-8", nil
+			if strings.Contains(rawURL, "bing.com/search") {
+				body := `<html><body><ol><li class="b_algo"><h2><a href="https://example.com/hk-market-close">港股收盘：恒指下跌，科技股走弱</a></h2><div class="b_caption"><p>恒生指数下跌，市场关注美元与资金流向。</p></div></li></ol></body></html>`
+				return []byte(body), rawURL, 200, "text/html; charset=utf-8", nil
 			}
 			return nil, rawURL, 404, "text/plain", errors.New("unexpected test url")
 		}),
@@ -224,10 +229,10 @@ func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvi
 	if result.Turn.Status != domain.AgentTurnStatusSucceeded || result.Plan.Status != domain.AgentPlanStatusCompleted {
 		t.Fatalf("turn=%q plan=%q error=%q", result.Turn.Status, result.Plan.Status, result.Plan.ErrorMessage)
 	}
-	if !strings.Contains(result.Reply, "参考结果") || !strings.Contains(result.Reply, "分析") || !strings.Contains(result.Reply, "港股收盘：恒指下跌") {
+	if !strings.Contains(result.Reply, "结论：") || !strings.Contains(result.Reply, "依据：") || !strings.Contains(result.Reply, "分析过程：") || !strings.Contains(result.Reply, "港股收盘：恒指下跌") {
 		t.Fatalf("reply = %q", result.Reply)
 	}
-	for _, forbidden := range []string{"模型生成阶段没有返回可用内容", "用户上下文", "web.search", "Evidence ref", "证据范围"} {
+	for _, forbidden := range []string{"模型生成阶段没有返回可用内容", "用户上下文", "web.search", "Evidence ref", "证据范围", "美伊谈判", "状态锚点", "企微动作组件", "https://example.com/hk-market-close"} {
 		if strings.Contains(result.Reply, forbidden) {
 			t.Fatalf("reply leaked %q: %q", forbidden, result.Reply)
 		}
@@ -1025,13 +1030,15 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("agent start feedback was not sent")
 	}
-	if !strings.Contains(startedMessage.Content, "工作已开始") ||
-		!strings.Contains(startedMessage.Content, "状态锚点：started/") ||
-		!strings.Contains(startedMessage.Content, "下一步：") ||
-		!strings.Contains(startedMessage.Content, "企微动作组件：view_progress=") ||
-		!strings.Contains(startedMessage.Content, "调度方式") ||
+	if !strings.Contains(startedMessage.Content, "已开始处理") ||
+		!strings.Contains(startedMessage.Content, "详情：") ||
 		!strings.Contains(startedMessage.Content, "https://messagefeed.example/agent/plans/") {
 		t.Fatalf("start feedback = %q", startedMessage.Content)
+	}
+	for _, forbidden := range []string{"状态锚点", "企微动作组件", "调度方式", "权限：", "预算："} {
+		if strings.Contains(startedMessage.Content, forbidden) {
+			t.Fatalf("start feedback leaked %q: %q", forbidden, startedMessage.Content)
+		}
 	}
 
 	select {
@@ -1046,19 +1053,25 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("async reply was not sent")
 	}
-	if !strings.Contains(completionMessage.Content, "异步回复") ||
-		!strings.Contains(completionMessage.Content, "状态锚点：completed/") ||
-		!strings.Contains(completionMessage.Content, "状态：已完成") ||
-		!strings.Contains(completionMessage.Content, "下一步：") ||
-		!strings.Contains(completionMessage.Content, "企微动作组件：view_progress=") ||
-		!strings.Contains(completionMessage.Content, "https://messagefeed.example/agent/plans/") {
+	if !strings.Contains(completionMessage.Content, "异步回复") {
 		t.Fatalf("completion feedback = %q", completionMessage.Content)
+	}
+	for _, forbidden := range []string{"状态锚点", "状态：", "下一步：", "企微动作组件", "权限：", "预算：", "质量：", "成本：", "运行观测"} {
+		if strings.Contains(completionMessage.Content, forbidden) {
+			t.Fatalf("completion feedback leaked %q: %q", forbidden, completionMessage.Content)
+		}
+	}
+	deadline := time.After(time.Second)
+	for repository.inbound.Status != domain.AgentInboundMessageStatusSucceeded {
+		select {
+		case <-deadline:
+			t.Fatalf("inbound status = %q", repository.inbound.Status)
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 	if repository.turns[0].Status != domain.AgentTurnStatusSucceeded {
 		t.Fatalf("final turn status = %q", repository.turns[0].Status)
-	}
-	if repository.inbound.Status != domain.AgentInboundMessageStatusSucceeded {
-		t.Fatalf("inbound status = %q", repository.inbound.Status)
 	}
 }
 
@@ -1108,9 +1121,12 @@ func TestAgentConversationServiceSendsWeChatProgressNotificationWithAudit(t *tes
 	}
 	if sender.sentTemplate.URL != "https://messagefeed.example/agent/plans/9" ||
 		!strings.Contains(sender.sentTemplate.Description, "计划 #9") ||
-		!strings.Contains(sender.sentTemplate.FallbackText, "企微动作组件：view_progress=https://messagefeed.example/agent/plans/9") ||
+		!strings.Contains(sender.sentTemplate.FallbackText, "详情：https://messagefeed.example/agent/plans/9") ||
 		!strings.Contains(sender.sentTemplate.FallbackText, "https://messagefeed.example/agent/plans/9") {
 		t.Fatalf("template = %#v", sender.sentTemplate)
+	}
+	if strings.Contains(sender.sentTemplate.FallbackText, "企微动作组件") || strings.Contains(sender.sentTemplate.FallbackText, "状态锚点") {
+		t.Fatalf("template fallback leaked execution details = %#v", sender.sentTemplate)
 	}
 	if len(repository.audits) != 1 || repository.audits[0].EventType != "agent.plan_progress_notification" || repository.audits[0].Status != "succeeded" {
 		t.Fatalf("audits = %#v", repository.audits)
@@ -1657,14 +1673,13 @@ func TestAgentConversationServicePlanStartedReplyIncludesProgressSummary(t *test
 		AllowedScopes: []string{"web.search"},
 		UpdatedAt:     now,
 	})
-	if !strings.Contains(reply, "进度摘要：") || !strings.Contains(reply, "状态：执行中") || !strings.Contains(reply, "进度版本：") {
+	if !strings.Contains(reply, "已开始处理") || !strings.Contains(reply, "进度：") || !strings.Contains(reply, "详情：") {
 		t.Fatalf("reply = %q", reply)
 	}
-	if !strings.Contains(reply, "状态锚点：started/executing") || !strings.Contains(reply, "进度地址：") || !strings.Contains(reply, "下一步：") {
-		t.Fatalf("reply = %q", reply)
-	}
-	if !strings.Contains(reply, "企微动作组件：view_progress=/agent/plans/7") || !strings.Contains(reply, "cancel_scheduled_task=/agent/plans/7") {
-		t.Fatalf("reply = %q", reply)
+	for _, forbidden := range []string{"状态锚点", "企微动作组件", "授权范围", "预算：", "权限：", "实施步骤"} {
+		if strings.Contains(reply, forbidden) {
+			t.Fatalf("reply leaked %q: %q", forbidden, reply)
+		}
 	}
 }
 

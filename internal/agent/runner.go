@@ -572,24 +572,22 @@ func isLLMEmptyResponse(err error) bool {
 }
 
 func buildEvidenceFallbackReply(message string, snapshot ContextSnapshot) (string, ContextSnapshot, bool) {
-	items := fallbackEvidenceItems(snapshot.Blocks)
+	items := fallbackEvidenceItems(message, snapshot.Blocks)
 	if len(items) == 0 {
 		return "", snapshot, false
 	}
 
 	var builder strings.Builder
-	builder.WriteString("参考结果：")
-	if trimmed := strings.TrimSpace(message); trimmed != "" {
-		builder.WriteString("\n任务：")
-		builder.WriteString(trimmed)
-	}
+	builder.WriteString("结论：")
+	builder.WriteString(fallbackConclusion(items))
 	limit := len(items)
-	if limit > 5 {
-		limit = 5
+	if limit > 3 {
+		limit = 3
 	}
+	builder.WriteString("\n\n依据：")
 	for index := 0; index < limit; index++ {
 		item := items[index]
-		builder.WriteString("\n\n")
+		builder.WriteString("\n")
 		builder.WriteString(strconv.Itoa(index + 1))
 		builder.WriteString(". ")
 		builder.WriteString(item.Title)
@@ -599,19 +597,15 @@ func buildEvidenceFallbackReply(message string, snapshot ContextSnapshot) (strin
 			builder.WriteString("）")
 		}
 		if item.PublishedAt != "" {
-			builder.WriteString("\n发布时间：")
+			builder.WriteString("，时间：")
 			builder.WriteString(item.PublishedAt)
 		}
 		if item.Summary != "" {
-			builder.WriteString("\n摘要：")
+			builder.WriteString("\n   ")
 			builder.WriteString(trimRunes(item.Summary, 220))
 		}
-		if item.URL != "" {
-			builder.WriteString("\nURL：")
-			builder.WriteString(item.URL)
-		}
 	}
-	builder.WriteString("\n\n分析：")
+	builder.WriteString("\n\n分析过程：")
 	builder.WriteString(fallbackAnalysis(items))
 
 	snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
@@ -631,15 +625,32 @@ type fallbackEvidenceItem struct {
 	URL         string
 }
 
-func fallbackEvidenceItems(blocks []ContextBlock) []fallbackEvidenceItem {
+func fallbackEvidenceItems(message string, blocks []ContextBlock) []fallbackEvidenceItem {
+	searchTask := fallbackMessageRequestsSearch(message)
+	terms := fallbackSearchTerms(message)
+	webItems := make([]fallbackEvidenceItem, 0, 8)
+	localItems := make([]fallbackEvidenceItem, 0, 8)
 	items := make([]fallbackEvidenceItem, 0, 8)
 	for _, block := range blocks {
 		if !fallbackBlockIsUserVisible(block.CapabilityKey) {
 			continue
 		}
-		items = append(items, parseFallbackEvidenceItems(block.Content)...)
+		parsed := parseFallbackEvidenceItems(block.Content)
+		if strings.HasPrefix(strings.TrimSpace(block.CapabilityKey), "web.") {
+			webItems = append(webItems, parsed...)
+			continue
+		}
+		localItems = append(localItems, parsed...)
 	}
-	if len(items) == 0 {
+	if searchTask && len(webItems) > 0 {
+		if relevant := fallbackFilterEvidenceItems(webItems, terms); len(relevant) > 0 {
+			return dedupeFallbackEvidenceItems(relevant)
+		}
+		return dedupeFallbackEvidenceItems(webItems)
+	}
+	items = append(items, webItems...)
+	items = append(items, localItems...)
+	if len(items) == 0 && !searchTask {
 		for _, block := range blocks {
 			if !fallbackBlockIsUserVisible(block.CapabilityKey) {
 				continue
@@ -653,6 +664,71 @@ func fallbackEvidenceItems(blocks []ContextBlock) []fallbackEvidenceItem {
 		}
 	}
 	return dedupeFallbackEvidenceItems(items)
+}
+
+func fallbackMessageRequestsSearch(message string) bool {
+	return fallbackContainsAny(message, []string{"搜索", "查询", "查找", "检索", "最新", "新闻", "资讯", "消息"})
+}
+
+func fallbackSearchTerms(message string) []string {
+	normalized := strings.NewReplacer(
+		"\n", " ",
+		"\t", " ",
+		"，", " ",
+		"。", " ",
+		"；", " ",
+		"、", " ",
+		"？", " ",
+		"！", " ",
+		",", " ",
+		";", " ",
+		"?", " ",
+		"!", " ",
+		"：", " ",
+		":", " ",
+	).Replace(strings.TrimSpace(message))
+	for _, phrase := range []string{
+		"重新", "请帮我", "帮我", "麻烦", "请",
+		"搜索一下", "查询一下", "查找一下", "检索一下",
+		"搜索", "查询", "查找", "检索",
+		"最新的", "最新", "消息", "新闻", "资讯",
+		"并分析一下", "并分析", "分析一下", "分析",
+		"一下", "相关", "关于",
+	} {
+		normalized = strings.ReplaceAll(normalized, phrase, " ")
+	}
+	fields := strings.Fields(normalized)
+	terms := make([]string, 0, len(fields))
+	seen := map[string]struct{}{}
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if len([]rune(field)) < 2 {
+			continue
+		}
+		if _, ok := seen[field]; ok {
+			continue
+		}
+		seen[field] = struct{}{}
+		terms = append(terms, field)
+	}
+	return terms
+}
+
+func fallbackFilterEvidenceItems(items []fallbackEvidenceItem, terms []string) []fallbackEvidenceItem {
+	if len(terms) == 0 {
+		return items
+	}
+	filtered := make([]fallbackEvidenceItem, 0, len(items))
+	for _, item := range items {
+		haystack := item.Title + " " + item.Source + " " + item.Summary
+		for _, term := range terms {
+			if strings.Contains(haystack, term) {
+				filtered = append(filtered, item)
+				break
+			}
+		}
+	}
+	return filtered
 }
 
 func fallbackBlockIsUserVisible(capabilityKey string) bool {
@@ -774,21 +850,42 @@ func fallbackAnalysis(items []fallbackEvidenceItem) string {
 	text := joined.String()
 	points := make([]string, 0, 4)
 	if fallbackContainsAny(text, []string{"跌", "下挫", "低开", "重挫", "新低", "净卖出", "走弱"}) {
-		points = append(points, "市场短线情绪偏弱，需重点观察恒指、恒生科技指数以及南向资金的连续性变化。")
+		points = append(points, "多条依据出现下跌、走弱或净卖出信号，因此短线风险偏好偏弱。")
 	}
 	if fallbackContainsAny(text, []string{"涨", "上涨", "走强", "反弹", "净买入", "创新高"}) {
-		points = append(points, "局部板块存在结构性修复信号，但仍需结合成交额与资金流向判断持续性。")
+		points = append(points, "若同时出现上涨、反弹或走强表述，说明行情并非单边下行，可能存在结构性修复。")
 	}
 	if fallbackContainsAny(text, []string{"IPO", "上市", "募资"}) {
-		points = append(points, "一级市场和新股融资活跃度可作为风险偏好变化的辅助指标。")
+		points = append(points, "IPO、上市和募资信息反映一级市场活跃度，可作为风险偏好变化的辅助指标。")
 	}
 	if fallbackContainsAny(text, []string{"美联储", "美元", "利率", "关税", "地缘"}) {
-		points = append(points, "外部宏观变量仍可能影响港股估值与外资风险偏好。")
+		points = append(points, "外部宏观变量会影响估值和资金流向，需要与指数、成交额共同验证。")
 	}
 	if len(points) == 0 {
-		points = append(points, "当前证据主要提供新闻线索，尚不足以形成强结论；建议继续补充指数表现、成交额、南向资金和重点行业走势后再判断。")
+		points = append(points, "当前依据主要是新闻线索，尚不足以形成强结论；需要继续结合指数表现、成交额和资金流向验证。")
 	}
 	return strings.Join(points, "")
+}
+
+func fallbackConclusion(items []fallbackEvidenceItem) string {
+	joined := strings.Builder{}
+	for _, item := range items {
+		joined.WriteString(item.Title)
+		joined.WriteString(" ")
+		joined.WriteString(item.Summary)
+		joined.WriteString(" ")
+	}
+	text := joined.String()
+	switch {
+	case fallbackContainsAny(text, []string{"跌", "下挫", "低开", "重挫", "新低", "净卖出", "走弱"}):
+		return "当前消息面偏谨慎，短线需要重点关注指数表现、资金流向和科技股走势。"
+	case fallbackContainsAny(text, []string{"涨", "上涨", "走强", "反弹", "净买入", "创新高"}):
+		return "当前消息面存在结构性修复线索，但持续性仍需要成交额和资金流向确认。"
+	case fallbackContainsAny(text, []string{"IPO", "上市", "募资"}):
+		return "当前消息面显示融资和新股线索较活跃，可作为风险偏好观察点。"
+	default:
+		return "当前可用依据以新闻线索为主，结论应保持保守。"
+	}
 }
 
 func fallbackContainsAny(value string, terms []string) bool {

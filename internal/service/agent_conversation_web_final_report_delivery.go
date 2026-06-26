@@ -28,7 +28,7 @@ func (s *AgentConversationService) sendWebAgentTaskFinalReport(
 		s.recordWebAgentTaskFinalReportSkipped(ctx, account, inbound, session, turn, plan, input, reason)
 		return nil
 	}
-	delivery, err := s.sendWeChatWorkFinalReportDelivery(ctx, target.ExternalUserID, plan, reply, string(plan.Status))
+	delivery, err := s.sendWeChatWorkFinalReportDelivery(ctx, target.ExternalUserID, plan, s.webAgentTaskWeChatReply(reply, plan), string(plan.Status))
 	status := "succeeded"
 	message := "web agent task final report sent to wechat work"
 	if err != nil {
@@ -62,6 +62,21 @@ func (s *AgentConversationService) sendWebAgentTaskFinalReport(
 		CreatedAt: s.now().UTC(),
 	})
 	return err
+}
+
+func (s *AgentConversationService) webAgentTaskWeChatReply(reply string, plan domain.AgentPlan) string {
+	reply = strings.TrimSpace(reply)
+	if plan.ID < 1 {
+		return reply
+	}
+	progressURL := s.agentPlanURL(plan.ID)
+	if strings.Contains(reply, progressURL) {
+		return reply
+	}
+	if reply == "" {
+		return "详情：" + progressURL
+	}
+	return reply + "\n\n详情：" + progressURL
 }
 
 func (s *AgentConversationService) webAgentTaskFinalReportTarget(ctx context.Context, userID int64) (domain.ExternalAccount, bool, string) {

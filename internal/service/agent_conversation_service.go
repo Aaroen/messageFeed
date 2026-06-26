@@ -2246,27 +2246,12 @@ func (s *AgentConversationService) agentPlanProgressNotificationText(plan domain
 	var builder strings.Builder
 	builder.WriteString(title)
 	builder.WriteString("。\n")
-	builder.WriteString("状态锚点：")
-	builder.WriteString(stage)
-	builder.WriteString("/")
-	builder.WriteString(string(plan.Status))
-	builder.WriteString("\n")
-	builder.WriteString("计划 #")
-	builder.WriteString(strconv.FormatInt(plan.ID, 10))
-	builder.WriteString(" / 状态：")
-	builder.WriteString(string(plan.Status))
-	builder.WriteString("\n进度摘要：")
-	builder.WriteString(s.agentPlanProgressText(plan))
-	builder.WriteString("\n权限：")
-	builder.WriteString(planPermissionSummary(plan))
-	builder.WriteString("\n预算：")
-	builder.WriteString(planBudgetSummary(plan))
+	builder.WriteString("进度：")
+	builder.WriteString(s.agentPlanWeChatProgressText(plan))
 	builder.WriteString("\n下一步：")
 	builder.WriteString(agentProgressNextAction(string(plan.Status), true, plan, nil))
-	builder.WriteString("\n进度地址：")
+	builder.WriteString("\n详情：")
 	builder.WriteString(s.agentPlanURL(plan.ID))
-	builder.WriteString("\n")
-	builder.WriteString(s.agentWeChatActionFallbackText(plan, ""))
 	if failedStep := firstFailedPlanStep(plan); failedStep.ID > 0 {
 		builder.WriteString("\n失败步骤：")
 		builder.WriteString(planStepLabel(failedStep))
@@ -2280,99 +2265,36 @@ func (s *AgentConversationService) agentPlanProgressNotificationText(plan domain
 
 func (s *AgentConversationService) agentPlanStartedReply(plan domain.AgentPlan) string {
 	var builder strings.Builder
-	builder.WriteString("工作已开始。\n")
-	builder.WriteString("状态锚点：started/")
-	builder.WriteString(string(plan.Status))
-	builder.WriteString("\n")
-	builder.WriteString("调度方式：controller 生成执行计划，executor 按步骤调用授权能力。\n")
-	builder.WriteString("进度摘要：")
-	builder.WriteString(s.agentPlanProgressText(plan))
-	builder.WriteString("\n")
-	builder.WriteString("权限：")
-	builder.WriteString(planPermissionSummary(plan))
-	builder.WriteString("\n")
-	builder.WriteString("预算：")
-	builder.WriteString(planBudgetSummary(plan))
-	builder.WriteString("\n")
-	if plan.Summary != "" {
-		builder.WriteString("计划：")
-		builder.WriteString(plan.Summary)
-		builder.WriteString("\n")
+	builder.WriteString("已开始处理")
+	if strings.TrimSpace(plan.Goal) != "" {
+		builder.WriteString("：")
+		builder.WriteString(strings.TrimSpace(plan.Goal))
 	}
-	if len(plan.AllowedScopes) > 0 {
-		builder.WriteString("授权范围：")
-		builder.WriteString(strings.Join(plan.AllowedScopes, "、"))
-		builder.WriteString("\n")
-	}
+	builder.WriteString("。\n")
+	builder.WriteString("进度：")
+	builder.WriteString(s.agentPlanWeChatProgressText(plan))
 	if plan.ID > 0 {
-		builder.WriteString("进度地址：")
+		builder.WriteString("\n详情：")
 		builder.WriteString(s.agentPlanURL(plan.ID))
-		builder.WriteString("\n")
-	}
-	builder.WriteString("下一步：")
-	builder.WriteString(agentProgressNextAction(string(plan.Status), true, plan, nil))
-	builder.WriteString("\n")
-	builder.WriteString(s.agentWeChatActionFallbackText(plan, ""))
-	builder.WriteString("\n")
-	if len(plan.Steps) > 0 {
-		builder.WriteString("实施步骤：")
-		for index, step := range plan.Steps {
-			if index >= 6 {
-				builder.WriteString("\n")
-				builder.WriteString(fmt.Sprintf("%d. 其余步骤将在网页进度中显示", index+1))
-				break
-			}
-			builder.WriteString("\n")
-			builder.WriteString(fmt.Sprintf("%d. %s", index+1, planStepLabel(step)))
-		}
 	}
 	return strings.TrimSpace(builder.String())
 }
 
 func (s *AgentConversationService) agentTurnCompletionReply(plan domain.AgentPlan, reply string) string {
 	reply = strings.TrimSpace(reply)
-	if plan.ID == 0 {
+	if reply != "" {
 		return reply
 	}
 	status := "已完成"
 	if plan.Status == domain.AgentPlanStatusFailed {
 		status = "处理失败"
 	}
-	if reply == "" {
-		reply = status
-	}
 	var builder strings.Builder
-	builder.WriteString(reply)
-	builder.WriteString("\n\n状态锚点：completed/")
-	builder.WriteString(string(plan.Status))
-	builder.WriteString("\n状态：")
 	builder.WriteString(status)
-	builder.WriteString("\n进度摘要：")
-	builder.WriteString(s.agentPlanProgressText(plan))
-	builder.WriteString("\n权限：")
-	builder.WriteString(planPermissionSummary(plan))
-	builder.WriteString("\n预算：")
-	builder.WriteString(planBudgetSummary(plan))
-	builder.WriteString("\n质量：")
-	builder.WriteString(planResultQualitySummary(plan))
-	builder.WriteString("\n成本：")
-	builder.WriteString(planCostSummary(plan))
-	builder.WriteString("\n部署验收：")
-	builder.WriteString(planDeploymentAcceptanceSummary(plan))
-	builder.WriteString("\n运行观测：")
-	builder.WriteString(planRuntimeObservabilitySummary(plan))
-	builder.WriteString("\n人工接管：")
-	builder.WriteString(planHandoffSummary(plan))
-	if refs := planEvidenceRefs(plan); len(refs) > 0 {
-		builder.WriteString("\n证据引用：")
-		builder.WriteString(strings.Join(refs, ", "))
+	if plan.ID > 0 {
+		builder.WriteString("。详情：")
+		builder.WriteString(s.agentPlanURL(plan.ID))
 	}
-	builder.WriteString("\n下一步：")
-	builder.WriteString(agentProgressNextAction(string(plan.Status), true, plan, nil))
-	builder.WriteString("\n进度地址：")
-	builder.WriteString(s.agentPlanURL(plan.ID))
-	builder.WriteString("\n")
-	builder.WriteString(s.agentWeChatActionFallbackText(plan, ""))
 	return builder.String()
 }
 
@@ -2409,6 +2331,30 @@ func (s *AgentConversationService) agentPlanProgressText(plan domain.AgentPlan) 
 		UpdatedAt:   formatOptionalTime(&updatedAt),
 		Plan:        &response,
 	})
+}
+
+func (s *AgentConversationService) agentPlanWeChatProgressText(plan domain.AgentPlan) string {
+	summary := strings.TrimSpace(plan.Goal)
+	if summary == "" {
+		summary = strings.TrimSpace(plan.Summary)
+	}
+	if summary == "" {
+		summary = "任务处理中"
+	}
+	status := "处理中"
+	switch plan.Status {
+	case domain.AgentPlanStatusCompleted:
+		status = "已完成"
+	case domain.AgentPlanStatusFailed:
+		status = "处理失败"
+	case domain.AgentPlanStatusAwaitingApproval:
+		status = "等待确认"
+	case domain.AgentPlanStatusRejected:
+		status = "已拒绝"
+	case domain.AgentPlanStatusExecuting, domain.AgentPlanStatusApproved:
+		status = "处理中"
+	}
+	return safeSummary(summary, 120) + "，" + status
 }
 
 func planStepLabel(step domain.AgentPlanStep) string {
