@@ -21,7 +21,7 @@
 | --- | --- |
 | 分支 | `master` |
 | 工作区 | 本轮文档记录按 ops handling 第五实施单元收尾迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
-| 当前活动文档 | `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md` |
+| 当前活动文档 | `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` |
 | 最近本轮验证 | `go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
 
@@ -323,6 +323,17 @@ Workflow governance 剩余 SLA 与任务报表 builder 收尾拆分结果：
 3. `agent_workflow_governance.go` 从 827 行降至 739 行；`agent_workflow_foundation_builders.go` 从 412 行增至 500 行。
 4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 124 个低风险纯函数；本收尾小轮未新增文件，文件数量未继续扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
+
+已归档活动文档：`docs/nowdoit/archive/agent-workflow-governance-ops-handling-builder-modularization-plan-implemented-2026-06-26.md`
+
+新活动文档：`docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md`
+
+新一轮目标：
+
+1. 梳理 `agent_session_service.go` 中连续的 `recordAgent*Snapshot` 方法群组。
+2. 优先迁出只写审计快照、不改变任务聚合业务语义的 recorder。
+3. 新增独立 `internal/service/agent_session_snapshot_recorders.go`，降低 `agent_session_service.go` 的职责密度。
+4. 验证通过后同步主文档和设计文档并提交推送。
 
 ## 8. 最小验证命令
 
