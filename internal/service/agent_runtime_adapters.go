@@ -173,8 +173,11 @@ type agentP0CapabilityExecutor struct {
 	sourceProvider   AgentSourceProvider
 	notificationJobs AgentNotificationJobStore
 	scheduledTasks   AgentScheduleEvalRepository
+	webFetcher       agentWebFetcher
 	now              func() time.Time
 }
+
+type agentWebFetcher func(ctx context.Context, rawURL string) ([]byte, string, int, string, error)
 
 func (e agentP0CapabilityExecutor) Execute(ctx context.Context, input agent.CapabilityExecuteInput) (agent.CapabilityExecuteResult, error) {
 	switch input.Capability.Key {
@@ -182,6 +185,8 @@ func (e agentP0CapabilityExecutor) Execute(ctx context.Context, input agent.Capa
 		return e.queryRecentItems(ctx, input)
 	case "source.query_latest_items":
 		return e.querySourceLatestItems(ctx, input)
+	case "web.search":
+		return e.webSearchCapability(ctx, input)
 	case "content.summarize_text":
 		return e.summarizeTextCapability(input), nil
 	default:
@@ -320,6 +325,27 @@ func (e agentP0CapabilityExecutor) querySourceLatestItems(ctx context.Context, i
 		},
 		Observation: observation,
 	}, nil
+}
+
+func (e agentP0CapabilityExecutor) webSearchCapability(ctx context.Context, input agent.CapabilityExecuteInput) (agent.CapabilityExecuteResult, error) {
+	content, observation, itemCount, err := e.runWebSearch(ctx, input.Capability.Key, input.Message, 5)
+	if err != nil {
+		return agent.CapabilityExecuteResult{}, err
+	}
+	result := agent.CapabilityExecuteResult{Observation: observation}
+	if strings.TrimSpace(content) != "" {
+		result.Blocks = []agent.ContextBlock{
+			{
+				Name:          "联网搜索结果",
+				CapabilityKey: input.Capability.Key,
+				Content:       content,
+				ItemCount:     itemCount,
+				GeneratedAt:   e.currentTime(),
+				TrustLevel:    "external_web",
+			},
+		}
+	}
+	return result, nil
 }
 
 func (e agentP0CapabilityExecutor) matchSourceByText(ctx context.Context, userID int64, text string) (domain.Source, bool, error) {
@@ -888,7 +914,12 @@ func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.To
 	if args.Query == "" {
 		args.Query = strings.TrimSpace(input.Message)
 	}
-	limit := args.Limit
+	content, observation, _, err := e.runWebSearch(ctx, input.Capability.Key, args.Query, args.Limit)
+	return agent.ToolExecuteResult{Content: content, Observation: observation}, err
+}
+
+func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityKey string, query string, limit int) (string, agent.CapabilityObservation, int, error) {
+	query = strings.TrimSpace(query)
 	if limit < 1 {
 		limit = 5
 	}
@@ -896,20 +927,20 @@ func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.To
 		limit = 8
 	}
 	observation := agent.CapabilityObservation{
-		Capability: input.Capability.Key,
+		Capability: capabilityKey,
 		Decision:   string(agent.PolicyDecisionAllow),
 	}
-	if args.Query == "" {
+	if query == "" {
 		observation.Status = "failed"
 		observation.Summary = "web search query is empty"
-		return agent.ToolExecuteResult{Content: "web.search 需要非空 query。", Observation: observation}, nil
+		return "web.search 需要非空 query。", observation, 0, nil
 	}
-	endpoint := "https://duckduckgo.com/html/?" + url.Values{"q": []string{args.Query}}.Encode()
-	body, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, endpoint)
+	endpoint := "https://duckduckgo.com/html/?" + url.Values{"q": []string{query}}.Encode()
+	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, endpoint)
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
-		return agent.ToolExecuteResult{Content: "web.search 执行失败：" + err.Error(), Observation: observation}, nil
+		return "web.search 执行失败：" + err.Error(), observation, 0, nil
 	}
 	results := parseDuckDuckGoResults(body, limit)
 	observation.Status = "succeeded"
@@ -918,10 +949,7 @@ func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.To
 		observation.Status = "empty"
 		observation.Summary = "no web search result parsed"
 	}
-	return agent.ToolExecuteResult{
-		Content:     formatWebSearchResult(args.Query, finalURL, statusCode, contentType, e.currentTime(), results),
-		Observation: observation,
-	}, nil
+	return formatWebSearchResult(query, finalURL, statusCode, contentType, e.currentTime(), results), observation, len(results), nil
 }
 
 func (e agentP0CapabilityExecutor) webFetchPage(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
@@ -935,7 +963,7 @@ func (e agentP0CapabilityExecutor) webFetchPage(ctx context.Context, input agent
 		observation.Summary = "web fetch url is empty"
 		return agent.ToolExecuteResult{Content: "web.fetch_page 需要非空 url。", Observation: observation}, nil
 	}
-	body, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, args.URL)
+	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, args.URL)
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
@@ -960,7 +988,7 @@ func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input age
 		observation.Summary = "web extract url is empty"
 		return agent.ToolExecuteResult{Content: "web.extract_page 需要非空 url。", Observation: observation}, nil
 	}
-	body, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, args.URL)
+	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, args.URL)
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
@@ -1001,7 +1029,7 @@ func (e agentP0CapabilityExecutor) repoSearch(ctx context.Context, input agent.T
 		"q":        []string{args.Query},
 		"per_page": []string{strconv.Itoa(limit)},
 	}.Encode()
-	body, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, endpoint)
+	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, endpoint)
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
@@ -1033,7 +1061,7 @@ func (e agentP0CapabilityExecutor) repoInspectRemote(ctx context.Context, input 
 		return agent.ToolExecuteResult{Content: "repo.inspect_remote 需要 GitHub URL 或 owner/repo。", Observation: observation}, nil
 	}
 	metaURL := fmt.Sprintf("https://api.github.com/repos/%s/%s", url.PathEscape(owner), url.PathEscape(repo))
-	metaBody, finalURL, statusCode, contentType, err := fetchAgentWebURL(ctx, metaURL)
+	metaBody, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, metaURL)
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
@@ -1470,6 +1498,13 @@ type agentRepoDocumentSummary struct {
 	Source  string
 	Summary string
 	Error   string
+}
+
+func (e agentP0CapabilityExecutor) fetchWebURL(ctx context.Context, rawURL string) ([]byte, string, int, string, error) {
+	if e.webFetcher != nil {
+		return e.webFetcher(ctx, rawURL)
+	}
+	return fetchAgentWebURL(ctx, rawURL)
 }
 
 func fetchAgentWebURL(ctx context.Context, rawURL string) ([]byte, string, int, string, error) {

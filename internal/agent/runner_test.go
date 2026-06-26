@@ -153,20 +153,91 @@ func TestTurnRunnerRejectsToolOutsideCurrentScope(t *testing.T) {
 	}
 }
 
+func TestTurnRunnerFallsBackOnLLMEmptyResponseWithEvidence(t *testing.T) {
+	now := time.Date(2026, 6, 26, 21, 0, 0, 0, time.UTC)
+	store := &runnerFakeTurnStore{}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store: store,
+		ContextBuilder: runnerFakeContextBuilder{snapshot: ContextSnapshot{
+			Blocks: []ContextBlock{
+				{
+					Name:          "联网搜索结果",
+					CapabilityKey: "web.search",
+					Content:       "工具：web.search\n查询：搜索最新港股消息并分析\n结果：\n1. 港股市场新闻\nURL：https://example.com/hk",
+					ItemCount:     1,
+				},
+			},
+			Observations: []CapabilityObservation{
+				{Capability: "web.search", Decision: string(PolicyDecisionAllow), Status: "succeeded", Summary: "loaded 1 web search results"},
+			},
+		}},
+		LLMClient: &runnerFakeChatClient{
+			err: domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "test", true, nil),
+		},
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"web.search"},
+		MessageType:     "text",
+		MessageText:     "搜索最新港股消息并分析",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Turn.Status != domain.AgentTurnStatusSucceeded {
+		t.Fatalf("turn status = %q", result.Turn.Status)
+	}
+	if !strings.Contains(result.Reply, "模型生成阶段没有返回可用内容") || !strings.Contains(result.Reply, "港股市场新闻") {
+		t.Fatalf("fallback reply = %q", result.Reply)
+	}
+	if result.ModelProvider != "local" || result.Model != "deterministic-evidence-fallback" {
+		t.Fatalf("model fallback = %s/%s", result.ModelProvider, result.Model)
+	}
+	if len(result.Context.Observations) != 2 || result.Context.Observations[1].Capability != "controller.reply_fallback" {
+		t.Fatalf("observations = %#v", result.Context.Observations)
+	}
+	if len(store.transcripts) != 1 || !strings.Contains(store.transcripts[0].Content, "港股市场新闻") {
+		t.Fatalf("transcripts = %#v", store.transcripts)
+	}
+}
+
 type runnerFakeChatClient struct {
 	calls     int
 	requests  []llm.ChatRequest
 	responses []llm.ChatResponse
+	err       error
 }
 
 func (c *runnerFakeChatClient) Chat(_ context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	c.calls++
 	c.requests = append(c.requests, request)
+	if c.err != nil {
+		return llm.ChatResponse{}, c.err
+	}
 	index := c.calls - 1
 	if index >= len(c.responses) {
 		index = len(c.responses) - 1
 	}
 	return c.responses[index], nil
+}
+
+type runnerFakeContextBuilder struct {
+	input    ContextBuildInput
+	snapshot ContextSnapshot
+	err      error
+}
+
+func (b runnerFakeContextBuilder) Build(_ context.Context, input ContextBuildInput) (ContextSnapshot, error) {
+	if b.err != nil {
+		return b.snapshot, b.err
+	}
+	return b.snapshot, nil
 }
 
 type runnerFakeToolExecutor struct {

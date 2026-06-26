@@ -92,6 +92,7 @@ type AgentConversationService struct {
 	sourceProvider     AgentSourceProvider
 	notificationJobs   AgentNotificationJobStore
 	scheduledTasks     AgentScheduleEvalRepository
+	webFetcher         agentWebFetcher
 	turnRunner         *agent.TurnRunner
 	runManager         *agent.RunManager
 	planner            *agent.Planner
@@ -153,6 +154,12 @@ func WithAgentConversationNotificationJobStore(store AgentNotificationJobStore) 
 func WithAgentConversationScheduledTaskStore(store AgentScheduleEvalRepository) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		service.scheduledTasks = store
+	}
+}
+
+func WithAgentConversationWebFetcher(fetcher func(context.Context, string) ([]byte, string, int, string, error)) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.webFetcher = agentWebFetcher(fetcher)
 	}
 }
 
@@ -257,6 +264,7 @@ func (s *AgentConversationService) agentCapabilityExecutor() agentRunRecordingEx
 			sourceProvider:   s.sourceProvider,
 			notificationJobs: s.notificationJobs,
 			scheduledTasks:   s.scheduledTasks,
+			webFetcher:       s.webFetcher,
 			now:              s.now,
 		},
 		runManager: s.runManager,
@@ -1623,6 +1631,7 @@ func (s *AgentConversationService) processTurn(
 		result := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, plan, err)
 		return result, nil
 	}
+	controllerRun = s.alignControllerRunWithPlan(ctx, controllerRun, plan, input)
 	if plan.Status == domain.AgentPlanStatusApproved {
 		executingPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusExecuting, s.now().UTC(), "")
 		if executingPlan.ID > 0 {
@@ -1877,6 +1886,60 @@ func (s *AgentConversationService) applyAgentPlanTerminalMetadata(ctx context.Co
 		return plan
 	}
 	return updated
+}
+
+func (s *AgentConversationService) alignControllerRunWithPlan(ctx context.Context, run domain.AgentRun, plan domain.AgentPlan, input ReceiveWeChatWorkAppMessageInput) domain.AgentRun {
+	if s == nil || s.repository == nil || run.ID == 0 || plan.ID == 0 {
+		return run
+	}
+	scopes := append([]string(nil), plan.AllowedScopes...)
+	if len(scopes) == 0 {
+		scopes = capabilityKeysFromPlanSteps(plan.Steps)
+	}
+	run.CapabilityScope = scopes
+	if run.TaskPacket == nil {
+		run.TaskPacket = domain.AgentJSON{}
+	}
+	run.TaskPacket["plan_id"] = plan.ID
+	run.TaskPacket["plan_status"] = string(plan.Status)
+	run.TaskPacket["plan_allowed_scopes"] = append([]string(nil), scopes...)
+	run.TaskPacket["plan_summary"] = safeSummary(plan.Summary, 500)
+	run.UpdatedAt = s.now().UTC()
+	if updated, err := s.repository.UpdateAgentRun(ctx, run); err == nil {
+		run = updated
+	}
+	_, _ = s.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
+		RunID:     run.ID,
+		TraceKind: "controller_scope_aligned",
+		ModelKey:  run.ModelKey,
+		Content: domain.AgentJSON{
+			"plan_id":             plan.ID,
+			"status":              string(plan.Status),
+			"capability_scope":    scopes,
+			"confirmation_policy": plan.ConfirmationPolicy,
+			"request_id":          input.RequestID,
+		},
+		RedactionStatus: "redacted",
+		TokenEstimate:   estimateTokenCount(plan.Summary),
+	})
+	return run
+}
+
+func capabilityKeysFromPlanSteps(steps []domain.AgentPlanStep) []string {
+	keys := make([]string, 0, len(steps))
+	seen := map[string]struct{}{}
+	for _, step := range steps {
+		key := strings.TrimSpace(step.CapabilityKey)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	return keys
 }
 
 func (s *AgentConversationService) relatedScheduledTasksForPlan(ctx context.Context, userID int64, planID int64) []domain.AgentScheduledTask {

@@ -38,6 +38,26 @@ func TestPlannerBuildsPermissionBudgetAndQualityMetadata(t *testing.T) {
 	}
 }
 
+func TestPlannerSelectsSourceLatestForNamedSourceQuery(t *testing.T) {
+	planner := NewPlanner(PlannerOptions{})
+	output := planner.Build(context.Background(), PlanInput{
+		UserID: 1,
+		Goal:   "Go 官方博客最近有什么",
+	})
+	if !testPlanHasStep(output.Steps, "source.query_latest_items") {
+		t.Fatalf("steps = %#v, want source.query_latest_items", output.Steps)
+	}
+}
+
+func testPlanHasStep(steps []domain.AgentPlanStep, capabilityKey string) bool {
+	for _, step := range steps {
+		if step.CapabilityKey == capabilityKey {
+			return true
+		}
+	}
+	return false
+}
+
 func testAgentJSONMap(value any) map[string]any {
 	if typed, ok := value.(map[string]any); ok {
 		return typed

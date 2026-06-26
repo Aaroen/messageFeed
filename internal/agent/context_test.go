@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"messagefeed/internal/domain"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,6 +65,36 @@ func TestDefaultContextBuilderSkipsUnregisteredCapability(t *testing.T) {
 	}
 }
 
+func TestDefaultContextBuilderUsesInputCapabilityKeysForPlannedScope(t *testing.T) {
+	calls := []string{}
+	builder := NewDefaultContextBuilder(DefaultContextBuilderOptions{
+		Executor: fakeCapabilityExecutor{
+			block: ContextBlock{
+				Name:    "联网搜索结果",
+				Content: "工具：web.search\n查询：港股",
+			},
+			calls: &calls,
+		},
+		CapabilityKeys: []string{"feed.query_recent_items", "source.query_latest_items"},
+	})
+
+	snapshot, err := builder.Build(context.Background(), ContextBuildInput{
+		UserID:         1,
+		MessageText:    "搜索最新港股消息并分析",
+		CapabilityKeys: []string{"feed.query_recent_items", "web.search"},
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if strings.Join(calls, ",") != "feed.query_recent_items,web.search" {
+		t.Fatalf("capability calls = %#v", calls)
+	}
+	boundary := snapshot.Blocks[len(snapshot.Blocks)-1].Content
+	if !strings.Contains(boundary, "web.search") || strings.Contains(boundary, "source.query_latest_items") {
+		t.Fatalf("boundary = %q", boundary)
+	}
+}
+
 func TestHistoryNeedClassificationAndRecentEvidence(t *testing.T) {
 	if got := ClassifyHistoryNeed("我之前说过关注什么吗"); got != HistoryNeedRequired {
 		t.Fatalf("required hint = %q", got)
@@ -106,9 +137,13 @@ func (p fakeUserContextProvider) BuildUserContextBlock(_ context.Context, _ int6
 
 type fakeCapabilityExecutor struct {
 	block ContextBlock
+	calls *[]string
 }
 
 func (e fakeCapabilityExecutor) Execute(_ context.Context, input CapabilityExecuteInput) (CapabilityExecuteResult, error) {
+	if e.calls != nil {
+		*e.calls = append(*e.calls, input.Capability.Key)
+	}
 	return CapabilityExecuteResult{
 		Blocks: []ContextBlock{e.block},
 		Observation: CapabilityObservation{

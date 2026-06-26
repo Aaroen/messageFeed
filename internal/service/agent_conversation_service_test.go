@@ -146,6 +146,90 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	}
 }
 
+func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvidence(t *testing.T) {
+	now := time.Date(2026, 6, 26, 21, 15, 0, 0, time.UTC)
+	publishedAt := now.Add(-30 * time.Minute)
+	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		err: domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "test", true, nil),
+	}
+	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-msg-search"}}
+	webFetchCalls := 0
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationUserContextProvider(&fakeAgentUserContextProvider{}),
+		WithAgentConversationRecentItemsProvider(&fakeAgentRecentItemsProvider{itemsBySource: map[int64][]domain.Item{
+			0: {
+				{
+					ID:          101,
+					SourceName:  "财经源",
+					Title:       "港股科技板块午后走强",
+					URL:         "https://example.com/feed/hk-tech",
+					Summary:     "港股科技股出现上涨，市场关注资金流向。",
+					PublishedAt: &publishedAt,
+					FetchedAt:   now,
+				},
+			},
+		}}),
+		WithAgentConversationWebFetcher(func(_ context.Context, rawURL string) ([]byte, string, int, string, error) {
+			webFetchCalls++
+			body := `<html><body><div class="result"><a class="result__a" href="https://example.com/hk-market">港股市场最新消息</a><a class="result__snippet">恒生指数与科技股走势受到资金流向影响。</a></div></body></html>`
+			return []byte(body), rawURL, 200, "text/html; charset=utf-8", nil
+		}),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-hk-search",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "搜索最新港股消息并分析",
+		RequestID:         "request-hk-search",
+		TraceID:           "trace-hk-search",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Turn.Status != domain.AgentTurnStatusSucceeded || result.Plan.Status != domain.AgentPlanStatusCompleted {
+		t.Fatalf("turn=%q plan=%q error=%q", result.Turn.Status, result.Plan.Status, result.Plan.ErrorMessage)
+	}
+	if !strings.Contains(result.Reply, "模型生成阶段没有返回可用内容") || !strings.Contains(result.Reply, "港股市场最新消息") {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if webFetchCalls != 1 {
+		t.Fatalf("web fetch calls = %d, want 1", webFetchCalls)
+	}
+	if !containsAgentString(result.Plan.AllowedScopes, "web.search") {
+		t.Fatalf("allowed scopes = %#v", result.Plan.AllowedScopes)
+	}
+	completedSteps := 0
+	for _, step := range result.Plan.Steps {
+		if step.Status == domain.AgentPlanStepStatusCompleted {
+			completedSteps++
+		}
+		if step.CapabilityKey == "web.search" && step.ObservationRef == "" {
+			t.Fatalf("web search step missing observation ref: %#v", step)
+		}
+	}
+	if completedSteps != 2 {
+		t.Fatalf("completed steps = %d, steps = %#v", completedSteps, result.Plan.Steps)
+	}
+	controllerRun := repository.runs[0]
+	if !containsAgentString(controllerRun.CapabilityScope, "web.search") || containsAgentString(controllerRun.CapabilityScope, "source.query_latest_items") {
+		t.Fatalf("controller scope = %#v", controllerRun.CapabilityScope)
+	}
+	if !fakeContextTraceContains(repository.contextTraces, "controller_scope_aligned") || !fakeObservationContains(repository.observations, "web.search", "succeeded") {
+		t.Fatalf("traces = %#v observations = %#v", repository.contextTraces, repository.observations)
+	}
+}
+
 func TestAgentConversationServiceFallsBackToTextWhenFinalReportTemplateFails(t *testing.T) {
 	now := time.Date(2026, 6, 24, 17, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -2190,6 +2274,24 @@ func fakeAuditByType(audits []domain.AgentAuditLog, eventType string) domain.Age
 		}
 	}
 	return domain.AgentAuditLog{}
+}
+
+func fakeContextTraceContains(traces []domain.AgentRunContextTrace, traceKind string) bool {
+	for _, trace := range traces {
+		if trace.TraceKind == traceKind {
+			return true
+		}
+	}
+	return false
+}
+
+func fakeObservationContains(observations []domain.AgentObservation, capabilityKey string, status string) bool {
+	for _, observation := range observations {
+		if observation.CapabilityKey == capabilityKey && observation.Status == status {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeAgentExternalAccountResolver struct {

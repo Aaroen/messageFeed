@@ -106,10 +106,11 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 	if b == nil {
 		return ContextSnapshot{}, nil
 	}
+	capabilityKeys := b.capabilityKeysForInput(input)
 	snapshot := ContextSnapshot{
-		Blocks:       make([]ContextBlock, 0, len(b.capabilityKeys)+2),
+		Blocks:       make([]ContextBlock, 0, len(capabilityKeys)+2),
 		Messages:     []ContextMessage{},
-		Observations: make([]CapabilityObservation, 0, len(b.capabilityKeys)+1),
+		Observations: make([]CapabilityObservation, 0, len(capabilityKeys)+1),
 	}
 
 	if b.userContextProvider != nil {
@@ -176,7 +177,7 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 		}
 	}
 
-	for _, key := range b.capabilityKeys {
+	for _, key := range capabilityKeys {
 		capability, ok := b.registry.Get(key)
 		if !ok {
 			snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
@@ -185,6 +186,9 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 				Status:     "skipped",
 				Summary:    "capability is not registered",
 			})
+			continue
+		}
+		if !canPrefetchContextCapability(capability.Key) {
 			continue
 		}
 		decision := b.policy.Decide(ctx, PolicyInput{Capability: capability, UserID: input.UserID})
@@ -245,12 +249,29 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 	snapshot.Blocks = append(snapshot.Blocks, ContextBlock{
 		Name:          "可用能力边界",
 		CapabilityKey: "capability.list_available",
-		Content:       b.capabilityBoundaryText(),
-		ItemCount:     len(b.capabilityKeys),
+		Content:       b.capabilityBoundaryText(capabilityKeys),
+		ItemCount:     len(capabilityKeys),
 		GeneratedAt:   b.now().UTC(),
 		TrustLevel:    "system",
 	})
 	return snapshot, nil
+}
+
+func (b *DefaultContextBuilder) capabilityKeysForInput(input ContextBuildInput) []string {
+	keys := append([]string(nil), b.capabilityKeys...)
+	if len(input.CapabilityKeys) > 0 {
+		keys = append([]string(nil), input.CapabilityKeys...)
+	}
+	return uniqueStrings(keys)
+}
+
+func canPrefetchContextCapability(key string) bool {
+	switch strings.TrimSpace(key) {
+	case "feed.query_recent_items", "source.query_latest_items", "web.search", "content.summarize_text":
+		return true
+	default:
+		return false
+	}
 }
 
 func ClassifyHistoryNeed(text string) HistoryNeedHint {
@@ -396,13 +417,13 @@ func historyNeedPrompt(hint HistoryNeedHint) string {
 	}
 }
 
-func (b *DefaultContextBuilder) capabilityBoundaryText() string {
+func (b *DefaultContextBuilder) capabilityBoundaryText(capabilityKeys []string) string {
 	if b == nil || b.registry == nil {
 		return "当前没有可用能力。"
 	}
 	var builder strings.Builder
 	builder.WriteString("当前只允许使用只读能力。")
-	for _, key := range b.capabilityKeys {
+	for _, key := range capabilityKeys {
 		capability, ok := b.registry.Get(key)
 		if !ok {
 			continue

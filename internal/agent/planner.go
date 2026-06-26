@@ -143,7 +143,7 @@ func (p *Planner) Build(ctx context.Context, input PlanInput) PlanOutput {
 func (p *Planner) selectCapabilities(goal string) []string {
 	text := strings.ToLower(strings.TrimSpace(goal))
 	keys := []string{"feed.query_recent_items"}
-	if strings.Contains(text, "来源") || strings.Contains(text, "source") {
+	if looksLikeSourceSpecificRequest(text) {
 		keys = append(keys, "source.query_latest_items")
 	}
 	if strings.Contains(text, "历史") || strings.Contains(text, "之前") || strings.Contains(text, "记得") || strings.Contains(text, "聊天") || strings.Contains(text, "偏好") || strings.Contains(text, "第一条") || strings.Contains(text, "最早") {
@@ -165,6 +165,18 @@ func (p *Planner) selectCapabilities(goal string) []string {
 		}
 	}
 	return uniqueStrings(keys)
+}
+
+func looksLikeSourceSpecificRequest(text string) bool {
+	if strings.Contains(text, "source") || strings.Contains(text, "feed") || strings.Contains(text, "rss") {
+		return true
+	}
+	for _, keyword := range []string{"来源", "订阅源", "博客", "官方博客", "公众号", "频道", "站点"} {
+		if strings.Contains(text, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 func looksLikeScheduleRequest(text string) bool {

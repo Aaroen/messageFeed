@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/observability"
@@ -38,6 +40,7 @@ type ContextBuildInput struct {
 	SessionID       int64
 	TurnID          int64
 	ControllerRunID int64
+	CapabilityKeys  []string
 	MessageText     string
 	MessageType     string
 	RequestID       string
@@ -276,6 +279,7 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 			SessionID:       input.Session.ID,
 			TurnID:          input.Turn.ID,
 			ControllerRunID: input.ControllerRunID,
+			CapabilityKeys:  append([]string(nil), input.AllowedToolKeys...),
 			MessageText:     input.MessageText,
 			MessageType:     input.MessageType,
 			RequestID:       input.RequestID,
@@ -293,9 +297,28 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 	messages := r.buildChatMessages(systemPrompt, snapshot, input.MessageText)
 	response, snapshot, err := r.chatWithTools(ctx, input, snapshot, messages)
 	if err != nil {
+		if isLLMEmptyResponse(err) {
+			if reply, fallbackSnapshot, ok := buildEvidenceFallbackReply(input.MessageText, snapshot); ok {
+				return reply, "local", "deterministic-evidence-fallback", fallbackSnapshot, nil
+			}
+		}
 		return "", "", "", snapshot, err
 	}
-	return response.Content, response.Provider, response.Model, snapshot, nil
+	if strings.TrimSpace(response.Content) == "" {
+		if reply, fallbackSnapshot, ok := buildEvidenceFallbackReply(input.MessageText, snapshot); ok {
+			provider := strings.TrimSpace(response.Provider)
+			model := strings.TrimSpace(response.Model)
+			if provider == "" {
+				provider = "local"
+			}
+			if model == "" {
+				model = "deterministic-evidence-fallback"
+			}
+			return reply, provider, model, fallbackSnapshot, nil
+		}
+		return "", response.Provider, response.Model, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_empty_reply", "agent reply is empty", "agent.turn_runner.generate", true, nil)
+	}
+	return strings.TrimSpace(response.Content), response.Provider, response.Model, snapshot, nil
 }
 
 func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, error) {
@@ -541,6 +564,101 @@ func capabilityKeyForToolName(name string) string {
 		return trimmed
 	}
 	return strings.ReplaceAll(trimmed, "__", ".")
+}
+
+func isLLMEmptyResponse(err error) bool {
+	var appErr *domain.AppError
+	return errors.As(err, &appErr) && appErr.Code == "llm_empty_response"
+}
+
+func buildEvidenceFallbackReply(message string, snapshot ContextSnapshot) (string, ContextSnapshot, bool) {
+	blocks := make([]ContextBlock, 0, len(snapshot.Blocks))
+	for _, block := range snapshot.Blocks {
+		content := strings.TrimSpace(block.Content)
+		if content == "" || block.CapabilityKey == "capability.list_available" {
+			continue
+		}
+		blocks = append(blocks, block)
+	}
+	if len(blocks) == 0 {
+		return "", snapshot, false
+	}
+
+	var builder strings.Builder
+	builder.WriteString("已完成可用能力检索，但模型生成阶段没有返回可用内容。以下结果仅基于已记录证据：")
+	if trimmed := strings.TrimSpace(message); trimmed != "" {
+		builder.WriteString("\n任务：")
+		builder.WriteString(trimmed)
+	}
+	limit := len(blocks)
+	if limit > 3 {
+		limit = 3
+	}
+	for index := 0; index < limit; index++ {
+		block := blocks[index]
+		title := strings.TrimSpace(block.Name)
+		if title == "" {
+			title = strings.TrimSpace(block.CapabilityKey)
+		}
+		builder.WriteString("\n\n")
+		builder.WriteString(fmt.Sprintf("%d. %s", index+1, title))
+		if block.CapabilityKey != "" {
+			builder.WriteString("（")
+			builder.WriteString(block.CapabilityKey)
+			builder.WriteString("）")
+		}
+		if block.ItemCount > 0 {
+			builder.WriteString(fmt.Sprintf("，条目数：%d", block.ItemCount))
+		}
+		builder.WriteString("\n")
+		builder.WriteString(trimRunes(block.Content, 1200))
+	}
+	if evidence := fallbackEvidenceSummary(snapshot.Observations); evidence != "" {
+		builder.WriteString("\n\n证据范围：")
+		builder.WriteString(evidence)
+	}
+	builder.WriteString("\n\n说明：以上为保守降级结果，未使用未记录来源补充事实。")
+
+	snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
+		Capability: "controller.reply_fallback",
+		Decision:   string(PolicyDecisionAllow),
+		Status:     "succeeded",
+		Summary:    "llm returned empty response; generated evidence-bound fallback reply",
+	})
+	return builder.String(), snapshot, true
+}
+
+func fallbackEvidenceSummary(observations []CapabilityObservation) string {
+	parts := make([]string, 0, len(observations))
+	for _, observation := range observations {
+		capability := strings.TrimSpace(observation.Capability)
+		if capability == "" || capability == "capability.list_available" {
+			continue
+		}
+		status := strings.TrimSpace(observation.Status)
+		summary := strings.TrimSpace(observation.Summary)
+		if status == "" && summary == "" {
+			continue
+		}
+		switch {
+		case status == "":
+			parts = append(parts, capability+"="+summary)
+		case summary == "":
+			parts = append(parts, capability+"="+status)
+		default:
+			parts = append(parts, capability+"="+status+"("+summary+")")
+		}
+	}
+	return strings.Join(parts, "；")
+}
+
+func trimRunes(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if limit <= 0 || len([]rune(value)) <= limit {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:limit]) + "..."
 }
 
 func (r *TurnRunner) failTurn(ctx context.Context, input TurnRunInput, cause error) domain.AgentTurn {

@@ -20,9 +20,9 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 助理 Web 三页滑动工作台已实现、验证、提交推送并重新部署上线；提交推送后以 `git status -sb` 为准 |
+| 工作区 | 企微 Agent 搜索闭环空响应根因修复已实现并通过后端验证；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-web-assistant-entry-plan.md` |
-| 最近本轮验证 | `npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test`、`go test ./...`、`go vet ./...` 已通过 |
+| 最近本轮验证 | 本轮后端修复已通过 `go test ./...`、`go vet ./...`；上一轮前端入口修复已通过 `npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test` |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
 
 ## 3. 已完成能力
@@ -45,6 +45,7 @@
 - 已补齐 Web 发起任务完成后的企业微信最终报告投递：用户存在启用企业微信绑定时，最终报告通过模板卡片和文本结果组合投递，并记录真实投递审计。
 - 企业微信 OAuth 绑定链路已核对：OAuth URL 必须由已登录 Web 用户生成；callback 按 OAuth state 中的 `user_id` 绑定 external account 并创建同一用户的 Web session；`/api/v1/auth/me` 返回当前用户 bindings；disabled binding 在企业微信 external account 解析时被拒绝。
 - 已修复企业微信任务静默失败问题：入站消息能够落库并创建 turn 时，如计划创建或 controller 早期阶段失败，会将 turn 和 inbound 标记为 failed，记录 `agent.turn_failed` 与 `agent.turn_failure_feedback`，并向企业微信发送失败反馈，避免用户侧长时间无响应。
+- 已修复企微任务 `搜索最新港股消息并分析` 的空响应根因：计划 scope、controller run scope、上下文预取 scope 已对齐；`web.search` 可作为计划步骤预取并记录 observation；模型返回 `llm_empty_response` 时，如已有 feed/web 证据，会生成有证据约束的本地降级结果，避免整轮失败。
 
 ### 3.3 Web 进度与治理展示
 
@@ -60,6 +61,7 @@
 - 后端已有 `agent_progress_service_test.go` 对 `WeChatWebProgressLink` 的返回字段进行断言。
 - 最近一轮全量验证已覆盖 Go 测试、Go vet、前端测试、类型检查和前端构建。
 - 已补充企微任务失败闭环回归测试，覆盖 plan 创建失败时的 turn 状态、inbound 状态、失败审计和企微 fallback；已补充 Agent JSONB 空数组回归测试，防止空引用列表写成无效 JSON。
+- 已补充本轮闭环回归测试：覆盖计划 scope 下发到上下文构建、`web.search` 计划预取、模型空响应降级、来源名称计划识别、controller scope 对齐、企微入站到计划完成的完整路径。
 - 当前新增治理文件将部分逻辑从大文件中抽离，包括：
   - `internal/service/agent_real_interaction_automation_governance.go`
   - `internal/service/agent_wechat_web_progress_link_governance.go`
@@ -435,6 +437,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 10. 已补充修复：订阅和推荐隐藏 pane 启用首次后台预加载，助理 pane 挂载后加载自身任务数据；顶部三段页签修正盒模型，保证文字位于对应选项框内部。
 11. 当前补充修复：企业微信消息 `搜索最新港股消息并分析` 已确认回调到达并创建 `agent_turns`，失败点为 `agent_plan_steps.artifact_refs_json` 空数组写入成空字符串导致 PostgreSQL JSONB 解析失败；已修正 Agent 相关 JSONB 字符串数组克隆逻辑，并补齐 `processTurn` 早期失败反馈闭环。
 12. 当前补充修复：主页顶部“订阅 / 推荐 / 助理”三栏移动端宽度不再压缩到无法覆盖三项；横向滑动锁定手势起始页，一次左滑或右滑只提交到相邻一个选项。
+13. 当前补充修复：继续修复同一企微搜索任务的 `llm response is empty` 根因。计划器可识别来源名称查询；上下文构建使用计划批准 scope；controller run 在计划创建后对齐真实 scope；`web.search` 预取写入 executor run、observation 和 artifact；模型空响应时基于已记录证据生成降级结果。验证命令：`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
 
