@@ -300,6 +300,8 @@ Workflow governance 审批执行与 SLA builder 拆分阶段性结果：
 4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 99 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
 5. 已验证：`go vet ./...`、`go test ./...`。其中 `go test ./...` 在当前沙箱内因 `httptest` 本地监听端口权限失败，提升权限后通过。
 
+下一实施单元已写入当前活动文档：证据闭环与双端进度基础 Builder 迁出。拟继续迁出反馈 SLA 报表、告警自动恢复、运营证据、统一进度组件、证据详情页、回调重放工具、恢复策略配置、双端进度证据、企业微信进度卡片和 Web 证据交互相关 10 个纯 builder，承接文件仍为 `internal/service/agent_workflow_ops_handling_builders.go`。
+
 ## 8. 最小验证命令
 
 当前阶段每轮代码实现后至少运行：

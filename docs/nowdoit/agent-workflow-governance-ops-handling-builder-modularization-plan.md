@@ -108,6 +108,39 @@
    - `go vet ./...`
    - `go test ./...`。当前沙箱禁止 `httptest` 本地监听端口，普通沙箱执行失败于 `socket: operation not permitted`；提升权限后同一命令通过。
 
+## 4.3 第三实施单元：证据闭环与双端进度基础 Builder 迁出
+
+本小轮继续迁出反馈 SLA 报表、告警自动恢复、运营证据、统一进度组件、证据详情页、回调重放工具、恢复策略配置、双端进度证据、企业微信进度卡片和 Web 证据交互相关纯 builder。这组函数仍以响应 DTO 聚合为主，不访问 repository，不写审计事件。
+
+拟迁出内容：
+
+1. `buildAgentFeedbackSLAReport`
+2. `buildAgentAlertAutoRecovery`
+3. `buildAgentOperationsEvidence`
+4. `buildAgentUnifiedProgressComponent`
+5. `buildAgentEvidenceDetailPage`
+6. `buildAgentCallbackReplayTool`
+7. `buildAgentRecoveryPolicyConfig`
+8. `buildAgentDualEndProgressEvidence`
+9. `buildAgentWeChatProgressCard`
+10. `buildAgentWebEvidenceInteraction`
+
+拟承接文件：
+
+1. `internal/service/agent_workflow_ops_handling_builders.go`
+
+实施约束：
+
+1. 不改变聚合摘要 JSON 字段、状态取值和 summary 文案。
+2. 不改变 `ListTasks` 中相关 builder 的调用顺序。
+3. helper 仍保持 package 内部可见，不扩大导出面。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
