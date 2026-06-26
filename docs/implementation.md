@@ -20,7 +20,7 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 本轮文档记录按 session snapshot recorder 第一实施单元迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
+| 工作区 | 本轮文档记录按 session snapshot recorder 第二实施单元迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md` |
 | 最近本轮验证 | `go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
@@ -82,7 +82,7 @@
 
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
-| `internal/service/agent_session_service.go` | 5731 | 仍明显过大；已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数、任务摘要状态 helper 和第一批基础治理审计快照 recorder，后续应继续拆分剩余审计 recorder、进度构造和服务编排 |
+| `internal/service/agent_session_service.go` | 5518 | 仍明显过大；已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数、任务摘要状态 helper、基础治理审计快照 recorder 和发布执行/日报闭环 recorder，后续应继续拆分剩余审计 recorder、进度构造和服务编排 |
 | `internal/service/agent_workflow_governance.go` | 739 | 已明显低于此前 5000 行级别；本轮已迁出所有 `buildAgent*` 纯 builder，剩余内容主要为 admission、质量摘要、通用 helper 和 plan/domain 转换辅助 |
 | `web/src/views/AgentPlanView.vue` | 3680 | 仍明显过大；本轮已迁出两个企业微信摘要组件，后续应继续拆分 composable、摘要面板组件和任务卡片组件 |
 
@@ -344,7 +344,13 @@ Agent session 基础治理快照 recorder 拆分阶段性结果：
 4. 本小轮新增文件数量与审计快照职责拆分相匹配，不属于冗余扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
-下一实施单元已写入当前活动文档：发布执行与日报闭环 Recorder 迁出。拟继续迁出写回放、上线审批、日报、预生产验收、按钮循环、写执行、日报持久化、上线后监控、发布审批和按钮回调相关 10 个 recorder，承接文件仍为 `internal/service/agent_session_snapshot_recorders.go`。
+Agent session 发布执行与日报闭环 recorder 拆分阶段性结果：
+
+1. 已将 `recordAgentWriteReplaySnapshot`、`recordAgentLaunchApprovalSnapshot`、`recordAgentDailyReportSnapshot`、`recordAgentPreprodAcceptanceSnapshot`、`recordAgentButtonLoopSnapshot`、`recordAgentWriteExecuteSnapshot`、`recordAgentDailyPersistSnapshot`、`recordAgentPostLaunchMonitorSnapshot`、`recordAgentReleaseApprovalSnapshot` 和 `recordAgentButtonCallbackSnapshot` 迁入 `internal/service/agent_session_snapshot_recorders.go`。
+2. 已从 `internal/service/agent_session_service.go` 移除同一方法块，不改变审计事件类型、metadata 字段、状态取值、summary 文案或 `ListTasks` 调用顺序。
+3. `agent_session_service.go` 从 5731 行降至 5518 行；`agent_session_snapshot_recorders.go` 从 211 行增至 424 行。
+4. 当前 snapshot recorder 拆分累计承接 20 个审计快照 recorder；文件数量未继续扩张。
+5. 已验证：`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
 

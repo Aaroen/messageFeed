@@ -1665,7 +1665,7 @@ EvalCase
 
 | 文件 | 当前行数 | 治理要求 |
 | --- | ---: | --- |
-| `internal/service/agent_session_service.go` | 5731 | 已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数、任务摘要状态 helper和第一批基础治理审计快照 recorder；继续拆分剩余审计 recorder、进度构造和服务编排逻辑 |
+| `internal/service/agent_session_service.go` | 5518 | 已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数、任务摘要状态 helper、基础治理审计快照 recorder 和发布执行/日报闭环 recorder；继续拆分剩余审计 recorder、进度构造和服务编排逻辑 |
 | `internal/service/agent_workflow_governance.go` | 739 | 已明显低于此前 5000 行级别；本轮已迁出所有 `buildAgent*` 纯 builder，剩余内容主要为 admission、质量摘要、通用 helper 和 plan/domain 转换辅助 |
 | `web/src/views/AgentPlanView.vue` | 3680 | 已迁出企业微信最终汇报和 Web 进度地址两个小组件；仍需继续拆分任务摘要组件、组合式状态逻辑和展示面板 |
 
@@ -1702,4 +1702,4 @@ EvalCase
 
 上一活动文档 `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-workflow-governance-ops-handling-builder-modularization-plan-implemented-2026-06-26.md`。已新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，迁出 43 个运维处置、审批执行、证据闭环、双端进度和真实交互相关纯 builder；剩余 SLA 摘要和任务报表 builder 已迁入 `agent_workflow_foundation_builders.go`。`agent_workflow_governance.go` 当前降至 739 行，已不再承接 `buildAgent*` 纯 builder。
 
-当前活动文档为 `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md`。已新增独立 `internal/service/agent_session_snapshot_recorders.go`，迁出第一批 10 个基础治理审计快照 recorder；`agent_session_service.go` 当前降至 5731 行。下一实施单元已写入活动文档，将继续迁出发布执行与日报闭环相关 10 个 recorder。
+当前活动文档为 `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md`。已新增独立 `internal/service/agent_session_snapshot_recorders.go`，迁出基础治理和发布执行/日报闭环相关 20 个审计快照 recorder；`agent_session_service.go` 当前降至 5518 行。后续继续迁出剩余审计 recorder、进度构造和服务编排逻辑。
