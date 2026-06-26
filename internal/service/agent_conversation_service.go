@@ -1607,18 +1607,21 @@ func (s *AgentConversationService) processTurn(
 
 	if s.turnRunner == nil {
 		opErr = domain.NewAppError(domain.ErrorKindUnavailable, "agent_runner_unavailable", "agent turn runner is unavailable", "service.agent.process_turn", true, nil)
-		return ReceiveWeChatWorkAppMessageResult{Turn: turn}, opErr
+		result := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, opErr)
+		return result, nil
 	}
 	controllerRun, err := s.createControllerRun(ctx, account, inbound, session, turn, input)
 	if err != nil {
 		opErr = err
-		return ReceiveWeChatWorkAppMessageResult{Turn: turn}, err
+		result := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, err)
+		return result, nil
 	}
 	plan, approvalToken, err := s.createPlanForTurn(ctx, account, session, turn, controllerRun, input)
 	if err != nil {
 		opErr = err
 		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
-		return ReceiveWeChatWorkAppMessageResult{Turn: turn}, err
+		result := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, plan, err)
+		return result, nil
 	}
 	if plan.Status == domain.AgentPlanStatusApproved {
 		executingPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusExecuting, s.now().UTC(), "")
@@ -2527,6 +2530,56 @@ func (s *AgentConversationService) recordControllerTrace(ctx context.Context, ru
 		RedactionStatus: "redacted",
 		TokenEstimate:   estimateTokenCount(result.Reply),
 	})
+}
+
+func (s *AgentConversationService) failTurnWithFeedback(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	inbound domain.AgentInboundMessage,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	plan domain.AgentPlan,
+	cause error,
+) ReceiveWeChatWorkAppMessageResult {
+	if cause == nil {
+		cause = fmt.Errorf("agent turn failed")
+	}
+	now := s.now().UTC()
+	failedTurn := turn
+	failedTurn.Status = domain.AgentTurnStatusFailed
+	failedTurn.ErrorMessage = cause.Error()
+	failedTurn.FinishedAt = &now
+	if failedTurn.ID > 0 {
+		if updated, err := s.repository.UpdateTurn(ctx, failedTurn); err == nil {
+			failedTurn = updated
+		}
+	}
+	if inbound.ID > 0 {
+		if updated, err := s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusFailed, now); err == nil {
+			inbound = updated
+		}
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: session.ID,
+		TurnID:    failedTurn.ID,
+		UserID:    account.UserID,
+		EventType: "agent.turn_failed",
+		Status:    "failed",
+		Message:   cause.Error(),
+		Metadata: domain.AgentJSON{
+			"provider_message_id": input.ProviderMessageID,
+			"plan_id":             plan.ID,
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: now,
+	})
+	result := s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, failedTurn, input, plan, cause)
+	result.InboundMessage = inbound
+	result.Plan = plan
+	result.Turn = failedTurn
+	return result
 }
 
 func contextBlockMetadata(blocks []agent.ContextBlock) []domain.AgentJSON {

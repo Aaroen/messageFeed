@@ -626,7 +626,7 @@ func agentScheduledTaskModelFromDomain(task domain.AgentScheduledTask) agentSche
 		ScheduledAt:          task.ScheduledAt,
 		DeliverAt:            task.DeliverAt,
 		FreshnessPolicy:      task.FreshnessPolicy,
-		AllowedCapabilities:  append([]string(nil), task.AllowedCapabilities...),
+		AllowedCapabilities:  cloneStringSlice(task.AllowedCapabilities),
 		ModelPolicy:          cloneAgentJSON(task.ModelPolicy),
 		FailurePolicy:        cloneAgentJSON(task.FailurePolicy),
 		Payload:              cloneAgentJSON(task.Payload),
@@ -660,7 +660,7 @@ func agentScheduledTaskModelToDomain(model agentScheduledTaskModel) domain.Agent
 		ScheduledAt:          model.ScheduledAt,
 		DeliverAt:            model.DeliverAt,
 		FreshnessPolicy:      model.FreshnessPolicy,
-		AllowedCapabilities:  append([]string(nil), model.AllowedCapabilities...),
+		AllowedCapabilities:  cloneStringSlice(model.AllowedCapabilities),
 		ModelPolicy:          cloneAgentJSON(model.ModelPolicy),
 		FailurePolicy:        cloneAgentJSON(model.FailurePolicy),
 		Payload:              cloneAgentJSON(model.Payload),
@@ -685,7 +685,7 @@ func agentEvalCaseModelFromDomain(evalCase domain.AgentEvalCase) agentEvalCaseMo
 		Description:      evalCase.Description,
 		Input:            cloneAgentJSON(evalCase.Input),
 		ExpectedBehavior: evalCase.ExpectedBehavior,
-		SafetyTags:       append([]string(nil), evalCase.SafetyTags...),
+		SafetyTags:       cloneStringSlice(evalCase.SafetyTags),
 		Enabled:          evalCase.Enabled,
 		Metadata:         cloneAgentJSON(evalCase.Metadata),
 		CreatedAt:        evalCase.CreatedAt,
@@ -702,7 +702,7 @@ func agentEvalCaseModelToDomain(model agentEvalCaseModel) domain.AgentEvalCase {
 		Description:      model.Description,
 		Input:            cloneAgentJSON(model.Input),
 		ExpectedBehavior: model.ExpectedBehavior,
-		SafetyTags:       append([]string(nil), model.SafetyTags...),
+		SafetyTags:       cloneStringSlice(model.SafetyTags),
 		Enabled:          model.Enabled,
 		Metadata:         cloneAgentJSON(model.Metadata),
 		CreatedAt:        model.CreatedAt,
@@ -760,7 +760,7 @@ func agentEvalResultModelFromDomain(result domain.AgentEvalResult) agentEvalResu
 		Actual:        result.Actual,
 		FailureReason: result.FailureReason,
 		Metrics:       cloneAgentJSON(result.Metrics),
-		EvidenceRefs:  append([]string(nil), result.EvidenceRefs...),
+		EvidenceRefs:  cloneStringSlice(result.EvidenceRefs),
 		CreatedAt:     result.CreatedAt,
 	}
 }
@@ -777,7 +777,7 @@ func agentEvalResultModelToDomain(model agentEvalResultModel) domain.AgentEvalRe
 		Actual:        model.Actual,
 		FailureReason: model.FailureReason,
 		Metrics:       cloneAgentJSON(model.Metrics),
-		EvidenceRefs:  append([]string(nil), model.EvidenceRefs...),
+		EvidenceRefs:  cloneStringSlice(model.EvidenceRefs),
 		CreatedAt:     model.CreatedAt,
 	}
 }

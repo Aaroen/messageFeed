@@ -67,6 +67,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   const settling = ref(false)
   const viewSwipeCandidateActive = ref(false)
   const viewSwipeActive = ref(false)
+  const gestureBaseIndex = ref<number | null>(null)
   const transitionBaseIndex = ref<number | null>(null)
   let settlingTimer = 0
   let delayedCommitTimer = 0
@@ -76,7 +77,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   let activePointerId: number | null = null
 
   const activeIndex = computed(() => feedKeyIndex(options.getActiveKey()))
-  const trackBaseIndex = computed(() => transitionBaseIndex.value ?? activeIndex.value)
+  const dragBaseIndex = computed(() => gestureBaseIndex.value ?? activeIndex.value)
+  const trackBaseIndex = computed(() => transitionBaseIndex.value ?? dragBaseIndex.value)
   const activeSurface = computed<FeedSwipeSurface>(() => feedPagerPages[activeIndex.value].surface)
 
   const trackStyle = computed(() => ({
@@ -89,11 +91,12 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   )
 
   const targetKey = computed(() => {
-    if (dragOffset.value < -dragThreshold && activeIndex.value < lastFeedPagerIndex) {
-      return feedPagerPages[activeIndex.value + 1].key
+    const baseIndex = dragBaseIndex.value
+    if (dragOffset.value < -dragThreshold && baseIndex < lastFeedPagerIndex) {
+      return feedPagerPages[baseIndex + 1].key
     }
-    if (dragOffset.value > dragThreshold && activeIndex.value > 0) {
-      return feedPagerPages[activeIndex.value - 1].key
+    if (dragOffset.value > dragThreshold && baseIndex > 0) {
+      return feedPagerPages[baseIndex - 1].key
     }
     return ''
   })
@@ -104,19 +107,21 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   )
 
   function surfaceFromOffset(offset: number): FeedSwipeSurface | null {
-    if (offset < -dragThreshold && activeIndex.value < lastFeedPagerIndex) {
-      return feedPagerPages[activeIndex.value + 1].surface
+    const baseIndex = dragBaseIndex.value
+    if (offset < -dragThreshold && baseIndex < lastFeedPagerIndex) {
+      return feedPagerPages[baseIndex + 1].surface
     }
-    if (offset > dragThreshold && activeIndex.value > 0) {
-      return feedPagerPages[activeIndex.value - 1].surface
+    if (offset > dragThreshold && baseIndex > 0) {
+      return feedPagerPages[baseIndex - 1].surface
     }
     return null
   }
 
   function isBlockedDragDirection(deltaX: number) {
+    const baseIndex = dragBaseIndex.value
     return (
-      (activeIndex.value === 0 && deltaX > 0) ||
-      (activeIndex.value === lastFeedPagerIndex && deltaX < 0)
+      (baseIndex === 0 && deltaX > 0) ||
+      (baseIndex === lastFeedPagerIndex && deltaX < 0)
     )
   }
 
@@ -128,11 +133,12 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     if (!horizontal) {
       return null
     }
-    if (deltaX <= -switchDistance && activeIndex.value < lastFeedPagerIndex) {
-      return feedPagerPages[activeIndex.value + 1].path
+    const baseIndex = dragBaseIndex.value
+    if (deltaX <= -switchDistance && baseIndex < lastFeedPagerIndex) {
+      return feedPagerPages[baseIndex + 1].path
     }
-    if (deltaX >= switchDistance && activeIndex.value > 0) {
-      return feedPagerPages[activeIndex.value - 1].path
+    if (deltaX >= switchDistance && baseIndex > 0) {
+      return feedPagerPages[baseIndex - 1].path
     }
     return null
   }
@@ -151,12 +157,15 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     return 0
   }
 
-  function targetOffsetForPath(path: string) {
+  function targetOffsetForPath(path: string, baseIndex = activeIndex.value, clampAdjacent = false) {
     const targetIndex = feedPathIndex(path)
-    if (targetIndex === null || targetIndex === activeIndex.value) {
+    if (targetIndex === null || targetIndex === baseIndex) {
       return null
     }
-    return (activeIndex.value - targetIndex) * options.getWindowWidth()
+    const resolvedTargetIndex = clampAdjacent
+      ? Math.max(baseIndex - 1, Math.min(baseIndex + 1, targetIndex))
+      : targetIndex
+    return (baseIndex - resolvedTargetIndex) * options.getWindowWidth()
   }
 
   function resolveDragCommitPath(deltaX: number, horizontal: boolean, switchDistance: number) {
@@ -195,7 +204,8 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function finishSwipeResult(nextPath: string | null): FeedPagerSwipeFinishResult {
-    const targetOffset = nextPath ? targetOffsetForPath(nextPath) : null
+    const baseIndex = dragBaseIndex.value
+    const targetOffset = nextPath ? targetOffsetForPath(nextPath, baseIndex, true) : null
     const committed = targetOffset !== null
     const swipeStartedWithHiddenChrome = consumeStartedWithHiddenChrome()
     setSettling(true)
@@ -271,6 +281,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function beginViewSwipeCandidate() {
+    lockGestureBaseIndex()
     viewSwipeCandidateActive.value = true
     viewSwipeActive.value = false
   }
@@ -280,6 +291,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function beginViewSwipe() {
+    lockGestureBaseIndex()
     viewSwipeActive.value = true
     viewSwipeCandidateActive.value = false
   }
@@ -312,6 +324,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   function resetViewSwipeTracking() {
     viewSwipeCandidateActive.value = false
     viewSwipeActive.value = false
+    unlockGestureBaseIndex()
   }
 
   function beginPointerTracking(pointerId: number) {
@@ -352,11 +365,21 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
   }
 
   function lockTransitionBaseIndex() {
-    transitionBaseIndex.value = activeIndex.value
+    transitionBaseIndex.value = dragBaseIndex.value
   }
 
   function unlockTransitionBaseIndex() {
     transitionBaseIndex.value = null
+  }
+
+  function lockGestureBaseIndex() {
+    if (gestureBaseIndex.value === null) {
+      gestureBaseIndex.value = activeIndex.value
+    }
+  }
+
+  function unlockGestureBaseIndex() {
+    gestureBaseIndex.value = null
   }
 
   function markStartedWithHiddenChrome() {
@@ -449,8 +472,9 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     }
 
     const windowWidth = options.getWindowWidth()
-    const minOffset = activeIndex.value < lastFeedPagerIndex ? -windowWidth : 0
-    const maxOffset = activeIndex.value > 0 ? windowWidth : 0
+    const baseIndex = dragBaseIndex.value
+    const minOffset = baseIndex < lastFeedPagerIndex ? -windowWidth : 0
+    const maxOffset = baseIndex > 0 ? windowWidth : 0
     setDragOffset(Math.min(maxOffset, Math.max(minOffset, deltaX)))
   }
 
@@ -475,6 +499,7 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     clearPointerTracking()
     resetViewSwipeTracking()
     unlockTransitionBaseIndex()
+    unlockGestureBaseIndex()
     dragOffset.value = 0
     settling.value = false
   }

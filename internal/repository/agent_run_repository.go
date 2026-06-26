@@ -308,7 +308,7 @@ func agentRunModelFromDomain(run domain.AgentRun) agentRunModel {
 		Role:            string(run.Role),
 		Status:          string(run.Status),
 		TaskPacket:      cloneAgentJSON(run.TaskPacket),
-		CapabilityScope: append([]string(nil), run.CapabilityScope...),
+		CapabilityScope: cloneStringSlice(run.CapabilityScope),
 		ModelKey:        run.ModelKey,
 		ContextBudget:   cloneAgentJSON(run.ContextBudget),
 		ContextTraceRef: run.ContextTraceRef,
@@ -331,7 +331,7 @@ func agentRunModelToDomain(model agentRunModel) domain.AgentRun {
 		Role:            domain.AgentRunRole(model.Role),
 		Status:          domain.AgentRunStatus(model.Status),
 		TaskPacket:      cloneAgentJSON(model.TaskPacket),
-		CapabilityScope: append([]string(nil), model.CapabilityScope...),
+		CapabilityScope: cloneStringSlice(model.CapabilityScope),
 		ModelKey:        model.ModelKey,
 		ContextBudget:   cloneAgentJSON(model.ContextBudget),
 		ContextTraceRef: model.ContextTraceRef,
@@ -384,7 +384,7 @@ func agentObservationModelFromDomain(observation domain.AgentObservation) agentO
 		OutputSummary: observation.OutputSummary,
 		Status:        observation.Status,
 		Error:         observation.Error,
-		ArtifactRefs:  append([]string(nil), observation.ArtifactRefs...),
+		ArtifactRefs:  cloneStringSlice(observation.ArtifactRefs),
 		CreatedAt:     observation.CreatedAt,
 	}
 }
@@ -398,7 +398,7 @@ func agentObservationModelToDomain(model agentObservationModel) domain.AgentObse
 		OutputSummary: model.OutputSummary,
 		Status:        model.Status,
 		Error:         model.Error,
-		ArtifactRefs:  append([]string(nil), model.ArtifactRefs...),
+		ArtifactRefs:  cloneStringSlice(model.ArtifactRefs),
 		CreatedAt:     model.CreatedAt,
 	}
 }
@@ -410,7 +410,7 @@ func agentArtifactModelFromDomain(artifact domain.AgentArtifact) agentArtifactMo
 		ArtifactType: artifact.ArtifactType,
 		ContentRef:   artifact.ContentRef,
 		Summary:      artifact.Summary,
-		SourceRefs:   append([]string(nil), artifact.SourceRefs...),
+		SourceRefs:   cloneStringSlice(artifact.SourceRefs),
 		ContentHash:  artifact.ContentHash,
 		CreatedAt:    artifact.CreatedAt,
 	}
@@ -423,7 +423,7 @@ func agentArtifactModelToDomain(model agentArtifactModel) domain.AgentArtifact {
 		ArtifactType: model.ArtifactType,
 		ContentRef:   model.ContentRef,
 		Summary:      model.Summary,
-		SourceRefs:   append([]string(nil), model.SourceRefs...),
+		SourceRefs:   cloneStringSlice(model.SourceRefs),
 		ContentHash:  model.ContentHash,
 		CreatedAt:    model.CreatedAt,
 	}

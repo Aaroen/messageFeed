@@ -78,3 +78,5 @@
 2. `FeedPager` 已对订阅和推荐 pane 开启 `preload`；助理 pane 挂载时继续执行自身任务数据加载。
 3. 已修正顶部三段页签盒模型，确保“订阅 / 推荐 / 助理”文字居中并位于对应选项框内部。
 4. 已验证：`npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test`。
+5. 已修正移动端三栏容器宽度，白色背景完整覆盖“订阅 / 推荐 / 助理”三个选项。
+6. 已修正横向滑动提交逻辑，手势起始页被锁定，一次左滑或右滑只切换到相邻一个选项。

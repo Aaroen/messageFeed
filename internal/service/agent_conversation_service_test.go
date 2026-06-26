@@ -1732,9 +1732,50 @@ func TestAgentConversationServiceSendsFallbackWhenScheduleCreationFails(t *testi
 	}
 }
 
+func TestAgentConversationServiceFailsTurnWhenPlanCreationFails(t *testing.T) {
+	now := time.Date(2026, 6, 26, 12, 32, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.createPlanErr = errors.New("repository: invalid input syntax for type json")
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	sender := &fakeAgentConversationSender{}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(&fakeAgentConversationLLM{}),
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-plan-json-failed",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "搜索最新港股消息并分析",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Turn.Status != domain.AgentTurnStatusFailed {
+		t.Fatalf("turn status = %q, want failed", result.Turn.Status)
+	}
+	if repository.inbound.Status != domain.AgentInboundMessageStatusFailed {
+		t.Fatalf("inbound status = %q, want failed", repository.inbound.Status)
+	}
+	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "没有成功") {
+		t.Fatalf("failure feedback was not sent: calls=%d sent=%#v", sender.calls, sender.sent)
+	}
+	if !fakeAuditContains(repository.audits, "agent.turn_failed") || !fakeAuditContains(repository.audits, "agent.turn_failure_feedback") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
 type fakeAgentConversationRepository struct {
 	nextID           int64
 	forceDuplicate   bool
+	createPlanErr    error
 	account          domain.ExternalAccount
 	inbound          domain.AgentInboundMessage
 	session          domain.AgentSession
@@ -1989,6 +2030,9 @@ func (r *fakeAgentConversationRepository) CreateAgentArtifact(_ context.Context,
 }
 
 func (r *fakeAgentConversationRepository) CreateAgentPlan(_ context.Context, plan domain.AgentPlan, steps []domain.AgentPlanStep) (domain.AgentPlan, error) {
+	if r.createPlanErr != nil {
+		return domain.AgentPlan{}, r.createPlanErr
+	}
 	plan.ID = r.id()
 	if plan.CreatedAt.IsZero() {
 		plan.CreatedAt = time.Now().UTC()

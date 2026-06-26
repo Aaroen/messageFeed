@@ -18,6 +18,21 @@ func TestAgentRecallEventModelMapsQueryTextColumn(t *testing.T) {
 	}
 }
 
+func TestAgentJSONSliceClonesKeepEmptyArray(t *testing.T) {
+	if got := cloneStringSlice(nil); got == nil || len(got) != 0 {
+		t.Fatalf("cloneStringSlice(nil) = %#v, want non-nil empty slice", got)
+	}
+	stepModel := agentPlanStepModelFromDomain(domain.AgentPlanStep{
+		Status:          domain.AgentPlanStepStatusPending,
+		CapabilityScope: []string{"web.search"},
+		ArtifactRefs:    []string{},
+		RetryMetadata:   domain.AgentJSON{},
+	})
+	if stepModel.ArtifactRefs == nil || len(stepModel.ArtifactRefs) != 0 {
+		t.Fatalf("ArtifactRefs = %#v, want non-nil empty slice", stepModel.ArtifactRefs)
+	}
+}
+
 func TestAgentContextMemoryMigrationDefinesArchiveAndRecallTables(t *testing.T) {
 	content, err := os.ReadFile("../../migrations/000019_add_agent_context_memory.up.sql")
 	if err != nil {

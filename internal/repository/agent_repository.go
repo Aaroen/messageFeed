@@ -1124,7 +1124,7 @@ func agentTranscriptArchiveIndexModelFromDomain(index domain.AgentTranscriptArch
 		ArchiveStatus:     string(index.ArchiveStatus),
 		MemoryKind:        string(index.MemoryKind),
 		Importance:        index.Importance,
-		Keywords:          append([]string(nil), index.Keywords...),
+		Keywords:          cloneStringSlice(index.Keywords),
 		LastAccessedAt:    index.LastAccessedAt,
 		AccessCount:       index.AccessCount,
 		Metadata:          cloneAgentJSON(index.Metadata),
@@ -1142,7 +1142,7 @@ func agentTranscriptArchiveIndexModelToDomain(model agentTranscriptArchiveIndexM
 		ArchiveStatus:     domain.AgentTranscriptArchiveStatus(model.ArchiveStatus),
 		MemoryKind:        domain.AgentMemoryKind(model.MemoryKind),
 		Importance:        model.Importance,
-		Keywords:          append([]string(nil), model.Keywords...),
+		Keywords:          cloneStringSlice(model.Keywords),
 		LastAccessedAt:    model.LastAccessedAt,
 		AccessCount:       model.AccessCount,
 		Metadata:          cloneAgentJSON(model.Metadata),
@@ -1441,6 +1441,12 @@ func cloneAgentJSON(input domain.AgentJSON) domain.AgentJSON {
 	for key, value := range input {
 		output[key] = value
 	}
+	return output
+}
+
+func cloneStringSlice(input []string) []string {
+	output := make([]string, len(input))
+	copy(output, input)
 	return output
 }
 
