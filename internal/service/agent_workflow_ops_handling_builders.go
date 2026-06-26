@@ -909,3 +909,400 @@ func buildAgentWebEvidenceInteraction(detail AgentEvidenceDetailPageResponse) Ag
 		Checks:        checks,
 	}
 }
+
+func buildAgentCallbackReplayPermission(tool AgentCallbackReplayToolResponse) AgentCallbackReplayPermissionResponse {
+	permissionKey := "agent.callback.replay"
+	allowedRoles := []string{"task_owner", "agent_operations"}
+	auditEvent := "agent.callback_replay_permission_snapshot"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "permission_key", Status: readyIf(permissionKey != ""), Summary: permissionKey},
+		{Key: "allowed_roles", Status: readyIf(len(allowedRoles) > 0), Summary: strings.Join(allowedRoles, ", ")},
+		{Key: "idempotency_guard", Status: readyIf(tool.IdempotencyGuard != ""), Summary: tool.IdempotencyGuard},
+		{Key: "signature_review", Status: readyIf(tool.SignatureReview != ""), Summary: tool.SignatureReview},
+		{Key: "failure_fallback", Status: readyIf(tool.FailureFallback != ""), Summary: tool.FailureFallback},
+		{Key: "audit_event", Status: readyIf(auditEvent != ""), Summary: auditEvent},
+	}
+	return AgentCallbackReplayPermissionResponse{
+		Status:           checksStatus(checks),
+		Summary:          fmt.Sprintf("callback replay permission %s allows %d roles", permissionKey, len(allowedRoles)),
+		PermissionKey:    permissionKey,
+		AllowedRoles:     allowedRoles,
+		IdempotencyGuard: tool.IdempotencyGuard,
+		SignatureReview:  tool.SignatureReview,
+		FailureFallback:  tool.FailureFallback,
+		AuditEvent:       auditEvent,
+		Checks:           checks,
+	}
+}
+
+func buildAgentRecoveryPolicyAudit(config AgentRecoveryPolicyConfigResponse) AgentRecoveryPolicyAuditResponse {
+	changeKey := "recovery_policy_change:" + config.PolicyKey
+	oldPolicy := "previous:" + config.DefaultPolicy
+	newPolicy := "current:" + config.DefaultPolicy
+	approvalStatus := "approval_required"
+	rollbackPath := "restore_previous_recovery_policy"
+	auditEvidence := "agent.recovery_policy_audit_snapshot"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "change_key", Status: readyIf(changeKey != ""), Summary: changeKey},
+		{Key: "old_policy", Status: readyIf(oldPolicy != ""), Summary: oldPolicy},
+		{Key: "new_policy", Status: readyIf(newPolicy != ""), Summary: newPolicy},
+		{Key: "approval_status", Status: readyIf(approvalStatus != ""), Summary: approvalStatus},
+		{Key: "rollback_path", Status: readyIf(rollbackPath != ""), Summary: rollbackPath},
+		{Key: "audit_evidence", Status: readyIf(auditEvidence != ""), Summary: auditEvidence},
+	}
+	return AgentRecoveryPolicyAuditResponse{
+		Status:         checksStatus(checks),
+		Summary:        fmt.Sprintf("recovery policy audit tracks %s", config.PolicyKey),
+		ChangeKey:      changeKey,
+		OldPolicy:      oldPolicy,
+		NewPolicy:      newPolicy,
+		ApprovalStatus: approvalStatus,
+		RollbackPath:   rollbackPath,
+		AuditEvidence:  auditEvidence,
+		Checks:         checks,
+	}
+}
+
+func buildAgentDualEndInteraction(card AgentWeChatProgressCardResponse, web AgentWebEvidenceInteractionResponse, permission AgentCallbackReplayPermissionResponse, audit AgentRecoveryPolicyAuditResponse, audits []domain.AgentAuditLog) AgentDualEndInteractionResponse {
+	auditStatus := readyIf(auditEventContains(audits, "wechat") || auditEventContains(audits, "evidence") || auditEventContains(audits, "callback") || auditEventContains(audits, "recovery") || len(audits) > 0)
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "wechat_progress_card", Status: card.Status, Summary: card.Summary},
+		{Key: "web_evidence_interaction", Status: web.Status, Summary: web.Summary},
+		{Key: "callback_replay_permission", Status: permission.Status, Summary: permission.Summary},
+		{Key: "recovery_policy_audit", Status: audit.Status, Summary: audit.Summary},
+		{Key: "audit", Status: auditStatus, Summary: "dual-end interaction governance is audit-backed"},
+	}
+	nextAction := "进入企业微信进度卡片真实模板渲染、Web 证据明细路由和权限审批流"
+	if checksStatus(checks) != "ready" {
+		nextAction = "补齐双端交互治理缺口后再进入真实模板渲染"
+	}
+	return AgentDualEndInteractionResponse{
+		Status:                    checksStatus(checks),
+		Summary:                   fmt.Sprintf("dual-end interaction governance has %d checks", len(checks)),
+		WeChatProgressCardStatus:  card.Status,
+		WebEvidenceStatus:         web.Status,
+		CallbackPermissionStatus:  permission.Status,
+		RecoveryPolicyAuditStatus: audit.Status,
+		AuditStatus:               auditStatus,
+		NextAction:                nextAction,
+		Checks:                    checks,
+	}
+}
+
+func buildAgentWeChatTemplateRender(card AgentWeChatProgressCardResponse) AgentWeChatTemplateRenderResponse {
+	templateKey := "agent.wechat.progress.template_card"
+	if strings.TrimSpace(card.CardKey) != "" {
+		templateKey = card.CardKey + ".template"
+	}
+	renderStatus := "template_ready"
+	if card.Status != "ready" {
+		renderStatus = "template_review"
+	}
+	phaseFields := []string{"card_key", "phase_status", "progress_percent", "detail_entry"}
+	buttonFields := make([]string, 0, len(card.Actions))
+	for _, action := range card.Actions {
+		if strings.TrimSpace(action.Key) != "" {
+			buttonFields = append(buttonFields, action.Key)
+		}
+	}
+	sendEntry := "service.agent.send_wechat_work_progress_template"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "template_key", Status: readyIf(templateKey != ""), Summary: templateKey},
+		{Key: "render_status", Status: readyIf(renderStatus != ""), Summary: renderStatus},
+		{Key: "phase_fields", Status: readyIf(len(phaseFields) > 0), Summary: strings.Join(phaseFields, ", ")},
+		{Key: "button_fields", Status: readyIf(len(buttonFields) > 0), Summary: strings.Join(buttonFields, ", ")},
+		{Key: "fallback_text", Status: readyIf(strings.TrimSpace(card.FallbackText) != ""), Summary: card.FallbackText},
+		{Key: "send_entry", Status: readyIf(sendEntry != ""), Summary: sendEntry},
+	}
+	return AgentWeChatTemplateRenderResponse{
+		Status:       checksStatus(checks),
+		Summary:      fmt.Sprintf("wechat template render %s with %d button fields", templateKey, len(buttonFields)),
+		TemplateKey:  templateKey,
+		RenderStatus: renderStatus,
+		PhaseFields:  phaseFields,
+		ButtonFields: buttonFields,
+		FallbackText: card.FallbackText,
+		SendEntry:    sendEntry,
+		Checks:       checks,
+	}
+}
+
+func buildAgentWebEvidenceRoute(interaction AgentWebEvidenceInteractionResponse) AgentWebEvidenceRouteResponse {
+	routeName := "agent-evidence-detail"
+	pathParams := []string{"plan_id", "record_key"}
+	filterParams := append([]string(nil), interaction.Filters...)
+	if len(filterParams) == 0 {
+		filterParams = []string{"status", "audit_event"}
+	}
+	permissionRequirement := "task_owner_or_agent_operations"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "route_name", Status: readyIf(routeName != ""), Summary: routeName},
+		{Key: "path_params", Status: readyIf(len(pathParams) > 0), Summary: strings.Join(pathParams, ", ")},
+		{Key: "filter_params", Status: readyIf(len(filterParams) > 0), Summary: strings.Join(filterParams, ", ")},
+		{Key: "permission_requirement", Status: readyIf(permissionRequirement != ""), Summary: permissionRequirement},
+		{Key: "replay_entry", Status: readyIf(interaction.ReplayEntry != ""), Summary: interaction.ReplayEntry},
+		{Key: "audit_display", Status: readyIf(interaction.AuditDisplay != ""), Summary: interaction.AuditDisplay},
+	}
+	return AgentWebEvidenceRouteResponse{
+		Status:                checksStatus(checks),
+		Summary:               fmt.Sprintf("web evidence route %s has %d filters", routeName, len(filterParams)),
+		RouteName:             routeName,
+		PathParams:            pathParams,
+		FilterParams:          filterParams,
+		PermissionRequirement: permissionRequirement,
+		ReplayEntry:           interaction.ReplayEntry,
+		AuditDisplay:          interaction.AuditDisplay,
+		Checks:                checks,
+	}
+}
+
+func buildAgentCallbackReplayApproval(permission AgentCallbackReplayPermissionResponse) AgentCallbackReplayApprovalResponse {
+	approvalKey := permission.PermissionKey + ".approval"
+	if strings.TrimSpace(permission.PermissionKey) == "" {
+		approvalKey = "agent.callback.replay.approval"
+	}
+	requestEntry := "web.agent.callback.replay.request_approval"
+	approvalStatus := "approval_required"
+	executionGate := "approved_and_idempotency_verified"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "approval_key", Status: readyIf(approvalKey != ""), Summary: approvalKey},
+		{Key: "request_entry", Status: readyIf(requestEntry != ""), Summary: requestEntry},
+		{Key: "approval_roles", Status: readyIf(len(permission.AllowedRoles) > 0), Summary: strings.Join(permission.AllowedRoles, ", ")},
+		{Key: "approval_status", Status: readyIf(approvalStatus != ""), Summary: approvalStatus},
+		{Key: "execution_gate", Status: readyIf(executionGate != ""), Summary: executionGate},
+		{Key: "audit_event", Status: readyIf(permission.AuditEvent != ""), Summary: permission.AuditEvent},
+	}
+	return AgentCallbackReplayApprovalResponse{
+		Status:         checksStatus(checks),
+		Summary:        fmt.Sprintf("callback replay approval %s gates execution", approvalKey),
+		ApprovalKey:    approvalKey,
+		RequestEntry:   requestEntry,
+		ApprovalRoles:  append([]string(nil), permission.AllowedRoles...),
+		ApprovalStatus: approvalStatus,
+		ExecutionGate:  executionGate,
+		AuditEvent:     permission.AuditEvent,
+		Checks:         checks,
+	}
+}
+
+func buildAgentRecoveryPolicyPersist(audit AgentRecoveryPolicyAuditResponse) AgentRecoveryPolicyPersistResponse {
+	configKey := strings.TrimPrefix(audit.ChangeKey, "recovery_policy_change:")
+	if strings.TrimSpace(configKey) == "" || configKey == audit.ChangeKey {
+		configKey = "agent.alert.recovery.default"
+	}
+	currentVersion := "current:v1"
+	if strings.TrimSpace(audit.NewPolicy) != "" {
+		currentVersion = audit.NewPolicy
+	}
+	pendingVersion := "pending:v2"
+	persistenceStatus := "persisted_with_pending_review"
+	rollbackVersion := "rollback:v1"
+	if strings.TrimSpace(audit.OldPolicy) != "" {
+		rollbackVersion = audit.OldPolicy
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "config_key", Status: readyIf(configKey != ""), Summary: configKey},
+		{Key: "current_version", Status: readyIf(currentVersion != ""), Summary: currentVersion},
+		{Key: "pending_version", Status: readyIf(pendingVersion != ""), Summary: pendingVersion},
+		{Key: "persistence_status", Status: readyIf(persistenceStatus != ""), Summary: persistenceStatus},
+		{Key: "rollback_version", Status: readyIf(rollbackVersion != ""), Summary: rollbackVersion},
+		{Key: "audit_evidence", Status: readyIf(audit.AuditEvidence != ""), Summary: audit.AuditEvidence},
+	}
+	return AgentRecoveryPolicyPersistResponse{
+		Status:            checksStatus(checks),
+		Summary:           fmt.Sprintf("recovery policy config %s persistence %s", configKey, persistenceStatus),
+		ConfigKey:         configKey,
+		CurrentVersion:    currentVersion,
+		PendingVersion:    pendingVersion,
+		PersistenceStatus: persistenceStatus,
+		RollbackVersion:   rollbackVersion,
+		AuditEvidence:     audit.AuditEvidence,
+		Checks:            checks,
+	}
+}
+
+func buildAgentDualEndInteractionLaunch(render AgentWeChatTemplateRenderResponse, route AgentWebEvidenceRouteResponse, approval AgentCallbackReplayApprovalResponse, persist AgentRecoveryPolicyPersistResponse, audits []domain.AgentAuditLog) AgentDualEndInteractionLaunchResponse {
+	auditStatus := readyIf(auditEventContains(audits, "wechat_template") || auditEventContains(audits, "web_evidence_route") || auditEventContains(audits, "callback_replay_approval") || auditEventContains(audits, "recovery_policy_persist") || len(audits) > 0)
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "wechat_template_render", Status: render.Status, Summary: render.Summary},
+		{Key: "web_evidence_route", Status: route.Status, Summary: route.Summary},
+		{Key: "callback_replay_approval", Status: approval.Status, Summary: approval.Summary},
+		{Key: "recovery_policy_persistence", Status: persist.Status, Summary: persist.Summary},
+		{Key: "audit", Status: auditStatus, Summary: "dual-end interaction launch snapshots are audit-backed"},
+	}
+	nextAction := "进入企业微信模板真实发送、Web 证据路由页面、回放审批执行 API 和恢复策略版本管理"
+	if checksStatus(checks) != "ready" {
+		nextAction = "补齐双端交互落地缺口后再进入真实执行 API"
+	}
+	return AgentDualEndInteractionLaunchResponse{
+		Status:                          checksStatus(checks),
+		Summary:                         fmt.Sprintf("dual-end interaction launch has %d checks", len(checks)),
+		WeChatTemplateRenderStatus:      render.Status,
+		WebEvidenceRouteStatus:          route.Status,
+		CallbackReplayApprovalStatus:    approval.Status,
+		RecoveryPolicyPersistenceStatus: persist.Status,
+		AuditStatus:                     auditStatus,
+		NextAction:                      nextAction,
+		Checks:                          checks,
+	}
+}
+
+func buildAgentWeChatTemplateSend(render AgentWeChatTemplateRenderResponse) AgentWeChatTemplateSendResponse {
+	messageType := "template_card"
+	title := "Agent 实时工作进度"
+	sendResult := "adapter_ready_fallback_retained"
+	auditEvent := "agent.wechat_template_send_snapshot"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "message_type", Status: readyIf(messageType == "template_card"), Summary: messageType},
+		{Key: "title", Status: readyIf(title != ""), Summary: title},
+		{Key: "phase_fields", Status: readyIf(len(render.PhaseFields) > 0), Summary: strings.Join(render.PhaseFields, ", ")},
+		{Key: "button_fields", Status: readyIf(len(render.ButtonFields) > 0), Summary: strings.Join(render.ButtonFields, ", ")},
+		{Key: "fallback_text", Status: readyIf(strings.TrimSpace(render.FallbackText) != ""), Summary: render.FallbackText},
+		{Key: "send_entry", Status: readyIf(strings.TrimSpace(render.SendEntry) != ""), Summary: render.SendEntry},
+		{Key: "send_result", Status: readyIf(sendResult != ""), Summary: sendResult},
+		{Key: "audit_event", Status: readyIf(auditEvent != ""), Summary: auditEvent},
+	}
+	return AgentWeChatTemplateSendResponse{
+		Status:       checksStatus(checks),
+		Summary:      fmt.Sprintf("wechat template send adapter uses %s with %d buttons", messageType, len(render.ButtonFields)),
+		MessageType:  messageType,
+		Title:        title,
+		PhaseFields:  append([]string(nil), render.PhaseFields...),
+		ButtonFields: append([]string(nil), render.ButtonFields...),
+		FallbackText: render.FallbackText,
+		SendEntry:    render.SendEntry,
+		SendResult:   sendResult,
+		AuditEvent:   auditEvent,
+		Checks:       checks,
+	}
+}
+
+func buildAgentWebEvidenceDetailView(route AgentWebEvidenceRouteResponse) AgentWebEvidenceDetailViewResponse {
+	routePath := "/agent/plans/:plan_id/evidence/:record_key"
+	planParam := "plan_id"
+	recordParam := "record_key"
+	recordSource := "agent.ops_execution_record.records"
+	auditEvents := []string{"agent.ops_execution_record_snapshot", "agent.web_evidence_route_snapshot"}
+	permissionHint := route.PermissionRequirement
+	if strings.TrimSpace(permissionHint) == "" {
+		permissionHint = "task_owner_or_agent_operations"
+	}
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "route_name", Status: readyIf(route.RouteName != ""), Summary: route.RouteName},
+		{Key: "route_path", Status: readyIf(routePath != ""), Summary: routePath},
+		{Key: "plan_param", Status: readyIf(planParam != ""), Summary: planParam},
+		{Key: "record_param", Status: readyIf(recordParam != ""), Summary: recordParam},
+		{Key: "record_source", Status: readyIf(recordSource != ""), Summary: recordSource},
+		{Key: "filter_params", Status: readyIf(len(route.FilterParams) > 0), Summary: strings.Join(route.FilterParams, ", ")},
+		{Key: "audit_events", Status: readyIf(len(auditEvents) > 0), Summary: strings.Join(auditEvents, ", ")},
+		{Key: "replay_entry", Status: readyIf(route.ReplayEntry != ""), Summary: route.ReplayEntry},
+		{Key: "permission_hint", Status: readyIf(permissionHint != ""), Summary: permissionHint},
+	}
+	return AgentWebEvidenceDetailViewResponse{
+		Status:         checksStatus(checks),
+		Summary:        fmt.Sprintf("web evidence detail view %s uses %d filters", route.RouteName, len(route.FilterParams)),
+		RouteName:      route.RouteName,
+		RoutePath:      routePath,
+		PlanParam:      planParam,
+		RecordParam:    recordParam,
+		RecordSource:   recordSource,
+		FilterParams:   append([]string(nil), route.FilterParams...),
+		AuditEvents:    auditEvents,
+		ReplayEntry:    route.ReplayEntry,
+		PermissionHint: permissionHint,
+		Checks:         checks,
+	}
+}
+
+func buildAgentCallbackReplayExecution(approval AgentCallbackReplayApprovalResponse) AgentCallbackReplayExecutionResponse {
+	requestEntry := "/api/v1/agent/callback-replay/requests"
+	executeEntry := "/api/v1/agent/callback-replay/execute"
+	approvalStatus := approval.ApprovalStatus
+	if strings.TrimSpace(approvalStatus) == "" {
+		approvalStatus = "approval_required"
+	}
+	executionGate := approval.ExecutionGate
+	if strings.TrimSpace(executionGate) == "" {
+		executionGate = "approved_and_idempotency_verified"
+	}
+	idempotencyKey := approval.ApprovalKey + ":callback_key:decision"
+	if strings.TrimSpace(approval.ApprovalKey) == "" {
+		idempotencyKey = "agent.callback.replay.approval:callback_key:decision"
+	}
+	auditEvent := "agent.callback_replay_execution_snapshot"
+	failureFallback := "manual_review_without_replay"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "request_entry", Status: readyIf(requestEntry != ""), Summary: requestEntry},
+		{Key: "execute_entry", Status: readyIf(executeEntry != ""), Summary: executeEntry},
+		{Key: "approval_status", Status: readyIf(approvalStatus != ""), Summary: approvalStatus},
+		{Key: "execution_gate", Status: readyIf(executionGate != ""), Summary: executionGate},
+		{Key: "idempotency_key", Status: readyIf(idempotencyKey != ""), Summary: idempotencyKey},
+		{Key: "audit_event", Status: readyIf(auditEvent != ""), Summary: auditEvent},
+		{Key: "failure_fallback", Status: readyIf(failureFallback != ""), Summary: failureFallback},
+	}
+	return AgentCallbackReplayExecutionResponse{
+		Status:          checksStatus(checks),
+		Summary:         fmt.Sprintf("callback replay execution is gated by %s", executionGate),
+		RequestEntry:    requestEntry,
+		ExecuteEntry:    executeEntry,
+		ApprovalStatus:  approvalStatus,
+		ExecutionGate:   executionGate,
+		IdempotencyKey:  idempotencyKey,
+		AuditEvent:      auditEvent,
+		FailureFallback: failureFallback,
+		Checks:          checks,
+	}
+}
+
+func buildAgentRecoveryPolicyVersion(persist AgentRecoveryPolicyPersistResponse) AgentRecoveryPolicyVersionResponse {
+	releaseStatus := "pending_review"
+	configSource := "agent_task_governance_snapshot"
+	auditEvent := "agent.recovery_policy_version_snapshot"
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "policy_key", Status: readyIf(persist.ConfigKey != ""), Summary: persist.ConfigKey},
+		{Key: "current_version", Status: readyIf(persist.CurrentVersion != ""), Summary: persist.CurrentVersion},
+		{Key: "pending_version", Status: readyIf(persist.PendingVersion != ""), Summary: persist.PendingVersion},
+		{Key: "rollback_version", Status: readyIf(persist.RollbackVersion != ""), Summary: persist.RollbackVersion},
+		{Key: "release_status", Status: readyIf(releaseStatus != ""), Summary: releaseStatus},
+		{Key: "config_source", Status: readyIf(configSource != ""), Summary: configSource},
+		{Key: "audit_event", Status: readyIf(auditEvent != ""), Summary: auditEvent},
+	}
+	return AgentRecoveryPolicyVersionResponse{
+		Status:          checksStatus(checks),
+		Summary:         fmt.Sprintf("recovery policy %s version state %s", persist.ConfigKey, releaseStatus),
+		PolicyKey:       persist.ConfigKey,
+		CurrentVersion:  persist.CurrentVersion,
+		PendingVersion:  persist.PendingVersion,
+		RollbackVersion: persist.RollbackVersion,
+		ReleaseStatus:   releaseStatus,
+		ConfigSource:    configSource,
+		AuditEvent:      auditEvent,
+		Checks:          checks,
+	}
+}
+
+func buildAgentDualEndRealInteraction(send AgentWeChatTemplateSendResponse, detail AgentWebEvidenceDetailViewResponse, replay AgentCallbackReplayExecutionResponse, version AgentRecoveryPolicyVersionResponse, audits []domain.AgentAuditLog) AgentDualEndRealInteractionResponse {
+	auditStatus := readyIf(auditEventContains(audits, "wechat_template_send") || auditEventContains(audits, "web_evidence_detail") || auditEventContains(audits, "callback_replay_execution") || auditEventContains(audits, "recovery_policy_version") || len(audits) > 0)
+	checks := []AgentDeploymentCheckResponse{
+		{Key: "wechat_template_send", Status: send.Status, Summary: send.Summary},
+		{Key: "web_evidence_detail", Status: detail.Status, Summary: detail.Summary},
+		{Key: "callback_replay_execution", Status: replay.Status, Summary: replay.Summary},
+		{Key: "recovery_policy_version", Status: version.Status, Summary: version.Summary},
+		{Key: "audit", Status: auditStatus, Summary: "real dual-end interaction is audit-backed"},
+	}
+	nextAction := "进入企业微信模板发送联调、证据页面交互细化和恢复策略灰度发布"
+	if checksStatus(checks) != "ready" {
+		nextAction = "补齐真实交互缺口后再进入联调和灰度"
+	}
+	return AgentDualEndRealInteractionResponse{
+		Status:                        checksStatus(checks),
+		Summary:                       fmt.Sprintf("dual-end real interaction has %d checks", len(checks)),
+		WeChatTemplateSendStatus:      send.Status,
+		WebEvidenceDetailStatus:       detail.Status,
+		CallbackReplayExecutionStatus: replay.Status,
+		RecoveryPolicyVersionStatus:   version.Status,
+		AuditStatus:                   auditStatus,
+		NextAction:                    nextAction,
+		Checks:                        checks,
+	}
+}

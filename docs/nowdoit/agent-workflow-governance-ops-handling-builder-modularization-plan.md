@@ -187,6 +187,16 @@
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
 
+实施结果：
+
+1. 已将 4.4 列出的 13 个权限审批、模板发送与真实交互相关 builder 追加迁入 `internal/service/agent_workflow_ops_handling_builders.go`。
+2. 已从 `internal/service/agent_workflow_governance.go` 移除同一函数块，不改变聚合摘要 JSON 字段、状态取值、summary 文案或 `ListTasks` 中相关 builder 的调用顺序。
+3. `agent_workflow_governance.go` 从 1224 行降至 827 行；`agent_workflow_ops_handling_builders.go` 从 911 行增至 1308 行。
+4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 122 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
+5. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
