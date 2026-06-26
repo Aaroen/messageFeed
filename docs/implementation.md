@@ -20,7 +20,7 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 助理 Web 三页滑动工作台已实现并通过前端验证；提交推送后以 `git status -sb` 为准 |
+| 工作区 | 助理 Web 三页滑动工作台已实现、验证、提交推送并重新部署上线；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-web-assistant-entry-plan.md` |
 | 最近本轮验证 | `npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test`、`go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
@@ -429,6 +429,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 6. 已完成：评测基线从用户界面移除，评测仍作为开发者验证能力保留在后端。
 7. 已完成：执行进度移动到发起任务下方，减少用户查找成本。
 8. 已验证：`npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test`、`go test ./...`、`go vet ./...`。
+9. 已部署：通过 `systemctl restart messagefeed-dev.service` 重建并启动生产 Cloudflare 模式；`https://localhost:8443/healthz` 和 `https://aroen.eu.cc/healthz` 均返回正常。
 
 ## 8. 最小验证命令
 

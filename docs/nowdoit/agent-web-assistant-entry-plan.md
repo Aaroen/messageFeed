@@ -64,3 +64,10 @@
 3. `npm --prefix web run test`
 4. `go test ./...`
 5. `go vet ./...`
+
+部署结果：
+
+1. 已通过 `systemctl restart messagefeed-dev.service` 触发生产 Cloudflare 模式重建和启动。
+2. `messagefeed-api` 和 `messagefeed-web` 已重建并运行。
+3. `https://localhost:8443/healthz` 返回正常。
+4. `https://aroen.eu.cc/healthz` 返回正常。
