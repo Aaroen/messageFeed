@@ -368,7 +368,7 @@ Agent session 生产发布与上线交接 recorder 拆分阶段性结果：
 4. 当前 snapshot recorder 拆分累计承接 40 个审计快照 recorder；文件数量未继续扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
-下一实施单元尚未写入当前活动文档。后续应从 `recordAgentWriteRampPolicySnapshot` 开始，继续按 10 个左右的审计快照 recorder 小批量迁出，并在实施前先更新 `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md`。
+下一实施单元已写入当前活动文档：运行态参数与反馈闭环 Recorder 迁出。拟继续迁出放量策略、企业微信最终报告、上线运行概览、运行参数、监控回读、放量推荐、企业微信用户反馈、运维运行闭环、运维面板配置和监控自动报告相关 10 个 recorder。
 
 ## 8. 最小验证命令
 
