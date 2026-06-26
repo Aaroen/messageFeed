@@ -282,6 +282,39 @@
    - `go test ./...`
    - `go vet ./...`
 
+## 4.7 第七实施单元：审批执行与工单 SLA Recorder 迁出
+
+本小轮继续迁出写入阶段审批、反馈工单生命周期、运维动作闭环、运维 API 执行、告警升级回执、写入审批按钮、反馈工单 SLA、运维执行、运维执行记录和企业微信审批回调相关 recorder。这组方法只把既有响应 DTO 序列化为审计 metadata，不改变任务聚合调用顺序。
+
+拟迁出内容：
+
+1. `recordAgentWriteStageApprovalSnapshot`
+2. `recordAgentFeedbackTicketLifecycleSnapshot`
+3. `recordAgentOperationsActionClosureSnapshot`
+4. `recordAgentOpsAPIExecutionSnapshot`
+5. `recordAgentAlertEscalationReceiptSnapshot`
+6. `recordAgentWriteApprovalButtonSnapshot`
+7. `recordAgentFeedbackTicketSLASnapshot`
+8. `recordAgentOperationsExecutionSnapshot`
+9. `recordAgentOpsExecutionRecordSnapshot`
+10. `recordAgentWeChatApprovalCallbackSnapshot`
+
+拟承接文件：
+
+1. `internal/service/agent_session_snapshot_recorders.go`
+
+实施约束：
+
+1. 不改变审计事件类型、metadata 字段、状态取值和 summary 文案。
+2. 不改变 `ListTasks` 中 recorder 调用顺序。
+3. 方法仍保持 `AgentSessionService` receiver 和 package 内部可见。
+
+验收方式：
+
+1. `go test ./...`
+2. `go vet ./...`
+3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。

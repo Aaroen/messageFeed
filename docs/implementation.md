@@ -384,7 +384,7 @@ Agent session 放量阶段与运维处置 recorder 拆分阶段性结果：
 4. 当前 snapshot recorder 拆分累计承接 60 个审计快照 recorder；文件数量未继续扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
-下一实施单元尚未写入当前活动文档。后续应从 `recordAgentWriteStageApprovalSnapshot` 开始，继续按 10 个左右的审计快照 recorder 小批量迁出。
+下一实施单元已写入当前活动文档：审批执行与工单 SLA Recorder 迁出。拟继续迁出写入阶段审批、反馈工单生命周期、运维动作闭环、运维 API 执行、告警升级回执、写入审批按钮、反馈工单 SLA、运维执行、运维执行记录和企业微信审批回调相关 10 个 recorder。
 
 ## 8. 最小验证命令
 
