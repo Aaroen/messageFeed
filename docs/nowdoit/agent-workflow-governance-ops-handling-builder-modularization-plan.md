@@ -222,6 +222,16 @@
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
 
+实施结果：
+
+1. 已将 `buildAgentSLASummary` 和 `buildAgentTaskReport` 迁入 `internal/service/agent_workflow_foundation_builders.go`，承接职责与基础聚合统计一致。
+2. 已从 `internal/service/agent_workflow_governance.go` 移除同一函数块，不改变聚合摘要 JSON 字段、状态取值、统计口径或 `ListTasks` 中相关 builder 的调用顺序。
+3. `agent_workflow_governance.go` 从 827 行降至 739 行；`agent_workflow_foundation_builders.go` 从 412 行增至 500 行。
+4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 124 个低风险纯函数；本收尾小轮未新增文件，文件数量未继续扩张。
+5. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。

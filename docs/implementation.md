@@ -20,7 +20,7 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 本轮文档记录按 ops handling 第四实施单元迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
+| 工作区 | 本轮文档记录按 ops handling 第五实施单元收尾迁出后的验证结果更新；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md` |
 | 最近本轮验证 | `go test ./...`、`go vet ./...` 已通过 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
@@ -82,7 +82,7 @@
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 5936 | 仍明显过大；本轮已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper，后续应继续拆分聚合 builder、审计 recorder 和服务编排 |
-| `internal/service/agent_workflow_governance.go` | 827 | 已明显低于此前 5000 行级别；已迁出 metadata builder、基础聚合 builder、企业微信组件 builder、release/ops 基础 builder、发布执行/日报闭环 builder、发布窗口/外部监控 builder、生产发布 builder、运行态反馈闭环 builder、运维处置基础 builder、审批执行/SLA builder、证据闭环/双端进度基础 builder 和权限审批/真实交互 builder 群组；剩余内容主要为 admission、质量摘要、通用 helper、SLA 摘要和任务报表 |
+| `internal/service/agent_workflow_governance.go` | 739 | 已明显低于此前 5000 行级别；本轮已迁出所有 `buildAgent*` 纯 builder，剩余内容主要为 admission、质量摘要、通用 helper 和 plan/domain 转换辅助 |
 | `web/src/views/AgentPlanView.vue` | 3680 | 仍明显过大；本轮已迁出两个企业微信摘要组件，后续应继续拆分 composable、摘要面板组件和任务卡片组件 |
 
 结论：这些文件达到数千行不能简单视为正常的企业级设计结果。当前实现虽然有业务闭环推进价值，但从企业级代码质量角度看，必须持续进行模块化拆分、职责收敛和测试保护。后续新增能力不得继续扩大上述文件，除非是短期兼容性必要改动；优先使用独立 service 文件、独立前端组件或 composable。
@@ -316,7 +316,13 @@ Workflow governance 权限审批、模板发送与真实交互 builder 拆分阶
 4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 122 个低风险纯函数；文件数量增加与职责拆分相匹配，不属于冗余扩张。
 5. 已验证：`go test ./...`、`go vet ./...`。
 
-下一实施单元已写入当前活动文档：剩余 SLA 与任务报表 Builder 收尾迁出。拟将 `buildAgentSLASummary` 和 `buildAgentTaskReport` 迁入既有 `internal/service/agent_workflow_foundation_builders.go`，使 `agent_workflow_governance.go` 进一步收敛为 admission、质量摘要和通用 helper。
+Workflow governance 剩余 SLA 与任务报表 builder 收尾拆分结果：
+
+1. 已将 `buildAgentSLASummary` 和 `buildAgentTaskReport` 迁入既有 `internal/service/agent_workflow_foundation_builders.go`，承接职责与基础聚合统计一致。
+2. 已从 `internal/service/agent_workflow_governance.go` 移除同一函数块，不改变聚合摘要 JSON 字段、状态取值、统计口径或 `ListTasks` 调用顺序。
+3. `agent_workflow_governance.go` 从 827 行降至 739 行；`agent_workflow_foundation_builders.go` 从 412 行增至 500 行。
+4. 当前 workflow governance builder 拆分累计新增 5 个小文件，合计承接 124 个低风险纯函数；本收尾小轮未新增文件，文件数量未继续扩张。
+5. 已验证：`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
 

@@ -59,6 +59,94 @@ func buildAgentTaskCostSummary(plans []domain.AgentPlan, tasks []domain.AgentSch
 	return summary
 }
 
+func buildAgentSLASummary(plans []domain.AgentPlan, tasks []domain.AgentScheduledTask, audits []domain.AgentAuditLog) AgentSLASummaryResponse {
+	summary := AgentSLASummaryResponse{PlanCount: len(plans), ScheduledTaskCount: len(tasks)}
+	totalPlanSeconds := 0.0
+	timedPlans := 0
+	for _, plan := range plans {
+		switch plan.Status {
+		case domain.AgentPlanStatusCompleted:
+			summary.PlanSucceeded++
+		case domain.AgentPlanStatusFailed, domain.AgentPlanStatusRejected, domain.AgentPlanStatusExpired:
+			summary.PlanFailed++
+		}
+		if plan.CompletedAt != nil && !plan.CreatedAt.IsZero() {
+			totalPlanSeconds += plan.CompletedAt.Sub(plan.CreatedAt).Seconds()
+			timedPlans++
+		}
+		if metadataMap(plan.Metadata, "recovery") != nil {
+			summary.RecoveryCount++
+		}
+		if metadataString(metadataMap(plan.Metadata, "handoff"), "status") == "required" {
+			summary.HandoffCount++
+		}
+	}
+	if timedPlans > 0 {
+		summary.AveragePlanSeconds = roundAgentQualityScore(totalPlanSeconds / float64(timedPlans))
+	}
+	for _, task := range tasks {
+		switch task.Status {
+		case domain.AgentScheduledTaskStatusSucceeded:
+			summary.ScheduledTaskSucceeded++
+		case domain.AgentScheduledTaskStatusFailed, domain.AgentScheduledTaskStatusCanceled:
+			summary.ScheduledTaskFailed++
+		}
+	}
+	for _, audit := range audits {
+		if strings.Contains(audit.EventType, "reply_sent") || (strings.Contains(audit.EventType, "report") && audit.Status == "succeeded") {
+			summary.NotificationSentCount++
+		}
+		if strings.Contains(audit.EventType, "reply_failed") || (strings.Contains(audit.EventType, "report") && audit.Status == "failed") {
+			summary.NotificationFailedCount++
+		}
+	}
+	return summary
+}
+
+func buildAgentTaskReport(plans []domain.AgentPlan, tasks []domain.AgentScheduledTask) AgentTaskReportResponse {
+	report := AgentTaskReportResponse{
+		ByStatus:     map[string]int{},
+		ByEntry:      map[string]int{},
+		ByCapability: map[string]int{},
+		ByHandoff:    map[string]int{},
+	}
+	for _, plan := range plans {
+		report.ByStatus[string(plan.Status)]++
+		entry := metadataString(metadataMap(plan.Metadata, "admission_policy"), "entry")
+		if entry == "" {
+			entry = "plan"
+		}
+		report.ByEntry[entry]++
+		handoff := metadataString(metadataMap(plan.Metadata, "handoff"), "status")
+		if handoff == "" {
+			handoff = "unknown"
+		}
+		report.ByHandoff[handoff]++
+		for _, step := range plan.Steps {
+			key := strings.TrimSpace(step.CapabilityKey)
+			if key == "" {
+				key = "unknown"
+			}
+			report.ByCapability[key]++
+		}
+	}
+	for _, task := range tasks {
+		report.ByStatus[string(task.Status)]++
+		entry := strings.TrimSpace(task.TargetChannel)
+		if entry == "" {
+			entry = "scheduled_task"
+		}
+		report.ByEntry[entry]++
+		report.ByHandoff[scheduledTaskHandoffStatus(task)]++
+		for _, key := range task.AllowedCapabilities {
+			if strings.TrimSpace(key) != "" {
+				report.ByCapability[strings.TrimSpace(key)]++
+			}
+		}
+	}
+	return report
+}
+
 func buildAgentAlertSummary(plans []domain.AgentPlan, tasks []domain.AgentScheduledTask, audits []domain.AgentAuditLog) AgentAlertSummaryResponse {
 	alerts := AgentAlertSummaryResponse{Reasons: []string{}}
 	reasons := map[string]bool{}

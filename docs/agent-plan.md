@@ -1666,7 +1666,7 @@ EvalCase
 | 文件 | 当前行数 | 治理要求 |
 | --- | ---: | --- |
 | `internal/service/agent_session_service.go` | 5936 | 已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数和任务摘要状态 helper；继续拆分聚合 builder、审计 recorder 和服务编排逻辑 |
-| `internal/service/agent_workflow_governance.go` | 827 | 已明显低于此前 5000 行级别；已迁出 metadata builder、基础聚合 builder、企业微信组件 builder、release/ops 基础 builder、发布执行/日报闭环 builder、发布窗口/外部监控 builder、生产发布 builder、运行态反馈闭环 builder、运维处置基础 builder、审批执行/SLA builder、证据闭环/双端进度基础 builder 和权限审批/真实交互 builder 群组；剩余内容主要为 admission、质量摘要、通用 helper、SLA 摘要和任务报表 |
+| `internal/service/agent_workflow_governance.go` | 739 | 已明显低于此前 5000 行级别；本轮已迁出所有 `buildAgent*` 纯 builder，剩余内容主要为 admission、质量摘要、通用 helper 和 plan/domain 转换辅助 |
 | `web/src/views/AgentPlanView.vue` | 3680 | 已迁出企业微信最终汇报和 Web 进度地址两个小组件；仍需继续拆分任务摘要组件、组合式状态逻辑和展示面板 |
 
 上述文件达到数千行不应被视为理想的企业级终态。后续实现必须优先新增职责明确的小文件或组件，并在必要时逐步迁出既有逻辑。
@@ -1700,4 +1700,4 @@ EvalCase
 
 上一活动文档 `docs/nowdoit/agent-workflow-governance-release-ops-builder-modularization-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-workflow-governance-release-ops-builder-modularization-plan-implemented-2026-06-26.md`。已新增 `internal/service/agent_workflow_release_ops_builders.go`，迁出发布、运维、灰度、告警通道、上线演练、企业微信原生按钮联调、发布执行、审批、日报、监控、按钮回调闭环、发布窗口、外部监控、按钮直控、企业微信验收、生产发布、上线交接、运行态参数、监控回读、放量推荐、企业微信用户反馈、运营面板和异常自动汇报相关 50 个纯 builder，并迁入 1 个企业微信最终汇报审计读取 helper；`agent_workflow_governance.go` 当前降至 2127 行。
 
-当前活动文档为 `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md`。已新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，迁出写放量阶段、企业微信反馈循环、运营闭环、运营面板交互、告警去重升级、写阶段记录、反馈工单、运营处理、运营动作定义、告警升级策略、写阶段审批、反馈工单生命周期、运营动作闭环、API 执行、告警回执、审批按钮、反馈 SLA、运营执行记录、企业微信审批回调、反馈 SLA 报表、告警自动恢复、运营证据、统一进度组件、证据详情页、回调重放工具、恢复策略配置、双端进度证据、企业微信进度卡片、Web 证据交互、回调重放权限、恢复策略审计、双端交互、企业微信模板渲染、Web 证据路由、回调重放审批、恢复策略持久化、双端交互发布、企业微信模板发送、Web 证据详情、回调重放执行、恢复策略版本和双端真实交互相关 43 个纯 builder；`agent_workflow_governance.go` 当前降至 827 行。下一实施单元已写入活动文档，将把剩余 SLA 摘要和任务报表 builder 迁入 `agent_workflow_foundation_builders.go`，使治理主文件进一步收敛。
+当前活动文档为 `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md`。已新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，迁出写放量阶段、企业微信反馈循环、运营闭环、运营面板交互、告警去重升级、写阶段记录、反馈工单、运营处理、运营动作定义、告警升级策略、写阶段审批、反馈工单生命周期、运营动作闭环、API 执行、告警回执、审批按钮、反馈 SLA、运营执行记录、企业微信审批回调、反馈 SLA 报表、告警自动恢复、运营证据、统一进度组件、证据详情页、回调重放工具、恢复策略配置、双端进度证据、企业微信进度卡片、Web 证据交互、回调重放权限、恢复策略审计、双端交互、企业微信模板渲染、Web 证据路由、回调重放审批、恢复策略持久化、双端交互发布、企业微信模板发送、Web 证据详情、回调重放执行、恢复策略版本和双端真实交互相关 43 个纯 builder；剩余 SLA 摘要和任务报表 builder 已迁入 `agent_workflow_foundation_builders.go`。`agent_workflow_governance.go` 当前降至 739 行，已不再承接 `buildAgent*` 纯 builder。下一步可归档当前活动文档并转入 `agent_session_service.go` 与前端大文件治理。
