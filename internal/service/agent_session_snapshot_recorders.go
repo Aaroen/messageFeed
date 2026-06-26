@@ -626,3 +626,229 @@ func (s *AgentSessionService) recordAgentExternalMonitorRuntimeSnapshot(ctx cont
 		CreatedAt: s.now().UTC(),
 	})
 }
+
+func (s *AgentSessionService) recordAgentWriteGrayReviewSnapshot(ctx context.Context, userID int64, review AgentWriteGrayReviewResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.write_gray_review_snapshot",
+		Status:    review.Status,
+		Message:   review.Summary,
+		Metadata: domain.AgentJSON{
+			"candidates":      review.Candidates,
+			"default_action":  review.DefaultAction,
+			"decision":        review.Decision,
+			"next_action":     review.NextAction,
+			"denied_patterns": review.DeniedPatterns,
+			"check_count":     len(review.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentWeChatAcceptanceReviewSnapshot(ctx context.Context, userID int64, review AgentWeChatAcceptanceReviewResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.wechat_acceptance_review_snapshot",
+		Status:    review.Status,
+		Message:   review.Summary,
+		Metadata: domain.AgentJSON{
+			"entry_status":            review.EntryStatus,
+			"progress_status":         review.ProgressStatus,
+			"button_control_status":   review.ButtonControlStatus,
+			"web_sync_status":         review.WebSyncStatus,
+			"final_report_status":     review.FinalReportStatus,
+			"failure_fallback_status": review.FailureFallbackStatus,
+			"next_action":             review.NextAction,
+			"check_count":             len(review.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentOperationsDailyClosureSnapshot(ctx context.Context, userID int64, closure AgentOperationsDailyClosureResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.operations_daily_closure_snapshot",
+		Status:    closure.Status,
+		Message:   closure.Summary,
+		Metadata: domain.AgentJSON{
+			"report_status":         closure.ReportStatus,
+			"monitor_status":        closure.MonitorStatus,
+			"button_control_status": closure.ButtonControlStatus,
+			"release_window_status": closure.ReleaseWindowStatus,
+			"audit_status":          closure.AuditStatus,
+			"check_count":           len(closure.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentProductionReleaseSnapshot(ctx context.Context, userID int64, release AgentProductionReleaseResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.production_release_snapshot",
+		Status:    release.Status,
+		Message:   release.Summary,
+		Metadata: domain.AgentJSON{
+			"batch_id":             release.BatchID,
+			"approval_source":      release.ApprovalSource,
+			"precheck_status":      release.PrecheckStatus,
+			"execution_status":     release.ExecutionStatus,
+			"rollback_gate_status": release.RollbackGateStatus,
+			"notification_status":  release.NotificationStatus,
+			"audit_event":          release.AuditEvent,
+			"check_count":          len(release.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentExternalMonitorConfigSnapshot(ctx context.Context, userID int64, config AgentExternalMonitorConfigResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.external_monitor_config_snapshot",
+		Status:    config.Status,
+		Message:   config.Summary,
+		Metadata: domain.AgentJSON{
+			"platform_status": config.PlatformStatus,
+			"metric_names":    config.MetricNames,
+			"event_names":     config.EventNames,
+			"alert_channels":  config.AlertChannels,
+			"daily_channels":  config.DailyChannels,
+			"check_count":     len(config.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentWriteRampSnapshot(ctx context.Context, userID int64, ramp AgentWriteRampResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.write_ramp_snapshot",
+		Status:    ramp.Status,
+		Message:   ramp.Summary,
+		Metadata: domain.AgentJSON{
+			"candidates":     ramp.Candidates,
+			"ramp_percent":   ramp.RampPercent,
+			"default_action": ramp.DefaultAction,
+			"decision":       ramp.Decision,
+			"approval_gate":  ramp.ApprovalGate,
+			"budget_gate":    ramp.BudgetGate,
+			"audit_gate":     ramp.AuditGate,
+			"rollback_gate":  ramp.RollbackGate,
+			"check_count":    len(ramp.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentWeChatSignoffSnapshot(ctx context.Context, userID int64, signoff AgentWeChatSignoffResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.wechat_signoff_snapshot",
+		Status:    signoff.Status,
+		Message:   signoff.Summary,
+		Metadata: domain.AgentJSON{
+			"signoff_state":              signoff.SignoffState,
+			"entry_confirmed":            signoff.EntryConfirmed,
+			"progress_confirmed":         signoff.ProgressConfirmed,
+			"button_control_confirmed":   signoff.ButtonControlConfirmed,
+			"web_sync_confirmed":         signoff.WebSyncConfirmed,
+			"final_report_confirmed":     signoff.FinalReportConfirmed,
+			"failure_fallback_confirmed": signoff.FailureFallbackConfirmed,
+			"audit_event":                signoff.AuditEvent,
+			"check_count":                len(signoff.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentOperationsHandoffSnapshot(ctx context.Context, userID int64, handoff AgentOperationsHandoffResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.operations_handoff_snapshot",
+		Status:    handoff.Status,
+		Message:   handoff.Summary,
+		Metadata: domain.AgentJSON{
+			"release_status":        handoff.ReleaseStatus,
+			"monitor_config_status": handoff.MonitorConfigStatus,
+			"write_ramp_status":     handoff.WriteRampStatus,
+			"wechat_signoff_status": handoff.WeChatSignoffStatus,
+			"audit_status":          handoff.AuditStatus,
+			"next_action":           handoff.NextAction,
+			"check_count":           len(handoff.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentProductionExecutionSnapshot(ctx context.Context, userID int64, execution AgentProductionExecutionResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.production_execution_snapshot",
+		Status:    execution.Status,
+		Message:   execution.Summary,
+		Metadata: domain.AgentJSON{
+			"batch_id":             execution.BatchID,
+			"executor":             execution.Executor,
+			"execution_status":     execution.ExecutionStatus,
+			"rollback_gate_status": execution.RollbackGateStatus,
+			"failure_exit_status":  execution.FailureExitStatus,
+			"notification_status":  execution.NotificationStatus,
+			"audit_event":          execution.AuditEvent,
+			"check_count":          len(execution.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentSessionService) recordAgentMonitorIntegrationSnapshot(ctx context.Context, userID int64, integration AgentMonitorIntegrationResponse) {
+	if s == nil || s.repository == nil || userID < 1 {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		UserID:    userID,
+		EventType: "agent.monitor_integration_snapshot",
+		Status:    integration.Status,
+		Message:   integration.Summary,
+		Metadata: domain.AgentJSON{
+			"metric_write_status":  integration.MetricWriteStatus,
+			"event_write_status":   integration.EventWriteStatus,
+			"alert_channel_status": integration.AlertChannelStatus,
+			"daily_channel_status": integration.DailyChannelStatus,
+			"integration_result":   integration.IntegrationResult,
+			"metric_names":         integration.MetricNames,
+			"event_names":          integration.EventNames,
+			"channels":             integration.Channels,
+			"check_count":          len(integration.Checks),
+		},
+		CreatedAt: s.now().UTC(),
+	})
+}
