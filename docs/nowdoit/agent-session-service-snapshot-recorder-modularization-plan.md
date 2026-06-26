@@ -229,6 +229,16 @@
 2. `go vet ./...`
 3. 同步更新 `docs/implementation.md` 和 `docs/agent-plan.md`
 
+实施结果：
+
+1. 已将 4.5 列出的 10 个运行态参数与反馈闭环相关 recorder 追加迁入 `internal/service/agent_session_snapshot_recorders.go`。
+2. 已从 `internal/service/agent_session_service.go` 移除同一方法块，不改变审计事件类型、metadata 字段、状态取值、summary 文案或 `ListTasks` 中 recorder 调用顺序。
+3. `agent_session_service.go` 从 5088 行降至 4863 行；`agent_session_snapshot_recorders.go` 从 854 行增至 1079 行。
+4. 当前 snapshot recorder 拆分累计承接 50 个审计快照 recorder；文件数量未继续扩张。
+5. 已通过：
+   - `go test ./...`
+   - `go vet ./...`
+
 ## 5. 非目标
 
 - 本轮不改变任务聚合 API 返回字段。
