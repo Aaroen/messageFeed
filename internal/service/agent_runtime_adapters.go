@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"html"
 	"io"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/agent/timeintent"
@@ -919,7 +921,7 @@ func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.To
 }
 
 func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityKey string, query string, limit int) (string, agent.CapabilityObservation, int, error) {
-	query = strings.TrimSpace(query)
+	query = normalizeWebSearchQuery(query)
 	if limit < 1 {
 		limit = 5
 	}
@@ -937,12 +939,37 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 	}
 	endpoint := "https://duckduckgo.com/html/?" + url.Values{"q": []string{query}}.Encode()
 	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, endpoint)
-	if err != nil {
+	results := []agentWebSearchResult{}
+	if err == nil && !isDuckDuckGoSearchChallenge(body, statusCode) {
+		results = parseDuckDuckGoResults(body, limit)
+	}
+	if len(results) == 0 {
+		for _, rssEndpoint := range newsRSSSearchEndpoints(query) {
+			rssBody, rssFinalURL, rssStatusCode, rssContentType, rssErr := e.fetchWebURL(ctx, rssEndpoint)
+			if rssErr != nil {
+				err = rssErr
+				continue
+			}
+			rssResults := parseRSSSearchResults(rssBody, limit)
+			if len(rssResults) == 0 {
+				finalURL = rssFinalURL
+				statusCode = rssStatusCode
+				contentType = rssContentType
+				continue
+			}
+			results = rssResults
+			finalURL = rssFinalURL
+			statusCode = rssStatusCode
+			contentType = rssContentType
+			err = nil
+			break
+		}
+	}
+	if err != nil && len(results) == 0 && finalURL == "" {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
 		return "web.search 执行失败：" + err.Error(), observation, 0, nil
 	}
-	results := parseDuckDuckGoResults(body, limit)
 	observation.Status = "succeeded"
 	observation.Summary = fmt.Sprintf("loaded %d web search results", len(results))
 	if len(results) == 0 {
@@ -1458,9 +1485,11 @@ func scheduledMessageDedupeKey(userID int64, toUser string, taskType string, con
 }
 
 type agentWebSearchResult struct {
-	Title   string
-	URL     string
-	Snippet string
+	Title       string
+	URL         string
+	Snippet     string
+	Source      string
+	PublishedAt string
 }
 
 type agentWebExtractedPage struct {
@@ -1584,7 +1613,7 @@ func parseDuckDuckGoResults(body []byte, limit int) []agentWebSearchResult {
 			return true
 		}
 		snippet := strings.TrimSpace(selection.ParentsFiltered(".result").First().Find(".result__snippet").Text())
-		results = append(results, agentWebSearchResult{Title: title, URL: href, Snippet: cleanWhitespace(snippet)})
+		results = append(results, agentWebSearchResult{Title: title, URL: href, Snippet: cleanWhitespace(snippet), Source: hostNameForURL(href)})
 		return true
 	})
 	if len(results) > 0 {
@@ -1604,10 +1633,170 @@ func parseDuckDuckGoResults(body []byte, limit int) []agentWebSearchResult {
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 			return true
 		}
-		results = append(results, agentWebSearchResult{Title: title, URL: href})
+		results = append(results, agentWebSearchResult{Title: title, URL: href, Source: hostNameForURL(href)})
 		return true
 	})
 	return results
+}
+
+func normalizeWebSearchQuery(value string) string {
+	original := strings.TrimSpace(value)
+	normalized := strings.NewReplacer(
+		"\n", " ",
+		"\t", " ",
+		"，", " ",
+		"。", " ",
+		"；", " ",
+		"、", " ",
+		"？", " ",
+		"！", " ",
+		",", " ",
+		";", " ",
+		"?", " ",
+		"!", " ",
+		"：", " ",
+		":", " ",
+	).Replace(original)
+	for _, phrase := range []string{
+		"请帮我", "帮我", "麻烦", "请",
+		"搜索一下", "查询一下", "查找一下", "检索一下",
+		"搜索", "查询", "查找", "检索",
+		"最新的", "最新", "消息", "新闻", "资讯",
+		"并分析一下", "并分析", "分析一下", "分析",
+		"一下", "相关", "关于",
+	} {
+		normalized = strings.ReplaceAll(normalized, phrase, " ")
+	}
+	normalized = cleanWhitespace(normalized)
+	if normalized == "" {
+		return original
+	}
+	return safeSummary(normalized, 120)
+}
+
+func newsRSSSearchEndpoints(query string) []string {
+	values := url.Values{
+		"q":    []string{query},
+		"hl":   []string{"zh-CN"},
+		"gl":   []string{"CN"},
+		"ceid": []string{"CN:zh-Hans"},
+	}
+	googleNews := "https://news.google.com/rss/search?" + values.Encode()
+	bingNews := "https://www.bing.com/news/search?" + url.Values{
+		"q":       []string{query},
+		"format":  []string{"rss"},
+		"setlang": []string{"zh-Hans"},
+		"mkt":     []string{"zh-CN"},
+	}.Encode()
+	return []string{googleNews, bingNews}
+}
+
+func isDuckDuckGoSearchChallenge(body []byte, statusCode int) bool {
+	if statusCode == http.StatusAccepted {
+		return true
+	}
+	lower := strings.ToLower(string(body))
+	return strings.Contains(lower, "anomaly-modal") ||
+		strings.Contains(lower, "duckduckgo") && strings.Contains(lower, "challenge")
+}
+
+type rssSearchFeed struct {
+	Channel struct {
+		Items []rssSearchItem `xml:"item"`
+	} `xml:"channel"`
+	Entries []rssSearchItem `xml:"entry"`
+}
+
+type rssSearchItem struct {
+	Title       string `xml:"title"`
+	Link        string `xml:"link"`
+	Description string `xml:"description"`
+	Summary     string `xml:"summary"`
+	PubDate     string `xml:"pubDate"`
+	Updated     string `xml:"updated"`
+	Published   string `xml:"published"`
+	Source      struct {
+		Name string `xml:",chardata"`
+	} `xml:"source"`
+}
+
+func parseRSSSearchResults(body []byte, limit int) []agentWebSearchResult {
+	if limit < 1 {
+		limit = 5
+	}
+	var feed rssSearchFeed
+	if err := xml.Unmarshal(body, &feed); err != nil {
+		return nil
+	}
+	items := feed.Channel.Items
+	if len(items) == 0 {
+		items = feed.Entries
+	}
+	results := make([]agentWebSearchResult, 0, limit)
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		if len(results) >= limit {
+			break
+		}
+		title := cleanWhitespace(html.UnescapeString(item.Title))
+		rawURL := cleanWhitespace(html.UnescapeString(item.Link))
+		if title == "" || rawURL == "" {
+			continue
+		}
+		key := rawURL
+		if key == "" {
+			key = title
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		summary := cleanHTMLText(item.Description)
+		if summary == "" {
+			summary = cleanHTMLText(item.Summary)
+		}
+		source := cleanWhitespace(html.UnescapeString(item.Source.Name))
+		if source == "" {
+			source = hostNameForURL(rawURL)
+		}
+		results = append(results, agentWebSearchResult{
+			Title:       title,
+			URL:         rawURL,
+			Snippet:     safeSummary(summary, 300),
+			Source:      source,
+			PublishedAt: firstNonEmptyString(item.PubDate, item.Published, item.Updated),
+		})
+	}
+	return results
+}
+
+func cleanHTMLText(value string) string {
+	value = html.UnescapeString(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	document, err := goquery.NewDocumentFromReader(strings.NewReader(value))
+	if err != nil {
+		return cleanWhitespace(value)
+	}
+	return cleanWhitespace(document.Text())
+}
+
+func hostNameForURL(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(parsed.Hostname(), "www.")
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := cleanWhitespace(html.UnescapeString(value)); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func normalizeDuckDuckGoResultURL(value string) string {
@@ -1728,6 +1917,15 @@ func formatWebSearchResult(query string, source string, statusCode int, contentT
 		builder.WriteString(strconv.Itoa(index + 1))
 		builder.WriteString(". ")
 		builder.WriteString(result.Title)
+		if result.Source != "" {
+			builder.WriteString("（")
+			builder.WriteString(result.Source)
+			builder.WriteString("）")
+		}
+		if result.PublishedAt != "" {
+			builder.WriteString("\n发布时间：")
+			builder.WriteString(result.PublishedAt)
+		}
 		builder.WriteString("\nURL：")
 		builder.WriteString(result.URL)
 		builder.WriteString("\nEvidence ref：url:")

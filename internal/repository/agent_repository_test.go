@@ -33,6 +33,14 @@ func TestAgentJSONSliceClonesKeepEmptyArray(t *testing.T) {
 	}
 }
 
+func TestAgentRunUpdateColumnsPersistPlanScopeFields(t *testing.T) {
+	for _, required := range []string{"TaskPacket", "CapabilityScope", "ContextBudget"} {
+		if !agentRepositoryStringSliceContains(agentRunUpdateColumns, required) {
+			t.Fatalf("agentRunUpdateColumns missing %q: %#v", required, agentRunUpdateColumns)
+		}
+	}
+}
+
 func TestAgentContextMemoryMigrationDefinesArchiveAndRecallTables(t *testing.T) {
 	content, err := os.ReadFile("../../migrations/000019_add_agent_context_memory.up.sql")
 	if err != nil {
@@ -114,4 +122,13 @@ func TestTranscriptClassificationMetadataIncludesReclassifyFields(t *testing.T) 
 	if metadata["rebuild"] != true {
 		t.Fatalf("rebuild = %#v", metadata["rebuild"])
 	}
+}
+
+func agentRepositoryStringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

@@ -20,7 +20,7 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 企微 Agent 搜索闭环空响应根因修复已实现并通过后端验证；提交推送后以 `git status -sb` 为准 |
+| 工作区 | 企微 Agent 搜索浏览能力强化已实现并通过后端验证；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-web-assistant-entry-plan.md` |
 | 最近本轮验证 | 本轮后端修复已通过 `go test ./...`、`go vet ./...`；上一轮前端入口修复已通过 `npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test` |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
@@ -46,6 +46,7 @@
 - 企业微信 OAuth 绑定链路已核对：OAuth URL 必须由已登录 Web 用户生成；callback 按 OAuth state 中的 `user_id` 绑定 external account 并创建同一用户的 Web session；`/api/v1/auth/me` 返回当前用户 bindings；disabled binding 在企业微信 external account 解析时被拒绝。
 - 已修复企业微信任务静默失败问题：入站消息能够落库并创建 turn 时，如计划创建或 controller 早期阶段失败，会将 turn 和 inbound 标记为 failed，记录 `agent.turn_failed` 与 `agent.turn_failure_feedback`，并向企业微信发送失败反馈，避免用户侧长时间无响应。
 - 已修复企微任务 `搜索最新港股消息并分析` 的空响应根因：计划 scope、controller run scope、上下文预取 scope 已对齐；`web.search` 可作为计划步骤预取并记录 observation；模型返回 `llm_empty_response` 时，如已有 feed/web 证据，会生成有证据约束的本地降级结果，避免整轮失败。
+- 已强化搜索浏览闭环：`web.search` 会清洗“搜索最新港股消息并分析”等任务型表达，优先尝试 DuckDuckGo HTML，遇到 202 challenge、空解析或拦截页时自动降级到 Google News RSS 与 Bing News RSS；RSS 解析使用 XML 结构化解析和 HTML 文本清洗；本地降级回复只展示参考结果与分析，不再向用户暴露 capability、observation、Evidence ref、user_id 等内部治理内容；真实 repository 更新 `agent_runs` 时已持久化 task packet、capability scope 和 context budget。
 
 ### 3.3 Web 进度与治理展示
 
@@ -62,6 +63,7 @@
 - 最近一轮全量验证已覆盖 Go 测试、Go vet、前端测试、类型检查和前端构建。
 - 已补充企微任务失败闭环回归测试，覆盖 plan 创建失败时的 turn 状态、inbound 状态、失败审计和企微 fallback；已补充 Agent JSONB 空数组回归测试，防止空引用列表写成无效 JSON。
 - 已补充本轮闭环回归测试：覆盖计划 scope 下发到上下文构建、`web.search` 计划预取、模型空响应降级、来源名称计划识别、controller scope 对齐、企微入站到计划完成的完整路径。
+- 已补充搜索浏览强化回归测试：覆盖查询归一化、RSS 新闻解析、DuckDuckGo challenge 后 RSS fallback、用户可见降级回复不泄露内部字段，以及真实 repository 运行记录更新字段。
 - 当前新增治理文件将部分逻辑从大文件中抽离，包括：
   - `internal/service/agent_real_interaction_automation_governance.go`
   - `internal/service/agent_wechat_web_progress_link_governance.go`
@@ -438,6 +440,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 11. 当前补充修复：企业微信消息 `搜索最新港股消息并分析` 已确认回调到达并创建 `agent_turns`，失败点为 `agent_plan_steps.artifact_refs_json` 空数组写入成空字符串导致 PostgreSQL JSONB 解析失败；已修正 Agent 相关 JSONB 字符串数组克隆逻辑，并补齐 `processTurn` 早期失败反馈闭环。
 12. 当前补充修复：主页顶部“订阅 / 推荐 / 助理”三栏移动端宽度不再压缩到无法覆盖三项；横向滑动锁定手势起始页，一次左滑或右滑只提交到相邻一个选项。
 13. 当前补充修复：继续修复同一企微搜索任务的 `llm response is empty` 根因。计划器可识别来源名称查询；上下文构建使用计划批准 scope；controller run 在计划创建后对齐真实 scope；`web.search` 预取写入 executor run、observation 和 artifact；模型空响应时基于已记录证据生成降级结果。验证命令：`go test ./...`、`go vet ./...`。
+14. 当前补充修复：强化搜索浏览能力。`web.search` 已增加任务型查询清洗、DuckDuckGo challenge/空结果后的 Google News RSS 与 Bing News RSS 备用源、RSS XML 结构化解析和摘要清洗；模型空响应降级回复改为仅展示参考结果与分析，隐藏内部能力、证据引用和治理观测；真实 repository 已持久化 controller run 对齐后的 task packet、capability scope 和 context budget。验证命令：`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
 

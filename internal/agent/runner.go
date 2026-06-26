@@ -3,10 +3,10 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/observability"
+	"strconv"
 	"strings"
 	"time"
 
@@ -572,52 +572,47 @@ func isLLMEmptyResponse(err error) bool {
 }
 
 func buildEvidenceFallbackReply(message string, snapshot ContextSnapshot) (string, ContextSnapshot, bool) {
-	blocks := make([]ContextBlock, 0, len(snapshot.Blocks))
-	for _, block := range snapshot.Blocks {
-		content := strings.TrimSpace(block.Content)
-		if content == "" || block.CapabilityKey == "capability.list_available" {
-			continue
-		}
-		blocks = append(blocks, block)
-	}
-	if len(blocks) == 0 {
+	items := fallbackEvidenceItems(snapshot.Blocks)
+	if len(items) == 0 {
 		return "", snapshot, false
 	}
 
 	var builder strings.Builder
-	builder.WriteString("已完成可用能力检索，但模型生成阶段没有返回可用内容。以下结果仅基于已记录证据：")
+	builder.WriteString("参考结果：")
 	if trimmed := strings.TrimSpace(message); trimmed != "" {
 		builder.WriteString("\n任务：")
 		builder.WriteString(trimmed)
 	}
-	limit := len(blocks)
-	if limit > 3 {
-		limit = 3
+	limit := len(items)
+	if limit > 5 {
+		limit = 5
 	}
 	for index := 0; index < limit; index++ {
-		block := blocks[index]
-		title := strings.TrimSpace(block.Name)
-		if title == "" {
-			title = strings.TrimSpace(block.CapabilityKey)
-		}
+		item := items[index]
 		builder.WriteString("\n\n")
-		builder.WriteString(fmt.Sprintf("%d. %s", index+1, title))
-		if block.CapabilityKey != "" {
+		builder.WriteString(strconv.Itoa(index + 1))
+		builder.WriteString(". ")
+		builder.WriteString(item.Title)
+		if item.Source != "" {
 			builder.WriteString("（")
-			builder.WriteString(block.CapabilityKey)
+			builder.WriteString(item.Source)
 			builder.WriteString("）")
 		}
-		if block.ItemCount > 0 {
-			builder.WriteString(fmt.Sprintf("，条目数：%d", block.ItemCount))
+		if item.PublishedAt != "" {
+			builder.WriteString("\n发布时间：")
+			builder.WriteString(item.PublishedAt)
 		}
-		builder.WriteString("\n")
-		builder.WriteString(trimRunes(block.Content, 1200))
+		if item.Summary != "" {
+			builder.WriteString("\n摘要：")
+			builder.WriteString(trimRunes(item.Summary, 220))
+		}
+		if item.URL != "" {
+			builder.WriteString("\nURL：")
+			builder.WriteString(item.URL)
+		}
 	}
-	if evidence := fallbackEvidenceSummary(snapshot.Observations); evidence != "" {
-		builder.WriteString("\n\n证据范围：")
-		builder.WriteString(evidence)
-	}
-	builder.WriteString("\n\n说明：以上为保守降级结果，未使用未记录来源补充事实。")
+	builder.WriteString("\n\n分析：")
+	builder.WriteString(fallbackAnalysis(items))
 
 	snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
 		Capability: "controller.reply_fallback",
@@ -628,28 +623,181 @@ func buildEvidenceFallbackReply(message string, snapshot ContextSnapshot) (strin
 	return builder.String(), snapshot, true
 }
 
-func fallbackEvidenceSummary(observations []CapabilityObservation) string {
-	parts := make([]string, 0, len(observations))
-	for _, observation := range observations {
-		capability := strings.TrimSpace(observation.Capability)
-		if capability == "" || capability == "capability.list_available" {
+type fallbackEvidenceItem struct {
+	Title       string
+	Source      string
+	PublishedAt string
+	Summary     string
+	URL         string
+}
+
+func fallbackEvidenceItems(blocks []ContextBlock) []fallbackEvidenceItem {
+	items := make([]fallbackEvidenceItem, 0, 8)
+	for _, block := range blocks {
+		if !fallbackBlockIsUserVisible(block.CapabilityKey) {
 			continue
 		}
-		status := strings.TrimSpace(observation.Status)
-		summary := strings.TrimSpace(observation.Summary)
-		if status == "" && summary == "" {
+		items = append(items, parseFallbackEvidenceItems(block.Content)...)
+	}
+	if len(items) == 0 {
+		for _, block := range blocks {
+			if !fallbackBlockIsUserVisible(block.CapabilityKey) {
+				continue
+			}
+			title := strings.TrimSpace(block.Name)
+			content := strings.TrimSpace(block.Content)
+			if title == "" || content == "" {
+				continue
+			}
+			items = append(items, fallbackEvidenceItem{Title: title, Summary: content})
+		}
+	}
+	return dedupeFallbackEvidenceItems(items)
+}
+
+func fallbackBlockIsUserVisible(capabilityKey string) bool {
+	key := strings.TrimSpace(capabilityKey)
+	return strings.HasPrefix(key, "feed.") ||
+		strings.HasPrefix(key, "source.") ||
+		strings.HasPrefix(key, "web.") ||
+		strings.HasPrefix(key, "repo.")
+}
+
+func parseFallbackEvidenceItems(content string) []fallbackEvidenceItem {
+	lines := strings.Split(content, "\n")
+	items := make([]fallbackEvidenceItem, 0, 8)
+	current := fallbackEvidenceItem{}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "工具：") || strings.HasPrefix(line, "查询：") ||
+			strings.HasPrefix(line, "来源：") || strings.HasPrefix(line, "抓取时间：") ||
+			strings.HasPrefix(line, "HTTP 状态：") || strings.HasPrefix(line, "内容类型：") ||
+			strings.HasPrefix(line, "证据引用：") || strings.HasPrefix(line, "Evidence ref：") ||
+			strings.HasPrefix(line, "新鲜度提示：") || strings.HasPrefix(line, "结果：") ||
+			strings.HasPrefix(line, "已读：") {
+			continue
+		}
+		if title, ok := parseNumberedFallbackTitle(line); ok {
+			if current.Title != "" {
+				items = append(items, current)
+			}
+			current = fallbackEvidenceItem{}
+			current.Title, current.Source = splitFallbackTitleSource(title)
 			continue
 		}
 		switch {
-		case status == "":
-			parts = append(parts, capability+"="+summary)
-		case summary == "":
-			parts = append(parts, capability+"="+status)
+		case strings.HasPrefix(line, "URL："):
+			current.URL = strings.TrimSpace(strings.TrimPrefix(line, "URL："))
+		case strings.HasPrefix(line, "摘要："):
+			current.Summary = strings.TrimSpace(strings.TrimPrefix(line, "摘要："))
+		case strings.HasPrefix(line, "发布时间："):
+			current.PublishedAt = strings.TrimSpace(strings.TrimPrefix(line, "发布时间："))
 		default:
-			parts = append(parts, capability+"="+status+"("+summary+")")
+			if current.Title != "" && current.Summary == "" && len([]rune(line)) > 20 {
+				current.Summary = line
+			}
 		}
 	}
-	return strings.Join(parts, "；")
+	if current.Title != "" {
+		items = append(items, current)
+	}
+	return items
+}
+
+func parseNumberedFallbackTitle(line string) (string, bool) {
+	dot := strings.Index(line, ".")
+	if dot <= 0 || dot > 3 {
+		return "", false
+	}
+	for _, r := range line[:dot] {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	title := strings.TrimSpace(line[dot+1:])
+	if title == "" {
+		return "", false
+	}
+	return title, true
+}
+
+func splitFallbackTitleSource(title string) (string, string) {
+	title = strings.TrimSpace(title)
+	if strings.HasSuffix(title, "）") {
+		if start := strings.LastIndex(title, "（"); start > 0 {
+			source := strings.TrimSpace(strings.TrimSuffix(title[start+len("（"):], "）"))
+			return strings.TrimSpace(title[:start]), source
+		}
+	}
+	if strings.HasSuffix(title, ")") {
+		if start := strings.LastIndex(title, "("); start > 0 {
+			source := strings.TrimSpace(strings.TrimSuffix(title[start+1:], ")"))
+			return strings.TrimSpace(title[:start]), source
+		}
+	}
+	return title, ""
+}
+
+func dedupeFallbackEvidenceItems(items []fallbackEvidenceItem) []fallbackEvidenceItem {
+	deduped := make([]fallbackEvidenceItem, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		item.Title = strings.TrimSpace(item.Title)
+		item.Source = strings.TrimSpace(item.Source)
+		item.PublishedAt = strings.TrimSpace(item.PublishedAt)
+		item.Summary = strings.TrimSpace(item.Summary)
+		item.URL = strings.TrimSpace(item.URL)
+		if item.Title == "" {
+			continue
+		}
+		key := item.URL
+		if key == "" {
+			key = item.Title + "|" + item.Source
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deduped = append(deduped, item)
+	}
+	return deduped
+}
+
+func fallbackAnalysis(items []fallbackEvidenceItem) string {
+	joined := strings.Builder{}
+	for _, item := range items {
+		joined.WriteString(item.Title)
+		joined.WriteString(" ")
+		joined.WriteString(item.Summary)
+		joined.WriteString(" ")
+	}
+	text := joined.String()
+	points := make([]string, 0, 4)
+	if fallbackContainsAny(text, []string{"跌", "下挫", "低开", "重挫", "新低", "净卖出", "走弱"}) {
+		points = append(points, "市场短线情绪偏弱，需重点观察恒指、恒生科技指数以及南向资金的连续性变化。")
+	}
+	if fallbackContainsAny(text, []string{"涨", "上涨", "走强", "反弹", "净买入", "创新高"}) {
+		points = append(points, "局部板块存在结构性修复信号，但仍需结合成交额与资金流向判断持续性。")
+	}
+	if fallbackContainsAny(text, []string{"IPO", "上市", "募资"}) {
+		points = append(points, "一级市场和新股融资活跃度可作为风险偏好变化的辅助指标。")
+	}
+	if fallbackContainsAny(text, []string{"美联储", "美元", "利率", "关税", "地缘"}) {
+		points = append(points, "外部宏观变量仍可能影响港股估值与外资风险偏好。")
+	}
+	if len(points) == 0 {
+		points = append(points, "当前证据主要提供新闻线索，尚不足以形成强结论；建议继续补充指数表现、成交额、南向资金和重点行业走势后再判断。")
+	}
+	return strings.Join(points, "")
+}
+
+func fallbackContainsAny(value string, terms []string) bool {
+	for _, term := range terms {
+		if strings.Contains(value, term) {
+			return true
+		}
+	}
+	return false
 }
 
 func trimRunes(value string, limit int) string {

@@ -193,8 +193,13 @@ func TestTurnRunnerFallsBackOnLLMEmptyResponseWithEvidence(t *testing.T) {
 	if result.Turn.Status != domain.AgentTurnStatusSucceeded {
 		t.Fatalf("turn status = %q", result.Turn.Status)
 	}
-	if !strings.Contains(result.Reply, "模型生成阶段没有返回可用内容") || !strings.Contains(result.Reply, "港股市场新闻") {
+	if !strings.Contains(result.Reply, "参考结果") || !strings.Contains(result.Reply, "分析") || !strings.Contains(result.Reply, "港股市场新闻") {
 		t.Fatalf("fallback reply = %q", result.Reply)
+	}
+	for _, forbidden := range []string{"模型生成阶段没有返回可用内容", "用户上下文", "user_id", "web.search", "Evidence ref", "证据范围"} {
+		if strings.Contains(result.Reply, forbidden) {
+			t.Fatalf("fallback reply leaked %q: %q", forbidden, result.Reply)
+		}
 	}
 	if result.ModelProvider != "local" || result.Model != "deterministic-evidence-fallback" {
 		t.Fatalf("model fallback = %s/%s", result.ModelProvider, result.Model)

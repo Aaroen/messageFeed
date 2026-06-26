@@ -146,6 +146,23 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	}
 }
 
+func TestAgentWebSearchNormalizesQueryAndParsesRSSResults(t *testing.T) {
+	if got := normalizeWebSearchQuery("搜索最新港股消息并分析"); got != "港股" {
+		t.Fatalf("normalized query = %q, want 港股", got)
+	}
+	body := `<?xml version="1.0" encoding="UTF-8"?><rss><channel><item><title>港股风向标：恒指反弹受阻</title><link>https://example.com/hk-news</link><description><![CDATA[<p>恒指反弹受阻，科技股成交额放大。</p>]]></description><pubDate>Fri, 26 Jun 2026 12:00:00 GMT</pubDate><source>财联社</source></item></channel></rss>`
+	results := parseRSSSearchResults([]byte(body), 5)
+	if len(results) != 1 {
+		t.Fatalf("results = %#v", results)
+	}
+	if results[0].Title != "港股风向标：恒指反弹受阻" || results[0].Source != "财联社" || results[0].URL != "https://example.com/hk-news" {
+		t.Fatalf("result = %#v", results[0])
+	}
+	if !strings.Contains(results[0].Snippet, "恒指反弹受阻") {
+		t.Fatalf("snippet = %q", results[0].Snippet)
+	}
+}
+
 func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvidence(t *testing.T) {
 	now := time.Date(2026, 6, 26, 21, 15, 0, 0, time.UTC)
 	publishedAt := now.Add(-30 * time.Minute)
@@ -177,8 +194,15 @@ func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvi
 		}}),
 		WithAgentConversationWebFetcher(func(_ context.Context, rawURL string) ([]byte, string, int, string, error) {
 			webFetchCalls++
-			body := `<html><body><div class="result"><a class="result__a" href="https://example.com/hk-market">港股市场最新消息</a><a class="result__snippet">恒生指数与科技股走势受到资金流向影响。</a></div></body></html>`
-			return []byte(body), rawURL, 200, "text/html; charset=utf-8", nil
+			if strings.Contains(rawURL, "duckduckgo.com") {
+				body := `<html><body><div class="anomaly-modal">challenge</div></body></html>`
+				return []byte(body), rawURL, 202, "text/html; charset=utf-8", nil
+			}
+			if strings.Contains(rawURL, "news.google.com") {
+				body := `<?xml version="1.0" encoding="UTF-8"?><rss><channel><item><title>港股收盘：恒指下跌，科技股走弱</title><link>https://example.com/hk-market-close</link><description><![CDATA[恒生指数下跌，市场关注美元与资金流向。]]></description><pubDate>Fri, 26 Jun 2026 13:00:00 GMT</pubDate><source>财经新闻</source></item></channel></rss>`
+				return []byte(body), rawURL, 200, "application/rss+xml; charset=utf-8", nil
+			}
+			return nil, rawURL, 404, "text/plain", errors.New("unexpected test url")
 		}),
 		WithAgentConversationNow(func() time.Time { return now }),
 		WithAgentConversationInlineProcessing(true),
@@ -200,11 +224,16 @@ func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvi
 	if result.Turn.Status != domain.AgentTurnStatusSucceeded || result.Plan.Status != domain.AgentPlanStatusCompleted {
 		t.Fatalf("turn=%q plan=%q error=%q", result.Turn.Status, result.Plan.Status, result.Plan.ErrorMessage)
 	}
-	if !strings.Contains(result.Reply, "模型生成阶段没有返回可用内容") || !strings.Contains(result.Reply, "港股市场最新消息") {
+	if !strings.Contains(result.Reply, "参考结果") || !strings.Contains(result.Reply, "分析") || !strings.Contains(result.Reply, "港股收盘：恒指下跌") {
 		t.Fatalf("reply = %q", result.Reply)
 	}
-	if webFetchCalls != 1 {
-		t.Fatalf("web fetch calls = %d, want 1", webFetchCalls)
+	for _, forbidden := range []string{"模型生成阶段没有返回可用内容", "用户上下文", "web.search", "Evidence ref", "证据范围"} {
+		if strings.Contains(result.Reply, forbidden) {
+			t.Fatalf("reply leaked %q: %q", forbidden, result.Reply)
+		}
+	}
+	if webFetchCalls != 2 {
+		t.Fatalf("web fetch calls = %d, want 2", webFetchCalls)
 	}
 	if !containsAgentString(result.Plan.AllowedScopes, "web.search") {
 		t.Fatalf("allowed scopes = %#v", result.Plan.AllowedScopes)

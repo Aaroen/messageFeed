@@ -71,6 +71,18 @@ func (agentRunContextTraceModel) TableName() string { return "agent_run_context_
 func (agentObservationModel) TableName() string     { return "agent_observations" }
 func (agentArtifactModel) TableName() string        { return "agent_artifacts" }
 
+var agentRunUpdateColumns = []string{
+	"Status",
+	"TaskPacket",
+	"CapabilityScope",
+	"ContextBudget",
+	"ContextTraceRef",
+	"ResultRef",
+	"ErrorMessage",
+	"CompletedAt",
+	"UpdatedAt",
+}
+
 func (r *AgentRepository) CreateAgentRun(ctx context.Context, run domain.AgentRun) (domain.AgentRun, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_run.create", "insert", "agent_runs")
 	var opErr error
@@ -93,7 +105,7 @@ func (r *AgentRepository) UpdateAgentRun(ctx context.Context, run domain.AgentRu
 	result := r.db.WithContext(ctx).
 		Model(&agentRunModel{}).
 		Where("id = ?", run.ID).
-		Select("Status", "ContextTraceRef", "ResultRef", "ErrorMessage", "CompletedAt", "UpdatedAt").
+		Select(agentRunUpdateColumns).
 		Updates(&model)
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
