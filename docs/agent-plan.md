@@ -1702,4 +1702,4 @@ EvalCase
 
 上一活动文档 `docs/nowdoit/agent-workflow-governance-ops-handling-builder-modularization-plan.md` 已完成并归档到 `docs/nowdoit/archive/agent-workflow-governance-ops-handling-builder-modularization-plan-implemented-2026-06-26.md`。已新增独立 `internal/service/agent_workflow_ops_handling_builders.go`，迁出 43 个运维处置、审批执行、证据闭环、双端进度和真实交互相关纯 builder；剩余 SLA 摘要和任务报表 builder 已迁入 `agent_workflow_foundation_builders.go`。`agent_workflow_governance.go` 当前降至 739 行，已不再承接 `buildAgent*` 纯 builder。
 
-当前活动文档为 `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md`。已新增独立 `internal/service/agent_session_snapshot_recorders.go`，迁出基础治理和发布执行/日报闭环相关 20 个审计快照 recorder；`agent_session_service.go` 当前降至 5518 行。后续继续迁出剩余审计 recorder、进度构造和服务编排逻辑。
+当前活动文档为 `docs/nowdoit/agent-session-service-snapshot-recorder-modularization-plan.md`。已新增独立 `internal/service/agent_session_snapshot_recorders.go`，迁出基础治理和发布执行/日报闭环相关 20 个审计快照 recorder；`agent_session_service.go` 当前降至 5518 行。下一实施单元已写入活动文档，将继续迁出发布窗口与外部监控相关 10 个 recorder。
