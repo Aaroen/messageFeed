@@ -1,0 +1,511 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"messagefeed/internal/domain"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type agentFollowupIntent string
+
+const (
+	agentFollowupIntentNewTask           agentFollowupIntent = "new_task"
+	agentFollowupIntentStop              agentFollowupIntent = "stop"
+	agentFollowupIntentAppendConstraints agentFollowupIntent = "append_constraints"
+	agentFollowupIntentRetry             agentFollowupIntent = "retry"
+	agentFollowupIntentQuestion          agentFollowupIntent = "followup_question"
+	agentFollowupIntentDeriveTask        agentFollowupIntent = "derive_task"
+)
+
+// handleMultiTurnMessage 处理同一会话内的停止、补充、重试和结果追问。
+func (s *AgentConversationService) handleMultiTurnMessage(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	inbound domain.AgentInboundMessage,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+) (bool, ReceiveWeChatWorkAppMessageResult, error) {
+	message := strings.TrimSpace(input.TextContent)
+	if s == nil || s.repository == nil || message == "" {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	intent := classifyAgentFollowupIntent(message)
+	if intent == agentFollowupIntentNewTask || intent == agentFollowupIntentDeriveTask {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	plan, found, stale, err := s.selectMultiTurnPlan(ctx, account.UserID, session.ID, intent)
+	if err != nil {
+		return false, ReceiveWeChatWorkAppMessageResult{}, err
+	}
+	if !found {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	now := s.now().UTC()
+	if stale && intent == agentFollowupIntentQuestion {
+		plan.Metadata = updateResultReuseMetadata(plan, message, now, true)
+		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_result_stale", "stale", message)
+		reply := s.staleResultReply(updated)
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "followup_stale")
+		result.Plan = updated
+		return true, result, err
+	}
+	if stale {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	switch intent {
+	case agentFollowupIntentStop:
+		if !isActiveMultiTurnPlan(plan.Status) {
+			return false, ReceiveWeChatWorkAppMessageResult{}, nil
+		}
+		updated, err := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, now, "stopped by user")
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		updated.Metadata = updateMultiTurnMetadata(updated, intent, message, now)
+		updated, err = s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, updated.ID, updated.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_stopped", "stopped", message)
+		reply := fmt.Sprintf("已记录停止请求，计划 #%d 已标记为失败并停止继续编排。\n进度：%s", updated.ID, s.agentPlanURL(updated.ID))
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "stopped")
+		result.Plan = updated
+		return true, result, err
+	case agentFollowupIntentAppendConstraints:
+		if !isActiveMultiTurnPlan(plan.Status) {
+			return false, ReceiveWeChatWorkAppMessageResult{}, nil
+		}
+		plan.Metadata = updateMultiTurnMetadata(plan, intent, message, now)
+		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_input_appended", "succeeded", message)
+		reply := fmt.Sprintf("已将补充要求追加到计划 #%d。\n当前状态：%s\n进度：%s", updated.ID, string(updated.Status), s.agentPlanURL(updated.ID))
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "constraint_appended")
+		result.Plan = updated
+		return true, result, err
+	case agentFollowupIntentRetry:
+		if plan.Status != domain.AgentPlanStatusFailed {
+			if !isActiveMultiTurnPlan(plan.Status) {
+				return false, ReceiveWeChatWorkAppMessageResult{}, nil
+			}
+			s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_retry_requested", "skipped", message)
+			reply := fmt.Sprintf("计划 #%d 当前状态为 %s，尚不需要重试。\n进度：%s", plan.ID, string(plan.Status), s.agentPlanURL(plan.ID))
+			result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "retry_skipped")
+			result.Plan = plan
+			return true, result, err
+		}
+		plan.Metadata = updateMultiTurnMetadata(plan, intent, message, now)
+		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_retry_requested", "queued", message)
+		reply := fmt.Sprintf("已记录计划 #%d 的重试请求。可在 Web 进度页查看失败步骤并触发重试。\n进度：%s", updated.ID, s.agentPlanURL(updated.ID))
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "retry_requested")
+		result.Plan = updated
+		return true, result, err
+	case agentFollowupIntentQuestion:
+		plan.Metadata = updateResultReuseMetadata(plan, message, now, false)
+		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
+		if err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_result_reused", "succeeded", message)
+		reply := s.multiTurnFollowupReply(updated, message)
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "followup_reused")
+		result.Plan = updated
+		return true, result, err
+	default:
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+}
+
+func classifyAgentFollowupIntent(message string) agentFollowupIntent {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return agentFollowupIntentNewTask
+	}
+	if containsAny(normalized, []string{"停止", "取消", "终止", "不用了", "别做了", "先停", "暂停"}) {
+		return agentFollowupIntentStop
+	}
+	if isDerivedTaskMessage(normalized) {
+		return agentFollowupIntentDeriveTask
+	}
+	if containsAny(normalized, []string{"重试", "再试", "重新执行", "重新跑", "恢复执行"}) {
+		return agentFollowupIntentRetry
+	}
+	if containsAny(normalized, []string{"修改", "改成", "补充", "追加", "另外", "同时", "继续", "按刚才", "按上面", "约束", "范围", "只看", "只要", "不要"}) {
+		return agentFollowupIntentAppendConstraints
+	}
+	if containsAny(normalized, []string{"刚才", "上一个", "这个任务", "该任务", "结果", "进度", "完成了吗", "为什么", "依据", "证据", "展开", "详细"}) {
+		return agentFollowupIntentQuestion
+	}
+	return agentFollowupIntentNewTask
+}
+
+func isDerivedTaskMessage(message string) bool {
+	return containsAny(message, []string{"基于刚才", "基于上一个", "基于这个结果", "基于结果", "根据刚才", "根据上一个", "用刚才", "用上一个"}) &&
+		containsAny(message, []string{"创建", "生成", "分析", "汇总", "整理", "任务", "刷新", "重新"})
+}
+
+func (s *AgentConversationService) selectMultiTurnPlan(ctx context.Context, userID int64, sessionID int64, intent agentFollowupIntent) (domain.AgentPlan, bool, bool, error) {
+	plans, err := s.repository.ListAgentPlans(ctx, userID, sessionID, 0, 10)
+	if err != nil {
+		return domain.AgentPlan{}, false, false, err
+	}
+	now := s.now().UTC()
+	var completed domain.AgentPlan
+	completedStale := false
+	for _, plan := range plans {
+		stale := isStaleMultiTurnPlan(plan, now)
+		if isActiveMultiTurnPlan(plan.Status) {
+			return plan, true, stale, nil
+		}
+		if plan.Status == domain.AgentPlanStatusCompleted && completed.ID == 0 {
+			completed = plan
+			completedStale = stale
+		}
+	}
+	if intent == agentFollowupIntentQuestion && completed.ID > 0 {
+		return completed, true, completedStale, nil
+	}
+	return domain.AgentPlan{}, false, false, nil
+}
+
+func isActiveMultiTurnPlan(status domain.AgentPlanStatus) bool {
+	switch status {
+	case domain.AgentPlanStatusAwaitingApproval, domain.AgentPlanStatusApproved, domain.AgentPlanStatusExecuting, domain.AgentPlanStatusFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func isStaleMultiTurnPlan(plan domain.AgentPlan, now time.Time) bool {
+	if plan.Status == domain.AgentPlanStatusFailed {
+		reference := plan.UpdatedAt
+		if reference.IsZero() {
+			reference = plan.CreatedAt
+		}
+		if reference.IsZero() {
+			return false
+		}
+		return now.Sub(reference.UTC()) > 72*time.Hour
+	}
+	freshness := planResultFreshness(plan, now)
+	return freshness.Stale
+}
+
+func updateMultiTurnMetadata(plan domain.AgentPlan, intent agentFollowupIntent, message string, now time.Time) domain.AgentJSON {
+	metadata := cloneApprovalMetadata(plan.Metadata)
+	raw, _ := metadata["multi_turn"].(map[string]any)
+	if raw == nil {
+		if typed, ok := metadata["multi_turn"].(domain.AgentJSON); ok {
+			raw = map[string]any(typed)
+		}
+	}
+	multiTurn := make(map[string]any, len(raw)+6)
+	for key, value := range raw {
+		multiTurn[key] = value
+	}
+	if originalGoal, _ := multiTurn["original_goal"].(string); strings.TrimSpace(originalGoal) == "" {
+		multiTurn["original_goal"] = plan.Goal
+	}
+	multiTurn["latest_user_instruction"] = message
+	multiTurn["latest_intent"] = string(intent)
+	multiTurn["updated_at"] = now.UTC().Format(time.RFC3339)
+	switch intent {
+	case agentFollowupIntentAppendConstraints:
+		multiTurn["appended_inputs"] = appendMultiTurnEntry(multiTurn["appended_inputs"], message, now)
+	case agentFollowupIntentQuestion:
+		multiTurn["followup_questions"] = appendMultiTurnEntry(multiTurn["followup_questions"], message, now)
+	case agentFollowupIntentRetry:
+		multiTurn["retry_requests"] = appendMultiTurnEntry(multiTurn["retry_requests"], message, now)
+	case agentFollowupIntentStop:
+		multiTurn["stopped"] = true
+		multiTurn["stopped_reason"] = message
+		multiTurn["stopped_at"] = now.UTC().Format(time.RFC3339)
+	}
+	metadata["multi_turn"] = multiTurn
+	return metadata
+}
+
+type agentResultFreshness struct {
+	Status      string
+	Hint        string
+	ReferenceAt time.Time
+	StaleAfter  time.Duration
+	Stale       bool
+}
+
+func planResultFreshness(plan domain.AgentPlan, now time.Time) agentResultFreshness {
+	reference := plan.UpdatedAt
+	if plan.CompletedAt != nil && !plan.CompletedAt.IsZero() {
+		reference = *plan.CompletedAt
+	}
+	if reference.IsZero() {
+		reference = plan.CreatedAt
+	}
+	staleAfter := 24 * time.Hour
+	hint := "默认任务结果 24 小时内可直接复用。"
+	if planUsesCapability(plan, "web.") {
+		staleAfter = 6 * time.Hour
+		hint = "联网结果 6 小时后建议刷新。"
+	} else if planUsesCapability(plan, "feed.") || planUsesCapability(plan, "source.") {
+		staleAfter = 12 * time.Hour
+		hint = "订阅源结果 12 小时后建议刷新。"
+	} else if planUsesCapability(plan, "conversation.") {
+		staleAfter = 30 * 24 * time.Hour
+		hint = "历史对话结果属于同用户会话记忆，30 天内可作为上下文引用。"
+	}
+	stale := !reference.IsZero() && now.Sub(reference.UTC()) > staleAfter
+	status := "fresh"
+	if stale {
+		status = "stale"
+	}
+	return agentResultFreshness{Status: status, Hint: hint, ReferenceAt: reference.UTC(), StaleAfter: staleAfter, Stale: stale}
+}
+
+func planUsesCapability(plan domain.AgentPlan, prefix string) bool {
+	for _, scope := range plan.AllowedScopes {
+		if strings.HasPrefix(scope, prefix) {
+			return true
+		}
+	}
+	for _, step := range plan.Steps {
+		if strings.HasPrefix(step.CapabilityKey, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func updateResultReuseMetadata(plan domain.AgentPlan, question string, now time.Time, stale bool) domain.AgentJSON {
+	metadata := updateMultiTurnMetadata(plan, agentFollowupIntentQuestion, question, now)
+	raw, _ := metadata["multi_turn"].(map[string]any)
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	reuse := buildPlanResultReuseMetadata(plan, now)
+	if stale {
+		reuse["freshness_status"] = "stale"
+		reuse["reuse_allowed"] = false
+	}
+	reuse["question"] = question
+	reuse["reused_at"] = now.UTC().Format(time.RFC3339)
+	raw["result_reuse"] = reuse
+	raw["memory_scope"] = "task_result"
+	metadata["multi_turn"] = raw
+	metadata["memory_governance"] = domain.AgentJSON{
+		"short_term_context": "current_session",
+		"long_term_memory":   "agent_transcript_and_recall_events",
+		"task_result_memory": "agent_plan_steps_artifacts_and_observations",
+		"external_evidence":  "artifact_source_refs_and_capability_evidence_refs",
+		"redaction_policy":   "secret, token, webhook url and database dsn are excluded from reusable metadata",
+		"updated_at":         now.UTC().Format(time.RFC3339),
+	}
+	return metadata
+}
+
+func buildPlanResultReuseMetadata(plan domain.AgentPlan, now time.Time) map[string]any {
+	freshness := planResultFreshness(plan, now)
+	refs := planEvidenceRefs(plan)
+	reuseAllowed := freshness.Status == "fresh"
+	output := map[string]any{
+		"source_plan_id":    plan.ID,
+		"source_session_id": plan.SessionID,
+		"source_turn_id":    plan.TurnID,
+		"source_goal":       plan.Goal,
+		"source_status":     string(plan.Status),
+		"freshness_status":  freshness.Status,
+		"freshness_hint":    freshness.Hint,
+		"reuse_allowed":     reuseAllowed,
+		"evidence_refs":     refs,
+		"memory_type":       "task_result",
+	}
+	if !freshness.ReferenceAt.IsZero() {
+		output["result_updated_at"] = freshness.ReferenceAt.Format(time.RFC3339)
+		output["stale_after"] = freshness.ReferenceAt.Add(freshness.StaleAfter).Format(time.RFC3339)
+	}
+	return output
+}
+
+func planEvidenceRefs(plan domain.AgentPlan) []string {
+	refs := []string{"agent_plan:" + strconv.FormatInt(plan.ID, 10)}
+	if plan.TurnID > 0 {
+		refs = append(refs, "agent_turn:"+strconv.FormatInt(plan.TurnID, 10))
+	}
+	for _, step := range plan.Steps {
+		if step.ID > 0 {
+			refs = append(refs, "agent_plan_step:"+strconv.FormatInt(step.ID, 10))
+		}
+		if strings.TrimSpace(step.ObservationRef) != "" {
+			refs = append(refs, step.ObservationRef)
+		}
+		refs = append(refs, compactNonEmptyStrings(step.ArtifactRefs)...)
+	}
+	return compactNonEmptyStrings(refs)
+}
+
+func (s *AgentConversationService) selectDerivedParentPlan(ctx context.Context, userID int64, sessionID int64, message string) (domain.AgentPlan, bool, bool, error) {
+	if !isDerivedTaskMessage(strings.ToLower(strings.TrimSpace(message))) {
+		return domain.AgentPlan{}, false, false, nil
+	}
+	plans, err := s.repository.ListAgentPlans(ctx, userID, sessionID, 0, 10)
+	if err != nil {
+		return domain.AgentPlan{}, false, false, err
+	}
+	now := s.now().UTC()
+	for _, plan := range plans {
+		if plan.Status == domain.AgentPlanStatusCompleted {
+			return plan, true, isStaleMultiTurnPlan(plan, now), nil
+		}
+	}
+	return domain.AgentPlan{}, false, false, nil
+}
+
+func updateDerivedPlanMetadata(plan domain.AgentPlan, parent domain.AgentPlan, message string, now time.Time, parentStale bool) domain.AgentJSON {
+	metadata := cloneApprovalMetadata(plan.Metadata)
+	reuse := buildPlanResultReuseMetadata(parent, now)
+	if parentStale {
+		reuse["freshness_status"] = "stale"
+		reuse["reuse_allowed"] = false
+	}
+	metadata["parent_plan"] = domain.AgentJSON{
+		"id":               parent.ID,
+		"session_id":       parent.SessionID,
+		"turn_id":          parent.TurnID,
+		"goal":             parent.Goal,
+		"status":           string(parent.Status),
+		"derive_reason":    message,
+		"derived_at":       now.UTC().Format(time.RFC3339),
+		"freshness_status": reuse["freshness_status"],
+		"freshness_hint":   reuse["freshness_hint"],
+		"evidence_refs":    reuse["evidence_refs"],
+	}
+	metadata["result_reuse"] = reuse
+	metadata["memory_governance"] = domain.AgentJSON{
+		"short_term_context": "current_session",
+		"long_term_memory":   "agent_transcript_and_recall_events",
+		"task_result_memory": "parent_agent_plan",
+		"external_evidence":  "parent_plan_artifact_refs",
+		"redaction_policy":   "secret, token, webhook url and database dsn are excluded from reusable metadata",
+		"updated_at":         now.UTC().Format(time.RFC3339),
+	}
+	return metadata
+}
+
+func appendMultiTurnEntry(raw any, message string, now time.Time) []any {
+	entries, _ := raw.([]any)
+	copied := append([]any(nil), entries...)
+	copied = append(copied, map[string]any{
+		"message":    message,
+		"created_at": now.UTC().Format(time.RFC3339),
+	})
+	if len(copied) > 20 {
+		copied = copied[len(copied)-20:]
+	}
+	return copied
+}
+
+func (s *AgentConversationService) recordMultiTurnAudit(ctx context.Context, userID int64, sessionID int64, turnID int64, plan domain.AgentPlan, input ReceiveWeChatWorkAppMessageInput, eventType string, status string, message string) {
+	if s == nil || s.repository == nil {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: sessionID,
+		TurnID:    turnID,
+		UserID:    userID,
+		EventType: eventType,
+		Status:    status,
+		Message:   message,
+		Metadata: domain.AgentJSON{
+			"plan_id":      plan.ID,
+			"plan_status":  string(plan.Status),
+			"progress_url": s.agentPlanURL(plan.ID),
+			"metadata":     cloneApprovalMetadata(plan.Metadata),
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: s.now().UTC(),
+	})
+}
+
+func (s *AgentConversationService) multiTurnFollowupReply(plan domain.AgentPlan, question string) string {
+	freshness := planResultFreshness(plan, s.now().UTC())
+	refs := planEvidenceRefs(plan)
+	var builder strings.Builder
+	builder.WriteString("已关联到计划 #")
+	builder.WriteString(strconv.FormatInt(plan.ID, 10))
+	builder.WriteString("。\n状态：")
+	builder.WriteString(string(plan.Status))
+	builder.WriteString("\n结果新鲜度：")
+	builder.WriteString(freshness.Status)
+	builder.WriteString("，")
+	builder.WriteString(freshness.Hint)
+	if plan.Summary != "" {
+		builder.WriteString("\n计划摘要：")
+		builder.WriteString(plan.Summary)
+	}
+	if plan.ImpactSummary != "" {
+		builder.WriteString("\n影响摘要：")
+		builder.WriteString(plan.ImpactSummary)
+	}
+	if plan.ErrorMessage != "" {
+		builder.WriteString("\n错误信息：")
+		builder.WriteString(plan.ErrorMessage)
+	}
+	if len(refs) > 0 {
+		builder.WriteString("\n证据引用：")
+		builder.WriteString(strings.Join(refs, ", "))
+	}
+	builder.WriteString("\n最近问题：")
+	builder.WriteString(question)
+	builder.WriteString("\n进度：")
+	builder.WriteString(s.agentPlanURL(plan.ID))
+	return builder.String()
+}
+
+func (s *AgentConversationService) staleResultReply(plan domain.AgentPlan) string {
+	freshness := planResultFreshness(plan, s.now().UTC())
+	var builder strings.Builder
+	builder.WriteString("已找到历史计划 #")
+	builder.WriteString(strconv.FormatInt(plan.ID, 10))
+	builder.WriteString("，但该结果已过期，不能作为当前事实直接复用。")
+	if !freshness.ReferenceAt.IsZero() {
+		builder.WriteString("\n结果时间：")
+		builder.WriteString(freshness.ReferenceAt.Format(time.RFC3339))
+	}
+	builder.WriteString("\n新鲜度：")
+	builder.WriteString(freshness.Status)
+	builder.WriteString("，")
+	builder.WriteString(freshness.Hint)
+	builder.WriteString("\n建议发送“基于刚才结果刷新任务”或重新描述目标，以创建新的执行计划。")
+	builder.WriteString("\n历史进度：")
+	builder.WriteString(s.agentPlanURL(plan.ID))
+	return builder.String()
+}
+
+func planStoppedByUser(plan domain.AgentPlan) bool {
+	if strings.Contains(strings.ToLower(plan.ErrorMessage), "stopped by user") {
+		return true
+	}
+	raw, _ := plan.Metadata["multi_turn"].(map[string]any)
+	if raw == nil {
+		if typed, ok := plan.Metadata["multi_turn"].(domain.AgentJSON); ok {
+			raw = map[string]any(typed)
+		}
+	}
+	stopped, _ := raw["stopped"].(bool)
+	return stopped
+}
