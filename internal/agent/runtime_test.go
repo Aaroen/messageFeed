@@ -49,7 +49,7 @@ func TestP0CapabilityRegistryContainsScheduleTask(t *testing.T) {
 	}
 }
 
-func TestPlannerBuildFromSpecPromptsScheduleTask(t *testing.T) {
+func TestPlannerBuildFromSpecAllowsScheduleTaskToToolConfirmation(t *testing.T) {
 	planner := NewPlanner(PlannerOptions{})
 	output := planner.BuildFromSpec(context.Background(), PlanInput{
 		UserID: 1,
@@ -60,8 +60,8 @@ func TestPlannerBuildFromSpecPromptsScheduleTask(t *testing.T) {
 		RequiredCapabilities: []string{"agent.schedule_task"},
 		RequiresSubAgent:     true,
 	})
-	if output.Plan.Status != "awaiting_approval" {
-		t.Fatalf("plan status = %q, want awaiting_approval", output.Plan.Status)
+	if output.Plan.Status != "approved" {
+		t.Fatalf("plan status = %q, want approved", output.Plan.Status)
 	}
 	found := false
 	for _, step := range output.Steps {
@@ -84,6 +84,30 @@ func TestPolicyEngineAllowsReadOnlyAndPromptsMutatingCapability(t *testing.T) {
 	mutating := Capability{Key: "source.subscribe", Risk: CapabilityRiskMedium, Mutates: true}
 	if decision := engine.Decide(context.Background(), PolicyInput{Capability: mutating, UserID: 1}); decision.Decision != PolicyDecisionPrompt {
 		t.Fatalf("mutating decision = %q, want prompt", decision.Decision)
+	}
+
+	toolConfirmed := Capability{
+		Key:     "agent.schedule_task",
+		Risk:    CapabilityRiskMedium,
+		Mutates: true,
+		Parameters: map[string]any{"properties": map[string]any{
+			"confirmed": map[string]any{"type": "boolean"},
+		}},
+	}
+	if decision := engine.Decide(context.Background(), PolicyInput{Capability: toolConfirmed, UserID: 1}); decision.Decision != PolicyDecisionAllow {
+		t.Fatalf("tool confirmed decision = %q, want allow", decision.Decision)
+	}
+
+	highRiskConfirmed := Capability{
+		Key:     "source.edit",
+		Risk:    CapabilityRiskHigh,
+		Mutates: true,
+		Parameters: map[string]any{"properties": map[string]any{
+			"confirmed": map[string]any{"type": "boolean"},
+		}},
+	}
+	if decision := engine.Decide(context.Background(), PolicyInput{Capability: highRiskConfirmed, UserID: 1}); decision.Decision != PolicyDecisionPrompt {
+		t.Fatalf("high risk confirmed decision = %q, want prompt", decision.Decision)
 	}
 }
 

@@ -325,7 +325,7 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 
 func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, error) {
 	tools := r.buildToolDefinitions(input.AllowedToolKeys)
-	const maxToolRounds = 2
+	const maxToolRounds = 50
 	for round := 0; round <= maxToolRounds; round++ {
 		response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
 			Messages:    messages,
@@ -378,6 +378,24 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 				Name:       call.Name,
 				Content:    content,
 			})
+		}
+	}
+	if len(snapshot.Observations) > 0 {
+		// 工具预算耗尽后进入收敛阶段：不再提供工具，只允许模型基于已有观察生成最终回答。
+		messages = append(messages, llm.ChatMessage{
+			Role:    "user",
+			Content: "工具调用轮次已经达到上限。请只基于以上工具结果生成最终回答，不要再请求工具；如果证据不足，请直接说明证据不足。",
+		})
+		response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
+			Messages:    messages,
+			Temperature: r.temperature,
+			MaxTokens:   r.maxTokens,
+		})
+		if err != nil {
+			return llm.ChatResponse{}, snapshot, err
+		}
+		if strings.TrimSpace(response.Content) != "" {
+			return response, snapshot, nil
 		}
 	}
 	return llm.ChatResponse{}, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_round_limit", "agent tool call round limit exceeded", "agent.turn_runner.tools", true, nil)

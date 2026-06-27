@@ -147,3 +147,55 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 		t.Fatalf("tool call = %#v", response.ToolCalls[0])
 	}
 }
+
+func TestOpenAICompatibleClientFallsBackToResponsesAndRemembersRoute(t *testing.T) {
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/chat/completions":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"message":"not found"}}`))
+		case "/responses":
+			var request responsesRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode responses request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"responses ok"}]}]}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "custom-model",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		response, err := client.Chat(context.Background(), ChatRequest{
+			Messages: []ChatMessage{{Role: "user", Content: "hello"}},
+		})
+		if err != nil {
+			t.Fatalf("Chat() attempt %d error = %v", i+1, err)
+		}
+		if response.Content != "responses ok" {
+			t.Fatalf("response = %#v", response)
+		}
+	}
+	want := []string{"/chat/completions", "/responses", "/responses"}
+	if len(paths) != len(want) {
+		t.Fatalf("paths = %#v, want %#v", paths, want)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Fatalf("paths = %#v, want %#v", paths, want)
+		}
+	}
+}

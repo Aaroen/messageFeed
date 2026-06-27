@@ -30,7 +30,7 @@ func TestPlannerBuildFromSpecBuildsPermissionBudgetAndQualityMetadata(t *testing
 		t.Fatalf("unexpected persisted plan id = %d", output.Plan.ID)
 	}
 	permission := testAgentJSONMap(output.Plan.Metadata["permission_governance"])
-	if permission == nil || permission["has_external_access"] != true || permission["requires_confirmation"] != true {
+	if permission == nil || permission["has_external_access"] != true || permission["requires_confirmation"] != false {
 		t.Fatalf("permission governance = %#v", output.Plan.Metadata["permission_governance"])
 	}
 	budget := testAgentJSONMap(output.Plan.Metadata["budget_governance"])

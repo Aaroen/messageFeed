@@ -409,6 +409,13 @@ func (e *PolicyEngine) Decide(_ context.Context, input PolicyInput) PolicyResult
 	if strings.TrimSpace(input.Capability.Key) == "" {
 		return PolicyResult{Decision: PolicyDecisionForbidden, Reason: "capability is not registered"}
 	}
+	// 非高风险且带 confirmed 参数的变更能力由工具自身执行二次确认校验；计划层允许先运行到确认检查点。
+	// 高风险能力始终保留计划/对话框复核确认，避免后续订阅编辑等敏感操作绕过人工确认。
+	if input.Capability.Risk != CapabilityRiskHigh &&
+		(input.Capability.Mutates || input.Capability.Schedulable) &&
+		capabilityUsesToolConfirmation(input.Capability) {
+		return PolicyResult{Decision: PolicyDecisionAllow, Reason: "tool-level confirmation enforced"}
+	}
 	if input.Capability.Mutates {
 		return PolicyResult{Decision: PolicyDecisionPrompt, Reason: "state-changing capability requires approval"}
 	}
@@ -422,4 +429,15 @@ func (e *PolicyEngine) Decide(_ context.Context, input PolicyInput) PolicyResult
 		return PolicyResult{Decision: PolicyDecisionAllow, Reason: "external read-only capability with bounded fetch policy"}
 	}
 	return PolicyResult{Decision: PolicyDecisionAllow, Reason: "read-only capability"}
+}
+
+// capabilityUsesToolConfirmation 根据 capability schema 判断工具是否自带 confirmed 确认参数。
+// 该判断属于能力安全契约校验，不依据用户文本推断是否已经确认。
+func capabilityUsesToolConfirmation(capability Capability) bool {
+	properties, ok := capability.Parameters["properties"].(map[string]any)
+	if !ok {
+		return false
+	}
+	_, ok = properties["confirmed"]
+	return ok
 }

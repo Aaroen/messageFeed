@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
@@ -21,6 +22,7 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
 	userContext := &fakeAgentUserContextProvider{}
 	llmClient := &fakeAgentConversationLLM{
+		planKeys: []string{"feed.query_recent_items"},
 		response: llm.ChatResponse{
 			Provider: "openai_compatible",
 			Model:    "custom-model",
@@ -193,7 +195,8 @@ func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvi
 	repository := newFakeAgentConversationRepository()
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
 	llmClient := &fakeAgentConversationLLM{
-		err: domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "test", true, nil),
+		planKeys: []string{"feed.query_recent_items", "web.search"},
+		err:      domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "test", true, nil),
 	}
 	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-msg-search"}}
 	webFetchCalls := 0
@@ -932,7 +935,7 @@ func TestAgentConversationServiceDoesNotSendDuplicateInboundMessage(t *testing.T
 	}
 }
 
-func TestAgentConversationServiceUsesFallbackReplyWithoutLLM(t *testing.T) {
+func TestAgentConversationServiceFailsWithoutPlanningLLM(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(time.Now().UTC())}
 	sender := &fakeAgentConversationSender{}
@@ -954,11 +957,14 @@ func TestAgentConversationServiceUsesFallbackReplyWithoutLLM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if result.Reply != "已收到：你好" {
+	if !strings.Contains(result.Reply, "这次处理没有成功") {
 		t.Fatalf("Reply = %q", result.Reply)
 	}
-	if sender.sent.Content != "已收到：你好" {
+	if !strings.Contains(sender.sent.Content, "这次处理没有成功") {
 		t.Fatalf("sent Content = %q", sender.sent.Content)
+	}
+	if result.Turn.Status != domain.AgentTurnStatusFailed {
+		t.Fatalf("turn status = %q, want failed", result.Turn.Status)
 	}
 }
 
@@ -1585,8 +1591,8 @@ func TestAgentConversationServiceExecutesConversationHistoryToolCall(t *testing.
 	if result.Reply != "你之前说过偏好关注 Go 和 AI 基础设施。" {
 		t.Fatalf("Reply = %q", result.Reply)
 	}
-	if llmClient.calls != 2 {
-		t.Fatalf("llm calls = %d, want 2", llmClient.calls)
+	if llmClient.calls != 3 {
+		t.Fatalf("llm calls = %d, want 3", llmClient.calls)
 	}
 	if len(llmClient.lastRequest.Messages) < 3 {
 		t.Fatalf("final llm messages = %#v", llmClient.lastRequest.Messages)
@@ -2487,11 +2493,18 @@ type fakeAgentConversationLLM struct {
 	started     chan struct{}
 	release     chan struct{}
 	startOnce   sync.Once
+	responseIdx int
+	planKeys    []string
 }
 
+// Chat 同时模拟主 Agent 规划调用和执行 Agent 调用。
+// 规划调用返回结构化 PlanSpec，执行调用仍沿用各测试显式声明的 response。
 func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	f.calls++
 	f.lastRequest = request
+	if fakeIsMainAgentPlanSpecRequest(request) {
+		return fakeMainAgentPlanSpecResponse(request, f.fakePlanCapabilityKeys()), nil
+	}
 	if f.started != nil {
 		f.startOnce.Do(func() { close(f.started) })
 	}
@@ -2502,13 +2515,117 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 		return llm.ChatResponse{}, f.err
 	}
 	if len(f.responses) > 0 {
-		index := f.calls - 1
+		index := f.responseIdx
 		if index >= len(f.responses) {
 			index = len(f.responses) - 1
 		}
+		f.responseIdx++
 		return f.responses[index], nil
 	}
 	return f.response, nil
+}
+
+// fakePlanCapabilityKeys 为测试规划阶段准备 capability scope。
+// 优先使用测试显式指定的 planKeys；未指定时从下一次执行工具调用机械推导。
+func (f *fakeAgentConversationLLM) fakePlanCapabilityKeys() []string {
+	if len(f.planKeys) > 0 {
+		return append([]string(nil), f.planKeys...)
+	}
+	response := f.response
+	if len(f.responses) > 0 {
+		index := f.responseIdx
+		if index >= len(f.responses) {
+			index = len(f.responses) - 1
+		}
+		response = f.responses[index]
+	}
+	return fakeCapabilityKeysFromToolCalls(response.ToolCalls)
+}
+
+// fakeIsMainAgentPlanSpecRequest 判断当前请求是否为新增的主 Agent 规划阶段。
+// 该判断只服务单元测试桩，不进入生产路径。
+func fakeIsMainAgentPlanSpecRequest(request llm.ChatRequest) bool {
+	if len(request.Messages) == 0 {
+		return false
+	}
+	return strings.Contains(request.Messages[0].Content, "主 Agent 规划器")
+}
+
+// fakeMainAgentPlanSpecResponse 构造符合生产 JSON 契约的测试计划。
+// 该函数不根据用户文本做关键词分类，只根据测试预设的 capability 生成可执行计划。
+func fakeMainAgentPlanSpecResponse(request llm.ChatRequest, capabilityKeys []string) llm.ChatResponse {
+	goal := "测试任务"
+	if len(request.Messages) > 1 {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(request.Messages[1].Content), &payload); err == nil {
+			if value, ok := payload["user_message"].(string); ok && strings.TrimSpace(value) != "" {
+				goal = strings.TrimSpace(value)
+			}
+		}
+	}
+	capabilityKeys = compactTestStrings(capabilityKeys)
+	directAnswer := len(capabilityKeys) == 0
+	subtasks := make([]domain.AgentJSON, 0, len(capabilityKeys))
+	if len(capabilityKeys) > 0 {
+		subtasks = append(subtasks, domain.AgentJSON{
+			"title":            "执行模型规划的子任务",
+			"prompt":           "根据用户目标和运行上下文执行所需工具，并返回可验证观察。",
+			"context_summary":  "单元测试中的主 Agent 已完成结构化规划。",
+			"capability_keys":  capabilityKeys,
+			"expected_output":  "工具观察、事实依据或错误信息。",
+			"failure_strategy": "工具失败时返回失败观察并交由主 Agent 汇总。",
+			"max_retries":      1,
+		})
+	}
+	payload := domain.AgentJSON{
+		"goal":                     goal,
+		"intent":                   "理解用户目标并生成可执行计划。",
+		"task_type":                "test_planned_task",
+		"complexity":               "standard",
+		"requires_sub_agent":       len(capabilityKeys) > 0,
+		"direct_answer_allowed":    directAnswer,
+		"required_capabilities":    capabilityKeys,
+		"subtasks":                 subtasks,
+		"evidence_requirements":    []domain.AgentJSON{},
+		"max_iterations":           1,
+		"final_answer_constraints": []string{"只输出用户可读结果。"},
+		"metadata":                 domain.AgentJSON{"source": "unit_test_fake_planner"},
+	}
+	content, _ := json.Marshal(payload)
+	return llm.ChatResponse{Provider: "openai_compatible", Model: "planner-model", Content: string(content)}
+}
+
+// fakeCapabilityKeysFromToolCalls 把测试工具调用名转换为 capability key。
+// 转换规则与运行时工具名编码保持一致，例如 conversation__query_history -> conversation.query_history。
+func fakeCapabilityKeysFromToolCalls(calls []llm.ToolCall) []string {
+	keys := make([]string, 0, len(calls))
+	for _, call := range calls {
+		name := strings.TrimSpace(call.Name)
+		if name == "" {
+			continue
+		}
+		keys = append(keys, strings.ReplaceAll(name, "__", "."))
+	}
+	return compactTestStrings(keys)
+}
+
+// compactTestStrings 去除测试数组中的空值和重复值。
+// 该函数只用于稳定测试数据，不参与生产规划。
+func compactTestStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 type fakeAgentConversationSender struct {

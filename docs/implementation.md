@@ -20,9 +20,9 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | Agent 主闭环服务已完成结构拆分；提交推送后以 `git status -sb` 为准 |
+| 工作区 | Agent 主闭环服务已完成结构拆分，主 Agent 模型 PlanSpec 已接入 service 主路径；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-web-assistant-entry-plan.md` |
-| 最近本轮验证 | 本轮结构拆分已通过 `go test ./internal/service -run TestAgentConversationServiceUsesFallbackReplyWithoutLLM`；`go test ./internal/service` 仍因主 Agent 模型规划尚未接入 scope 导致搜索、历史和定时相关旧用例失败 |
+| 最近本轮验证 | 已通过 `go test ./internal/llm ./internal/agent ./internal/service -count=1`；使用 `.env` 真实 LLM 配置通过 `RUN_REAL_LLM_TESTS=1 go test ./internal/service -run TestAgentConversationServiceRealLLMFullFlowContracts -count=1 -timeout=8m -v` |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
 
 ## 3. 已完成能力
@@ -49,6 +49,9 @@
 - 已修复企微任务 `搜索最新港股消息并分析` 的空响应根因：计划 scope、controller run scope、上下文预取 scope 已对齐；`web.search` 可作为计划步骤预取并记录 observation；模型返回 `llm_empty_response` 时，如已有 feed/web 证据，会生成有证据约束的本地降级结果，避免整轮失败。
 - 已强化搜索浏览闭环：`web.search` 会清洗“搜索最新港股消息并分析”等任务型表达，优先尝试 DuckDuckGo HTML，遇到 202 challenge、空解析或拦截页时自动降级到 Bing 普通网页搜索、Google News RSS 与 Bing News RSS；RSS 解析使用 XML 结构化解析和 HTML 文本清洗；本地降级回复只展示结论、依据和分析过程，不再向用户暴露 capability、observation、Evidence ref、user_id、长 URL 或执行治理内容；真实 repository 更新 `agent_runs` 时已持久化 task packet、capability scope 和 context budget。
 - 已修正企业微信最终回复形态：最终文本以用户问题的结论、事实依据和分析过程为主体，不再拼接状态锚点、预算、质量、成本、运行观测、证据引用和企微动作组件；这些执行层面数据保留在 Web 进度页、审计和任务详情中。Web 发起任务投递到企业微信时仍保留简短详情链接，便于跳转查看完整执行记录。
+- 主 Agent 模型规划已接入 `AgentConversationService` 主路径：接收用户消息后先由主 Agent 生成结构化 `PlanSpec`，后端只做 JSON 结构、capability 注册、权限、预算和风险确认校验，再将授权范围下发给子 Agent 执行。规划阶段本身不占用工具 capability，提示词、schema 和回复约束已集中到 `internal/service/agent_main_prompts.go`，便于后续统一调整。
+- LLM 客户端已支持 OpenAI-compatible 双协议智能路由：默认优先 `/chat/completions`，遇到协议不兼容时自动尝试 `/responses`，成功后在客户端实例内记忆可用协议；HTTP 429/5xx 和瞬时网络错误具备有限重试。当前 `.env` 真实模型验证使用 `/v1/chat/completions` 完成。
+- 子 Agent 工具循环上限已提高到 50 次；达到上限时不再无限调用工具，而是进入强制收敛阶段，要求模型基于已有 observation 输出最终回答或明确说明证据不足。
 - 已实现通用任务规格、证据评分和质量门禁：用户问题先归一为 `TaskSpec`，识别任务类型、领域、时效、证据类型和低质量内容；`web.search` 与本地 fallback 共用评分器过滤无关证据，例如开户教程、课程和交易流程页不会进入港股新闻分析；最终回答前检查证据数量和结论方向，证据不足或结论不被证据支持时降级为明确的“证据不足”回复，避免强行生成不匹配分析。
 
 ### 3.3 Web 进度与治理展示
@@ -69,6 +72,7 @@
 - 已补充本轮闭环回归测试：覆盖计划 scope 下发到上下文构建、`web.search` 计划预取、模型空响应降级、来源名称计划识别、controller scope 对齐、企微入站到计划完成的完整路径。
 - 已补充搜索浏览强化回归测试：覆盖查询归一化、Bing 普通网页解析、RSS 新闻解析、DuckDuckGo challenge 后外部搜索 fallback、搜索任务优先使用相关 web 证据、用户可见降级回复不泄露内部字段，以及真实 repository 运行记录更新字段。
 - 已补充任务规格、证据评分和质量门禁回归测试：覆盖财经新闻分析识别、内部对话历史查询不误触发外部检索、低质量财经教程页过滤、相关财经新闻保留、证据不足降级、结论方向与证据不一致时降级，以及权限拒绝类回答不被质量门禁覆盖。
+- 已补充真实 LLM 主闭环契约测试：`TestAgentConversationServiceRealLLMFullFlowContracts` 使用 `.env` 的 `LLM_*` 配置，覆盖历史聊天检索、真实外部 `web.search`、定时任务确认三个闭环；默认跳过，仅在 `RUN_REAL_LLM_TESTS=1` 时访问外部模型。
 - 当前新增治理文件将部分逻辑从大文件中抽离，包括：
   - `internal/service/agent_conversation_entry.go`
   - `internal/service/agent_conversation_session.go`
@@ -97,8 +101,8 @@
 | 优先级 | 缺口 | 当前判断 |
 | --- | --- | --- |
 | P1 | Web 浏览器进度地址权限校验与企业微信身份绑定仍需继续强化 | 进度与计划接口用户归属校验已有测试；OAuth / external account 绑定链路已有服务测试；当前轮处理助理顶部入口、三页滑动和 Agent 工作台用户化整理 |
-| P1 | Agent 能力注册、上下文记忆、计划执行和评测体系仍需按设计持续补齐 | 已有较多基础对象，但未能证明全部设计均已完整实现 |
-| P1 | 主 Agent 模型规划尚未完全接入 service 主路径 | planner 已支持结构化 `PlanSpec`，但 `agent_main` 当前仍走旧 fallback `Build()`，导致搜索、历史和定时相关 service 旧用例在全量测试中失败；下一步应接入主 Agent 模型生成 `PlanSpec` 后调用 `BuildFromSpec()` |
+| P1 | Agent 能力注册、上下文记忆、计划执行和评测体系仍需按设计持续补齐 | 主 Agent 模型 PlanSpec、子 Agent 工具执行和真实 LLM 三类闭环已跑通；更完整的长期记忆、评测基线和恢复策略仍需继续补齐 |
+| P1 | 旧硬编码意图与领域规则仍需继续收敛 | 主路径计划已改为模型生成 `PlanSpec`；`internal/agent/task_spec.go`、`answer_quality.go`、`evidence_score.go`、`internal/service/agent_runtime_adapters.go`、`internal/agent/runner.go` 中仍有旧词表、搜索清洗和 fallback 规则，后续应按用户要求继续删除或降级为非主路径安全校验 |
 | P1 | 大文件职责边界仍不理想 | `agent_main.go` 已由约 3035 行降至 205 行；仍需要继续拆分 `agent_session_service.go`、`agent_workflow_governance.go`、`AgentPlanView.vue` |
 
 ## 5. 架构质量核对
@@ -465,6 +469,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 19. 当前补充修复：流水线详情页补齐主 Agent 节点的可展开明细，修正“生成提示词并合成子 Agent 上下文”显示实时连接“已关闭”导致信息不足的问题。该节点现在显示 controller run 合成状态，展开后展示任务包、上下文预算、上下文快照、controller observation 和 artifact；接收、理解、复杂度、结果汇总、质量门禁和交付节点也提供默认收起的详情。验证命令：`npm --prefix web run type-check`、`npm --prefix web run test`、`npm --prefix web run build`。
 20. 当前补充修复：企业微信异步任务在入站消息、会话和 turn 创建成功后立即发送接收确认：“已收到任务，后台正在处理，请稍等。完成后会在这里返回结果。”后台随后继续执行既有计划生成、子 Agent 执行、质量门禁和最终回复流程；接收确认写入 `wechat_work.task_accepted_feedback` 审计，且不包含计划 ID、预算、质量评分、权限、动作组件等内部执行信息。验证命令：`go test ./internal/service -run 'TestAgentConversationServiceQueuesTurnAndProcessesAsync|TestAgentConversationServiceSendsWeChatProgressNotificationWithAudit'`、`go test ./internal/service`。
 21. 当前补充修复：Agent 主闭环服务完成结构拆分。`agent_main.go` 从约 3035 行降至 205 行，仅保留服务装配、构造、runner 初始化和 capability executor 组装；新增或承接文件包括 `agent_conversation_entry.go`、`agent_conversation_session.go`、`agent_button_control.go`、`agent_multiturn_flow.go`、`agent_turn_pipeline.go`、`agent_plan_feedback.go`、`agent_turn_result.go`、`agent_controller_run.go`、`agent_conversation_utils.go`、`agent_conversation_contracts.go`。验证命令：`go test ./internal/service -run TestAgentConversationServiceUsesFallbackReplyWithoutLLM`；`go test ./internal/service` 仍受主 Agent 模型规划未接入影响失败，失败集中在搜索、历史和定时 scope 相关旧用例。
+22. 当前补充修复：主 Agent 模型规划正式接入 service 主路径。`createPlanForTurn` 由旧 fallback `Build()` 改为主 Agent 模型生成 `PlanSpec` 后调用 `BuildFromSpec()`；提示词集中在 `agent_main_prompts.go`；规划结果、原始响应摘要和校验结果写入 controller trace 与 plan metadata。非高风险且工具 schema 带 `confirmed` 参数的变更能力允许进入工具级确认检查点，高风险能力仍保留计划/对话框复核确认。LLM 客户端支持 `/chat/completions` 与 `/responses` 双协议智能路由，默认优先 chat completions，并对 429/5xx 做有限重试。子 Agent 工具循环上限调整为 50，耗尽后基于已有 observation 强制收敛回答。验证命令：`go test ./internal/llm ./internal/agent ./internal/service -count=1`、`RUN_REAL_LLM_TESTS=1 go test ./internal/service -run TestAgentConversationServiceRealLLMFullFlowContracts -count=1 -timeout=8m -v`。
 
 ## 8. 最小验证命令
 

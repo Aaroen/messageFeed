@@ -569,6 +569,8 @@ func plannerPolicyReasonText(result PolicyResult, capability Capability) string 
 		return "定时类能力需要确认。"
 	case "high risk capability requires approval":
 		return "高风险能力需要确认。"
+	case "tool-level confirmation enforced":
+		return "该能力允许进入工具级确认校验；未确认时工具只返回确认请求。"
 	case "external read-only capability with bounded fetch policy":
 		return "外部只读能力允许在有界抓取策略内执行。"
 	case "read-only capability":
@@ -652,6 +654,7 @@ func capabilityPermissionMetadata(capability Capability, decision PolicyResult) 
 		"decision":              decisionValue,
 		"reason":                decision.Reason,
 		"requires_confirmation": decision.Decision == PolicyDecisionPrompt,
+		"tool_confirmation":     capabilityUsesToolConfirmation(capability),
 	}
 }
 
