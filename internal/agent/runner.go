@@ -319,7 +319,8 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 		}
 		return "", response.Provider, response.Model, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_empty_reply", "agent reply is empty", "agent.turn_runner.generate", true, nil)
 	}
-	return strings.TrimSpace(response.Content), response.Provider, response.Model, snapshot, nil
+	reply, snapshot := applyAnswerQualityGate(input.MessageText, strings.TrimSpace(response.Content), snapshot)
+	return reply, response.Provider, response.Model, snapshot, nil
 }
 
 func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, error) {
@@ -578,9 +579,20 @@ func isLLMEmptyResponse(err error) bool {
 }
 
 func buildEvidenceFallbackReply(message string, snapshot ContextSnapshot) (string, ContextSnapshot, bool) {
+	taskSpec := BuildTaskSpec(message)
 	items := fallbackEvidenceItems(message, snapshot.Blocks)
 	if len(items) == 0 {
+		if taskSpec.RequestsSearch() {
+			quality := EvaluateEvidenceQuality(taskSpec, nil)
+			snapshot = appendQualityGateObservation(snapshot, quality)
+			return quality.Reply, snapshot, true
+		}
 		return "", snapshot, false
+	}
+	evidence := fallbackItemsToEvidenceInputs(items)
+	if quality := EvaluateEvidenceQuality(taskSpec, evidence); !quality.Passed {
+		snapshot = appendQualityGateObservation(snapshot, quality)
+		return quality.Reply, snapshot, true
 	}
 
 	var builder strings.Builder
@@ -613,6 +625,11 @@ func buildEvidenceFallbackReply(message string, snapshot ContextSnapshot) (strin
 	}
 	builder.WriteString("\n\n分析过程：")
 	builder.WriteString(fallbackAnalysis(items))
+	reply := builder.String()
+	if quality := EvaluateAnswerQuality(taskSpec, reply, evidence); !quality.Passed {
+		snapshot = appendQualityGateObservation(snapshot, quality)
+		return quality.Reply, snapshot, true
+	}
 
 	snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
 		Capability: "controller.reply_fallback",
@@ -620,7 +637,58 @@ func buildEvidenceFallbackReply(message string, snapshot ContextSnapshot) (strin
 		Status:     "succeeded",
 		Summary:    "llm returned empty response; generated evidence-bound fallback reply",
 	})
-	return builder.String(), snapshot, true
+	return reply, snapshot, true
+}
+
+func applyAnswerQualityGate(message string, reply string, snapshot ContextSnapshot) (string, ContextSnapshot) {
+	taskSpec := BuildTaskSpec(message)
+	if !taskSpec.RequestsSearch() || snapshotHasCapabilityDenial(snapshot) {
+		return reply, snapshot
+	}
+	evidence := fallbackItemsToEvidenceInputs(fallbackEvidenceItems(message, snapshot.Blocks))
+	quality := EvaluateAnswerQuality(taskSpec, reply, evidence)
+	if quality.Passed {
+		return reply, snapshot
+	}
+	snapshot = appendQualityGateObservation(snapshot, quality)
+	return quality.Reply, snapshot
+}
+
+func snapshotHasCapabilityDenial(snapshot ContextSnapshot) bool {
+	for _, observation := range snapshot.Observations {
+		if observation.Decision == string(PolicyDecisionForbidden) {
+			return true
+		}
+	}
+	return false
+}
+
+func appendQualityGateObservation(snapshot ContextSnapshot, quality AnswerQualityResult) ContextSnapshot {
+	status := "succeeded"
+	if !quality.Passed {
+		status = "degraded"
+	}
+	snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
+		Capability: "controller.quality_gate",
+		Decision:   string(PolicyDecisionAllow),
+		Status:     status,
+		Summary:    quality.Summary,
+	})
+	return snapshot
+}
+
+func fallbackItemsToEvidenceInputs(items []fallbackEvidenceItem) []EvidenceScoreInput {
+	evidence := make([]EvidenceScoreInput, 0, len(items))
+	for _, item := range items {
+		evidence = append(evidence, EvidenceScoreInput{
+			Title:       item.Title,
+			Source:      item.Source,
+			Summary:     item.Summary,
+			URL:         item.URL,
+			PublishedAt: item.PublishedAt,
+		})
+	}
+	return evidence
 }
 
 type fallbackEvidenceItem struct {

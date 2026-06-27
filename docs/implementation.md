@@ -1,6 +1,6 @@
 # messageFeed 实施进度台账
 
-**最后更新**：2026-06-26
+**最后更新**：2026-06-27
 
 本文件是当前实现进度的主台账。每轮迭代除更新 `docs/nowdoit` 活动文档外，必须同步更新本文档以及相关设计文档，例如 `docs/agent-plan.md`。历史已完成活动文档保留在 `docs/nowdoit/archive/`。
 
@@ -20,7 +20,7 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | 企微 Agent 搜索浏览能力强化已实现并通过后端验证；提交推送后以 `git status -sb` 为准 |
+| 工作区 | Agent 通用任务规格、证据评分过滤和质量门禁已实现并通过后端验证；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-web-assistant-entry-plan.md` |
 | 最近本轮验证 | 本轮后端修复已通过 `go test ./...`、`go vet ./...`；上一轮前端入口修复已通过 `npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test` |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
@@ -48,6 +48,7 @@
 - 已修复企微任务 `搜索最新港股消息并分析` 的空响应根因：计划 scope、controller run scope、上下文预取 scope 已对齐；`web.search` 可作为计划步骤预取并记录 observation；模型返回 `llm_empty_response` 时，如已有 feed/web 证据，会生成有证据约束的本地降级结果，避免整轮失败。
 - 已强化搜索浏览闭环：`web.search` 会清洗“搜索最新港股消息并分析”等任务型表达，优先尝试 DuckDuckGo HTML，遇到 202 challenge、空解析或拦截页时自动降级到 Bing 普通网页搜索、Google News RSS 与 Bing News RSS；RSS 解析使用 XML 结构化解析和 HTML 文本清洗；本地降级回复只展示结论、依据和分析过程，不再向用户暴露 capability、observation、Evidence ref、user_id、长 URL 或执行治理内容；真实 repository 更新 `agent_runs` 时已持久化 task packet、capability scope 和 context budget。
 - 已修正企业微信最终回复形态：最终文本以用户问题的结论、事实依据和分析过程为主体，不再拼接状态锚点、预算、质量、成本、运行观测、证据引用和企微动作组件；这些执行层面数据保留在 Web 进度页、审计和任务详情中。Web 发起任务投递到企业微信时仍保留简短详情链接，便于跳转查看完整执行记录。
+- 已实现通用任务规格、证据评分和质量门禁：用户问题先归一为 `TaskSpec`，识别任务类型、领域、时效、证据类型和低质量内容；`web.search` 与本地 fallback 共用评分器过滤无关证据，例如开户教程、课程和交易流程页不会进入港股新闻分析；最终回答前检查证据数量和结论方向，证据不足或结论不被证据支持时降级为明确的“证据不足”回复，避免强行生成不匹配分析。
 
 ### 3.3 Web 进度与治理展示
 
@@ -65,6 +66,7 @@
 - 已补充企微任务失败闭环回归测试，覆盖 plan 创建失败时的 turn 状态、inbound 状态、失败审计和企微 fallback；已补充 Agent JSONB 空数组回归测试，防止空引用列表写成无效 JSON。
 - 已补充本轮闭环回归测试：覆盖计划 scope 下发到上下文构建、`web.search` 计划预取、模型空响应降级、来源名称计划识别、controller scope 对齐、企微入站到计划完成的完整路径。
 - 已补充搜索浏览强化回归测试：覆盖查询归一化、Bing 普通网页解析、RSS 新闻解析、DuckDuckGo challenge 后外部搜索 fallback、搜索任务优先使用相关 web 证据、用户可见降级回复不泄露内部字段，以及真实 repository 运行记录更新字段。
+- 已补充任务规格、证据评分和质量门禁回归测试：覆盖财经新闻分析识别、内部对话历史查询不误触发外部检索、低质量财经教程页过滤、相关财经新闻保留、证据不足降级、结论方向与证据不一致时降级，以及权限拒绝类回答不被质量门禁覆盖。
 - 当前新增治理文件将部分逻辑从大文件中抽离，包括：
   - `internal/service/agent_real_interaction_automation_governance.go`
   - `internal/service/agent_wechat_web_progress_link_governance.go`
@@ -443,6 +445,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 13. 当前补充修复：继续修复同一企微搜索任务的 `llm response is empty` 根因。计划器可识别来源名称查询；上下文构建使用计划批准 scope；controller run 在计划创建后对齐真实 scope；`web.search` 预取写入 executor run、observation 和 artifact；模型空响应时基于已记录证据生成降级结果。验证命令：`go test ./...`、`go vet ./...`。
 14. 当前补充修复：强化搜索浏览能力。`web.search` 已增加任务型查询清洗、DuckDuckGo challenge/空结果后的 Bing 普通网页搜索、Google News RSS 与 Bing News RSS 备用源、RSS XML 结构化解析和摘要清洗；模型空响应降级回复改为仅展示用户可读事实和分析，隐藏内部能力、证据引用和治理观测；真实 repository 已持久化 controller run 对齐后的 task packet、capability scope 和 context budget。验证命令：`go test ./...`、`go vet ./...`。
 15. 当前补充修复：企业微信回复改为答案优先。最终回复只保留结论、事实依据和分析过程，不再发送状态锚点、预算、质量、成本、运行观测、证据引用和动作组件；搜索任务降级回复优先选取外部 `web.search` 相关证据并过滤无关订阅源条目；`web.search` 增加 Bing 普通网页搜索 fallback，以覆盖非 RSS 外部网页。验证命令：`go test ./...`、`go vet ./...`。
+16. 当前补充修复：先落地通用 `TaskSpec`、证据评分过滤和质量门禁三项根源能力。用户消息先转为任务类型、领域、时效和证据要求；搜索结果和 fallback 证据统一经过相关性、来源、时效和低质量内容评分；最终回答前校验证据数量和结论方向，证据不足或结论不被证据支持时给出用户可读降级回复。新增文件：`internal/agent/task_spec.go`、`internal/agent/evidence_score.go`、`internal/agent/answer_quality.go` 及对应测试。验证命令：`go test ./...`、`go vet ./...`。
 
 ## 8. 最小验证命令
 

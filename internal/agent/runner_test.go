@@ -172,8 +172,10 @@ func TestTurnRunnerFallsBackOnLLMEmptyResponseWithEvidence(t *testing.T) {
 				{
 					Name:          "联网搜索结果",
 					CapabilityKey: "web.search",
-					Content:       "工具：web.search\n查询：港股\n结果：\n1. 港股市场新闻（财经新闻）\n发布时间：Fri, 26 Jun 2026 13:00:00 GMT\nURL：https://example.com/hk\n摘要：恒生指数下跌，科技股走弱。",
-					ItemCount:     1,
+					Content: "工具：web.search\n查询：港股\n结果：\n" +
+						"1. 港股市场新闻（财经新闻）\n发布时间：Fri, 26 Jun 2026 13:00:00 GMT\nURL：https://example.com/hk\n摘要：恒生指数下跌，科技股走弱。\n" +
+						"2. 港股通资金观察（财联社）\n发布时间：Fri, 26 Jun 2026 13:30:00 GMT\nURL：https://example.com/hk-flow\n摘要：南向资金净卖出，科技股成交额放大。",
+					ItemCount: 2,
 				},
 			},
 			Observations: []CapabilityObservation{
@@ -237,6 +239,93 @@ func TestFallbackEvidenceRejectsLowQualitySearchResults(t *testing.T) {
 	}
 	if !strings.Contains(items[0].Title, "港股收评") {
 		t.Fatalf("unexpected item = %#v", items[0])
+	}
+}
+
+func TestTurnRunnerQualityGateReturnsInsufficientEvidenceReply(t *testing.T) {
+	now := time.Date(2026, 6, 26, 21, 30, 0, 0, time.UTC)
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store: &runnerFakeTurnStore{},
+		ContextBuilder: runnerFakeContextBuilder{snapshot: ContextSnapshot{
+			Blocks: []ContextBlock{
+				{
+					Name:          "联网搜索结果",
+					CapabilityKey: "web.search",
+					Content:       "工具：web.search\n查询：港股\n结果：\n1. 港美股交易怎么操作？新手完整交易流程讲解（湾区阿瑟）\nURL：https://bayase.com/hk-us-stock-guide\n摘要：大陆居民如何开户，讲解港股和美股交易规则、账户开通和零基础教程。",
+					ItemCount:     1,
+				},
+			},
+		}},
+		LLMClient: &runnerFakeChatClient{
+			err: domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "test", true, nil),
+		},
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"web.search"},
+		MessageType:     "text",
+		MessageText:     "搜索最新港股消息并分析",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !strings.Contains(result.Reply, "未检索到足够可靠的相关证据") {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if strings.Contains(result.Reply, "港美股交易怎么操作") {
+		t.Fatalf("reply used low quality evidence: %q", result.Reply)
+	}
+	if len(result.Context.Observations) == 0 || result.Context.Observations[len(result.Context.Observations)-1].Capability != "controller.quality_gate" {
+		t.Fatalf("observations = %#v", result.Context.Observations)
+	}
+}
+
+func TestTurnRunnerQualityGateReplacesUnsupportedModelReply(t *testing.T) {
+	now := time.Date(2026, 6, 26, 21, 45, 0, 0, time.UTC)
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store: &runnerFakeTurnStore{},
+		ContextBuilder: runnerFakeContextBuilder{snapshot: ContextSnapshot{
+			Blocks: []ContextBlock{
+				{
+					Name:          "联网搜索结果",
+					CapabilityKey: "web.search",
+					Content: "工具：web.search\n查询：港股\n结果：\n" +
+						"1. 港股收评：恒生指数上涨（财联社）\n发布时间：Fri, 26 Jun 2026 13:00:00 GMT\nURL：https://example.com/hk-up\n摘要：恒生科技指数反弹，南向资金净买入。\n" +
+						"2. 港股科技股走强（AASTOCKS）\n发布时间：Fri, 26 Jun 2026 13:30:00 GMT\nURL：https://example.com/hk-tech\n摘要：腾讯、美团等权重股上涨。",
+					ItemCount: 2,
+				},
+			},
+		}},
+		LLMClient: &runnerFakeChatClient{
+			responses: []llm.ChatResponse{{Provider: "openai_compatible", Model: "custom-model", Content: "结论：当前港股消息面偏弱，下跌压力较大。"}},
+		},
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"web.search"},
+		MessageType:     "text",
+		MessageText:     "搜索最新港股消息并分析",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !strings.Contains(result.Reply, "不足以支撑偏弱") {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if len(result.Context.Observations) == 0 || result.Context.Observations[len(result.Context.Observations)-1].Capability != "controller.quality_gate" {
+		t.Fatalf("observations = %#v", result.Context.Observations)
 	}
 }
 

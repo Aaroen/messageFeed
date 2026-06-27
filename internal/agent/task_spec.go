@@ -46,7 +46,14 @@ func BuildTaskSpec(message string) TaskSpec {
 		QueryTerms:           terms,
 		MinimumEvidenceCount: 1,
 	}
-	if spec.Freshness == TaskFreshnessRealtime || taskSpecContainsAny(raw, []string{"搜索", "查询", "查找", "检索", "新闻", "资讯", "消息"}) {
+	if taskSpecIsConversationMemoryQuery(raw) {
+		spec.TaskType = TaskTypeQuestionAnswer
+		spec.RequiresExternal = false
+		spec.EvidenceTypes = appendUniqueStrings(spec.EvidenceTypes, "内部对话记录")
+		spec.applyDomainDefaults()
+		return spec
+	}
+	if spec.Freshness == TaskFreshnessRealtime || taskSpecContainsAny(raw, []string{"搜索", "查询", "查找", "检索", "新闻", "资讯"}) {
 		spec.RequiresExternal = true
 	}
 	if taskSpecContainsAny(raw, []string{"进度", "实现", "文件新增", "提交", "推送", "部署", "复盘", "项目"}) && spec.Domain == TaskDomainProject {
@@ -131,6 +138,13 @@ func classifyTaskFreshness(message string) string {
 		return TaskFreshnessRecent
 	}
 	return TaskFreshnessHistorical
+}
+
+func taskSpecIsConversationMemoryQuery(message string) bool {
+	if !taskSpecContainsAny(message, []string{"消息", "记录", "聊天", "对话", "说过", "发过", "发的"}) {
+		return false
+	}
+	return taskSpecContainsAny(message, []string{"第一条", "第一句", "最早", "最开始", "最初", "昨天", "今天", "刚才", "刚刚", "历史", "我发", "你说", "session", "Session"})
 }
 
 func taskSpecTerms(message string) []string {

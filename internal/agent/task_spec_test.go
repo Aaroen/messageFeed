@@ -43,6 +43,16 @@ func TestBuildTaskSpecForProjectStatus(t *testing.T) {
 	}
 }
 
+func TestBuildTaskSpecForConversationMemoryQuery(t *testing.T) {
+	spec := BuildTaskSpec("我发的第一条消息是什么")
+	if spec.RequestsSearch() {
+		t.Fatalf("conversation memory query should not request external search: %#v", spec)
+	}
+	if !containsTestString(spec.EvidenceTypes, "内部对话记录") {
+		t.Fatalf("EvidenceTypes = %#v", spec.EvidenceTypes)
+	}
+}
+
 func containsTestString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
