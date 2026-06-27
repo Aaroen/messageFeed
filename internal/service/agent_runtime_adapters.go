@@ -88,84 +88,6 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 		return memory, err
 	}
 	memory.Messages = transcriptEntriesToContextMessages(recent)
-	if !agent.ShouldQueryConversationHistory(hint, input.MessageText, memory.Messages) {
-		return memory, nil
-	}
-
-	mode := inferConversationHistoryMode(input.MessageText, "")
-	keyword := ""
-	order := "desc"
-	limit := 8
-	beforeEntryID := int64(0)
-	if mode == conversationHistoryModeSearch {
-		keyword = agent.HistorySearchKeyword(input.MessageText)
-		beforeEntryID = earliestTranscriptEntryID(recent)
-	} else if mode == conversationHistoryModeEarliest {
-		order = "asc"
-		limit = 1
-	} else if mode == conversationHistoryModeLatest {
-		limit = 1
-	}
-	timeRange := parseConversationHistoryTimeRange(input.MessageText, "", p.currentTime())
-	results, err := p.repository.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{
-		SessionID:     input.SessionID,
-		UserID:        input.UserID,
-		Mode:          mode,
-		Keyword:       keyword,
-		TimeHint:      strings.TrimSpace(input.MessageText),
-		Roles:         []domain.AgentTranscriptRole{domain.AgentTranscriptRoleUser, domain.AgentTranscriptRoleAssistant},
-		BeforeEntryID: beforeEntryID,
-		BeforeTurnID:  input.TurnID,
-		After:         timeRange.After,
-		Before:        timeRange.Before,
-		Order:         order,
-		Limit:         limit,
-	})
-	if err != nil {
-		return memory, err
-	}
-	memory.HistoryQueried = true
-	memory.HistoryResults = transcriptEntriesToContextMessages(results)
-	memory.HistoryResultContent = formatConversationHistoryResult(conversationHistoryResultInput{
-		Mode:         mode,
-		Scope:        "current_session",
-		Reason:       historyRecallReason(hint),
-		Entries:      results,
-		MatchedCount: len(results),
-		TimeRange:    timeRange,
-	})
-
-	_, err = p.repository.CreateRecallEvent(ctx, domain.AgentRecallEvent{
-		SessionID: input.SessionID,
-		TurnID:    input.TurnID,
-		UserID:    input.UserID,
-		Query:     keyword,
-		QueryParams: domain.AgentJSON{
-			"message":           input.MessageText,
-			"history_need_hint": string(hint),
-			"mode":              mode,
-			"keyword":           keyword,
-			"time_range":        timeRange.Metadata(),
-			"order":             order,
-			"before_entry_id":   beforeEntryID,
-			"before_turn_id":    input.TurnID,
-			"limit":             limit,
-			"roles":             []string{string(domain.AgentTranscriptRoleUser), string(domain.AgentTranscriptRoleAssistant)},
-			"boundary":          conversationHistoryBoundaryMetadata(mode, len(results)),
-			"memory_scope":      "long_term_conversation",
-			"reusable":          true,
-		},
-		RecalledRefs: domain.AgentJSON{
-			"transcript_entry_ids": transcriptEntryIDs(results),
-			"evidence_refs":        transcriptEvidenceRefs(results),
-		},
-		Reason:      historyRecallReason(hint),
-		BudgetChars: transcriptEntriesContentLength(results),
-		CreatedAt:   p.currentTime(),
-	})
-	if err != nil {
-		return memory, err
-	}
 	return memory, nil
 }
 
@@ -205,6 +127,28 @@ func (e agentP0CapabilityExecutor) Execute(ctx context.Context, input agent.Capa
 
 func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
 	switch input.Capability.Key {
+	case "feed.query_recent_items":
+		result, err := e.queryRecentItems(ctx, agent.CapabilityExecuteInput{
+			Capability:      input.Capability,
+			UserID:          input.UserID,
+			SessionID:       input.SessionID,
+			TurnID:          input.TurnID,
+			ControllerRunID: input.ControllerRunID,
+			Message:         input.Message,
+			RawArguments:    input.RawArguments,
+		})
+		return capabilityExecuteResultToToolResult(result), err
+	case "source.query_latest_items":
+		result, err := e.querySourceLatestItems(ctx, agent.CapabilityExecuteInput{
+			Capability:      input.Capability,
+			UserID:          input.UserID,
+			SessionID:       input.SessionID,
+			TurnID:          input.TurnID,
+			ControllerRunID: input.ControllerRunID,
+			Message:         input.Message,
+			RawArguments:    input.RawArguments,
+		})
+		return capabilityExecuteResultToToolResult(result), err
 	case "conversation.query_history":
 		return e.queryConversationHistory(ctx, input)
 	case "agent.schedule_task":
@@ -236,6 +180,20 @@ func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.
 	}
 }
 
+func capabilityExecuteResultToToolResult(result agent.CapabilityExecuteResult) agent.ToolExecuteResult {
+	parts := make([]string, 0, len(result.Blocks))
+	for _, block := range result.Blocks {
+		content := strings.TrimSpace(block.Content)
+		if content != "" {
+			parts = append(parts, content)
+		}
+	}
+	return agent.ToolExecuteResult{
+		Content:     strings.Join(parts, "\n\n"),
+		Observation: result.Observation,
+	}
+}
+
 func (e agentP0CapabilityExecutor) queryRecentItems(ctx context.Context, input agent.CapabilityExecuteInput) (agent.CapabilityExecuteResult, error) {
 	observation := agent.CapabilityObservation{
 		Capability: input.Capability.Key,
@@ -246,7 +204,11 @@ func (e agentP0CapabilityExecutor) queryRecentItems(ctx context.Context, input a
 		observation.Summary = "recent items provider is unavailable"
 		return agent.CapabilityExecuteResult{Observation: observation}, nil
 	}
-	query := e.parseItemQuery(ctx, input.UserID, input.Message, 5)
+	args := parseAgentItemToolArgs(input.RawArguments)
+	query, err := e.parseItemQuery(ctx, input.UserID, args, 5)
+	if err != nil {
+		return agent.CapabilityExecuteResult{}, err
+	}
 	result, err := e.recentItems.ListItems(ctx, ListItemsInput{
 		UserID:        input.UserID,
 		SourceID:      query.SourceID,
@@ -287,16 +249,20 @@ func (e agentP0CapabilityExecutor) querySourceLatestItems(ctx context.Context, i
 		observation.Summary = "source or item provider is unavailable"
 		return agent.CapabilityExecuteResult{Observation: observation}, nil
 	}
-	source, found, err := e.matchSourceByText(ctx, input.UserID, input.Message)
+	args := parseAgentItemToolArgs(input.RawArguments)
+	source, found, err := e.resolveItemSource(ctx, input.UserID, args)
 	if err != nil {
 		return agent.CapabilityExecuteResult{}, err
 	}
 	if !found {
 		observation.Status = "skipped"
-		observation.Summary = "no source name matched user input"
+		observation.Summary = "source parameter did not match an active source"
 		return agent.CapabilityExecuteResult{Observation: observation}, nil
 	}
-	query := e.parseItemQuery(ctx, input.UserID, input.Message, 3)
+	query, err := e.parseItemQuery(ctx, input.UserID, args, 3)
+	if err != nil {
+		return agent.CapabilityExecuteResult{}, err
+	}
 	query.SourceID = source.ID
 	query.SourceName = source.Name
 	result, err := e.recentItems.ListItems(ctx, ListItemsInput{
@@ -350,18 +316,51 @@ func (e agentP0CapabilityExecutor) webSearchCapability(ctx context.Context, inpu
 	return result, nil
 }
 
-func (e agentP0CapabilityExecutor) matchSourceByText(ctx context.Context, userID int64, text string) (domain.Source, bool, error) {
+type agentItemToolArgs struct {
+	Query      string `json:"query"`
+	Keyword    string `json:"keyword"`
+	SourceID   int64  `json:"source_id"`
+	SourceName string `json:"source_name"`
+	TimeHint   string `json:"time_hint"`
+	IsRead     *bool  `json:"is_read"`
+	Limit      int    `json:"limit"`
+}
+
+func parseAgentItemToolArgs(raw string) agentItemToolArgs {
+	var args agentItemToolArgs
+	if strings.TrimSpace(raw) == "" {
+		return args
+	}
+	_ = json.Unmarshal([]byte(raw), &args)
+	return args
+}
+
+func (e agentP0CapabilityExecutor) resolveItemSource(ctx context.Context, userID int64, args agentItemToolArgs) (domain.Source, bool, error) {
+	sourceID := args.SourceID
+	sourceName := strings.ToLower(strings.TrimSpace(args.SourceName))
+	if sourceID <= 0 && sourceName == "" {
+		return domain.Source{}, false, nil
+	}
 	sources, err := e.sourceProvider.ListSources(ctx, userID)
 	if err != nil {
 		return domain.Source{}, false, err
 	}
-	text = strings.ToLower(strings.TrimSpace(text))
-	if text == "" {
-		return domain.Source{}, false, nil
+	if sourceID > 0 {
+		for _, source := range sources {
+			if source.ID == sourceID {
+				return source, true, nil
+			}
+		}
 	}
 	for _, source := range sources {
 		name := strings.ToLower(strings.TrimSpace(source.Name))
-		if name != "" && strings.Contains(text, name) {
+		if sourceName != "" && name == sourceName {
+			return source, true, nil
+		}
+	}
+	for _, source := range sources {
+		name := strings.ToLower(strings.TrimSpace(source.Name))
+		if sourceName != "" && name != "" && (strings.Contains(name, sourceName) || strings.Contains(sourceName, name)) {
 			return source, true, nil
 		}
 	}
@@ -377,40 +376,30 @@ type agentItemQuery struct {
 	Limit      int
 }
 
-func (e agentP0CapabilityExecutor) parseItemQuery(ctx context.Context, userID int64, message string, limit int) agentItemQuery {
-	query := agentItemQuery{Limit: limit}
-	if containsAny(message, []string{"未读", "没读", "没有读"}) {
-		value := false
-		query.IsRead = &value
-	} else if containsAny(message, []string{"已读", "读过"}) {
-		value := true
-		query.IsRead = &value
+func (e agentP0CapabilityExecutor) parseItemQuery(ctx context.Context, userID int64, args agentItemToolArgs, defaultLimit int) (agentItemQuery, error) {
+	query := agentItemQuery{
+		Keyword: strings.TrimSpace(firstNonEmptyString(args.Query, args.Keyword)),
+		IsRead:  args.IsRead,
+		Limit:   args.Limit,
 	}
-	query.TimeRange = parseConversationHistoryTimeRange(message, "", e.currentTime())
-	query.Keyword = extractAgentItemKeyword(message)
-	if e.sourceProvider != nil {
-		if source, found, err := e.matchSourceByText(ctx, userID, message); err == nil && found {
+	if query.Limit <= 0 {
+		query.Limit = defaultLimit
+	}
+	if query.Limit > 20 {
+		query.Limit = 20
+	}
+	query.TimeRange = parseConversationHistoryTimeRange("", args.TimeHint, e.currentTime())
+	if e.sourceProvider != nil && (args.SourceID > 0 || strings.TrimSpace(args.SourceName) != "") {
+		source, found, err := e.resolveItemSource(ctx, userID, args)
+		if err != nil {
+			return query, err
+		}
+		if found {
 			query.SourceID = source.ID
 			query.SourceName = source.Name
 		}
 	}
-	return query
-}
-
-func extractAgentItemKeyword(message string) string {
-	message = strings.TrimSpace(message)
-	for _, marker := range []string{"关键词", "关键字", "包含", "关于"} {
-		index := strings.Index(message, marker)
-		if index >= 0 {
-			keyword := strings.Trim(message[index+len(marker):], " ：:，,。 \t\r\n")
-			fields := strings.Fields(keyword)
-			if len(fields) > 0 {
-				return fields[0]
-			}
-			return keyword
-		}
-	}
-	return ""
+	return query, nil
 }
 
 func filterAgentItems(items []domain.Item, query agentItemQuery) []domain.Item {
@@ -540,18 +529,15 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 	}
 
 	args := parseConversationHistoryToolArgs(input.RawArguments)
-	mode := inferConversationHistoryMode(input.Message, args.Mode)
+	mode := inferConversationHistoryMode(args.Mode)
 	keyword := strings.TrimSpace(args.Query)
 	if keyword == "" {
 		keyword = strings.TrimSpace(args.Keyword)
 	}
-	if keyword == "" && mode == conversationHistoryModeSearch {
-		keyword = agent.HistorySearchKeyword(input.Message)
-	}
 	if mode != conversationHistoryModeSearch {
 		keyword = ""
 	}
-	timeRange := parseConversationHistoryTimeRange(input.Message, args.TimeHint, e.currentTime())
+	timeRange := parseConversationHistoryTimeRange("", args.TimeHint, e.currentTime())
 	if mode == conversationHistoryModeTimeRange && !timeRange.Valid {
 		return agent.ToolExecuteResult{
 			Content: "没有识别出明确时间范围。请让用户补充具体时间，例如昨天上午、上周或 2026-06-23 晚上。",
@@ -921,7 +907,6 @@ func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.To
 }
 
 func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityKey string, query string, limit int) (string, agent.CapabilityObservation, int, error) {
-	taskSpec := agent.BuildTaskSpec(query)
 	query = normalizeWebSearchQuery(query)
 	if limit < 1 {
 		limit = 5
@@ -942,7 +927,7 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, endpoint)
 	results := []agentWebSearchResult{}
 	if err == nil && !isDuckDuckGoSearchChallenge(body, statusCode) {
-		results = filterWebSearchResultsByTaskSpec(parseDuckDuckGoResults(body, limit), query, taskSpec)
+		results = parseDuckDuckGoResults(body, limit)
 	}
 	if len(results) == 0 {
 		for _, webEndpoint := range webHTMLSearchEndpoints(query) {
@@ -951,7 +936,7 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 				err = webErr
 				continue
 			}
-			webResults := filterWebSearchResultsByTaskSpec(parseBingResults(webBody, limit), query, taskSpec)
+			webResults := parseBingResults(webBody, limit)
 			if len(webResults) == 0 {
 				finalURL = webFinalURL
 				statusCode = webStatusCode
@@ -973,7 +958,7 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 				err = rssErr
 				continue
 			}
-			rssResults := filterWebSearchResultsByTaskSpec(parseRSSSearchResults(rssBody, limit), query, taskSpec)
+			rssResults := parseRSSSearchResults(rssBody, limit)
 			if len(rssResults) == 0 {
 				finalURL = rssFinalURL
 				statusCode = rssStatusCode
@@ -1257,7 +1242,7 @@ type conversationHistoryResultInput struct {
 }
 
 func formatConversationHistoryResult(input conversationHistoryResultInput) string {
-	mode := inferConversationHistoryMode("", input.Mode)
+	mode := inferConversationHistoryMode(input.Mode)
 	scope := strings.TrimSpace(input.Scope)
 	if scope == "" {
 		scope = "current_session"
@@ -1312,7 +1297,7 @@ func formatConversationHistoryResult(input conversationHistoryResultInput) strin
 }
 
 func conversationHistoryBoundaryMetadata(mode string, matchedCount int) domain.AgentJSON {
-	mode = inferConversationHistoryMode("", mode)
+	mode = inferConversationHistoryMode(mode)
 	metadata := domain.AgentJSON{
 		"mode":                mode,
 		"scope":               "current_session",
@@ -1362,32 +1347,13 @@ func formatHistoryBool(value any) string {
 	}
 }
 
-func inferConversationHistoryMode(message string, requested string) string {
+func inferConversationHistoryMode(requested string) string {
 	requested = strings.ToLower(strings.TrimSpace(requested))
 	switch requested {
 	case conversationHistoryModeEarliest, conversationHistoryModeLatest, conversationHistoryModeSearch, conversationHistoryModeTimeRange:
 		return requested
 	}
-	message = strings.TrimSpace(message)
-	if containsAny(message, []string{"第一条", "第一句", "最早", "最开始", "最初", "开头"}) {
-		return conversationHistoryModeEarliest
-	}
-	if containsAny(message, []string{"最后一条", "最新一条", "最近一条", "末尾"}) {
-		return conversationHistoryModeLatest
-	}
-	if containsAny(message, []string{"昨天", "前天", "今天", "今日", "明天", "后天", "上周", "本周", "这周", "下周", "本月", "这个月", "上午", "下午", "晚上", "凌晨"}) {
-		return conversationHistoryModeTimeRange
-	}
 	return conversationHistoryModeSearch
-}
-
-func containsAny(value string, terms []string) bool {
-	for _, term := range terms {
-		if strings.Contains(value, term) {
-			return true
-		}
-	}
-	return false
 }
 
 type conversationHistoryTimeRange struct {
@@ -1699,38 +1665,7 @@ func parseBingResults(body []byte, limit int) []agentWebSearchResult {
 }
 
 func normalizeWebSearchQuery(value string) string {
-	original := strings.TrimSpace(value)
-	normalized := strings.NewReplacer(
-		"\n", " ",
-		"\t", " ",
-		"，", " ",
-		"。", " ",
-		"；", " ",
-		"、", " ",
-		"？", " ",
-		"！", " ",
-		",", " ",
-		";", " ",
-		"?", " ",
-		"!", " ",
-		"：", " ",
-		":", " ",
-	).Replace(original)
-	for _, phrase := range []string{
-		"请帮我", "帮我", "麻烦", "请",
-		"搜索一下", "查询一下", "查找一下", "检索一下",
-		"搜索", "查询", "查找", "检索",
-		"最新的", "最新", "消息", "新闻", "资讯",
-		"并分析一下", "并分析", "分析一下", "分析",
-		"一下", "相关", "关于",
-	} {
-		normalized = strings.ReplaceAll(normalized, phrase, " ")
-	}
-	normalized = cleanWhitespace(normalized)
-	if normalized == "" {
-		return original
-	}
-	return safeSummary(normalized, 120)
+	return safeSummary(cleanWhitespace(value), 160)
 }
 
 func newsRSSSearchEndpoints(query string) []string {
@@ -1757,72 +1692,6 @@ func webHTMLSearchEndpoints(query string) []string {
 		"mkt":     []string{"zh-CN"},
 	}.Encode()
 	return []string{bingWeb}
-}
-
-func filterWebSearchResultsByQuery(results []agentWebSearchResult, query string) []agentWebSearchResult {
-	terms := webSearchQueryTerms(query)
-	if len(terms) == 0 {
-		return results
-	}
-	filtered := make([]agentWebSearchResult, 0, len(results))
-	for _, result := range results {
-		haystack := result.Title + " " + result.Source + " " + result.Snippet
-		for _, term := range terms {
-			if strings.Contains(haystack, term) {
-				filtered = append(filtered, result)
-				break
-			}
-		}
-	}
-	return filtered
-}
-
-func filterWebSearchResultsByTaskSpec(results []agentWebSearchResult, query string, taskSpec agent.TaskSpec) []agentWebSearchResult {
-	if len(results) == 0 {
-		return nil
-	}
-	if len(taskSpec.QueryTerms) == 0 {
-		taskSpec = agent.BuildTaskSpec(query)
-	}
-	inputs := make([]agent.EvidenceScoreInput, 0, len(results))
-	for _, result := range results {
-		inputs = append(inputs, agent.EvidenceScoreInput{
-			Title:       result.Title,
-			Source:      result.Source,
-			Summary:     result.Snippet,
-			URL:         result.URL,
-			PublishedAt: result.PublishedAt,
-		})
-	}
-	filteredInputs := agent.FilterAndRankEvidence(taskSpec, inputs)
-	filtered := make([]agentWebSearchResult, 0, len(filteredInputs))
-	for _, input := range filteredInputs {
-		for _, result := range results {
-			if result.URL == input.URL && result.Title == input.Title {
-				filtered = append(filtered, result)
-				break
-			}
-		}
-	}
-	return filtered
-}
-
-func webSearchQueryTerms(query string) []string {
-	fields := strings.Fields(strings.TrimSpace(query))
-	terms := make([]string, 0, len(fields))
-	seen := map[string]struct{}{}
-	for _, field := range fields {
-		field = strings.TrimSpace(field)
-		if len([]rune(field)) < 2 {
-			continue
-		}
-		if _, ok := seen[field]; ok {
-			continue
-		}
-		seen[field] = struct{}{}
-		terms = append(terms, field)
-	}
-	return terms
 }
 
 func isDuckDuckGoSearchChallenge(body []byte, statusCode int) bool {
@@ -2219,19 +2088,12 @@ func summarizeKeyConclusions(text string, sources []summarizeTextSource) []strin
 }
 
 func summarizeRisks(text string, sources []summarizeTextSource) []string {
-	joined := strings.ToLower(text)
-	for _, source := range sources {
-		joined += " " + strings.ToLower(source.Title+" "+source.Summary+" "+source.Content)
-	}
 	risks := make([]string, 0, 3)
-	if containsAny(joined, []string{"风险", "失败", "错误", "下跌", "漏洞", "延迟", "不确定", "可能"}) {
-		risks = append(risks, "原文包含风险或不确定性信号，结论需要结合来源上下文复核。")
-	}
 	if len(sources) > 1 {
 		risks = append(risks, "多来源内容可能存在时间差或口径差异，引用时应保留来源。")
 	}
 	if len(risks) == 0 {
-		risks = append(risks, "未从输入文本中识别到明确风险信号。")
+		risks = append(risks, "风险判断需要结合原文上下文和最终回答复核。")
 	}
 	return risks
 }

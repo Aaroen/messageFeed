@@ -58,6 +58,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Risk:        CapabilityRiskLow,
 		DataDomain:  "local_feed",
 		Reusable:    true,
+		Parameters:  feedItemQueryParameters(false),
 	})
 	registry.Register(Capability{
 		Key:         "source.query_latest_items",
@@ -67,6 +68,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Risk:        CapabilityRiskLow,
 		DataDomain:  "local_feed",
 		Reusable:    true,
+		Parameters:  feedItemQueryParameters(true),
 	})
 	registry.Register(Capability{
 		Key:         "conversation.query_history",
@@ -347,6 +349,47 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		DataDomain:  "agent_internal",
 	})
 	return registry
+}
+
+func feedItemQueryParameters(requireSource bool) map[string]any {
+	required := []string{}
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"source_id": map[string]any{
+				"type":        "integer",
+				"description": "可选来源 ID；如果已知来源 ID，优先使用该字段。",
+				"minimum":     1,
+			},
+			"source_name": map[string]any{
+				"type":        "string",
+				"description": "可选来源名称；按指定订阅源读取时必须填写。",
+			},
+			"query": map[string]any{
+				"type":        "string",
+				"description": "模型提取的条目过滤查询；为空时不按关键词过滤。",
+			},
+			"keyword": map[string]any{
+				"type":        "string",
+				"description": "query 的兼容字段；为空时忽略。",
+			},
+			"time_hint": map[string]any{
+				"type":        "string",
+				"description": "模型提取的时间范围提示，例如昨天、今天上午或本周；为空时不按时间过滤。",
+			},
+			"is_read": map[string]any{
+				"type":        "boolean",
+				"description": "可选已读状态过滤；不确定时不要填写。",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"description": "返回条目数量，默认 5，最大 20。",
+				"minimum":     1,
+				"maximum":     20,
+			},
+		},
+		"required": required,
+	}
 }
 
 func (r *CapabilityRegistry) Register(capability Capability) {

@@ -21,12 +21,24 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	repository := newFakeAgentConversationRepository()
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
 	userContext := &fakeAgentUserContextProvider{}
+	recentItems := &fakeAgentRecentItemsProvider{
+		itemsBySource: map[int64][]domain.Item{
+			0: {
+				{ID: 1, SourceName: "Go 官方博客", Title: "Go 1.26 发布", Summary: "Go 1.26 带来工具链更新。"},
+			},
+		},
+	}
 	llmClient := &fakeAgentConversationLLM{
 		planKeys: []string{"feed.query_recent_items"},
-		response: llm.ChatResponse{
-			Provider: "openai_compatible",
-			Model:    "custom-model",
-			Content:  "这是 AI 回复",
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "feed__query_recent_items", Arguments: `{"limit":5}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "这是 AI 回复"},
 		},
 	}
 	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-msg-1"}}
@@ -36,6 +48,7 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 		WithAgentConversationSender(sender),
 		WithAgentConversationExternalAccountResolver(resolver),
 		WithAgentConversationUserContextProvider(userContext),
+		WithAgentConversationRecentItemsProvider(recentItems),
 		WithAgentConversationNow(func() time.Time { return now }),
 		WithAgentConversationInlineProcessing(true),
 	)
@@ -97,7 +110,7 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 		replyAudit.Metadata["progress_url"] == "" {
 		t.Fatalf("reply audit metadata = %#v", replyAudit.Metadata)
 	}
-	if len(llmClient.lastRequest.Messages) != 2 {
+	if len(llmClient.lastRequest.Messages) != 4 {
 		t.Fatalf("llm messages = %#v", llmClient.lastRequest.Messages)
 	}
 	systemPrompt := llmClient.lastRequest.Messages[0].Content
@@ -109,6 +122,10 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	}
 	if llmClient.lastRequest.MaxTokens != agentReplyMaxTokens {
 		t.Fatalf("MaxTokens = %d, want %d", llmClient.lastRequest.MaxTokens, agentReplyMaxTokens)
+	}
+	toolMessage := llmClient.lastRequest.Messages[len(llmClient.lastRequest.Messages)-1]
+	if toolMessage.Role != "tool" || !strings.Contains(toolMessage.Content, "Go 1.26 发布") {
+		t.Fatalf("tool message = %#v", toolMessage)
 	}
 	if len(repository.runs) < 2 {
 		t.Fatalf("agent run count = %d, want controller and executor runs", len(repository.runs))
@@ -149,12 +166,12 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 }
 
 func TestAgentWebSearchNormalizesQueryAndParsesRSSResults(t *testing.T) {
-	if got := normalizeWebSearchQuery("搜索最新港股消息并分析"); got != "港股" {
-		t.Fatalf("normalized query = %q, want 港股", got)
+	if got := normalizeWebSearchQuery("搜索最新港股消息并分析"); got != "搜索最新港股消息并分析" {
+		t.Fatalf("normalized query = %q", got)
 	}
 	bingHTML := `<html><body><ol><li class="b_algo"><h2><a href="https://example.com/hk-web">港股收评：恒指下跌，科技股走弱</a></h2><div class="b_caption"><p>港股主要指数回落，市场关注南向资金。</p></div></li><li class="b_algo"><h2><a href="https://example.com/us">美股新闻</a></h2><div class="b_caption"><p>美股科技股上涨。</p></div></li></ol></body></html>`
-	bingResults := filterWebSearchResultsByQuery(parseBingResults([]byte(bingHTML), 5), "港股")
-	if len(bingResults) != 1 || bingResults[0].Title != "港股收评：恒指下跌，科技股走弱" {
+	bingResults := parseBingResults([]byte(bingHTML), 5)
+	if len(bingResults) != 2 || bingResults[0].Title != "港股收评：恒指下跌，科技股走弱" {
 		t.Fatalf("bing results = %#v", bingResults)
 	}
 	mixedResults := []agentWebSearchResult{
@@ -172,9 +189,8 @@ func TestAgentWebSearchNormalizesQueryAndParsesRSSResults(t *testing.T) {
 			PublishedAt: "Fri, 26 Jun 2026 13:00:00 GMT",
 		},
 	}
-	filtered := filterWebSearchResultsByTaskSpec(mixedResults, "港股", agent.BuildTaskSpec("搜索最新港股消息并分析"))
-	if len(filtered) != 1 || filtered[0].Source != "财联社" {
-		t.Fatalf("filtered mixed results = %#v", filtered)
+	if len(mixedResults) != 2 {
+		t.Fatalf("mixed results = %#v", mixedResults)
 	}
 	body := `<?xml version="1.0" encoding="UTF-8"?><rss><channel><item><title>港股风向标：恒指反弹受阻</title><link>https://example.com/hk-news</link><description><![CDATA[<p>恒指反弹受阻，科技股成交额放大。</p>]]></description><pubDate>Fri, 26 Jun 2026 12:00:00 GMT</pubDate><source>财联社</source></item></channel></rss>`
 	results := parseRSSSearchResults([]byte(body), 5)
@@ -189,7 +205,7 @@ func TestAgentWebSearchNormalizesQueryAndParsesRSSResults(t *testing.T) {
 	}
 }
 
-func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvidence(t *testing.T) {
+func TestAgentConversationServiceFailsWeChatSearchWhenLLMReturnsEmpty(t *testing.T) {
 	now := time.Date(2026, 6, 26, 21, 15, 0, 0, time.UTC)
 	publishedAt := now.Add(-30 * time.Minute)
 	repository := newFakeAgentConversationRepository()
@@ -248,40 +264,23 @@ func TestAgentConversationServiceCompletesWeChatSearchWhenLLMReturnsEmptyWithEvi
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if result.Turn.Status != domain.AgentTurnStatusSucceeded || result.Plan.Status != domain.AgentPlanStatusCompleted {
+	if result.Turn.Status != domain.AgentTurnStatusFailed || result.Plan.Status != domain.AgentPlanStatusFailed {
 		t.Fatalf("turn=%q plan=%q error=%q", result.Turn.Status, result.Plan.Status, result.Plan.ErrorMessage)
 	}
-	if !strings.Contains(result.Reply, "结论：") || !strings.Contains(result.Reply, "依据：") || !strings.Contains(result.Reply, "分析过程：") || !strings.Contains(result.Reply, "港股收盘：恒指下跌") {
+	if !strings.Contains(result.Reply, "feedback:failed") {
 		t.Fatalf("reply = %q", result.Reply)
 	}
-	for _, forbidden := range []string{"模型生成阶段没有返回可用内容", "用户上下文", "web.search", "Evidence ref", "证据范围", "美伊谈判", "状态锚点", "企微动作组件", "https://example.com/hk-market-close"} {
-		if strings.Contains(result.Reply, forbidden) {
-			t.Fatalf("reply leaked %q: %q", forbidden, result.Reply)
-		}
-	}
-	if webFetchCalls != 2 {
-		t.Fatalf("web fetch calls = %d, want 2", webFetchCalls)
+	if webFetchCalls != 0 {
+		t.Fatalf("web fetch calls = %d, want 0", webFetchCalls)
 	}
 	if !containsAgentString(result.Plan.AllowedScopes, "web.search") {
 		t.Fatalf("allowed scopes = %#v", result.Plan.AllowedScopes)
-	}
-	completedSteps := 0
-	for _, step := range result.Plan.Steps {
-		if step.Status == domain.AgentPlanStepStatusCompleted {
-			completedSteps++
-		}
-		if step.CapabilityKey == "web.search" && step.ObservationRef == "" {
-			t.Fatalf("web search step missing observation ref: %#v", step)
-		}
-	}
-	if completedSteps != 2 {
-		t.Fatalf("completed steps = %d, steps = %#v", completedSteps, result.Plan.Steps)
 	}
 	controllerRun := repository.runs[0]
 	if !containsAgentString(controllerRun.CapabilityScope, "web.search") || containsAgentString(controllerRun.CapabilityScope, "source.query_latest_items") {
 		t.Fatalf("controller scope = %#v", controllerRun.CapabilityScope)
 	}
-	if !fakeContextTraceContains(repository.contextTraces, "controller_scope_aligned") || !fakeObservationContains(repository.observations, "web.search", "succeeded") {
+	if !fakeContextTraceContains(repository.contextTraces, "controller_scope_aligned") {
 		t.Fatalf("traces = %#v observations = %#v", repository.contextTraces, repository.observations)
 	}
 }
@@ -1530,10 +1529,16 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextWithoutPublishi
 		sources: []domain.Source{{ID: 42, UserID: 1, Name: "Go 官方博客", Status: domain.SourceStatusActive}},
 	}
 	llmClient := &fakeAgentConversationLLM{
-		response: llm.ChatResponse{
-			Provider: "openai_compatible",
-			Model:    "custom-model",
-			Content:  "基于最近条目，Go 官方博客有工具链更新。",
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-feed", Name: "feed__query_recent_items", Arguments: `{"limit":5}`},
+					{ID: "call-source", Name: "source__query_latest_items", Arguments: `{"source_name":"Go 官方博客","limit":3}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "基于工具结果，Go 官方博客有工具链更新。"},
 		},
 	}
 	service := NewAgentConversationService(
@@ -1559,11 +1564,23 @@ func TestAgentConversationServiceInjectsReadOnlyCapabilityContextWithoutPublishi
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
 	systemPrompt := llmClient.lastRequest.Messages[0].Content
-	if !strings.Contains(systemPrompt, "最近条目") || !strings.Contains(systemPrompt, "Go 工具链说明") || !strings.Contains(systemPrompt, "Evidence ref：item:2") {
-		t.Fatalf("system prompt missing recent items context: %q", systemPrompt)
+	if strings.Contains(systemPrompt, "Go 工具链说明") || strings.Contains(systemPrompt, "Evidence ref：item:2") {
+		t.Fatalf("system prompt should not pre-inject tool evidence: %q", systemPrompt)
 	}
-	if !strings.Contains(systemPrompt, "匹配来源最新条目") || !strings.Contains(systemPrompt, "Go 官方博客") || !strings.Contains(systemPrompt, "Go 工具链说明") {
-		t.Fatalf("system prompt missing source latest context: %q", systemPrompt)
+	if len(repository.observations) < 2 {
+		t.Fatalf("observations = %#v, want feed and source tool observations", repository.observations)
+	}
+	finalMessages := llmClient.lastRequest.Messages
+	joined := ""
+	for _, message := range finalMessages {
+		if message.Role == "tool" {
+			joined += message.Content + "\n"
+		}
+	}
+	for _, required := range []string{"Go 官方博客", "Go 工具链说明", "Evidence ref：item:2"} {
+		if !strings.Contains(joined, required) {
+			t.Fatalf("tool messages missing %q: %q", required, joined)
+		}
 	}
 }
 

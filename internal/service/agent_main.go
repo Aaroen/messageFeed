@@ -206,7 +206,7 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 		ContextBuilder: contextBuilder,
 		ToolExecutor:   s.agentCapabilityExecutor(),
 		ToolRegistry:   s.capabilityRegistry,
-		ToolKeys:       []string{"conversation.query_history", "agent.schedule_task", "agent.schedule_message", "web.search", "web.fetch_page", "web.extract_page", "repo.search", "repo.inspect_remote", "content.summarize_text"},
+		ToolKeys:       []string{"feed.query_recent_items", "source.query_latest_items", "conversation.query_history", "agent.schedule_task", "agent.schedule_message", "web.search", "web.fetch_page", "web.extract_page", "repo.search", "repo.inspect_remote", "content.summarize_text"},
 		LLMClient:      s.llmClient,
 		Now:            s.now,
 		SystemPrompt:   llm.MessageFeedAgentSystemPrompt,

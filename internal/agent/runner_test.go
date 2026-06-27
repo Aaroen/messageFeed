@@ -85,8 +85,7 @@ func TestTurnRunnerSystemPromptGuidesScheduledMessageConfirmation(t *testing.T) 
 	prompt := runner.buildSystemPrompt(ContextSnapshot{}, "搜索最新港股消息并分析")
 	for _, required := range []string{
 		"任务规格：",
-		"任务类型=news_analysis",
-		"领域=finance",
+		"结构化 PlanSpec",
 		"当前时间：2026-06-24 21:55:00 Asia/Shanghai",
 		"web.search",
 		"web.fetch_page",
@@ -97,7 +96,7 @@ func TestTurnRunnerSystemPromptGuidesScheduledMessageConfirmation(t *testing.T) 
 		"来源、抓取时间和摘要",
 		"归一化为 scheduled_at",
 		"优先使用 agent.schedule_task",
-		"再次调用 agent.schedule_task",
+		"再次调用对应定时工具",
 		"confirmed=true",
 	} {
 		if !strings.Contains(prompt, required) {
@@ -156,7 +155,7 @@ func TestTurnRunnerRejectsToolOutsideCurrentScope(t *testing.T) {
 	}
 }
 
-func TestTurnRunnerFallsBackOnLLMEmptyResponseWithEvidence(t *testing.T) {
+func TestTurnRunnerFailsOnLLMEmptyResponseWithEvidence(t *testing.T) {
 	now := time.Date(2026, 6, 26, 21, 0, 0, 0, time.UTC)
 	store := &runnerFakeTurnStore{}
 	runner := NewTurnRunner(TurnRunnerOptions{
@@ -198,32 +197,24 @@ func TestTurnRunnerFallsBackOnLLMEmptyResponseWithEvidence(t *testing.T) {
 		MessageType:     "text",
 		MessageText:     "搜索最新港股消息并分析",
 	})
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
+	if err == nil {
+		t.Fatalf("Run() error = nil, result = %#v", result)
 	}
-	if result.Turn.Status != domain.AgentTurnStatusSucceeded {
+	if result.Turn.Status != domain.AgentTurnStatusFailed {
 		t.Fatalf("turn status = %q", result.Turn.Status)
 	}
-	if !strings.Contains(result.Reply, "结论：") || !strings.Contains(result.Reply, "依据：") || !strings.Contains(result.Reply, "分析过程：") || !strings.Contains(result.Reply, "港股市场新闻") {
-		t.Fatalf("fallback reply = %q", result.Reply)
+	if strings.TrimSpace(result.Reply) != "" {
+		t.Fatalf("reply = %q, want empty on model failure", result.Reply)
 	}
-	for _, forbidden := range []string{"模型生成阶段没有返回可用内容", "用户上下文", "user_id", "web.search", "Evidence ref", "证据范围", "美伊谈判", "https://example.com/hk"} {
-		if strings.Contains(result.Reply, forbidden) {
-			t.Fatalf("fallback reply leaked %q: %q", forbidden, result.Reply)
-		}
-	}
-	if result.ModelProvider != "local" || result.Model != "deterministic-evidence-fallback" {
-		t.Fatalf("model fallback = %s/%s", result.ModelProvider, result.Model)
-	}
-	if len(result.Context.Observations) != 2 || result.Context.Observations[1].Capability != "controller.reply_fallback" {
+	if len(result.Context.Observations) != 1 || result.Context.Observations[0].Capability != "web.search" {
 		t.Fatalf("observations = %#v", result.Context.Observations)
 	}
-	if len(store.transcripts) != 1 || !strings.Contains(store.transcripts[0].Content, "港股市场新闻") {
+	if len(store.transcripts) != 0 {
 		t.Fatalf("transcripts = %#v", store.transcripts)
 	}
 }
 
-func TestFallbackEvidenceRejectsLowQualitySearchResults(t *testing.T) {
+func TestFallbackEvidenceKeepsParsedSearchResultsWithoutKeywordFiltering(t *testing.T) {
 	items := fallbackEvidenceItems("搜索最新港股消息并分析", []ContextBlock{
 		{
 			Name:          "联网搜索结果",
@@ -234,15 +225,15 @@ func TestFallbackEvidenceRejectsLowQualitySearchResults(t *testing.T) {
 			ItemCount: 2,
 		},
 	})
-	if len(items) != 1 {
+	if len(items) != 2 {
 		t.Fatalf("items = %#v", items)
 	}
-	if !strings.Contains(items[0].Title, "港股收评") {
-		t.Fatalf("unexpected item = %#v", items[0])
+	if !strings.Contains(items[0].Title, "港美股交易怎么操作") || !strings.Contains(items[1].Title, "港股收评") {
+		t.Fatalf("unexpected items = %#v", items)
 	}
 }
 
-func TestTurnRunnerQualityGateReturnsInsufficientEvidenceReply(t *testing.T) {
+func TestTurnRunnerReturnsModelErrorWithoutEvidenceFallback(t *testing.T) {
 	now := time.Date(2026, 6, 26, 21, 30, 0, 0, time.UTC)
 	runner := NewTurnRunner(TurnRunnerOptions{
 		Store: &runnerFakeTurnStore{},
@@ -272,21 +263,12 @@ func TestTurnRunnerQualityGateReturnsInsufficientEvidenceReply(t *testing.T) {
 		MessageType:     "text",
 		MessageText:     "搜索最新港股消息并分析",
 	})
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if !strings.Contains(result.Reply, "未检索到足够可靠的相关证据") {
-		t.Fatalf("reply = %q", result.Reply)
-	}
-	if strings.Contains(result.Reply, "港美股交易怎么操作") {
-		t.Fatalf("reply used low quality evidence: %q", result.Reply)
-	}
-	if len(result.Context.Observations) == 0 || result.Context.Observations[len(result.Context.Observations)-1].Capability != "controller.quality_gate" {
-		t.Fatalf("observations = %#v", result.Context.Observations)
+	if err == nil {
+		t.Fatalf("Run() error = nil, result = %#v", result)
 	}
 }
 
-func TestTurnRunnerQualityGateReplacesUnsupportedModelReply(t *testing.T) {
+func TestTurnRunnerDoesNotReplaceModelReplyWithKeywordQualityGate(t *testing.T) {
 	now := time.Date(2026, 6, 26, 21, 45, 0, 0, time.UTC)
 	runner := NewTurnRunner(TurnRunnerOptions{
 		Store: &runnerFakeTurnStore{},
@@ -321,11 +303,8 @@ func TestTurnRunnerQualityGateReplacesUnsupportedModelReply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if !strings.Contains(result.Reply, "不足以支撑偏弱") {
+	if !strings.Contains(result.Reply, "偏弱") {
 		t.Fatalf("reply = %q", result.Reply)
-	}
-	if len(result.Context.Observations) == 0 || result.Context.Observations[len(result.Context.Observations)-1].Capability != "controller.quality_gate" {
-		t.Fatalf("observations = %#v", result.Context.Observations)
 	}
 }
 

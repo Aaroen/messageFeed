@@ -47,6 +47,7 @@ type CapabilityExecuteInput struct {
 	TurnID          int64
 	ControllerRunID int64
 	Message         string
+	RawArguments    string
 }
 
 type CapabilityExecuteResult struct {
@@ -266,102 +267,23 @@ func (b *DefaultContextBuilder) capabilityKeysForInput(input ContextBuildInput) 
 }
 
 func canPrefetchContextCapability(key string) bool {
-	switch strings.TrimSpace(key) {
-	case "feed.query_recent_items", "source.query_latest_items", "web.search", "content.summarize_text":
-		return true
-	default:
-		return false
-	}
+	return false
 }
 
 func ClassifyHistoryNeed(text string) HistoryNeedHint {
-	normalized := strings.TrimSpace(text)
-	if normalized == "" {
-		return HistoryNeedNone
-	}
-	requiredTerms := []string{"之前", "以前", "上次", "上回", "我说过", "你说过", "还记得", "记得我", "历史记录", "第一条", "第一句", "最早", "最开始", "最初", "开头"}
-	for _, term := range requiredTerms {
-		if strings.Contains(normalized, term) {
-			return HistoryNeedRequired
-		}
-	}
-	possibleTerms := []string{"继续", "刚才", "刚刚", "那个", "前面", "前文", "刚提到", "按之前", "接着"}
-	for _, term := range possibleTerms {
-		if strings.Contains(normalized, term) {
-			return HistoryNeedPossible
-		}
-	}
 	return HistoryNeedNone
 }
 
 func ShouldQueryConversationHistory(hint HistoryNeedHint, message string, recent []ContextMessage) bool {
-	switch hint {
-	case HistoryNeedRequired:
-		return !recentWindowHasEvidence(message, recent, true)
-	case HistoryNeedPossible:
-		return !recentWindowHasEvidence(message, recent, false)
-	default:
-		return false
-	}
+	return false
 }
 
 func recentWindowHasEvidence(message string, recent []ContextMessage, requireKeyword bool) bool {
-	if len(recent) == 0 {
-		return false
-	}
-	keywords := historySearchKeywords(message)
-	if len(keywords) == 0 {
-		return !requireKeyword
-	}
-	for _, recentMessage := range recent {
-		content := strings.ToLower(recentMessage.Content)
-		for _, keyword := range keywords {
-			if strings.Contains(content, strings.ToLower(keyword)) {
-				return true
-			}
-		}
-	}
 	return false
 }
 
 func HistorySearchKeyword(message string) string {
-	keywords := historySearchKeywords(message)
-	if len(keywords) == 0 {
-		return ""
-	}
-	return keywords[0]
-}
-
-func historySearchKeywords(message string) []string {
-	replacer := strings.NewReplacer(
-		"之前", " ", "以前", " ", "上次", " ", "上回", " ", "我说过", " ", "你说过", " ", "还记得", " ", "记得我", " ",
-		"继续", " ", "刚才", " ", "刚刚", " ", "那个", " ", "前面", " ", "前文", " ", "刚提到", " ", "按之前", " ", "接着", " ",
-		"什么", " ", "哪些", " ", "哪个", " ", "怎么", " ", "吗", " ", "呢", " ", "的", " ", "了", " ",
-	)
-	cleaned := replacer.Replace(strings.TrimSpace(message))
-	fields := strings.FieldsFunc(cleaned, func(r rune) bool {
-		switch {
-		case r >= '0' && r <= '9':
-			return false
-		case r >= 'a' && r <= 'z':
-			return false
-		case r >= 'A' && r <= 'Z':
-			return false
-		case r >= '\u4e00' && r <= '\u9fff':
-			return false
-		default:
-			return true
-		}
-	})
-	keywords := make([]string, 0, len(fields))
-	for _, field := range fields {
-		field = strings.TrimSpace(field)
-		if len([]rune(field)) < 2 {
-			continue
-		}
-		keywords = append(keywords, field)
-	}
-	return keywords
+	return ""
 }
 
 func FormatContextMessages(messages []ContextMessage) string {

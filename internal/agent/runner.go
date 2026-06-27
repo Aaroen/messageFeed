@@ -2,12 +2,10 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/observability"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -269,7 +267,7 @@ func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult
 
 func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (string, string, string, ContextSnapshot, error) {
 	if input.MessageType != "text" {
-		return "当前仅支持文本消息。", "", "", ContextSnapshot{}, nil
+		return "", "", "", ContextSnapshot{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_unsupported_message_type", "agent message type is unsupported", "agent.turn_runner.generate", true, nil)
 	}
 
 	snapshot := ContextSnapshot{}
@@ -291,36 +289,19 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 		}
 	}
 	if r.llmClient == nil {
-		return "已收到：" + input.MessageText, "", "", snapshot, nil
+		return "", "", "", snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_llm_client_unavailable", "agent llm client is unavailable", "agent.turn_runner.generate", true, nil)
 	}
 
 	systemPrompt := r.buildSystemPrompt(snapshot, input.MessageText)
 	messages := r.buildChatMessages(systemPrompt, snapshot, input.MessageText)
 	response, snapshot, err := r.chatWithTools(ctx, input, snapshot, messages)
 	if err != nil {
-		if isLLMEmptyResponse(err) {
-			if reply, fallbackSnapshot, ok := buildEvidenceFallbackReply(input.MessageText, snapshot); ok {
-				return reply, "local", "deterministic-evidence-fallback", fallbackSnapshot, nil
-			}
-		}
 		return "", "", "", snapshot, err
 	}
 	if strings.TrimSpace(response.Content) == "" {
-		if reply, fallbackSnapshot, ok := buildEvidenceFallbackReply(input.MessageText, snapshot); ok {
-			provider := strings.TrimSpace(response.Provider)
-			model := strings.TrimSpace(response.Model)
-			if provider == "" {
-				provider = "local"
-			}
-			if model == "" {
-				model = "deterministic-evidence-fallback"
-			}
-			return reply, provider, model, fallbackSnapshot, nil
-		}
 		return "", response.Provider, response.Model, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_empty_reply", "agent reply is empty", "agent.turn_runner.generate", true, nil)
 	}
-	reply, snapshot := applyAnswerQualityGate(input.MessageText, strings.TrimSpace(response.Content), snapshot)
-	return reply, response.Provider, response.Model, snapshot, nil
+	return strings.TrimSpace(response.Content), response.Provider, response.Model, snapshot, nil
 }
 
 func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, error) {
@@ -555,10 +536,7 @@ func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot, currentMessage 
 	if builder.Len() > 0 {
 		builder.WriteString("\n\n")
 	}
-	taskSpec := BuildTaskSpec(currentMessage)
-	builder.WriteString("任务规格：")
-	builder.WriteString(taskSpec.PromptText())
-	builder.WriteString("。回答必须围绕任务规格组织证据和结论；排除内容不得作为主要事实依据。")
+	builder.WriteString("任务规格：由主 Agent 的结构化 PlanSpec 和当前工具观察确定；不要根据固定关键词自行改写用户意图。")
 	builder.WriteString("\n\n")
 	now := r.now().In(time.FixedZone("Asia/Shanghai", 8*60*60))
 	builder.WriteString("当前时间：")
@@ -567,7 +545,7 @@ func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot, currentMessage 
 	builder.WriteString("\n\n")
 	builder.WriteString("能力边界：当前只允许执行已下发 capability scope 内的能力。只读本地查询、历史聊天查询、受限联网读取、远端仓库只读检查和文本总结可以执行；新增订阅、停用来源、通知配置、画像写入、金融告警或其他状态变更必须拒绝直接执行，并说明需要后续确认流程。联网信息必须保留来源、抓取时间和摘要，不得把外部内容改写为无来源事实；repo.inspect_remote 只能读取远端仓库元数据、README 和 license，不得克隆或写入本地文件。")
 	if r.toolExecutor != nil {
-		builder.WriteString("\n可用工具：如需查询更早企微聊天原文，只能调用 conversation.query_history；询问第一条、最早或最开始消息时使用 earliest 模式；按时间查询历史时使用 time_range 模式和 time_hint。若工具返回 has_older=false 且有命中记录，应确认该记录就是当前 session 起点。若最近聊天窗口已有明确证据且不需要确认会话边界，不要调用历史查询工具。需要联网检索网页时使用 web.search；需要读取指定 URL 时使用 web.fetch_page；需要抽取网页标题、正文摘要和主要链接时使用 web.extract_page。需要搜索参考仓库时使用 repo.search；需要检查 GitHub 仓库时使用 repo.inspect_remote，并且不得克隆仓库。需要创建定时提醒、定时检索、定时总结、日报或周报任务时优先使用 agent.schedule_task；agent.schedule_message 仅作为旧提醒兼容入口。模型必须结合当前时间和最近上下文，把用户的自然语言时间归一化为 scheduled_at，优先使用 RFC3339。除非用户已经明确确认创建，否则 confirmed 必须为 false；当用户回复“是的、确认、可以、对”等确认上一轮待创建任务时，必须补全上一轮目标和时间并再次调用 agent.schedule_task，且 confirmed=true，不得只口头表示会创建。")
+		builder.WriteString("\n可用工具：需要读取订阅条目时调用 feed.query_recent_items；需要读取指定来源最新条目时调用 source.query_latest_items。需要查询更早企微聊天原文时调用 conversation.query_history，并由你显式提供 mode、query 或 time_hint。需要联网检索网页时使用 web.search；需要读取指定 URL 时使用 web.fetch_page；需要抽取网页标题、正文摘要和主要链接时使用 web.extract_page。需要搜索参考仓库时使用 repo.search；需要检查 GitHub 仓库时使用 repo.inspect_remote，并且不得克隆仓库。需要创建定时提醒、定时检索、定时总结、日报或周报任务时优先使用 agent.schedule_task；agent.schedule_message 仅作为旧提醒兼容入口。模型必须结合当前时间和最近上下文，把用户的自然语言时间归一化为 scheduled_at，优先使用 RFC3339。除非用户已经明确确认创建，否则 confirmed 必须为 false；确认后必须再次调用对应定时工具并传 confirmed=true，不得只口头表示会创建。")
 	}
 	return builder.String()
 }
@@ -589,124 +567,6 @@ func capabilityKeyForToolName(name string) string {
 		return trimmed
 	}
 	return strings.ReplaceAll(trimmed, "__", ".")
-}
-
-func isLLMEmptyResponse(err error) bool {
-	var appErr *domain.AppError
-	return errors.As(err, &appErr) && appErr.Code == "llm_empty_response"
-}
-
-func buildEvidenceFallbackReply(message string, snapshot ContextSnapshot) (string, ContextSnapshot, bool) {
-	taskSpec := BuildTaskSpec(message)
-	items := fallbackEvidenceItems(message, snapshot.Blocks)
-	if len(items) == 0 {
-		if taskSpec.RequestsSearch() {
-			quality := EvaluateEvidenceQuality(taskSpec, nil)
-			snapshot = appendQualityGateObservation(snapshot, quality)
-			return quality.Reply, snapshot, true
-		}
-		return "", snapshot, false
-	}
-	evidence := fallbackItemsToEvidenceInputs(items)
-	if quality := EvaluateEvidenceQuality(taskSpec, evidence); !quality.Passed {
-		snapshot = appendQualityGateObservation(snapshot, quality)
-		return quality.Reply, snapshot, true
-	}
-
-	var builder strings.Builder
-	builder.WriteString("结论：")
-	builder.WriteString(fallbackConclusion(items))
-	limit := len(items)
-	if limit > 3 {
-		limit = 3
-	}
-	builder.WriteString("\n\n依据：")
-	for index := 0; index < limit; index++ {
-		item := items[index]
-		builder.WriteString("\n")
-		builder.WriteString(strconv.Itoa(index + 1))
-		builder.WriteString(". ")
-		builder.WriteString(item.Title)
-		if item.Source != "" {
-			builder.WriteString("（")
-			builder.WriteString(item.Source)
-			builder.WriteString("）")
-		}
-		if item.PublishedAt != "" {
-			builder.WriteString("，时间：")
-			builder.WriteString(item.PublishedAt)
-		}
-		if item.Summary != "" {
-			builder.WriteString("\n   ")
-			builder.WriteString(trimRunes(item.Summary, 220))
-		}
-	}
-	builder.WriteString("\n\n分析过程：")
-	builder.WriteString(fallbackAnalysis(items))
-	reply := builder.String()
-	if quality := EvaluateAnswerQuality(taskSpec, reply, evidence); !quality.Passed {
-		snapshot = appendQualityGateObservation(snapshot, quality)
-		return quality.Reply, snapshot, true
-	}
-
-	snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
-		Capability: "controller.reply_fallback",
-		Decision:   string(PolicyDecisionAllow),
-		Status:     "succeeded",
-		Summary:    "llm returned empty response; generated evidence-bound fallback reply",
-	})
-	return reply, snapshot, true
-}
-
-func applyAnswerQualityGate(message string, reply string, snapshot ContextSnapshot) (string, ContextSnapshot) {
-	taskSpec := BuildTaskSpec(message)
-	if !taskSpec.RequestsSearch() || snapshotHasCapabilityDenial(snapshot) {
-		return reply, snapshot
-	}
-	evidence := fallbackItemsToEvidenceInputs(fallbackEvidenceItems(message, snapshot.Blocks))
-	quality := EvaluateAnswerQuality(taskSpec, reply, evidence)
-	if quality.Passed {
-		return reply, snapshot
-	}
-	snapshot = appendQualityGateObservation(snapshot, quality)
-	return quality.Reply, snapshot
-}
-
-func snapshotHasCapabilityDenial(snapshot ContextSnapshot) bool {
-	for _, observation := range snapshot.Observations {
-		if observation.Decision == string(PolicyDecisionForbidden) {
-			return true
-		}
-	}
-	return false
-}
-
-func appendQualityGateObservation(snapshot ContextSnapshot, quality AnswerQualityResult) ContextSnapshot {
-	status := "succeeded"
-	if !quality.Passed {
-		status = "degraded"
-	}
-	snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
-		Capability: "controller.quality_gate",
-		Decision:   string(PolicyDecisionAllow),
-		Status:     status,
-		Summary:    quality.Summary,
-	})
-	return snapshot
-}
-
-func fallbackItemsToEvidenceInputs(items []fallbackEvidenceItem) []EvidenceScoreInput {
-	evidence := make([]EvidenceScoreInput, 0, len(items))
-	for _, item := range items {
-		evidence = append(evidence, EvidenceScoreInput{
-			Title:       item.Title,
-			Source:      item.Source,
-			Summary:     item.Summary,
-			URL:         item.URL,
-			PublishedAt: item.PublishedAt,
-		})
-	}
-	return evidence
 }
 
 type fallbackEvidenceItem struct {
@@ -792,71 +652,6 @@ func fallbackRankEvidenceItems(taskSpec TaskSpec, items []fallbackEvidenceItem) 
 	filtered := make([]fallbackEvidenceItem, 0, len(scored))
 	for _, item := range scored {
 		filtered = append(filtered, item.item)
-	}
-	return filtered
-}
-
-func fallbackMessageRequestsSearch(message string) bool {
-	return fallbackContainsAny(message, []string{"搜索", "查询", "查找", "检索", "最新", "新闻", "资讯", "消息"})
-}
-
-func fallbackSearchTerms(message string) []string {
-	normalized := strings.NewReplacer(
-		"\n", " ",
-		"\t", " ",
-		"，", " ",
-		"。", " ",
-		"；", " ",
-		"、", " ",
-		"？", " ",
-		"！", " ",
-		",", " ",
-		";", " ",
-		"?", " ",
-		"!", " ",
-		"：", " ",
-		":", " ",
-	).Replace(strings.TrimSpace(message))
-	for _, phrase := range []string{
-		"重新", "请帮我", "帮我", "麻烦", "请",
-		"搜索一下", "查询一下", "查找一下", "检索一下",
-		"搜索", "查询", "查找", "检索",
-		"最新的", "最新", "消息", "新闻", "资讯",
-		"并分析一下", "并分析", "分析一下", "分析",
-		"一下", "相关", "关于",
-	} {
-		normalized = strings.ReplaceAll(normalized, phrase, " ")
-	}
-	fields := strings.Fields(normalized)
-	terms := make([]string, 0, len(fields))
-	seen := map[string]struct{}{}
-	for _, field := range fields {
-		field = strings.TrimSpace(field)
-		if len([]rune(field)) < 2 {
-			continue
-		}
-		if _, ok := seen[field]; ok {
-			continue
-		}
-		seen[field] = struct{}{}
-		terms = append(terms, field)
-	}
-	return terms
-}
-
-func fallbackFilterEvidenceItems(items []fallbackEvidenceItem, terms []string) []fallbackEvidenceItem {
-	if len(terms) == 0 {
-		return items
-	}
-	filtered := make([]fallbackEvidenceItem, 0, len(items))
-	for _, item := range items {
-		haystack := item.Title + " " + item.Source + " " + item.Summary
-		for _, term := range terms {
-			if strings.Contains(haystack, term) {
-				filtered = append(filtered, item)
-				break
-			}
-		}
 	}
 	return filtered
 }
@@ -967,73 +762,6 @@ func dedupeFallbackEvidenceItems(items []fallbackEvidenceItem) []fallbackEvidenc
 		deduped = append(deduped, item)
 	}
 	return deduped
-}
-
-func fallbackAnalysis(items []fallbackEvidenceItem) string {
-	joined := strings.Builder{}
-	for _, item := range items {
-		joined.WriteString(item.Title)
-		joined.WriteString(" ")
-		joined.WriteString(item.Summary)
-		joined.WriteString(" ")
-	}
-	text := joined.String()
-	points := make([]string, 0, 4)
-	if fallbackContainsAny(text, []string{"跌", "下挫", "低开", "重挫", "新低", "净卖出", "走弱"}) {
-		points = append(points, "多条依据出现下跌、走弱或净卖出信号，因此短线风险偏好偏弱。")
-	}
-	if fallbackContainsAny(text, []string{"涨", "上涨", "走强", "反弹", "净买入", "创新高"}) {
-		points = append(points, "若同时出现上涨、反弹或走强表述，说明行情并非单边下行，可能存在结构性修复。")
-	}
-	if fallbackContainsAny(text, []string{"IPO", "上市", "募资"}) {
-		points = append(points, "IPO、上市和募资信息反映一级市场活跃度，可作为风险偏好变化的辅助指标。")
-	}
-	if fallbackContainsAny(text, []string{"美联储", "美元", "利率", "关税", "地缘"}) {
-		points = append(points, "外部宏观变量会影响估值和资金流向，需要与指数、成交额共同验证。")
-	}
-	if len(points) == 0 {
-		points = append(points, "当前依据主要是新闻线索，尚不足以形成强结论；需要继续结合指数表现、成交额和资金流向验证。")
-	}
-	return strings.Join(points, "")
-}
-
-func fallbackConclusion(items []fallbackEvidenceItem) string {
-	joined := strings.Builder{}
-	for _, item := range items {
-		joined.WriteString(item.Title)
-		joined.WriteString(" ")
-		joined.WriteString(item.Summary)
-		joined.WriteString(" ")
-	}
-	text := joined.String()
-	switch {
-	case fallbackContainsAny(text, []string{"跌", "下挫", "低开", "重挫", "新低", "净卖出", "走弱"}):
-		return "当前消息面偏谨慎，短线需要重点关注指数表现、资金流向和科技股走势。"
-	case fallbackContainsAny(text, []string{"涨", "上涨", "走强", "反弹", "净买入", "创新高"}):
-		return "当前消息面存在结构性修复线索，但持续性仍需要成交额和资金流向确认。"
-	case fallbackContainsAny(text, []string{"IPO", "上市", "募资"}):
-		return "当前消息面显示融资和新股线索较活跃，可作为风险偏好观察点。"
-	default:
-		return "当前可用依据以新闻线索为主，结论应保持保守。"
-	}
-}
-
-func fallbackContainsAny(value string, terms []string) bool {
-	for _, term := range terms {
-		if strings.Contains(value, term) {
-			return true
-		}
-	}
-	return false
-}
-
-func trimRunes(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if limit <= 0 || len([]rune(value)) <= limit {
-		return value
-	}
-	runes := []rune(value)
-	return string(runes[:limit]) + "..."
 }
 
 func (r *TurnRunner) failTurn(ctx context.Context, input TurnRunInput, cause error) domain.AgentTurn {
