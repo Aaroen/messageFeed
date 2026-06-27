@@ -49,11 +49,16 @@ func TestP0CapabilityRegistryContainsScheduleTask(t *testing.T) {
 	}
 }
 
-func TestPlannerSelectsScheduleTaskForReminder(t *testing.T) {
+func TestPlannerBuildFromSpecPromptsScheduleTask(t *testing.T) {
 	planner := NewPlanner(PlannerOptions{})
-	output := planner.Build(context.Background(), PlanInput{
+	output := planner.BuildFromSpec(context.Background(), PlanInput{
 		UserID: 1,
 		Goal:   "明天上午九点提醒我检查部署状态",
+	}, PlanSpec{
+		Intent:               "创建定时提醒",
+		TaskType:             "scheduled_task",
+		RequiredCapabilities: []string{"agent.schedule_task"},
+		RequiresSubAgent:     true,
 	})
 	if output.Plan.Status != "awaiting_approval" {
 		t.Fatalf("plan status = %q, want awaiting_approval", output.Plan.Status)
