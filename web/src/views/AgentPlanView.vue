@@ -328,6 +328,7 @@ const scheduledTaskID = computed(() => {
 })
 const isAgentDetailPage = computed(() => planID.value > 0 || scheduledTaskID.value > 0)
 const shouldShowAgentDashboard = computed(() => !isAgentDetailPage.value)
+const showLegacyDetailBlocks = false
 const detailPageTitle = computed(() => (scheduledTaskID.value > 0 ? '定时任务详情' : '执行过程详情'))
 const detailPageMeta = computed(() => {
   if (planID.value > 0) {
@@ -1434,6 +1435,104 @@ const taskRealInteractionSummaryItems = computed(() =>
     },
   ].filter((item) => item.summary),
 )
+const pipelineComplexityLabel = computed(() => {
+  const stepCount = sortedSteps.value.length
+  const externalAccess = permissionGovernance.value?.has_external_access === true
+  const requiresConfirmation = permissionGovernance.value?.requires_confirmation === true
+  if (stepCount >= 5 || requiresConfirmation || plan.value?.risk_level === 'high') {
+    return '高复杂度'
+  }
+  if (stepCount >= 3 || externalAccess || executorRuns.value.length >= 2) {
+    return '中等复杂度'
+  }
+  return '低复杂度'
+})
+const pipelineTaskUnderstanding = computed(() => {
+  if (!plan.value) {
+    return '等待加载任务理解结果'
+  }
+  return plan.value.summary || progress.value?.summary || '主 Agent 已创建执行计划。'
+})
+const pipelineComplexitySummary = computed(() => {
+  if (!plan.value) {
+    return '等待加载复杂度判断'
+  }
+  const parts = [
+    pipelineComplexityLabel.value,
+    `${sortedSteps.value.length} 个步骤`,
+    `${executorRuns.value.length} 个子 Agent`,
+    plan.value.risk_level ? `风险 ${plan.value.risk_level}` : '',
+    planPermissionSummary.value ? `权限 ${planPermissionSummary.value}` : '',
+    planBudgetSummary.value ? `预算 ${planBudgetSummary.value}` : '',
+  ].filter(Boolean)
+  return parts.join(' / ')
+})
+const pipelinePromptContextSummary = computed(() => {
+  const contextTraceCount = orderedRuns.value.reduce((count, run) => count + (run.context_traces?.length || 0), 0)
+  const controllerScope = controllerRun.value?.capability_scope?.length
+    ? joined(controllerRun.value.capability_scope)
+    : joined(plan.value?.allowed_scopes || [])
+  const parts = [
+    controllerRun.value?.model_key ? `模型 ${controllerRun.value.model_key}` : '',
+    controllerScope !== '无' ? `授权能力 ${controllerScope}` : '',
+    contextTraceCount ? `上下文快照 ${contextTraceCount}` : '',
+    controllerRun.value?.context_trace_ref ? `主上下文 ${controllerRun.value.context_trace_ref}` : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' / ') : '主 Agent 已按任务规格准备子 Agent 上下文。'
+})
+const pipelineSubAgentSummary = computed(() => {
+  if (!executorRuns.value.length && !sortedSteps.value.length) {
+    return '尚未生成子 Agent 执行记录'
+  }
+  const failed = executorRuns.value.filter((run) => run.status === 'failed').length + failedStepCount.value
+  const active = executorRuns.value.filter((run) => run.status === 'running' || run.status === 'executing').length + activeStepCount.value
+  const parts = [
+    executorRuns.value.length ? `executor ${executorRuns.value.length}` : '',
+    sortedSteps.value.length ? `步骤 ${completedStepCount.value}/${sortedSteps.value.length}` : '',
+    active ? `执行中 ${active}` : '',
+    failed ? `失败 ${failed}` : '',
+  ].filter(Boolean)
+  return parts.join(' / ')
+})
+const pipelineResultSummary = computed(() => {
+  if (!plan.value) {
+    return '等待结果汇总'
+  }
+  if (plan.value.error_message) {
+    return plan.value.error_message
+  }
+  return plan.value.impact_summary || progress.value?.summary || plan.value.summary || '主 Agent 已汇总子 Agent 输出。'
+})
+const pipelineQualitySummary = computed(() => {
+  const parts = [
+    planQualitySummary.value ? `质量 ${planQualitySummary.value}` : '',
+    runtimeObservabilitySummary.value ? `观测 ${runtimeObservabilitySummary.value}` : '',
+    handoffSummary.value ? `接管 ${handoffSummary.value}` : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' / ') : '未记录额外质量门禁摘要。'
+})
+const pipelineDeliverySummary = computed(() => {
+  if (!plan.value && !scheduledTasks.value.length) {
+    return '等待最终交付状态'
+  }
+  const parts = [
+    plan.value ? `计划 ${statusLabel(plan.value.status)}` : '',
+    progress.value?.next_action ? `下一步 ${progress.value.next_action}` : '',
+    scheduledTasks.value.length ? `定时任务 ${scheduledTasks.value.length}` : '',
+    plan.value?.completed_at ? `完成 ${formatTime(plan.value.completed_at)}` : '',
+    plan.value?.failed_at ? `失败 ${formatTime(plan.value.failed_at)}` : '',
+  ].filter(Boolean)
+  return parts.join(' / ') || '已进入最终交付阶段。'
+})
+const pipelineEventSummary = computed(() => {
+  if (!recentEvents.value.length) {
+    return '暂无额外事件'
+  }
+  return recentEvents.value
+    .slice(0, 4)
+    .map((event) => `${eventKindLabel(event.kind)}:${event.title || event.id}`)
+    .join(' / ')
+})
 const hasMultiTurnContext = computed(() =>
   Boolean(
     multiTurnOriginalGoal.value ||
@@ -2075,6 +2174,25 @@ function runSummary(run: AgentRun) {
     return run.context_trace_ref
   }
   return run.model_key || '未记录输出引用'
+}
+
+function runSteps(run: AgentRun) {
+  return sortedSteps.value.filter((step) => step.executor_run_id === run.id)
+}
+
+function runDuration(run: AgentRun) {
+  const start = Date.parse(run.started_at || '')
+  const end = Date.parse(run.completed_at || '')
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return ''
+  }
+  return `${Math.round((end - start) / 1000)}s`
+}
+
+function runDetailSummary(run: AgentRun) {
+  const steps = runSteps(run)
+  const stepSummary = steps.map((step) => step.output_summary || step.input_summary || stepTitle(step)).filter(Boolean).join('；')
+  return stepSummary || runSummary(run)
 }
 
 function eventKindLabel(kind: string) {
@@ -3132,14 +3250,372 @@ onBeforeUnmount(() => {
           <div class="settings-panel__title">{{ detailPageTitle }}</div>
           <div class="settings-panel__meta">{{ detailPageMeta }}</div>
         </div>
-        <button class="settings-action-button agent-plan-page__refresh" type="button" @click="backToAgentDashboard">
-          <IconArrowLeft />
-          返回助理
-        </button>
+        <div class="approval-actions">
+          <button
+            v-if="canRetryPlan"
+            class="settings-action-button agent-plan-page__refresh"
+            type="button"
+            :disabled="retryingPlan"
+            @click="retryCurrentPlan"
+          >
+            <IconRefresh />
+            {{ retryingPlan ? '重试中' : '重试失败步骤' }}
+          </button>
+          <button
+            v-if="canRecoverPlan"
+            class="settings-action-button agent-plan-page__refresh"
+            type="button"
+            :disabled="recoveringPlan"
+            @click="recoverCurrentPlan"
+          >
+            <IconPlayCircle />
+            {{ recoveringPlan ? '恢复中' : '恢复计划' }}
+          </button>
+          <button class="settings-action-button agent-plan-page__refresh" type="button" :disabled="loading" @click="loadPlan()">
+            <IconRefresh :class="{ 'agent-plan-page__spin': refreshing }" />
+            {{ refreshing ? '刷新中' : '刷新' }}
+          </button>
+          <button class="settings-action-button agent-plan-page__refresh" type="button" @click="backToAgentDashboard">
+            <IconArrowLeft />
+            返回助理
+          </button>
+        </div>
       </div>
     </section>
 
-    <section v-if="isAgentDetailPage" class="settings-panel settings-panel--wide agent-plan-page__progress-panel">
+    <section v-if="isAgentDetailPage" class="settings-panel settings-panel--wide agent-plan-page__pipeline-panel">
+      <div v-if="errorMessage" class="settings-inline-alert settings-inline-alert--warning">
+        {{ errorMessage }}
+      </div>
+      <div v-if="refreshNotice && progress" class="settings-inline-alert settings-inline-alert--warning">
+        最近一次刷新失败：{{ refreshNotice }}
+      </div>
+      <div v-if="controlError" class="settings-inline-alert settings-inline-alert--warning">
+        {{ controlError }}
+      </div>
+      <div v-if="streamError" class="settings-inline-alert settings-inline-alert--warning">
+        {{ streamError }}
+      </div>
+      <div v-if="loading && !plan" class="agent-plan-empty">加载中</div>
+
+      <div v-if="plan" class="agent-pipeline">
+        <article class="agent-pipeline-item">
+          <div class="agent-pipeline-item__marker">
+            <component :is="statusIcon(plan.status)" />
+          </div>
+          <div class="agent-pipeline-item__body">
+            <div class="agent-pipeline-item__top">
+              <strong>主 Agent 接收任务</strong>
+              <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(plan.status)}`">
+                {{ statusLabel(plan.status) }}
+              </span>
+            </div>
+            <div class="agent-plan-step__meta">
+              <span>plan #{{ plan.id }}</span>
+              <span>session #{{ plan.session_id }}</span>
+              <span>turn #{{ plan.turn_id }}</span>
+              <span>{{ formatTime(plan.created_at) }}</span>
+            </div>
+            <p>{{ plan.goal || '无任务目标' }}</p>
+          </div>
+        </article>
+
+        <article class="agent-pipeline-item">
+          <div class="agent-pipeline-item__marker">
+            <IconInfoCircle />
+          </div>
+          <div class="agent-pipeline-item__body">
+            <div class="agent-pipeline-item__top">
+              <strong>主 Agent 理解任务</strong>
+              <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(plan.policy_decision)}`">
+                {{ plan.policy_decision || '已解析' }}
+              </span>
+            </div>
+            <p>{{ pipelineTaskUnderstanding }}</p>
+            <dl class="agent-pipeline-facts">
+              <div>
+                <dt>影响判断</dt>
+                <dd>{{ plan.impact_summary || '无' }}</dd>
+              </div>
+              <div v-if="hasMultiTurnContext">
+                <dt>上下文关联</dt>
+                <dd>{{ multiTurnLatestInstruction || multiTurnOriginalGoal || parentPlanGoal || '已关联历史任务上下文' }}</dd>
+              </div>
+            </dl>
+          </div>
+        </article>
+
+        <article class="agent-pipeline-item">
+          <div class="agent-pipeline-item__marker">
+            <IconClockCircle />
+          </div>
+          <div class="agent-pipeline-item__body">
+            <div class="agent-pipeline-item__top">
+              <strong>判断复杂度、权限和预算</strong>
+              <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(plan.risk_level)}`">
+                {{ pipelineComplexityLabel }}
+              </span>
+            </div>
+            <p>{{ pipelineComplexitySummary }}</p>
+            <dl class="agent-pipeline-facts">
+              <div>
+                <dt>授权范围</dt>
+                <dd>{{ joined(plan.allowed_scopes) }}</dd>
+              </div>
+              <div>
+                <dt>确认策略</dt>
+                <dd>{{ plan.confirmation_policy || '无' }}</dd>
+              </div>
+              <div v-if="planBudgetSummary">
+                <dt>预算</dt>
+                <dd>{{ planBudgetSummary }}</dd>
+              </div>
+            </dl>
+          </div>
+        </article>
+
+        <article class="agent-pipeline-item">
+          <div class="agent-pipeline-item__marker">
+            <IconThunderbolt />
+          </div>
+          <div class="agent-pipeline-item__body">
+            <div class="agent-pipeline-item__top">
+              <strong>生成提示词并合成子 Agent 上下文</strong>
+              <span class="agent-plan-status agent-plan-status--neutral">{{ streamStatusLabel }}</span>
+            </div>
+            <p>{{ pipelinePromptContextSummary }}</p>
+            <dl class="agent-pipeline-facts">
+              <div v-if="controllerRun">
+                <dt>主 Agent run</dt>
+                <dd>#{{ controllerRun.id }} / {{ controllerRun.model_key || '无模型' }}</dd>
+              </div>
+              <div>
+                <dt>能力范围</dt>
+                <dd>{{ joined(controllerRun?.capability_scope || plan.allowed_scopes) }}</dd>
+              </div>
+              <div v-if="controllerRun?.context_traces?.length">
+                <dt>上下文快照</dt>
+                <dd>{{ controllerRun.context_traces.length }} 条 / token {{ controllerRun.context_traces.reduce((sum, trace) => sum + trace.token_estimate, 0) }}</dd>
+              </div>
+            </dl>
+          </div>
+        </article>
+
+        <article class="agent-pipeline-item">
+          <div class="agent-pipeline-item__marker">
+            <IconPlayCircle />
+          </div>
+          <div class="agent-pipeline-item__body">
+            <div class="agent-pipeline-item__top">
+              <strong>启动子 Agent 执行</strong>
+              <span class="agent-plan-status" :class="`agent-plan-status--${failedStepCount ? 'bad' : activeStepCount ? 'active' : 'ok'}`">
+                {{ pipelineSubAgentSummary || '无子 Agent' }}
+              </span>
+            </div>
+            <p>子 Agent 默认收起；展开后查看工具调用、观察、产物、错误和重试记录。</p>
+
+            <div v-if="executorRuns.length" class="agent-subagent-list">
+              <details v-for="run in executorRuns" :key="run.id" class="agent-subagent-card">
+                <summary>
+                  <span>{{ runRoleLabel(run.role) }} #{{ run.id }}</span>
+                  <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(run.status)}`">
+                    {{ statusLabel(run.status) }}
+                  </span>
+                  <span>{{ run.capability_scope?.[0] || '能力执行' }}</span>
+                </summary>
+                <div class="agent-subagent-card__body">
+                  <div class="agent-plan-step__meta">
+                    <span>{{ run.model_key || '无模型' }}</span>
+                    <span>{{ joined(run.capability_scope) }}</span>
+                    <span>{{ formatTime(run.completed_at || run.started_at) }}</span>
+                    <span v-if="runDuration(run)">耗时 {{ runDuration(run) }}</span>
+                  </div>
+                  <p>{{ runDetailSummary(run) }}</p>
+                  <div v-if="runSteps(run).length" class="agent-subagent-card__section">
+                    <strong>计划步骤</strong>
+                    <div v-for="step in runSteps(run)" :key="step.id" class="agent-subagent-record">
+                      <span>{{ step.step_order }}. {{ stepTitle(step) }}</span>
+                      <span>{{ statusLabel(step.status) }}</span>
+                      <p v-if="step.input_summary">输入：{{ step.input_summary }}</p>
+                      <p v-if="step.output_summary">输出：{{ step.output_summary }}</p>
+                      <p v-if="step.error_message" class="agent-plan-step__error">{{ step.error_message }}</p>
+                      <p v-if="step.artifact_refs?.length">证据：{{ joined(step.artifact_refs) }}</p>
+                      <button
+                        v-if="isRetryableStep(step)"
+                        class="settings-action-button"
+                        type="button"
+                        :disabled="retryingStepID === step.id"
+                        @click="retryStep(step)"
+                      >
+                        <IconRefresh />
+                        {{ retryingStepID === step.id ? '重试中' : '重试步骤' }}
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="run.observations?.length" class="agent-subagent-card__section">
+                    <strong>工具观察</strong>
+                    <div v-for="observation in run.observations" :key="observation.id" class="agent-subagent-record">
+                      <span>{{ observation.capability_key || 'observation' }} #{{ observation.id }}</span>
+                      <span>{{ statusLabel(observation.status) }}</span>
+                      <p v-if="observation.input_summary">输入：{{ observation.input_summary }}</p>
+                      <p v-if="observation.output_summary">输出：{{ observation.output_summary }}</p>
+                      <p v-if="observation.error" class="agent-plan-step__error">{{ observation.error }}</p>
+                      <p v-if="observation.artifact_refs?.length">证据：{{ joined(observation.artifact_refs) }}</p>
+                    </div>
+                  </div>
+                  <div v-if="run.artifacts?.length" class="agent-subagent-card__section">
+                    <strong>证据产物</strong>
+                    <div v-for="artifact in run.artifacts" :key="artifact.id" class="agent-subagent-record">
+                      <span>{{ artifact.artifact_type || 'artifact' }} #{{ artifact.id }}</span>
+                      <span>{{ artifact.content_ref || '无引用' }}</span>
+                      <p v-if="artifact.summary">{{ artifact.summary }}</p>
+                      <p v-if="artifact.source_refs?.length">来源：{{ joined(artifact.source_refs) }}</p>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </div>
+            <div v-else-if="sortedSteps.length" class="agent-subagent-list">
+              <details v-for="step in sortedSteps" :key="step.id" class="agent-subagent-card">
+                <summary>
+                  <span>{{ stepTitle(step) }}</span>
+                  <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(step.status)}`">
+                    {{ statusLabel(step.status) }}
+                  </span>
+                  <span>{{ step.capability_key || '未指定能力' }}</span>
+                </summary>
+                <div class="agent-subagent-card__body">
+                  <p v-if="step.input_summary">输入：{{ step.input_summary }}</p>
+                  <p v-if="step.output_summary">输出：{{ step.output_summary }}</p>
+                  <p v-if="step.error_message" class="agent-plan-step__error">{{ step.error_message }}</p>
+                  <p v-if="step.artifact_refs?.length">证据：{{ joined(step.artifact_refs) }}</p>
+                </div>
+              </details>
+            </div>
+            <div v-else class="agent-plan-empty">暂无子 Agent 执行记录</div>
+          </div>
+        </article>
+
+        <article class="agent-pipeline-item">
+          <div class="agent-pipeline-item__marker">
+            <IconCheckCircleFill />
+          </div>
+          <div class="agent-pipeline-item__body">
+            <div class="agent-pipeline-item__top">
+              <strong>主 Agent 汇总结果</strong>
+              <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(plan.status)}`">
+                {{ statusLabel(plan.status) }}
+              </span>
+            </div>
+            <p>{{ pipelineResultSummary }}</p>
+          </div>
+        </article>
+
+        <article class="agent-pipeline-item">
+          <div class="agent-pipeline-item__marker">
+            <IconExclamationCircleFill />
+          </div>
+          <div class="agent-pipeline-item__body">
+            <div class="agent-pipeline-item__top">
+              <strong>质量门禁与运行观测</strong>
+              <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(asText(resultQuality?.status))}`">
+                {{ asText(resultQuality?.status) || '未记录' }}
+              </span>
+            </div>
+            <p>{{ pipelineQualitySummary }}</p>
+          </div>
+        </article>
+
+        <article class="agent-pipeline-item">
+          <div class="agent-pipeline-item__marker">
+            <IconClockCircle />
+          </div>
+          <div class="agent-pipeline-item__body">
+            <div class="agent-pipeline-item__top">
+              <strong>最终交付与后续动作</strong>
+              <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(progress?.status || plan.status)}`">
+                {{ statusLabel(progress?.status || plan.status) }}
+              </span>
+            </div>
+            <p>{{ pipelineDeliverySummary }}</p>
+            <p v-if="pipelineEventSummary !== '暂无额外事件'">事件：{{ pipelineEventSummary }}</p>
+            <div v-if="scheduledTasks.length" class="agent-subagent-list">
+              <details v-for="task in scheduledTasks" :key="task.id" class="agent-subagent-card">
+                <summary>
+                  <span>{{ task.task_type || 'agent_task' }} #{{ task.id }}</span>
+                  <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(task.status)}`">
+                    {{ statusLabel(task.status) }}
+                  </span>
+                  <span>{{ formatTime(task.scheduled_at) }}</span>
+                </summary>
+                <div class="agent-subagent-card__body">
+                  <p>{{ task.goal || '无目标' }}</p>
+                  <p v-if="task.last_error" class="agent-plan-step__error">{{ task.last_error }}</p>
+                  <div class="approval-actions">
+                    <button
+                      v-if="isRecoverableScheduledTask(task.status)"
+                      class="settings-action-button"
+                      type="button"
+                      :disabled="recoveringTaskID === task.id"
+                      @click="recoverScheduledTask(task.id)"
+                    >
+                      <IconPlayCircle />
+                      {{ recoveringTaskID === task.id ? '恢复中' : '恢复任务' }}
+                    </button>
+                    <button
+                      v-if="isCancelableScheduledTask(task.status)"
+                      class="settings-action-button"
+                      type="button"
+                      :disabled="cancelingTaskID === task.id"
+                      @click="cancelScheduledTask(task.id)"
+                    >
+                      <IconCloseCircleFill />
+                      {{ cancelingTaskID === task.id ? '取消中' : '取消任务' }}
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </div>
+            <div v-if="plan.approvals?.length" class="agent-subagent-list">
+              <details v-for="approval in plan.approvals" :key="approval.id" class="agent-subagent-card">
+                <summary>
+                  <span>{{ approval.channel || 'web' }} 审批 #{{ approval.id }}</span>
+                  <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(approval.status)}`">
+                    {{ statusLabel(approval.status) }}
+                  </span>
+                  <span>过期 {{ formatTime(approval.expires_at) }}</span>
+                </summary>
+                <div class="agent-subagent-card__body">
+                  <p v-if="approval.decided_at">决策时间：{{ formatTime(approval.decided_at) }}</p>
+                  <div v-if="approval.status === 'pending'" class="approval-actions">
+                    <button
+                      class="settings-action-button"
+                      type="button"
+                      :disabled="decidingApprovalID === approval.id"
+                      @click="decideApproval(approval.id, 'reject')"
+                    >
+                      <IconCloseCircleFill />
+                      {{ decidingApprovalID === approval.id ? '处理中' : '拒绝' }}
+                    </button>
+                    <button
+                      class="settings-action-button"
+                      type="button"
+                      :disabled="decidingApprovalID === approval.id"
+                      @click="decideApproval(approval.id, 'approve')"
+                    >
+                      <IconCheckCircleFill />
+                      {{ decidingApprovalID === approval.id ? '处理中' : '批准' }}
+                    </button>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section v-if="showLegacyDetailBlocks && isAgentDetailPage" class="settings-panel settings-panel--wide agent-plan-page__progress-panel">
 	      <div class="settings-panel__header agent-plan-page__header">
         <div>
           <div class="settings-panel__title">Agent 执行进度</div>
@@ -3325,7 +3801,7 @@ onBeforeUnmount(() => {
 	      </template>
     </section>
 
-    <section v-if="progressPhases.length" class="settings-panel settings-panel--wide">
+    <section v-if="showLegacyDetailBlocks && progressPhases.length" class="settings-panel settings-panel--wide">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">统一进度阶段</div>
@@ -3355,7 +3831,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="plan" class="settings-panel settings-panel--wide">
+    <section v-if="showLegacyDetailBlocks && plan" class="settings-panel settings-panel--wide">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">实施步骤</div>
@@ -3404,7 +3880,7 @@ onBeforeUnmount(() => {
       <div v-else class="agent-plan-empty">暂无步骤</div>
     </section>
 
-    <section v-if="scheduledTasks.length" class="settings-panel settings-panel--wide">
+    <section v-if="showLegacyDetailBlocks && scheduledTasks.length" class="settings-panel settings-panel--wide">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">定时任务</div>
@@ -3456,7 +3932,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="plan" class="settings-panel settings-panel--wide">
+    <section v-if="showLegacyDetailBlocks && plan" class="settings-panel settings-panel--wide">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">调度记录</div>
@@ -3508,7 +3984,7 @@ onBeforeUnmount(() => {
       <div v-else class="agent-plan-empty">暂无调度记录</div>
     </section>
 
-    <section v-if="plan?.approvals?.length" class="settings-panel settings-panel--wide">
+    <section v-if="showLegacyDetailBlocks && plan?.approvals?.length" class="settings-panel settings-panel--wide">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">确认记录</div>
@@ -3557,7 +4033,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-if="recentEvents.length" class="settings-panel settings-panel--wide">
+    <section v-if="showLegacyDetailBlocks && recentEvents.length" class="settings-panel settings-panel--wide">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">最近事件</div>
