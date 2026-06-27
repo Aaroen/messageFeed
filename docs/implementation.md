@@ -20,9 +20,9 @@
 | 项目 | 当前状态 |
 | --- | --- |
 | 分支 | `master` |
-| 工作区 | Agent 通用任务规格、证据评分过滤和质量门禁已实现并通过后端验证；提交推送后以 `git status -sb` 为准 |
+| 工作区 | Agent 主闭环服务已完成结构拆分；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-web-assistant-entry-plan.md` |
-| 最近本轮验证 | 本轮后端修复已通过 `go test ./...`、`go vet ./...`；上一轮前端入口修复已通过 `npm --prefix web run type-check`、`npm --prefix web run build`、`npm --prefix web run test` |
+| 最近本轮验证 | 本轮结构拆分已通过 `go test ./internal/service -run TestAgentConversationServiceUsesFallbackReplyWithoutLLM`；`go test ./internal/service` 仍因主 Agent 模型规划尚未接入 scope 导致搜索、历史和定时相关旧用例失败 |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
 
 ## 3. 已完成能力
@@ -33,6 +33,7 @@
 - Web 侧已有 Agent 任务入口、任务工作台、计划进度页、审批页、证据与回放相关视图。
 - 后端已形成任务聚合接口，用于向 Web 工作台提供任务、SLA、成本、告警、部署验证、企业微信联动、进度证据、恢复策略和评测摘要。
 - 已具备任务进度 URL 字段，并在 Web 发起任务后可跳转进度页。
+- `AgentConversationService` 主闭环已完成结构拆分：`agent_main.go` 仅保留服务装配、构造、runner 初始化和 capability executor 组装；入口接收、会话解析、企微按钮控制、多轮续接、turn 执行管线、计划反馈、turn 结果、controller run 记录、通用工具和契约类型已迁入独立文件。
 
 ### 3.2 企业微信接入与交互
 
@@ -69,6 +70,16 @@
 - 已补充搜索浏览强化回归测试：覆盖查询归一化、Bing 普通网页解析、RSS 新闻解析、DuckDuckGo challenge 后外部搜索 fallback、搜索任务优先使用相关 web 证据、用户可见降级回复不泄露内部字段，以及真实 repository 运行记录更新字段。
 - 已补充任务规格、证据评分和质量门禁回归测试：覆盖财经新闻分析识别、内部对话历史查询不误触发外部检索、低质量财经教程页过滤、相关财经新闻保留、证据不足降级、结论方向与证据不一致时降级，以及权限拒绝类回答不被质量门禁覆盖。
 - 当前新增治理文件将部分逻辑从大文件中抽离，包括：
+  - `internal/service/agent_conversation_entry.go`
+  - `internal/service/agent_conversation_session.go`
+  - `internal/service/agent_button_control.go`
+  - `internal/service/agent_multiturn_flow.go`
+  - `internal/service/agent_turn_pipeline.go`
+  - `internal/service/agent_plan_feedback.go`
+  - `internal/service/agent_turn_result.go`
+  - `internal/service/agent_controller_run.go`
+  - `internal/service/agent_conversation_utils.go`
+  - `internal/service/agent_conversation_contracts.go`
   - `internal/service/agent_real_interaction_automation_governance.go`
   - `internal/service/agent_wechat_web_progress_link_governance.go`
   - `internal/service/agent_dual_end_run_loop_governance.go`
@@ -87,7 +98,8 @@
 | --- | --- | --- |
 | P1 | Web 浏览器进度地址权限校验与企业微信身份绑定仍需继续强化 | 进度与计划接口用户归属校验已有测试；OAuth / external account 绑定链路已有服务测试；当前轮处理助理顶部入口、三页滑动和 Agent 工作台用户化整理 |
 | P1 | Agent 能力注册、上下文记忆、计划执行和评测体系仍需按设计持续补齐 | 已有较多基础对象，但未能证明全部设计均已完整实现 |
-| P1 | 大文件职责边界仍不理想 | 需要继续拆分 `agent_session_service.go`、`agent_workflow_governance.go`、`AgentPlanView.vue` |
+| P1 | 主 Agent 模型规划尚未完全接入 service 主路径 | planner 已支持结构化 `PlanSpec`，但 `agent_main` 当前仍走旧 fallback `Build()`，导致搜索、历史和定时相关 service 旧用例在全量测试中失败；下一步应接入主 Agent 模型生成 `PlanSpec` 后调用 `BuildFromSpec()` |
+| P1 | 大文件职责边界仍不理想 | `agent_main.go` 已由约 3035 行降至 205 行；仍需要继续拆分 `agent_session_service.go`、`agent_workflow_governance.go`、`AgentPlanView.vue` |
 
 ## 5. 架构质量核对
 
@@ -95,6 +107,7 @@
 
 | 文件 | 行数 | 判断 |
 | --- | ---: | --- |
+| `internal/service/agent_main.go` | 205 | 已完成主闭环结构拆分；当前仅保留服务装配、构造、runner 初始化和 capability executor 组装 |
 | `internal/service/agent_session_service.go` | 4446 | 仍明显过大；已迁出任务列表聚合响应 DTO、任务摘要 DTO、转换函数、任务摘要状态 helper、基础治理审计快照 recorder、发布执行/日报闭环 recorder、发布窗口/外部监控 recorder、生产发布/上线交接 recorder、运行态参数/反馈闭环 recorder、放量阶段/运维处置 recorder 和审批执行/工单 SLA recorder，后续应继续拆分剩余审计 recorder、进度构造和服务编排 |
 | `internal/service/agent_workflow_governance.go` | 739 | 已明显低于此前 5000 行级别；本轮已迁出所有 `buildAgent*` 纯 builder，剩余内容主要为 admission、质量摘要、通用 helper 和 plan/domain 转换辅助 |
 | `web/src/views/AgentPlanView.vue` | 3680 | 仍明显过大；本轮已迁出两个企业微信摘要组件，后续应继续拆分 composable、摘要面板组件和任务卡片组件 |
@@ -451,6 +464,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 18. 当前补充修复：Web 端 Agent 详情页进一步改为单一流水线，不再平铺旧的进度、阶段、步骤、调度记录、确认记录和事件板块。流水线按真实执行顺序合并为主 Agent 接收任务、理解任务、复杂度/权限/预算判断、提示词与子 Agent 上下文、子 Agent 执行、结果汇总、质量门禁、最终交付；子 Agent 明细默认收起，可展开查看步骤、observation、artifact 和重试操作。验证命令：`npm --prefix web run type-check`、`npm --prefix web run test`、`npm --prefix web run build`。
 19. 当前补充修复：流水线详情页补齐主 Agent 节点的可展开明细，修正“生成提示词并合成子 Agent 上下文”显示实时连接“已关闭”导致信息不足的问题。该节点现在显示 controller run 合成状态，展开后展示任务包、上下文预算、上下文快照、controller observation 和 artifact；接收、理解、复杂度、结果汇总、质量门禁和交付节点也提供默认收起的详情。验证命令：`npm --prefix web run type-check`、`npm --prefix web run test`、`npm --prefix web run build`。
 20. 当前补充修复：企业微信异步任务在入站消息、会话和 turn 创建成功后立即发送接收确认：“已收到任务，后台正在处理，请稍等。完成后会在这里返回结果。”后台随后继续执行既有计划生成、子 Agent 执行、质量门禁和最终回复流程；接收确认写入 `wechat_work.task_accepted_feedback` 审计，且不包含计划 ID、预算、质量评分、权限、动作组件等内部执行信息。验证命令：`go test ./internal/service -run 'TestAgentConversationServiceQueuesTurnAndProcessesAsync|TestAgentConversationServiceSendsWeChatProgressNotificationWithAudit'`、`go test ./internal/service`。
+21. 当前补充修复：Agent 主闭环服务完成结构拆分。`agent_main.go` 从约 3035 行降至 205 行，仅保留服务装配、构造、runner 初始化和 capability executor 组装；新增或承接文件包括 `agent_conversation_entry.go`、`agent_conversation_session.go`、`agent_button_control.go`、`agent_multiturn_flow.go`、`agent_turn_pipeline.go`、`agent_plan_feedback.go`、`agent_turn_result.go`、`agent_controller_run.go`、`agent_conversation_utils.go`、`agent_conversation_contracts.go`。验证命令：`go test ./internal/service -run TestAgentConversationServiceUsesFallbackReplyWithoutLLM`；`go test ./internal/service` 仍受主 Agent 模型规划未接入影响失败，失败集中在搜索、历史和定时 scope 相关旧用例。
 
 ## 8. 最小验证命令
 
