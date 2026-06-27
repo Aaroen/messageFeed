@@ -921,6 +921,7 @@ func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.To
 }
 
 func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityKey string, query string, limit int) (string, agent.CapabilityObservation, int, error) {
+	taskSpec := agent.BuildTaskSpec(query)
 	query = normalizeWebSearchQuery(query)
 	if limit < 1 {
 		limit = 5
@@ -941,7 +942,7 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, endpoint)
 	results := []agentWebSearchResult{}
 	if err == nil && !isDuckDuckGoSearchChallenge(body, statusCode) {
-		results = filterWebSearchResultsByQuery(parseDuckDuckGoResults(body, limit), query)
+		results = filterWebSearchResultsByTaskSpec(parseDuckDuckGoResults(body, limit), query, taskSpec)
 	}
 	if len(results) == 0 {
 		for _, webEndpoint := range webHTMLSearchEndpoints(query) {
@@ -950,7 +951,7 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 				err = webErr
 				continue
 			}
-			webResults := filterWebSearchResultsByQuery(parseBingResults(webBody, limit), query)
+			webResults := filterWebSearchResultsByTaskSpec(parseBingResults(webBody, limit), query, taskSpec)
 			if len(webResults) == 0 {
 				finalURL = webFinalURL
 				statusCode = webStatusCode
@@ -972,7 +973,7 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 				err = rssErr
 				continue
 			}
-			rssResults := filterWebSearchResultsByQuery(parseRSSSearchResults(rssBody, limit), query)
+			rssResults := filterWebSearchResultsByTaskSpec(parseRSSSearchResults(rssBody, limit), query, taskSpec)
 			if len(rssResults) == 0 {
 				finalURL = rssFinalURL
 				statusCode = rssStatusCode
@@ -1768,6 +1769,36 @@ func filterWebSearchResultsByQuery(results []agentWebSearchResult, query string)
 		haystack := result.Title + " " + result.Source + " " + result.Snippet
 		for _, term := range terms {
 			if strings.Contains(haystack, term) {
+				filtered = append(filtered, result)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+func filterWebSearchResultsByTaskSpec(results []agentWebSearchResult, query string, taskSpec agent.TaskSpec) []agentWebSearchResult {
+	if len(results) == 0 {
+		return nil
+	}
+	if len(taskSpec.QueryTerms) == 0 {
+		taskSpec = agent.BuildTaskSpec(query)
+	}
+	inputs := make([]agent.EvidenceScoreInput, 0, len(results))
+	for _, result := range results {
+		inputs = append(inputs, agent.EvidenceScoreInput{
+			Title:       result.Title,
+			Source:      result.Source,
+			Summary:     result.Snippet,
+			URL:         result.URL,
+			PublishedAt: result.PublishedAt,
+		})
+	}
+	filteredInputs := agent.FilterAndRankEvidence(taskSpec, inputs)
+	filtered := make([]agentWebSearchResult, 0, len(filteredInputs))
+	for _, input := range filteredInputs {
+		for _, result := range results {
+			if result.URL == input.URL && result.Title == input.Title {
 				filtered = append(filtered, result)
 				break
 			}

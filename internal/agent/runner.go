@@ -6,6 +6,7 @@ import (
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/observability"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -633,7 +634,6 @@ type fallbackEvidenceItem struct {
 func fallbackEvidenceItems(message string, blocks []ContextBlock) []fallbackEvidenceItem {
 	taskSpec := BuildTaskSpec(message)
 	searchTask := taskSpec.RequestsSearch()
-	terms := taskSpec.QueryTerms
 	webItems := make([]fallbackEvidenceItem, 0, 8)
 	localItems := make([]fallbackEvidenceItem, 0, 8)
 	items := make([]fallbackEvidenceItem, 0, 8)
@@ -649,10 +649,15 @@ func fallbackEvidenceItems(message string, blocks []ContextBlock) []fallbackEvid
 		localItems = append(localItems, parsed...)
 	}
 	if searchTask && len(webItems) > 0 {
-		if relevant := fallbackFilterEvidenceItems(webItems, terms); len(relevant) > 0 {
+		if relevant := fallbackRankEvidenceItems(taskSpec, webItems); len(relevant) > 0 {
 			return dedupeFallbackEvidenceItems(relevant)
 		}
-		return dedupeFallbackEvidenceItems(webItems)
+	}
+	if searchTask {
+		if relevant := fallbackRankEvidenceItems(taskSpec, localItems); len(relevant) > 0 {
+			return dedupeFallbackEvidenceItems(relevant)
+		}
+		return nil
 	}
 	items = append(items, webItems...)
 	items = append(items, localItems...)
@@ -670,6 +675,39 @@ func fallbackEvidenceItems(message string, blocks []ContextBlock) []fallbackEvid
 		}
 	}
 	return dedupeFallbackEvidenceItems(items)
+}
+
+func fallbackRankEvidenceItems(taskSpec TaskSpec, items []fallbackEvidenceItem) []fallbackEvidenceItem {
+	type scoredFallbackItem struct {
+		item  fallbackEvidenceItem
+		score EvidenceScore
+		index int
+	}
+	scored := make([]scoredFallbackItem, 0, len(items))
+	for index, item := range items {
+		score := ScoreEvidence(taskSpec, EvidenceScoreInput{
+			Title:       item.Title,
+			Source:      item.Source,
+			Summary:     item.Summary,
+			URL:         item.URL,
+			PublishedAt: item.PublishedAt,
+		})
+		if !score.Relevant {
+			continue
+		}
+		scored = append(scored, scoredFallbackItem{item: item, score: score, index: index})
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		if scored[i].score.Score == scored[j].score.Score {
+			return scored[i].index < scored[j].index
+		}
+		return scored[i].score.Score > scored[j].score.Score
+	})
+	filtered := make([]fallbackEvidenceItem, 0, len(scored))
+	for _, item := range scored {
+		filtered = append(filtered, item.item)
+	}
+	return filtered
 }
 
 func fallbackMessageRequestsSearch(message string) bool {

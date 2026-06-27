@@ -221,6 +221,25 @@ func TestTurnRunnerFallsBackOnLLMEmptyResponseWithEvidence(t *testing.T) {
 	}
 }
 
+func TestFallbackEvidenceRejectsLowQualitySearchResults(t *testing.T) {
+	items := fallbackEvidenceItems("搜索最新港股消息并分析", []ContextBlock{
+		{
+			Name:          "联网搜索结果",
+			CapabilityKey: "web.search",
+			Content: "工具：web.search\n查询：港股\n结果：\n" +
+				"1. 港美股交易怎么操作？新手完整交易流程讲解（湾区阿瑟）\nURL：https://bayase.com/hk-us-stock-guide\n摘要：大陆居民如何开户，讲解港股和美股交易规则、账户开通和零基础教程。\n" +
+				"2. 港股收评：恒生指数下跌，科技股走弱（财联社）\n发布时间：Fri, 26 Jun 2026 13:00:00 GMT\nURL：https://example.com/hk-news\n摘要：南向资金净卖出，腾讯、美团等科技股承压。",
+			ItemCount: 2,
+		},
+	})
+	if len(items) != 1 {
+		t.Fatalf("items = %#v", items)
+	}
+	if !strings.Contains(items[0].Title, "港股收评") {
+		t.Fatalf("unexpected item = %#v", items[0])
+	}
+}
+
 type runnerFakeChatClient struct {
 	calls     int
 	requests  []llm.ChatRequest

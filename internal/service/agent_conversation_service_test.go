@@ -155,6 +155,25 @@ func TestAgentWebSearchNormalizesQueryAndParsesRSSResults(t *testing.T) {
 	if len(bingResults) != 1 || bingResults[0].Title != "港股收评：恒指下跌，科技股走弱" {
 		t.Fatalf("bing results = %#v", bingResults)
 	}
+	mixedResults := []agentWebSearchResult{
+		{
+			Title:   "港美股交易怎么操作？新手完整交易流程讲解",
+			Source:  "湾区阿瑟",
+			URL:     "https://bayase.com/hk-us-stock-guide",
+			Snippet: "大陆居民如何开户，讲解港股和美股交易规则、账户开通和零基础教程。",
+		},
+		{
+			Title:       "港股收评：恒生指数下跌，科技股走弱",
+			Source:      "财联社",
+			URL:         "https://example.com/hk-news",
+			Snippet:     "南向资金净卖出，腾讯、美团等科技股承压。",
+			PublishedAt: "Fri, 26 Jun 2026 13:00:00 GMT",
+		},
+	}
+	filtered := filterWebSearchResultsByTaskSpec(mixedResults, "港股", agent.BuildTaskSpec("搜索最新港股消息并分析"))
+	if len(filtered) != 1 || filtered[0].Source != "财联社" {
+		t.Fatalf("filtered mixed results = %#v", filtered)
+	}
 	body := `<?xml version="1.0" encoding="UTF-8"?><rss><channel><item><title>港股风向标：恒指反弹受阻</title><link>https://example.com/hk-news</link><description><![CDATA[<p>恒指反弹受阻，科技股成交额放大。</p>]]></description><pubDate>Fri, 26 Jun 2026 12:00:00 GMT</pubDate><source>财联社</source></item></channel></rss>`
 	results := parseRSSSearchResults([]byte(body), 5)
 	if len(results) != 1 {
