@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/llm"
 	"strconv"
 	"strings"
 	"time"
@@ -33,18 +35,32 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 	if s == nil || s.repository == nil || message == "" {
 		return false, ReceiveWeChatWorkAppMessageResult{}, nil
 	}
-	intent := classifyAgentFollowupIntent(message)
-	if intent == agentFollowupIntentNewTask || intent == agentFollowupIntentDeriveTask {
-		return false, ReceiveWeChatWorkAppMessageResult{}, nil
-	}
-	plan, found, stale, err := s.selectMultiTurnPlan(ctx, account.UserID, session.ID, intent)
+	candidates, err := s.selectMultiTurnPlanCandidates(ctx, account.UserID, session.ID)
 	if err != nil {
 		return false, ReceiveWeChatWorkAppMessageResult{}, err
 	}
+	if !candidates.hasAny() {
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	decision := s.classifyAgentFollowupIntent(ctx, account, session, turn, input, candidates)
+	intent := decision.Intent
+	now := s.now().UTC()
+	if candidates.ActiveFound && (intent == agentFollowupIntentNewTask || intent == agentFollowupIntentDeriveTask || intent == agentFollowupIntentAppendConstraints) {
+		if err := s.supersedeActivePlanForNewTask(ctx, account.UserID, session.ID, turn.ID, candidates.Active, input); err != nil {
+			return false, ReceiveWeChatWorkAppMessageResult{}, err
+		}
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	if intent == agentFollowupIntentNewTask || intent == agentFollowupIntentDeriveTask {
+		if intent == agentFollowupIntentDeriveTask && candidates.CompletedFound {
+			s.rememberDerivedParentPlan(turn.ID, candidates.Completed)
+		}
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
+	}
+	plan, found, stale := candidates.planForIntent(intent)
 	if !found {
 		return false, ReceiveWeChatWorkAppMessageResult{}, nil
 	}
-	now := s.now().UTC()
 	if stale && intent == agentFollowupIntentQuestion {
 		plan.Metadata = updateResultReuseMetadata(plan, message, now, true)
 		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
@@ -62,10 +78,10 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 	}
 	switch intent {
 	case agentFollowupIntentStop:
-		if !isActiveMultiTurnPlan(plan.Status) {
+		if !agentPlanCanStop(plan.Status) {
 			return false, ReceiveWeChatWorkAppMessageResult{}, nil
 		}
-		updated, err := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, now, "stopped by user")
+		updated, _, err := s.stopExistingAgentPlan(ctx, account.UserID, plan, message)
 		if err != nil {
 			return false, ReceiveWeChatWorkAppMessageResult{}, err
 		}
@@ -75,31 +91,30 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 			return false, ReceiveWeChatWorkAppMessageResult{}, err
 		}
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_stopped", "stopped", message)
-		reply := fmt.Sprintf("已记录停止请求，计划 #%d 已标记为失败并停止继续编排。\n进度：%s", updated.ID, s.agentPlanURL(updated.ID))
+		reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+			Stage:       "stopped",
+			UserMessage: input.TextContent,
+			Plan:        updated,
+			ErrorText:   updated.ErrorMessage,
+			ProgressURL: s.agentPlanURLIfAvailable(updated.ID),
+		})
 		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "stopped")
 		result.Plan = updated
 		return true, result, err
 	case agentFollowupIntentAppendConstraints:
-		if !isActiveMultiTurnPlan(plan.Status) {
-			return false, ReceiveWeChatWorkAppMessageResult{}, nil
-		}
-		plan.Metadata = updateMultiTurnMetadata(plan, intent, message, now)
-		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)
-		if err != nil {
-			return false, ReceiveWeChatWorkAppMessageResult{}, err
-		}
-		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_input_appended", "succeeded", message)
-		reply := fmt.Sprintf("已将补充要求追加到计划 #%d。\n当前状态：%s\n进度：%s", updated.ID, string(updated.Status), s.agentPlanURL(updated.ID))
-		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "constraint_appended")
-		result.Plan = updated
-		return true, result, err
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
 	case agentFollowupIntentRetry:
 		if plan.Status != domain.AgentPlanStatusFailed {
 			if !isActiveMultiTurnPlan(plan.Status) {
 				return false, ReceiveWeChatWorkAppMessageResult{}, nil
 			}
 			s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_retry_requested", "skipped", message)
-			reply := fmt.Sprintf("计划 #%d 当前状态为 %s，尚不需要重试。\n进度：%s", plan.ID, string(plan.Status), s.agentPlanURL(plan.ID))
+			reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+				Stage:       "retry_skipped",
+				UserMessage: input.TextContent,
+				Plan:        plan,
+				ProgressURL: s.agentPlanURLIfAvailable(plan.ID),
+			})
 			result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "retry_skipped")
 			result.Plan = plan
 			return true, result, err
@@ -110,7 +125,12 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 			return false, ReceiveWeChatWorkAppMessageResult{}, err
 		}
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_retry_requested", "queued", message)
-		reply := fmt.Sprintf("已记录计划 #%d 的重试请求。可在 Web 进度页查看失败步骤并触发重试。\n进度：%s", updated.ID, s.agentPlanURL(updated.ID))
+		reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+			Stage:       "retry_requested",
+			UserMessage: input.TextContent,
+			Plan:        updated,
+			ProgressURL: s.agentPlanURLIfAvailable(updated.ID),
+		})
 		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "retry_requested")
 		result.Plan = updated
 		return true, result, err
@@ -130,56 +150,221 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 	}
 }
 
-func classifyAgentFollowupIntent(message string) agentFollowupIntent {
-	normalized := strings.ToLower(strings.TrimSpace(message))
-	if normalized == "" {
-		return agentFollowupIntentNewTask
-	}
-	if containsAny(normalized, []string{"停止", "取消", "终止", "不用了", "别做了", "先停", "暂停"}) {
-		return agentFollowupIntentStop
-	}
-	if isDerivedTaskMessage(normalized) {
-		return agentFollowupIntentDeriveTask
-	}
-	if containsAny(normalized, []string{"重试", "再试", "重新执行", "重新跑", "恢复执行"}) {
-		return agentFollowupIntentRetry
-	}
-	if containsAny(normalized, []string{"修改", "改成", "补充", "追加", "另外", "同时", "继续", "按刚才", "按上面", "约束", "范围", "只看", "只要", "不要"}) {
-		return agentFollowupIntentAppendConstraints
-	}
-	if containsAny(normalized, []string{"刚才", "上一个", "这个任务", "该任务", "结果", "进度", "完成了吗", "为什么", "依据", "证据", "展开", "详细"}) {
-		return agentFollowupIntentQuestion
-	}
-	return agentFollowupIntentNewTask
+type agentFollowupDecision struct {
+	Intent     agentFollowupIntent
+	Confidence float64
+	Reason     string
 }
 
-func isDerivedTaskMessage(message string) bool {
-	return containsAny(message, []string{"基于刚才", "基于上一个", "基于这个结果", "基于结果", "根据刚才", "根据上一个", "用刚才", "用上一个"}) &&
-		containsAny(message, []string{"创建", "生成", "分析", "汇总", "整理", "任务", "刷新", "重新"})
+type agentFollowupDecisionJSON struct {
+	Intent     string  `json:"intent"`
+	Confidence float64 `json:"confidence"`
+	Reason     string  `json:"reason"`
 }
 
-func (s *AgentConversationService) selectMultiTurnPlan(ctx context.Context, userID int64, sessionID int64, intent agentFollowupIntent) (domain.AgentPlan, bool, bool, error) {
+type multiTurnPlanCandidates struct {
+	Active         domain.AgentPlan
+	ActiveFound    bool
+	ActiveStale    bool
+	Failed         domain.AgentPlan
+	FailedFound    bool
+	FailedStale    bool
+	Completed      domain.AgentPlan
+	CompletedFound bool
+	CompletedStale bool
+}
+
+func (c multiTurnPlanCandidates) hasAny() bool {
+	return c.ActiveFound || c.FailedFound || c.CompletedFound
+}
+
+func (c multiTurnPlanCandidates) planForIntent(intent agentFollowupIntent) (domain.AgentPlan, bool, bool) {
+	switch intent {
+	case agentFollowupIntentStop, agentFollowupIntentAppendConstraints:
+		return c.Active, c.ActiveFound, c.ActiveStale
+	case agentFollowupIntentRetry:
+		if c.FailedFound {
+			return c.Failed, true, c.FailedStale
+		}
+		return c.Active, c.ActiveFound, c.ActiveStale
+	case agentFollowupIntentQuestion:
+		if c.ActiveFound {
+			return c.Active, true, c.ActiveStale
+		}
+		if c.CompletedFound {
+			return c.Completed, true, c.CompletedStale
+		}
+		if c.FailedFound {
+			return c.Failed, true, c.FailedStale
+		}
+	}
+	return domain.AgentPlan{}, false, false
+}
+
+func (s *AgentConversationService) selectMultiTurnPlanCandidates(ctx context.Context, userID int64, sessionID int64) (multiTurnPlanCandidates, error) {
 	plans, err := s.repository.ListAgentPlans(ctx, userID, sessionID, 0, 10)
 	if err != nil {
-		return domain.AgentPlan{}, false, false, err
+		return multiTurnPlanCandidates{}, err
 	}
 	now := s.now().UTC()
-	var completed domain.AgentPlan
-	completedStale := false
+	candidates := multiTurnPlanCandidates{}
 	for _, plan := range plans {
 		stale := isStaleMultiTurnPlan(plan, now)
-		if isActiveMultiTurnPlan(plan.Status) {
-			return plan, true, stale, nil
+		if !candidates.ActiveFound && agentPlanCanStop(plan.Status) {
+			candidates.Active = plan
+			candidates.ActiveFound = true
+			candidates.ActiveStale = stale
+			continue
 		}
-		if plan.Status == domain.AgentPlanStatusCompleted && completed.ID == 0 {
-			completed = plan
-			completedStale = stale
+		if !candidates.FailedFound && plan.Status == domain.AgentPlanStatusFailed {
+			candidates.Failed = plan
+			candidates.FailedFound = true
+			candidates.FailedStale = stale
+			continue
+		}
+		if !candidates.CompletedFound && plan.Status == domain.AgentPlanStatusCompleted {
+			candidates.Completed = plan
+			candidates.CompletedFound = true
+			candidates.CompletedStale = stale
 		}
 	}
-	if intent == agentFollowupIntentQuestion && completed.ID > 0 {
-		return completed, true, completedStale, nil
+	return candidates, nil
+}
+
+func (s *AgentConversationService) classifyAgentFollowupIntent(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	candidates multiTurnPlanCandidates,
+) agentFollowupDecision {
+	if s == nil || s.llmClient == nil {
+		return agentFollowupDecision{Intent: agentFollowupIntentNewTask, Reason: "llm_unavailable"}
 	}
-	return domain.AgentPlan{}, false, false, nil
+	payload := domain.AgentJSON{
+		"user_message": input.TextContent,
+		"user_id":      account.UserID,
+		"session_id":   session.ID,
+		"turn_id":      turn.ID,
+		"active_plan":  multiTurnPlanDecisionSummary(candidates.Active, candidates.ActiveFound),
+		"failed_plan":  multiTurnPlanDecisionSummary(candidates.Failed, candidates.FailedFound),
+		"completed_plan": multiTurnPlanDecisionSummary(
+			candidates.Completed,
+			candidates.CompletedFound,
+		),
+		"allowed_intents": []string{
+			string(agentFollowupIntentNewTask),
+			string(agentFollowupIntentStop),
+			string(agentFollowupIntentAppendConstraints),
+			string(agentFollowupIntentRetry),
+			string(agentFollowupIntentQuestion),
+			string(agentFollowupIntentDeriveTask),
+		},
+		"required_schema": agentFollowupIntentSchemaHint(),
+	}
+	body, _ := json.Marshal(payload)
+	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: agentFollowupIntentSystemPrompt()},
+			{Role: "user", Content: string(body)},
+		},
+		Temperature: 0.1,
+		MaxTokens:   256,
+	})
+	if err != nil {
+		s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "llm_error", err.Error(), domain.AgentJSON{"payload": payload})
+		return agentFollowupDecision{Intent: agentFollowupIntentNewTask, Reason: "llm_error"}
+	}
+	decision, parseErr := parseAgentFollowupDecision(response.Content)
+	if parseErr != nil {
+		s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "parse_error", parseErr.Error(), domain.AgentJSON{
+			"payload":      payload,
+			"raw_response": safeSummary(response.Content, 1000),
+			"provider":     response.Provider,
+			"model":        response.Model,
+		})
+		return agentFollowupDecision{Intent: agentFollowupIntentNewTask, Reason: "parse_error"}
+	}
+	s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "succeeded", decision.Reason, domain.AgentJSON{
+		"intent":     string(decision.Intent),
+		"confidence": decision.Confidence,
+		"provider":   response.Provider,
+		"model":      response.Model,
+	})
+	return decision
+}
+
+func parseAgentFollowupDecision(raw string) (agentFollowupDecision, error) {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSuffix(raw, "```")
+	raw = strings.TrimSpace(raw)
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start < 0 || end < start {
+		return agentFollowupDecision{}, fmt.Errorf("followup decision json object is missing")
+	}
+	var decoded agentFollowupDecisionJSON
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &decoded); err != nil {
+		return agentFollowupDecision{}, err
+	}
+	intent := normalizeAgentFollowupIntent(decoded.Intent)
+	if intent == "" {
+		return agentFollowupDecision{}, fmt.Errorf("followup intent is invalid: %s", decoded.Intent)
+	}
+	return agentFollowupDecision{
+		Intent:     intent,
+		Confidence: decoded.Confidence,
+		Reason:     strings.TrimSpace(decoded.Reason),
+	}, nil
+}
+
+func normalizeAgentFollowupIntent(value string) agentFollowupIntent {
+	switch agentFollowupIntent(strings.TrimSpace(value)) {
+	case agentFollowupIntentNewTask,
+		agentFollowupIntentStop,
+		agentFollowupIntentAppendConstraints,
+		agentFollowupIntentRetry,
+		agentFollowupIntentQuestion,
+		agentFollowupIntentDeriveTask:
+		return agentFollowupIntent(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+func multiTurnPlanDecisionSummary(plan domain.AgentPlan, found bool) domain.AgentJSON {
+	if !found || plan.ID < 1 {
+		return domain.AgentJSON{"found": false}
+	}
+	return domain.AgentJSON{
+		"found":      true,
+		"id":         plan.ID,
+		"status":     string(plan.Status),
+		"goal":       safeSummary(plan.Goal, 300),
+		"summary":    safeSummary(plan.Summary, 300),
+		"updated_at": plan.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func (s *AgentConversationService) recordMultiTurnDecisionAudit(ctx context.Context, userID int64, sessionID int64, turnID int64, input ReceiveWeChatWorkAppMessageInput, status string, message string, metadata domain.AgentJSON) {
+	if s == nil || s.repository == nil {
+		return
+	}
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: sessionID,
+		TurnID:    turnID,
+		UserID:    userID,
+		EventType: "agent.followup_intent_decided",
+		Status:    status,
+		Message:   message,
+		Metadata:  metadata,
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: s.now().UTC(),
+	})
 }
 
 func isActiveMultiTurnPlan(status domain.AgentPlanStatus) bool {
@@ -357,21 +542,39 @@ func planEvidenceRefs(plan domain.AgentPlan) []string {
 	return compactNonEmptyStrings(refs)
 }
 
-func (s *AgentConversationService) selectDerivedParentPlan(ctx context.Context, userID int64, sessionID int64, message string) (domain.AgentPlan, bool, bool, error) {
-	if !isDerivedTaskMessage(strings.ToLower(strings.TrimSpace(message))) {
+func (s *AgentConversationService) rememberDerivedParentPlan(turnID int64, plan domain.AgentPlan) {
+	if s == nil || turnID < 1 || plan.ID < 1 {
+		return
+	}
+	s.activeProcessMu.Lock()
+	defer s.activeProcessMu.Unlock()
+	if s.derivedParentByTurnID == nil {
+		s.derivedParentByTurnID = map[int64]domain.AgentPlan{}
+	}
+	s.derivedParentByTurnID[turnID] = plan
+}
+
+func (s *AgentConversationService) takeDerivedParentPlan(turnID int64, userID int64, sessionID int64) (domain.AgentPlan, bool, bool, error) {
+	if s == nil || turnID < 1 {
 		return domain.AgentPlan{}, false, false, nil
 	}
-	plans, err := s.repository.ListAgentPlans(ctx, userID, sessionID, 0, 10)
-	if err != nil {
-		return domain.AgentPlan{}, false, false, err
+	s.activeProcessMu.Lock()
+	plan, found := s.derivedParentByTurnID[turnID]
+	if found {
+		delete(s.derivedParentByTurnID, turnID)
 	}
-	now := s.now().UTC()
-	for _, plan := range plans {
-		if plan.Status == domain.AgentPlanStatusCompleted {
-			return plan, true, isStaleMultiTurnPlan(plan, now), nil
-		}
+	s.activeProcessMu.Unlock()
+	if !found || plan.ID < 1 {
+		return domain.AgentPlan{}, false, false, nil
 	}
-	return domain.AgentPlan{}, false, false, nil
+	if plan.UserID != userID || plan.SessionID != sessionID || plan.Status != domain.AgentPlanStatusCompleted {
+		return domain.AgentPlan{}, false, false, nil
+	}
+	return plan, true, isStaleMultiTurnPlan(plan, s.now().UTC()), nil
+}
+
+func (s *AgentConversationService) selectDerivedParentPlanForTurn(ctx context.Context, userID int64, sessionID int64, turnID int64) (domain.AgentPlan, bool, bool, error) {
+	return s.takeDerivedParentPlan(turnID, userID, sessionID)
 }
 
 func updateDerivedPlanMetadata(plan domain.AgentPlan, parent domain.AgentPlan, message string, now time.Time, parentStale bool) domain.AgentJSON {

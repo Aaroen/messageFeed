@@ -614,7 +614,12 @@ func TestAgentConversationServiceRejectsWebAgentTaskWhenDailyQuotaExceeded(t *te
 		CreatedAt: now.Add(-time.Hour),
 		UpdatedAt: now.Add(-time.Minute),
 	})
-	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+	llmClient := &fakeAgentConversationLLM{followupIntent: agentFollowupIntentQuestion}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
 
 	_, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
 		Authenticated: true,
@@ -631,7 +636,7 @@ func TestAgentConversationServiceRejectsWebAgentTaskWhenDailyQuotaExceeded(t *te
 	}
 }
 
-func TestAgentConversationServiceAppendsConstraintToActiveWebPlan(t *testing.T) {
+func TestAgentConversationServiceSupersedesActiveWebPlanForNewTask(t *testing.T) {
 	now := time.Date(2026, 6, 25, 11, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
 	repository.session = domain.AgentSession{
@@ -650,11 +655,28 @@ func TestAgentConversationServiceAppendsConstraintToActiveWebPlan(t *testing.T) 
 		Status:    domain.AgentPlanStatusExecuting,
 		Goal:      "汇总订阅源",
 		Metadata:  domain.AgentJSON{},
+		Steps: []domain.AgentPlanStep{{
+			ID:            2001,
+			PlanID:        20,
+			StepOrder:     1,
+			Status:        domain.AgentPlanStepStatusExecuting,
+			Title:         "旧任务执行中",
+			CapabilityKey: "feed.query_recent_items",
+		}},
 		CreatedAt: now.Add(-time.Minute),
 		UpdatedAt: now.Add(-time.Minute),
 	}}
+	llmClient := &fakeAgentConversationLLM{
+		followupIntent: agentFollowupIntentAppendConstraints,
+		response: llm.ChatResponse{
+			Provider: "openai_compatible",
+			Model:    "custom-model",
+			Content:  "这是新任务回复",
+		},
+	}
 	service := NewAgentConversationService(
 		repository,
+		WithAgentConversationLLM(llmClient),
 		WithAgentConversationNow(func() time.Time { return now }),
 		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
 	)
@@ -671,15 +693,23 @@ func TestAgentConversationServiceAppendsConstraintToActiveWebPlan(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
 	}
-	if result.Plan.ID != 20 || len(repository.plans) != 1 {
+	if result.Plan.ID == 20 || len(repository.plans) != 2 {
 		t.Fatalf("plan result = %#v, plans = %#v", result.Plan, repository.plans)
 	}
-	multiTurn, _ := repository.plans[0].Metadata["multi_turn"].(map[string]any)
-	if multiTurn["latest_intent"] != string(agentFollowupIntentAppendConstraints) || !strings.Contains(result.Reply, "已将补充要求追加") {
-		t.Fatalf("multi_turn = %#v, reply = %q", multiTurn, result.Reply)
+	if repository.plans[0].Status != domain.AgentPlanStatusFailed || repository.plans[0].Steps[0].Status != domain.AgentPlanStepStatusFailed {
+		t.Fatalf("old plan was not stopped: %#v", repository.plans[0])
 	}
-	if !fakeAuditContains(repository.audits, "agent.plan_input_appended") {
+	if _, ok := repository.plans[0].Metadata["superseded_by"]; !ok {
+		t.Fatalf("old plan metadata missing superseded_by: %#v", repository.plans[0].Metadata)
+	}
+	if result.Reply != "这是新任务回复" {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if fakeAuditContains(repository.audits, "agent.plan_input_appended") {
 		t.Fatalf("audits = %#v", repository.audits)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_superseded") {
+		t.Fatalf("audits missing superseded event = %#v", repository.audits)
 	}
 }
 
@@ -697,7 +727,12 @@ func TestAgentConversationServiceStopsActiveWebPlan(t *testing.T) {
 		CreatedAt: now.Add(-time.Minute),
 		UpdatedAt: now.Add(-time.Minute),
 	}}
-	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+	llmClient := &fakeAgentConversationLLM{followupIntent: agentFollowupIntentStop}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
 
 	result, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
 		Authenticated: true,
@@ -706,8 +741,11 @@ func TestAgentConversationServiceStopsActiveWebPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
 	}
-	if result.Plan.Status != string(domain.AgentPlanStatusFailed) || repository.plans[0].ErrorMessage != "stopped by user" {
+	if result.Plan.Status != string(domain.AgentPlanStatusFailed) {
 		t.Fatalf("plan = %#v stored = %#v", result.Plan, repository.plans[0])
+	}
+	if _, ok := repository.plans[0].Metadata["stop"]; !ok {
+		t.Fatalf("stop metadata missing: %#v", repository.plans[0].Metadata)
 	}
 	if !fakeAuditContains(repository.audits, "agent.plan_stopped") {
 		t.Fatalf("audits = %#v", repository.audits)
@@ -752,7 +790,12 @@ func TestAgentConversationServiceStopAgentPlanConvergesRuntimeState(t *testing.T
 		CreatedAt: now.Add(-time.Minute),
 		UpdatedAt: now.Add(-time.Minute),
 	}}
-	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+	llmClient := &fakeAgentConversationLLM{followupIntent: agentFollowupIntentQuestion}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
 
 	result, err := service.StopAgentPlan(context.Background(), CurrentAuth{
 		Authenticated: true,
@@ -803,7 +846,12 @@ func TestAgentConversationServiceReusesCompletedPlanForFollowup(t *testing.T) {
 		CreatedAt: now.Add(-time.Hour),
 		UpdatedAt: now.Add(-time.Hour),
 	}}
-	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+	llmClient := &fakeAgentConversationLLM{followupIntent: agentFollowupIntentQuestion}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
 
 	result, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
 		Authenticated: true,
@@ -846,7 +894,12 @@ func TestAgentConversationServiceDoesNotReuseStaleCompletedPlanAsCurrentFact(t *
 		CreatedAt:     oldCompletedAt,
 		UpdatedAt:     oldCompletedAt,
 	}}
-	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+	llmClient := &fakeAgentConversationLLM{followupIntent: agentFollowupIntentQuestion}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
 
 	result, err := service.ReceiveWebAgentTask(context.Background(), CurrentAuth{
 		Authenticated: true,
@@ -887,7 +940,10 @@ func TestAgentConversationServiceRecordsParentPlanForDerivedWebTask(t *testing.T
 		CreatedAt: now.Add(-time.Hour),
 		UpdatedAt: now.Add(-time.Hour),
 	}}
-	llmClient := &fakeAgentConversationLLM{response: llm.ChatResponse{Provider: "openai_compatible", Model: "custom-model", Content: "派生任务已处理"}}
+	llmClient := &fakeAgentConversationLLM{
+		followupIntent: agentFollowupIntentDeriveTask,
+		response:       llm.ChatResponse{Provider: "openai_compatible", Model: "custom-model", Content: "派生任务已处理"},
+	}
 	service := NewAgentConversationService(
 		repository,
 		WithAgentConversationLLM(llmClient),
@@ -2584,16 +2640,17 @@ func waitForWeChatTextMessage(t *testing.T, messages <-chan notifier.WeChatWorkT
 }
 
 type fakeAgentConversationLLM struct {
-	calls       int
-	lastRequest llm.ChatRequest
-	response    llm.ChatResponse
-	responses   []llm.ChatResponse
-	err         error
-	started     chan struct{}
-	release     chan struct{}
-	startOnce   sync.Once
-	responseIdx int
-	planKeys    []string
+	calls          int
+	lastRequest    llm.ChatRequest
+	response       llm.ChatResponse
+	responses      []llm.ChatResponse
+	err            error
+	started        chan struct{}
+	release        chan struct{}
+	startOnce      sync.Once
+	responseIdx    int
+	planKeys       []string
+	followupIntent agentFollowupIntent
 }
 
 // Chat 同时模拟主 Agent 规划调用和执行 Agent 调用。
@@ -2601,6 +2658,18 @@ type fakeAgentConversationLLM struct {
 func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	f.calls++
 	f.lastRequest = request
+	if fakeIsAgentFollowupIntentRequest(request) {
+		intent := f.followupIntent
+		if intent == "" {
+			intent = agentFollowupIntentNewTask
+		}
+		content, _ := json.Marshal(domain.AgentJSON{
+			"intent":     string(intent),
+			"confidence": 0.9,
+			"reason":     "unit_test_decision",
+		})
+		return llm.ChatResponse{Provider: "openai_compatible", Model: "followup-model", Content: string(content)}, nil
+	}
 	if fakeIsMainAgentPlanSpecRequest(request) {
 		return fakeMainAgentPlanSpecResponse(request, f.fakePlanCapabilityKeys()), nil
 	}
@@ -2658,6 +2727,13 @@ func fakeIsAgentWeChatFeedbackRequest(request llm.ChatRequest) bool {
 		return false
 	}
 	return strings.Contains(request.Messages[0].Content, "企业微信短消息生成器")
+}
+
+func fakeIsAgentFollowupIntentRequest(request llm.ChatRequest) bool {
+	if len(request.Messages) == 0 {
+		return false
+	}
+	return strings.Contains(request.Messages[0].Content, "多轮消息决策器")
 }
 
 func fakeAgentWeChatFeedbackResponse(request llm.ChatRequest) llm.ChatResponse {

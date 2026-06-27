@@ -218,23 +218,89 @@ func (s *AgentConversationService) StopAgentPlan(ctx context.Context, auth Curre
 			Confirmation:  "plan_already_terminal",
 		}}, nil
 	}
-	runtimeInfo, err := s.cancelAgentProcessAndWait(ctx, plan)
+	stopped, runtimeInfo, err := s.stopExistingAgentPlan(ctx, auth.User.ID, plan, strings.TrimSpace(input.Reason))
 	if err != nil {
 		return StopAgentPlanResult{Plan: agentPlanResponse(plan, true), Runtime: runtimeInfo}, err
 	}
-	cleanupCtx := context.WithoutCancel(ctx)
-	latest, err := s.repository.GetAgentPlan(cleanupCtx, auth.User.ID, planID)
+	return StopAgentPlanResult{Plan: agentPlanResponse(stopped, true), Runtime: runtimeInfo}, nil
+}
+
+// stopExistingAgentPlan 统一执行停止语义：先确认运行进程退出，再收敛持久化状态。
+func (s *AgentConversationService) stopExistingAgentPlan(ctx context.Context, userID int64, plan domain.AgentPlan, reason string) (domain.AgentPlan, AgentPlanStopRuntimeInfo, error) {
+	if s == nil || s.repository == nil || plan.ID < 1 {
+		return plan, AgentPlanStopRuntimeInfo{PlanID: plan.ID, TurnID: plan.TurnID}, nil
+	}
+	runtimeInfo, err := s.cancelAgentProcessAndWait(ctx, plan)
 	if err != nil {
-		return StopAgentPlanResult{}, err
+		return plan, runtimeInfo, err
+	}
+	cleanupCtx := context.WithoutCancel(ctx)
+	latest, err := s.repository.GetAgentPlan(cleanupCtx, userID, plan.ID)
+	if err != nil {
+		return domain.AgentPlan{}, runtimeInfo, err
 	}
 	if !agentPlanCanStop(latest.Status) && planStoppedByUser(latest) {
-		return StopAgentPlanResult{Plan: agentPlanResponse(latest, true), Runtime: runtimeInfo}, nil
+		return latest, runtimeInfo, nil
 	}
-	stopped, err := s.markAgentPlanStopped(cleanupCtx, auth.User.ID, latest, strings.TrimSpace(input.Reason), runtimeInfo)
+	stopped, err := s.markAgentPlanStopped(cleanupCtx, userID, latest, reason, runtimeInfo)
 	if err != nil {
-		return StopAgentPlanResult{}, err
+		return domain.AgentPlan{}, runtimeInfo, err
 	}
-	return StopAgentPlanResult{Plan: agentPlanResponse(stopped, true), Runtime: runtimeInfo}, nil
+	return stopped, runtimeInfo, nil
+}
+
+// supersedeActivePlanForNewTask 在新用户任务到达时终止旧活动计划。
+// 该函数不回复用户，只把旧计划收敛为终态，让当前消息继续进入新的主 Agent 规划流程。
+func (s *AgentConversationService) supersedeActivePlanForNewTask(
+	ctx context.Context,
+	userID int64,
+	sessionID int64,
+	turnID int64,
+	plan domain.AgentPlan,
+	input ReceiveWeChatWorkAppMessageInput,
+) error {
+	if s == nil || s.repository == nil || plan.ID < 1 {
+		return nil
+	}
+	if !agentPlanCanStop(plan.Status) {
+		return nil
+	}
+	reason := "superseded_by_new_user_message"
+	stopped, runtimeInfo, err := s.stopExistingAgentPlan(ctx, userID, plan, reason)
+	if err != nil {
+		return err
+	}
+	now := s.now().UTC()
+	metadata := cloneApprovalMetadata(stopped.Metadata)
+	metadata["superseded_by"] = domain.AgentJSON{
+		"turn_id":       turnID,
+		"message":       safeSummary(input.TextContent, 500),
+		"reason":        reason,
+		"runtime":       runtimeInfo,
+		"superseded_at": now.Format(time.RFC3339),
+	}
+	if updated, updateErr := s.repository.UpdateAgentPlanMetadata(context.WithoutCancel(ctx), userID, stopped.ID, metadata, now); updateErr == nil {
+		stopped = updated
+	} else {
+		return updateErr
+	}
+	_, _ = s.repository.CreateAuditLog(context.WithoutCancel(ctx), domain.AgentAuditLog{
+		SessionID: sessionID,
+		TurnID:    turnID,
+		UserID:    userID,
+		EventType: "agent.plan_superseded",
+		Status:    "superseded",
+		Message:   reason,
+		Metadata: domain.AgentJSON{
+			"plan_id":     stopped.ID,
+			"plan_status": string(stopped.Status),
+			"runtime":     runtimeInfo,
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: now,
+	})
+	return nil
 }
 
 func (s *AgentConversationService) markAgentPlanStopped(ctx context.Context, userID int64, plan domain.AgentPlan, reason string, runtimeInfo AgentPlanStopRuntimeInfo) (domain.AgentPlan, error) {

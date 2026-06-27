@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"messagefeed/internal/agent"
+	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"strings"
 	"sync"
@@ -24,32 +25,33 @@ const (
 )
 
 type AgentConversationService struct {
-	repository          AgentConversationRepository
-	llmClient           AgentConversationLLM
-	sender              AgentConversationSender
-	resolver            AgentExternalAccountResolver
-	userCtx             AgentUserContextProvider
-	recentItems         AgentRecentItemsProvider
-	sourceProvider      AgentSourceProvider
-	notificationJobs    AgentNotificationJobStore
-	scheduledTasks      AgentScheduleEvalRepository
-	webFetcher          agentWebFetcher
-	turnRunner          *agent.TurnRunner
-	runManager          *agent.RunManager
-	planner             *agent.Planner
-	capabilityRegistry  *agent.CapabilityRegistry
-	policyEngine        *agent.PolicyEngine
-	now                 func() time.Time
-	ownerID             int64
-	publicBaseURL       string
-	processInline       bool
-	processTimeout      time.Duration
-	notificationTimeout time.Duration
-	lockMu              sync.Mutex
-	sessionLocks        map[int64]*sync.Mutex
-	activeProcessMu     sync.Mutex
-	activeByTurnID      map[int64]*agentActiveProcess
-	activeByPlanID      map[int64]*agentActiveProcess
+	repository            AgentConversationRepository
+	llmClient             AgentConversationLLM
+	sender                AgentConversationSender
+	resolver              AgentExternalAccountResolver
+	userCtx               AgentUserContextProvider
+	recentItems           AgentRecentItemsProvider
+	sourceProvider        AgentSourceProvider
+	notificationJobs      AgentNotificationJobStore
+	scheduledTasks        AgentScheduleEvalRepository
+	webFetcher            agentWebFetcher
+	turnRunner            *agent.TurnRunner
+	runManager            *agent.RunManager
+	planner               *agent.Planner
+	capabilityRegistry    *agent.CapabilityRegistry
+	policyEngine          *agent.PolicyEngine
+	now                   func() time.Time
+	ownerID               int64
+	publicBaseURL         string
+	processInline         bool
+	processTimeout        time.Duration
+	notificationTimeout   time.Duration
+	lockMu                sync.Mutex
+	sessionLocks          map[int64]*sync.Mutex
+	activeProcessMu       sync.Mutex
+	activeByTurnID        map[int64]*agentActiveProcess
+	activeByPlanID        map[int64]*agentActiveProcess
+	derivedParentByTurnID map[int64]domain.AgentPlan
 }
 
 type AgentConversationServiceOption func(*AgentConversationService)
@@ -154,16 +156,17 @@ func WithAgentConversationPublicBaseURL(publicBaseURL string) AgentConversationS
 
 func NewAgentConversationService(repository AgentConversationRepository, options ...AgentConversationServiceOption) *AgentConversationService {
 	service := &AgentConversationService{
-		repository:          repository,
-		capabilityRegistry:  agent.NewP0CapabilityRegistry(),
-		policyEngine:        agent.NewPolicyEngine(),
-		now:                 time.Now,
-		ownerID:             defaultAgentOwnerUserID,
-		processTimeout:      defaultAgentProcessTimeout,
-		notificationTimeout: defaultAgentNotificationTimeout,
-		sessionLocks:        map[int64]*sync.Mutex{},
-		activeByTurnID:      map[int64]*agentActiveProcess{},
-		activeByPlanID:      map[int64]*agentActiveProcess{},
+		repository:            repository,
+		capabilityRegistry:    agent.NewP0CapabilityRegistry(),
+		policyEngine:          agent.NewPolicyEngine(),
+		now:                   time.Now,
+		ownerID:               defaultAgentOwnerUserID,
+		processTimeout:        defaultAgentProcessTimeout,
+		notificationTimeout:   defaultAgentNotificationTimeout,
+		sessionLocks:          map[int64]*sync.Mutex{},
+		activeByTurnID:        map[int64]*agentActiveProcess{},
+		activeByPlanID:        map[int64]*agentActiveProcess{},
+		derivedParentByTurnID: map[int64]domain.AgentPlan{},
 	}
 	for _, option := range options {
 		option(service)

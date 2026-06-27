@@ -429,7 +429,7 @@ func (s *AgentConversationService) createPlanForTurn(
 	if s.planner == nil || s.repository == nil {
 		return domain.AgentPlan{}, "", nil
 	}
-	parentPlan, hasParent, parentStale, err := s.selectDerivedParentPlan(ctx, account.UserID, session.ID, input.TextContent)
+	parentPlan, hasParent, parentStale, err := s.selectDerivedParentPlanForTurn(ctx, account.UserID, session.ID, turn.ID)
 	if err != nil {
 		return domain.AgentPlan{}, "", err
 	}
