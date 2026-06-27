@@ -2026,6 +2026,10 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   order: 2;
 }
 
+.agent-plan-page__detail-header {
+  order: 1;
+}
+
 .agent-plan-page__tasks-panel {
   order: 3;
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  IconArrowLeft,
   IconCheckCircleFill,
   IconClockCircle,
   IconCloseCircleFill,
@@ -324,6 +325,15 @@ const scheduledTaskID = computed(() => {
   const raw = typeof value === 'string' ? value : ''
   const id = Number(raw)
   return Number.isFinite(id) ? id : 0
+})
+const isAgentDetailPage = computed(() => planID.value > 0 || scheduledTaskID.value > 0)
+const shouldShowAgentDashboard = computed(() => !isAgentDetailPage.value)
+const detailPageTitle = computed(() => (scheduledTaskID.value > 0 ? '定时任务详情' : '执行过程详情'))
+const detailPageMeta = computed(() => {
+  if (planID.value > 0) {
+    return plan.value ? `计划 #${plan.value.id} / ${statusMeta.value}` : `计划 #${planID.value}`
+  }
+  return scheduledTaskID.value > 0 ? `定时任务 #${scheduledTaskID.value}` : 'Agent 详情'
 })
 
 const sortedSteps = computed(() => {
@@ -1692,6 +1702,10 @@ async function openTask(task: AgentTaskSummary) {
   }
 }
 
+async function backToAgentDashboard() {
+  await router.push({ name: 'agent' })
+}
+
 async function retryStep(step: AgentPlanStep) {
   if (!plan.value || !isRetryableStep(step)) {
     return
@@ -2098,12 +2112,16 @@ watch([planID, scheduledTaskID], () => {
   runs.value = []
   if (planID.value > 0 || scheduledTaskID.value > 0) {
     void loadPlan()
+  } else if (shouldShowAgentDashboard.value) {
+    void loadTasks()
   }
 })
 
 onMounted(() => {
-	  void loadTasks()
-	  if (planID.value > 0 || scheduledTaskID.value > 0) {
+  if (shouldShowAgentDashboard.value) {
+    void loadTasks()
+  }
+  if (planID.value > 0 || scheduledTaskID.value > 0) {
     void loadPlan()
   }
 })
@@ -2117,7 +2135,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="settings-page agent-plan-page">
-    <section class="settings-panel settings-panel--wide agent-plan-page__task-form-panel">
+    <section v-if="shouldShowAgentDashboard" class="settings-panel settings-panel--wide agent-plan-page__task-form-panel">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">发起任务</div>
@@ -2145,7 +2163,7 @@ onBeforeUnmount(() => {
       </form>
     </section>
 
-    <section class="settings-panel settings-panel--wide agent-plan-page__tasks-panel">
+    <section v-if="shouldShowAgentDashboard" class="settings-panel settings-panel--wide agent-plan-page__tasks-panel">
       <div class="settings-panel__header">
         <div>
           <div class="settings-panel__title">最近任务</div>
@@ -3108,7 +3126,20 @@ onBeforeUnmount(() => {
       <div v-else class="agent-plan-empty">暂无任务</div>
 	    </section>
 
-	    <section class="settings-panel settings-panel--wide agent-plan-page__progress-panel">
+    <section v-if="isAgentDetailPage" class="settings-panel settings-panel--wide agent-plan-page__detail-header">
+      <div class="settings-panel__header agent-plan-page__header">
+        <div>
+          <div class="settings-panel__title">{{ detailPageTitle }}</div>
+          <div class="settings-panel__meta">{{ detailPageMeta }}</div>
+        </div>
+        <button class="settings-action-button agent-plan-page__refresh" type="button" @click="backToAgentDashboard">
+          <IconArrowLeft />
+          返回助理
+        </button>
+      </div>
+    </section>
+
+    <section v-if="isAgentDetailPage" class="settings-panel settings-panel--wide agent-plan-page__progress-panel">
 	      <div class="settings-panel__header agent-plan-page__header">
         <div>
           <div class="settings-panel__title">Agent 执行进度</div>
