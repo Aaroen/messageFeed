@@ -293,7 +293,7 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 		return "已收到：" + input.MessageText, "", "", snapshot, nil
 	}
 
-	systemPrompt := r.buildSystemPrompt(snapshot)
+	systemPrompt := r.buildSystemPrompt(snapshot, input.MessageText)
 	messages := r.buildChatMessages(systemPrompt, snapshot, input.MessageText)
 	response, snapshot, err := r.chatWithTools(ctx, input, snapshot, messages)
 	if err != nil {
@@ -508,7 +508,7 @@ func (r *TurnRunner) buildChatMessages(systemPrompt string, snapshot ContextSnap
 	return messages
 }
 
-func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot) string {
+func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot, currentMessage string) string {
 	var builder strings.Builder
 	if r.systemPrompt != "" {
 		builder.WriteString(r.systemPrompt)
@@ -535,6 +535,11 @@ func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot) string {
 	if builder.Len() > 0 {
 		builder.WriteString("\n\n")
 	}
+	taskSpec := BuildTaskSpec(currentMessage)
+	builder.WriteString("任务规格：")
+	builder.WriteString(taskSpec.PromptText())
+	builder.WriteString("。回答必须围绕任务规格组织证据和结论；排除内容不得作为主要事实依据。")
+	builder.WriteString("\n\n")
 	now := r.now().In(time.FixedZone("Asia/Shanghai", 8*60*60))
 	builder.WriteString("当前时间：")
 	builder.WriteString(now.Format("2006-01-02 15:04:05"))
@@ -626,8 +631,9 @@ type fallbackEvidenceItem struct {
 }
 
 func fallbackEvidenceItems(message string, blocks []ContextBlock) []fallbackEvidenceItem {
-	searchTask := fallbackMessageRequestsSearch(message)
-	terms := fallbackSearchTerms(message)
+	taskSpec := BuildTaskSpec(message)
+	searchTask := taskSpec.RequestsSearch()
+	terms := taskSpec.QueryTerms
 	webItems := make([]fallbackEvidenceItem, 0, 8)
 	localItems := make([]fallbackEvidenceItem, 0, 8)
 	items := make([]fallbackEvidenceItem, 0, 8)

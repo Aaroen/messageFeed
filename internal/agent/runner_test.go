@@ -82,8 +82,11 @@ func TestTurnRunnerSystemPromptGuidesScheduledMessageConfirmation(t *testing.T) 
 		SystemPrompt: "系统提示",
 	})
 
-	prompt := runner.buildSystemPrompt(ContextSnapshot{})
+	prompt := runner.buildSystemPrompt(ContextSnapshot{}, "搜索最新港股消息并分析")
 	for _, required := range []string{
+		"任务规格：",
+		"任务类型=news_analysis",
+		"领域=finance",
 		"当前时间：2026-06-24 21:55:00 Asia/Shanghai",
 		"web.search",
 		"web.fetch_page",
