@@ -1480,6 +1480,32 @@ const pipelinePromptContextSummary = computed(() => {
   ].filter(Boolean)
   return parts.length ? parts.join(' / ') : '主 Agent 已按任务规格准备子 Agent 上下文。'
 })
+const pipelinePromptContextStatus = computed(() => {
+  const status = controllerRun.value?.status || ''
+  if (status === 'succeeded' || status === 'completed') {
+    return '已合成'
+  }
+  if (status === 'running' || status === 'executing') {
+    return '生成中'
+  }
+  if (status === 'failed') {
+    return '失败'
+  }
+  return controllerRun.value ? statusLabel(status) : '待生成'
+})
+const pipelinePromptContextTone = computed(() => {
+  const status = controllerRun.value?.status || ''
+  if (status === 'succeeded' || status === 'completed') {
+    return 'ok'
+  }
+  if (status === 'running' || status === 'executing') {
+    return 'active'
+  }
+  if (status === 'failed') {
+    return 'bad'
+  }
+  return 'neutral'
+})
 const pipelineSubAgentSummary = computed(() => {
   if (!executorRuns.value.length && !sortedSteps.value.length) {
     return '尚未生成子 Agent 执行记录'
@@ -1586,6 +1612,30 @@ function metadataRecordList(value: unknown): Record<string, unknown>[] {
     return []
   }
   return value.filter(isRecord)
+}
+
+function hasDetailValue(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.length > 0
+  }
+  if (isRecord(value)) {
+    return Object.keys(value).length > 0
+  }
+  if (typeof value === 'string') {
+    return value.trim() !== ''
+  }
+  return value !== null && value !== undefined
+}
+
+function formatDetailJSON(value: unknown) {
+  if (!hasDetailValue(value)) {
+    return '无'
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
 }
 
 async function loadPlan(options: { silent?: boolean } = {}) {
@@ -3317,6 +3367,35 @@ onBeforeUnmount(() => {
               <span>{{ formatTime(plan.created_at) }}</span>
             </div>
             <p>{{ plan.goal || '无任务目标' }}</p>
+            <details class="agent-subagent-card agent-pipeline-detail">
+              <summary>
+                <span>任务接收详情</span>
+                <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(plan.status)}`">
+                  {{ statusLabel(plan.status) }}
+                </span>
+                <span>{{ formatTime(plan.updated_at) }}</span>
+              </summary>
+              <div class="agent-subagent-card__body">
+                <dl class="agent-pipeline-facts">
+                  <div>
+                    <dt>原始任务</dt>
+                    <dd>{{ plan.goal || '无' }}</dd>
+                  </div>
+                  <div>
+                    <dt>去重键</dt>
+                    <dd>{{ plan.dedupe_key || '无' }}</dd>
+                  </div>
+                  <div>
+                    <dt>创建时间</dt>
+                    <dd>{{ formatTime(plan.created_at) }}</dd>
+                  </div>
+                  <div>
+                    <dt>更新时间</dt>
+                    <dd>{{ formatTime(plan.updated_at) }}</dd>
+                  </div>
+                </dl>
+              </div>
+            </details>
           </div>
         </article>
 
@@ -3342,6 +3421,35 @@ onBeforeUnmount(() => {
                 <dd>{{ multiTurnLatestInstruction || multiTurnOriginalGoal || parentPlanGoal || '已关联历史任务上下文' }}</dd>
               </div>
             </dl>
+            <details class="agent-subagent-card agent-pipeline-detail">
+              <summary>
+                <span>任务理解详情</span>
+                <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(plan.policy_decision)}`">
+                  {{ plan.policy_decision || '已解析' }}
+                </span>
+                <span>{{ plan.risk_level || 'unknown' }}</span>
+              </summary>
+              <div class="agent-subagent-card__body">
+                <dl class="agent-pipeline-facts">
+                  <div>
+                    <dt>计划摘要</dt>
+                    <dd>{{ plan.summary || '无' }}</dd>
+                  </div>
+                  <div>
+                    <dt>影响摘要</dt>
+                    <dd>{{ plan.impact_summary || '无' }}</dd>
+                  </div>
+                  <div>
+                    <dt>策略原因</dt>
+                    <dd>{{ plan.policy_reason || '无' }}</dd>
+                  </div>
+                  <div v-if="multiTurnLatestInstruction || multiTurnOriginalGoal">
+                    <dt>上下文目标</dt>
+                    <dd>{{ multiTurnLatestInstruction || multiTurnOriginalGoal }}</dd>
+                  </div>
+                </dl>
+              </div>
+            </details>
           </div>
         </article>
 
@@ -3371,6 +3479,39 @@ onBeforeUnmount(() => {
                 <dd>{{ planBudgetSummary }}</dd>
               </div>
             </dl>
+            <details class="agent-subagent-card agent-pipeline-detail">
+              <summary>
+                <span>复杂度判断详情</span>
+                <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(plan.risk_level)}`">
+                  {{ pipelineComplexityLabel }}
+                </span>
+                <span>{{ sortedSteps.length }} 步</span>
+              </summary>
+              <div class="agent-subagent-card__body">
+                <dl class="agent-pipeline-facts">
+                  <div>
+                    <dt>权限治理</dt>
+                    <dd>{{ planPermissionSummary || '无' }}</dd>
+                  </div>
+                  <div>
+                    <dt>预算治理</dt>
+                    <dd>{{ planBudgetSummary || '无' }}</dd>
+                  </div>
+                  <div>
+                    <dt>确认策略</dt>
+                    <dd>{{ plan.confirmation_policy || '无' }}</dd>
+                  </div>
+                </dl>
+                <div v-if="hasDetailValue(permissionGovernance)" class="agent-subagent-card__section">
+                  <strong>权限原始摘要</strong>
+                  <pre class="agent-json-block">{{ formatDetailJSON(permissionGovernance) }}</pre>
+                </div>
+                <div v-if="hasDetailValue(budgetGovernance)" class="agent-subagent-card__section">
+                  <strong>预算原始摘要</strong>
+                  <pre class="agent-json-block">{{ formatDetailJSON(budgetGovernance) }}</pre>
+                </div>
+              </div>
+            </details>
           </div>
         </article>
 
@@ -3381,7 +3522,9 @@ onBeforeUnmount(() => {
           <div class="agent-pipeline-item__body">
             <div class="agent-pipeline-item__top">
               <strong>生成提示词并合成子 Agent 上下文</strong>
-              <span class="agent-plan-status agent-plan-status--neutral">{{ streamStatusLabel }}</span>
+              <span class="agent-plan-status" :class="`agent-plan-status--${pipelinePromptContextTone}`">
+                {{ pipelinePromptContextStatus }}
+              </span>
             </div>
             <p>{{ pipelinePromptContextSummary }}</p>
             <dl class="agent-pipeline-facts">
@@ -3398,6 +3541,71 @@ onBeforeUnmount(() => {
                 <dd>{{ controllerRun.context_traces.length }} 条 / token {{ controllerRun.context_traces.reduce((sum, trace) => sum + trace.token_estimate, 0) }}</dd>
               </div>
             </dl>
+            <details class="agent-subagent-card agent-pipeline-detail">
+              <summary>
+                <span>提示词与上下文详情</span>
+                <span class="agent-plan-status" :class="`agent-plan-status--${pipelinePromptContextTone}`">
+                  {{ pipelinePromptContextStatus }}
+                </span>
+                <span>{{ controllerRun?.context_traces?.length || 0 }} 个快照</span>
+              </summary>
+              <div class="agent-subagent-card__body">
+                <dl class="agent-pipeline-facts">
+                  <div>
+                    <dt>实时连接</dt>
+                    <dd>{{ streamStatusLabel }}</dd>
+                  </div>
+                  <div v-if="controllerRun">
+                    <dt>controller run</dt>
+                    <dd>#{{ controllerRun.id }} / {{ statusLabel(controllerRun.status) }} / {{ controllerRun.model_key || '无模型' }}</dd>
+                  </div>
+                  <div v-if="controllerRun?.context_trace_ref">
+                    <dt>上下文引用</dt>
+                    <dd>{{ controllerRun.context_trace_ref }}</dd>
+                  </div>
+                  <div v-if="controllerRun?.result_ref">
+                    <dt>结果引用</dt>
+                    <dd>{{ controllerRun.result_ref }}</dd>
+                  </div>
+                </dl>
+                <div v-if="controllerRun && hasDetailValue(controllerRun.task_packet)" class="agent-subagent-card__section">
+                  <strong>任务包</strong>
+                  <pre class="agent-json-block">{{ formatDetailJSON(controllerRun.task_packet) }}</pre>
+                </div>
+                <div v-if="controllerRun && hasDetailValue(controllerRun.context_budget)" class="agent-subagent-card__section">
+                  <strong>上下文预算</strong>
+                  <pre class="agent-json-block">{{ formatDetailJSON(controllerRun.context_budget) }}</pre>
+                </div>
+                <div v-if="controllerRun?.context_traces?.length" class="agent-subagent-card__section">
+                  <strong>上下文快照</strong>
+                  <div v-for="trace in controllerRun.context_traces" :key="trace.id" class="agent-subagent-record">
+                    <span>{{ trace.trace_kind }} #{{ trace.id }} / {{ trace.model_key || '无模型' }} / token {{ trace.token_estimate }}</span>
+                    <span>{{ trace.prompt_version || '无提示词版本' }} / {{ trace.redaction_status || '无脱敏状态' }}</span>
+                    <pre class="agent-json-block">{{ formatDetailJSON(trace.content) }}</pre>
+                  </div>
+                </div>
+                <div v-if="controllerRun?.observations?.length" class="agent-subagent-card__section">
+                  <strong>controller 观察</strong>
+                  <div v-for="observation in controllerRun.observations" :key="observation.id" class="agent-subagent-record">
+                    <span>{{ observation.capability_key || 'observation' }} #{{ observation.id }}</span>
+                    <span>{{ statusLabel(observation.status) }}</span>
+                    <p v-if="observation.input_summary">输入：{{ observation.input_summary }}</p>
+                    <p v-if="observation.output_summary">输出：{{ observation.output_summary }}</p>
+                    <p v-if="observation.error" class="agent-plan-step__error">{{ observation.error }}</p>
+                    <p v-if="observation.artifact_refs?.length">证据：{{ joined(observation.artifact_refs) }}</p>
+                  </div>
+                </div>
+                <div v-if="controllerRun?.artifacts?.length" class="agent-subagent-card__section">
+                  <strong>controller 产物</strong>
+                  <div v-for="artifact in controllerRun.artifacts" :key="artifact.id" class="agent-subagent-record">
+                    <span>{{ artifact.artifact_type || 'artifact' }} #{{ artifact.id }}</span>
+                    <span>{{ artifact.content_ref || '无引用' }}</span>
+                    <p v-if="artifact.summary">{{ artifact.summary }}</p>
+                    <p v-if="artifact.source_refs?.length">来源：{{ joined(artifact.source_refs) }}</p>
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
         </article>
 
@@ -3508,6 +3716,35 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <p>{{ pipelineResultSummary }}</p>
+            <details class="agent-subagent-card agent-pipeline-detail">
+              <summary>
+                <span>结果汇总详情</span>
+                <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(plan.status)}`">
+                  {{ statusLabel(plan.status) }}
+                </span>
+                <span>{{ formatTime(plan.completed_at || plan.failed_at || plan.updated_at) }}</span>
+              </summary>
+              <div class="agent-subagent-card__body">
+                <dl class="agent-pipeline-facts">
+                  <div>
+                    <dt>计划摘要</dt>
+                    <dd>{{ plan.summary || '无' }}</dd>
+                  </div>
+                  <div>
+                    <dt>影响摘要</dt>
+                    <dd>{{ plan.impact_summary || '无' }}</dd>
+                  </div>
+                  <div v-if="plan.error_message">
+                    <dt>错误</dt>
+                    <dd>{{ plan.error_message }}</dd>
+                  </div>
+                  <div v-if="resultReuseEvidenceRefs.length || parentPlanEvidenceRefs.length">
+                    <dt>证据引用</dt>
+                    <dd>{{ joined(resultReuseEvidenceRefs.length ? resultReuseEvidenceRefs : parentPlanEvidenceRefs) }}</dd>
+                  </div>
+                </dl>
+              </div>
+            </details>
           </div>
         </article>
 
@@ -3523,6 +3760,33 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <p>{{ pipelineQualitySummary }}</p>
+            <details class="agent-subagent-card agent-pipeline-detail">
+              <summary>
+                <span>质量门禁详情</span>
+                <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(asText(resultQuality?.status))}`">
+                  {{ asText(resultQuality?.status) || '未记录' }}
+                </span>
+                <span>{{ handoffSummary || '无需接管' }}</span>
+              </summary>
+              <div class="agent-subagent-card__body">
+                <div v-if="hasDetailValue(resultQuality)" class="agent-subagent-card__section">
+                  <strong>结果质量</strong>
+                  <pre class="agent-json-block">{{ formatDetailJSON(resultQuality) }}</pre>
+                </div>
+                <div v-if="hasDetailValue(runtimeObservability)" class="agent-subagent-card__section">
+                  <strong>运行观测</strong>
+                  <pre class="agent-json-block">{{ formatDetailJSON(runtimeObservability) }}</pre>
+                </div>
+                <div v-if="hasDetailValue(handoffMetadata)" class="agent-subagent-card__section">
+                  <strong>人工接管</strong>
+                  <pre class="agent-json-block">{{ formatDetailJSON(handoffMetadata) }}</pre>
+                </div>
+                <div v-if="hasDetailValue(deploymentAcceptance)" class="agent-subagent-card__section">
+                  <strong>部署验收</strong>
+                  <pre class="agent-json-block">{{ formatDetailJSON(deploymentAcceptance) }}</pre>
+                </div>
+              </div>
+            </details>
           </div>
         </article>
 
@@ -3539,6 +3803,22 @@ onBeforeUnmount(() => {
             </div>
             <p>{{ pipelineDeliverySummary }}</p>
             <p v-if="pipelineEventSummary !== '暂无额外事件'">事件：{{ pipelineEventSummary }}</p>
+            <details v-if="recentEvents.length" class="agent-subagent-card agent-pipeline-detail">
+              <summary>
+                <span>事件与交付详情</span>
+                <span class="agent-plan-status" :class="`agent-plan-status--${statusTone(progress?.status || plan.status)}`">
+                  {{ statusLabel(progress?.status || plan.status) }}
+                </span>
+                <span>{{ recentEvents.length }} 条事件</span>
+              </summary>
+              <div class="agent-subagent-card__body">
+                <div v-for="event in recentEvents" :key="event.id" class="agent-subagent-record">
+                  <span>{{ eventKindLabel(event.kind) }} / {{ event.title || event.id }}</span>
+                  <span>{{ statusLabel(event.status) }}{{ event.created_at ? ` / ${formatTime(event.created_at)}` : '' }}</span>
+                  <p>{{ event.summary || '无' }}</p>
+                </div>
+              </div>
+            </details>
             <div v-if="scheduledTasks.length" class="agent-subagent-list">
               <details v-for="task in scheduledTasks" :key="task.id" class="agent-subagent-card">
                 <summary>

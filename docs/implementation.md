@@ -58,7 +58,7 @@
 - 前端已有任务创建表单，并通过 `createAgentTask` 以 `channel=web` 发起任务。
 - 顶部主入口已扩展为“订阅 / 推荐 / 助理”，助理与订阅、推荐共用三页横向滑动模型，并同时挂载三个 pane。
 - 助理页已复用现有 Agent 后端工作台；执行进度位于发起任务下方，评测基线不再展示给普通用户，最近任务不再展示开发治理摘要。
-- 已修正 Agent 详情查看交互：助理首页保留发起任务和最近任务列表；从最近任务点击“查看”后进入 `/agent/plans/:id` 独立详情页。详情页已重构为单一流水线：主 Agent 接收任务、理解任务、判断复杂度、生成提示词和子 Agent 上下文、启动子 Agent、汇总结果、质量门禁、最终交付。子 Agent 默认收起，展开后查看工具调用、观察、产物、错误和重试记录。
+- 已修正 Agent 详情查看交互：助理首页保留发起任务和最近任务列表；从最近任务点击“查看”后进入 `/agent/plans/:id` 独立详情页。详情页已重构为单一流水线：主 Agent 接收任务、理解任务、判断复杂度、生成提示词和子 Agent 上下文、启动子 Agent、汇总结果、质量门禁、最终交付。主 Agent 和子 Agent 节点均默认收起明细，展开后可查看任务包、上下文预算、上下文快照、工具调用、观察、产物、错误和重试记录。
 
 ### 3.4 质量与验证
 
@@ -449,6 +449,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 16. 当前补充修复：先落地通用 `TaskSpec`、证据评分过滤和质量门禁三项根源能力。用户消息先转为任务类型、领域、时效和证据要求；搜索结果和 fallback 证据统一经过相关性、来源、时效和低质量内容评分；最终回答前校验证据数量和结论方向，证据不足或结论不被证据支持时给出用户可读降级回复。新增文件：`internal/agent/task_spec.go`、`internal/agent/evidence_score.go`、`internal/agent/answer_quality.go` 及对应测试。验证命令：`go test ./...`、`go vet ./...`。
 17. 当前补充修复：Web 端 Agent 详细过程从首页底部内嵌改为独立详情页。`/agent` 只显示发起任务和最近任务；`/agent/plans/:id`、按 `scheduled_task_id` 进入的详情路由只显示执行过程详情，并提供返回助理入口。验证命令：`npm --prefix web run type-check`、`npm --prefix web run test`、`npm --prefix web run build`。
 18. 当前补充修复：Web 端 Agent 详情页进一步改为单一流水线，不再平铺旧的进度、阶段、步骤、调度记录、确认记录和事件板块。流水线按真实执行顺序合并为主 Agent 接收任务、理解任务、复杂度/权限/预算判断、提示词与子 Agent 上下文、子 Agent 执行、结果汇总、质量门禁、最终交付；子 Agent 明细默认收起，可展开查看步骤、observation、artifact 和重试操作。验证命令：`npm --prefix web run type-check`、`npm --prefix web run test`、`npm --prefix web run build`。
+19. 当前补充修复：流水线详情页补齐主 Agent 节点的可展开明细，修正“生成提示词并合成子 Agent 上下文”显示实时连接“已关闭”导致信息不足的问题。该节点现在显示 controller run 合成状态，展开后展示任务包、上下文预算、上下文快照、controller observation 和 artifact；接收、理解、复杂度、结果汇总、质量门禁和交付节点也提供默认收起的详情。验证命令：`npm --prefix web run type-check`、`npm --prefix web run test`、`npm --prefix web run build`。
 
 ## 8. 最小验证命令
 
