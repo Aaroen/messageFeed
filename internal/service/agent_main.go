@@ -18,6 +18,9 @@ const (
 	// defaultAgentNotificationTimeout 只约束企业微信发送动作。
 	// 通知超时必须独立于执行超时，避免主流程超时后连失败消息也发不出去。
 	defaultAgentNotificationTimeout = 15 * time.Second
+	// defaultAgentStopWaitTimeout 是用户主动停止后等待 goroutine 退出的确认窗口。
+	// 超过该时间仍未退出时，不把计划标记为已停止，避免掩盖无法取消的后台执行。
+	defaultAgentStopWaitTimeout = 5 * time.Second
 )
 
 type AgentConversationService struct {
@@ -44,6 +47,9 @@ type AgentConversationService struct {
 	notificationTimeout time.Duration
 	lockMu              sync.Mutex
 	sessionLocks        map[int64]*sync.Mutex
+	activeProcessMu     sync.Mutex
+	activeByTurnID      map[int64]*agentActiveProcess
+	activeByPlanID      map[int64]*agentActiveProcess
 }
 
 type AgentConversationServiceOption func(*AgentConversationService)
@@ -156,6 +162,8 @@ func NewAgentConversationService(repository AgentConversationRepository, options
 		processTimeout:      defaultAgentProcessTimeout,
 		notificationTimeout: defaultAgentNotificationTimeout,
 		sessionLocks:        map[int64]*sync.Mutex{},
+		activeByTurnID:      map[int64]*agentActiveProcess{},
+		activeByPlanID:      map[int64]*agentActiveProcess{},
 	}
 	for _, option := range options {
 		option(service)

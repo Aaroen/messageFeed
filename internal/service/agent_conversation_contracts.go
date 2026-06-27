@@ -58,6 +58,7 @@ type AgentConversationAuditStore interface {
 type AgentConversationRunStore interface {
 	CreateAgentRun(ctx context.Context, run domain.AgentRun) (domain.AgentRun, error)
 	UpdateAgentRun(ctx context.Context, run domain.AgentRun) (domain.AgentRun, error)
+	ListAgentRunsByTurn(ctx context.Context, userID int64, turnID int64) ([]domain.AgentRun, error)
 	CreateAgentRunContextTrace(ctx context.Context, trace domain.AgentRunContextTrace) (domain.AgentRunContextTrace, error)
 	CreateAgentObservation(ctx context.Context, observation domain.AgentObservation) (domain.AgentObservation, error)
 	CreateAgentArtifact(ctx context.Context, artifact domain.AgentArtifact) (domain.AgentArtifact, error)
@@ -66,6 +67,7 @@ type AgentConversationRunStore interface {
 type AgentConversationPlanStore interface {
 	CreateAgentPlan(ctx context.Context, plan domain.AgentPlan, steps []domain.AgentPlanStep) (domain.AgentPlan, error)
 	ListAgentPlans(ctx context.Context, userID int64, sessionID int64, turnID int64, limit int) ([]domain.AgentPlan, error)
+	GetAgentPlan(ctx context.Context, userID int64, planID int64) (domain.AgentPlan, error)
 	ListAgentScheduledTasks(ctx context.Context, options domain.AgentScheduledTaskListOptions) ([]domain.AgentScheduledTask, error)
 	UpdateAgentScheduledTask(ctx context.Context, task domain.AgentScheduledTask) (domain.AgentScheduledTask, error)
 	UpdateAgentPlanStatus(ctx context.Context, userID int64, planID int64, status domain.AgentPlanStatus, now time.Time, errorMessage string) (domain.AgentPlan, error)

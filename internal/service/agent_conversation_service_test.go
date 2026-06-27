@@ -714,6 +714,71 @@ func TestAgentConversationServiceStopsActiveWebPlan(t *testing.T) {
 	}
 }
 
+func TestAgentConversationServiceStopAgentPlanConvergesRuntimeState(t *testing.T) {
+	now := time.Date(2026, 6, 27, 15, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.plans = []domain.AgentPlan{{
+		ID:        31,
+		UserID:    7,
+		SessionID: 11,
+		TurnID:    62,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "分析市场消息",
+		Metadata:  domain.AgentJSON{},
+		Steps: []domain.AgentPlanStep{
+			{ID: 101, PlanID: 31, StepOrder: 1, Status: domain.AgentPlanStepStatusPending, Title: "待执行"},
+			{ID: 102, PlanID: 31, StepOrder: 2, Status: domain.AgentPlanStepStatusExecuting, Title: "执行中"},
+			{ID: 103, PlanID: 31, StepOrder: 3, Status: domain.AgentPlanStepStatusCompleted, Title: "已完成"},
+		},
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}}
+	repository.runs = []domain.AgentRun{{
+		ID:        17,
+		SessionID: 11,
+		TurnID:    62,
+		Role:      domain.AgentRunRoleController,
+		Status:    domain.AgentRunStatusRunning,
+		StartedAt: now.Add(-time.Minute),
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}}
+	repository.turns = []domain.AgentTurn{{
+		ID:        62,
+		UserID:    7,
+		SessionID: 11,
+		Status:    domain.AgentTurnStatusRunning,
+		StartedAt: now.Add(-time.Minute),
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}}
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	result, err := service.StopAgentPlan(context.Background(), CurrentAuth{
+		Authenticated: true,
+		User:          domain.User{ID: 7, Username: "web-user"},
+	}, 31, StopAgentPlanInput{Reason: "用户停止执行"})
+	if err != nil {
+		t.Fatalf("StopAgentPlan() error = %v", err)
+	}
+	if result.Plan.Status != string(domain.AgentPlanStatusFailed) || !result.Runtime.StopConfirmed {
+		t.Fatalf("result = %#v", result)
+	}
+	stored := repository.plans[0]
+	if stored.Status != domain.AgentPlanStatusFailed || stored.Steps[0].Status != domain.AgentPlanStepStatusSkipped || stored.Steps[1].Status != domain.AgentPlanStepStatusFailed || stored.Steps[2].Status != domain.AgentPlanStepStatusCompleted {
+		t.Fatalf("stored plan = %#v", stored)
+	}
+	if repository.runs[0].Status != domain.AgentRunStatusCanceled {
+		t.Fatalf("run status = %s, want canceled", repository.runs[0].Status)
+	}
+	if repository.turns[0].Status != domain.AgentTurnStatusFailed {
+		t.Fatalf("turn status = %s, want failed", repository.turns[0].Status)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_stopped") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
 func TestAgentConversationServiceReusesCompletedPlanForFollowup(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -2301,6 +2366,15 @@ func (r *fakeAgentConversationRepository) ListAgentPlans(_ context.Context, user
 	return plans, nil
 }
 
+func (r *fakeAgentConversationRepository) GetAgentPlan(_ context.Context, userID int64, planID int64) (domain.AgentPlan, error) {
+	for _, plan := range r.plans {
+		if plan.ID == planID && plan.UserID == userID {
+			return plan, nil
+		}
+	}
+	return domain.AgentPlan{}, domain.ErrNotFound
+}
+
 func (r *fakeAgentConversationRepository) ListAgentScheduledTasks(_ context.Context, options domain.AgentScheduledTaskListOptions) ([]domain.AgentScheduledTask, error) {
 	tasks := make([]domain.AgentScheduledTask, 0, len(r.scheduledTasks))
 	for _, task := range r.scheduledTasks {
@@ -2370,6 +2444,16 @@ func (r *fakeAgentConversationRepository) UpdateAgentPlanStepStatus(_ context.Co
 		}
 	}
 	return domain.AgentPlanStep{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) ListAgentRunsByTurn(_ context.Context, userID int64, turnID int64) ([]domain.AgentRun, error) {
+	runs := make([]domain.AgentRun, 0, len(r.runs))
+	for _, run := range r.runs {
+		if run.TurnID == turnID {
+			runs = append(runs, run)
+		}
+	}
+	return runs, nil
 }
 
 func (r *fakeAgentConversationRepository) CreateAgentApproval(_ context.Context, approval domain.AgentApproval) (domain.AgentApproval, error) {

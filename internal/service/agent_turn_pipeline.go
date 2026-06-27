@@ -22,6 +22,11 @@ func (s *AgentConversationService) processTurn(
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
 ) (ReceiveWeChatWorkAppMessageResult, error) {
+	ctx, cancelProcess := context.WithCancel(ctx)
+	activeProcess := s.registerAgentProcess(turn.ID, cancelProcess)
+	defer cancelProcess()
+	defer s.unregisterAgentProcess(activeProcess)
+
 	lock := s.sessionLock(session.ID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -52,6 +57,7 @@ func (s *AgentConversationService) processTurn(
 		result := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, plan, err)
 		return result, nil
 	}
+	s.bindAgentProcessPlan(turn.ID, plan.ID)
 	controllerRun = s.alignControllerRunWithPlan(ctx, controllerRun, plan, input)
 	if plan.Status == domain.AgentPlanStatusApproved {
 		executingPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusExecuting, s.now().UTC(), "")
@@ -111,6 +117,9 @@ func (s *AgentConversationService) processTurn(
 		TraceID:         input.TraceID,
 	})
 	if err != nil {
+		if isAgentProcessStopError(ctx, err, activeProcess) {
+			return s.finishStoppedAgentProcess(ctx, account, inbound, session, turn, plan), nil
+		}
 		s.recordControllerTrace(ctx, controllerRun, runResult, "controller_error")
 		failedPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, s.now().UTC(), err.Error())
 		if failedPlan.ID > 0 {
@@ -124,6 +133,9 @@ func (s *AgentConversationService) processTurn(
 		result := s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, plan, err)
 		result.Plan = plan
 		return result, nil
+	}
+	if activeProcess.stoppedByUser() {
+		return s.finishStoppedAgentProcess(ctx, account, inbound, session, turn, plan), nil
 	}
 	s.recordControllerTrace(ctx, controllerRun, runResult, "controller_output")
 	updatedPlan, err := s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)

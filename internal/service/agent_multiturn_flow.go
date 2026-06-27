@@ -497,7 +497,10 @@ func (s *AgentConversationService) staleResultReply(plan domain.AgentPlan) strin
 }
 
 func planStoppedByUser(plan domain.AgentPlan) bool {
-	if strings.Contains(strings.ToLower(plan.ErrorMessage), "stopped by user") {
+	if strings.Contains(strings.ToLower(plan.ErrorMessage), "stopped by user") || strings.Contains(plan.ErrorMessage, "用户停止") {
+		return true
+	}
+	if stop := metadataMap(plan.Metadata, "stop"); len(stop) > 0 {
 		return true
 	}
 	raw, _ := plan.Metadata["multi_turn"].(map[string]any)

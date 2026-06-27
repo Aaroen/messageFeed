@@ -77,11 +77,58 @@ func TestAgentTaskRouteCreatesWebTask(t *testing.T) {
 	}
 }
 
+func TestAgentTaskRouteStopsPlan(t *testing.T) {
+	fakeService := &fakeAgentTaskService{
+		stopResult: service.StopAgentPlanResult{
+			Plan: service.AgentPlanResponse{ID: 8, Status: string(domain.AgentPlanStatusFailed)},
+			Runtime: service.AgentPlanStopRuntimeInfo{
+				PlanID:        8,
+				TurnID:        62,
+				StopConfirmed: true,
+				Confirmation:  "process_exited_after_cancel",
+			},
+		},
+	}
+	router := newTestRouter(t, RouterOptions{
+		AuthService: fakeAuthEndpointService{auth: service.CurrentAuth{
+			Authenticated: true,
+			User:          domain.User{ID: 9},
+		}},
+		AgentTaskService: fakeService,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/agent/plans/8/stop", bytes.NewBufferString(`{"reason":"用户停止执行"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: "messagefeed_session", Value: "token"})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d, body = %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if fakeService.stopPlanID != 8 || fakeService.stopInput.Reason != "用户停止执行" {
+		t.Fatalf("stop input = plan %d %#v", fakeService.stopPlanID, fakeService.stopInput)
+	}
+	var response struct {
+		Data service.StopAgentPlanResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Plan.ID != 8 || !response.Data.Runtime.StopConfirmed {
+		t.Fatalf("response data = %#v", response.Data)
+	}
+}
+
 type fakeAgentTaskService struct {
-	auth   service.CurrentAuth
-	input  service.ReceiveWebAgentTaskInput
-	result service.ReceiveWebAgentTaskResult
-	err    error
+	auth       service.CurrentAuth
+	input      service.ReceiveWebAgentTaskInput
+	result     service.ReceiveWebAgentTaskResult
+	err        error
+	stopPlanID int64
+	stopInput  service.StopAgentPlanInput
+	stopResult service.StopAgentPlanResult
+	stopErr    error
 }
 
 func (f *fakeAgentTaskService) ReceiveWebAgentTask(_ context.Context, auth service.CurrentAuth, input service.ReceiveWebAgentTaskInput) (service.ReceiveWebAgentTaskResult, error) {
@@ -91,4 +138,14 @@ func (f *fakeAgentTaskService) ReceiveWebAgentTask(_ context.Context, auth servi
 		return service.ReceiveWebAgentTaskResult{}, f.err
 	}
 	return f.result, nil
+}
+
+func (f *fakeAgentTaskService) StopAgentPlan(_ context.Context, auth service.CurrentAuth, planID int64, input service.StopAgentPlanInput) (service.StopAgentPlanResult, error) {
+	f.auth = auth
+	f.stopPlanID = planID
+	f.stopInput = input
+	if f.stopErr != nil {
+		return service.StopAgentPlanResult{}, f.stopErr
+	}
+	return f.stopResult, nil
 }
