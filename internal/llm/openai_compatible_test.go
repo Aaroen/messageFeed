@@ -93,6 +93,46 @@ func TestOpenAICompatibleClientReturnsProviderError(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleClientRetriesRetryableStatus(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"message":"upstream saturated"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"retry ok"}}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "custom-model",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+
+	response, err := client.Chat(context.Background(), ChatRequest{
+		Messages: []ChatMessage{{Role: "user", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+	if response.Content != "retry ok" {
+		t.Fatalf("response = %#v", response)
+	}
+}
+
 func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 	var receivedToolName string
 	var receivedToolChoice any

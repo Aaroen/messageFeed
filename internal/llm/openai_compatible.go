@@ -26,6 +26,7 @@ import (
 const defaultOpenAIBaseURL = "https://api.openai.com/v1"
 const openAICompatibleChatOperation = "auto_route"
 const openAICompatibleExternalHTTPOperation = "llm_openai_compatible"
+const llmHTTPMaxAttempts = 6
 
 type llmProtocol string
 
@@ -367,7 +368,7 @@ func (c *OpenAICompatibleClient) chatWithChatCompletions(ctx context.Context, re
 	span.SetAttributes(attribute.Int("http.response.status_code", statusCode))
 	span.SetAttributes(attribute.Int("http.response.body.size", len(responseBody)))
 	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
-		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, providerErrorMessage(responseBody, statusCode), true, nil)
+		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, providerErrorMessage(responseBody, statusCode), isLLMProtocolFallbackStatus(statusCode), nil)
 	}
 	var decoded chatCompletionResponse
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
@@ -506,7 +507,7 @@ func (c *OpenAICompatibleClient) chatWithResponses(ctx context.Context, request 
 	span.SetAttributes(attribute.Int("http.response.status_code", statusCode))
 	span.SetAttributes(attribute.Int("http.response.body.size", len(responseBody)))
 	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
-		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, providerErrorMessage(responseBody, statusCode), true, nil)
+		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, providerErrorMessage(responseBody, statusCode), isLLMProtocolFallbackStatus(statusCode), nil)
 	}
 	var decoded responsesResponse
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
@@ -713,9 +714,8 @@ func recordLLMUsage(provider string, model string, inputTokens int, outputTokens
 }
 
 func (c *OpenAICompatibleClient) doLLMHTTPRequest(ctx context.Context, path string, body []byte, host string) ([]byte, int, error) {
-	const maxAttempts = 3
 	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	for attempt := 1; attempt <= llmHTTPMaxAttempts; attempt++ {
 		httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
 		if err != nil {
 			return nil, 0, err
@@ -727,7 +727,7 @@ func (c *OpenAICompatibleClient) doLLMHTTPRequest(ctx context.Context, path stri
 		if err != nil {
 			recordLLMExternalHTTPRequest(openAICompatibleExternalHTTPOperation, host, "error", time.Since(httpStartedAt))
 			lastErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_request_failed", "llm request failed", "llm.openai_compatible.chat", true, err)
-			if attempt < maxAttempts {
+			if attempt < llmHTTPMaxAttempts {
 				if sleepErr := sleepLLMRetry(ctx, attempt); sleepErr != nil {
 					return nil, 0, sleepErr
 				}
@@ -741,7 +741,7 @@ func (c *OpenAICompatibleClient) doLLMHTTPRequest(ctx context.Context, path stri
 		if readErr != nil {
 			return nil, httpResponse.StatusCode, readErr
 		}
-		if isRetryableLLMHTTPStatus(httpResponse.StatusCode) && attempt < maxAttempts {
+		if isRetryableLLMHTTPStatus(httpResponse.StatusCode) && attempt < llmHTTPMaxAttempts {
 			lastErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_retryable_status", llmResponseSnippet(responseBody), "llm.openai_compatible.chat", true, nil)
 			if sleepErr := sleepLLMRetry(ctx, attempt); sleepErr != nil {
 				return nil, httpResponse.StatusCode, sleepErr
@@ -760,8 +760,20 @@ func isRetryableLLMHTTPStatus(statusCode int) bool {
 	return statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError
 }
 
+func isLLMProtocolFallbackStatus(statusCode int) bool {
+	switch statusCode {
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusUnsupportedMediaType:
+		return true
+	default:
+		return false
+	}
+}
+
 func sleepLLMRetry(ctx context.Context, attempt int) error {
-	delay := time.Duration(attempt) * 500 * time.Millisecond
+	delay := time.Duration(1<<uint(attempt-1)) * 500 * time.Millisecond
+	if delay > 8*time.Second {
+		delay = 8 * time.Second
+	}
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
