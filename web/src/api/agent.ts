@@ -272,6 +272,21 @@ export interface AgentPlanRetryResult {
   steps: AgentPlanStep[]
 }
 
+export interface AgentPlanStopRuntime {
+  plan_id: number
+  turn_id: number
+  active_process_found: boolean
+  cancel_signaled: boolean
+  stop_confirmed: boolean
+  confirmation: string
+  waited_millis: number
+}
+
+export interface AgentPlanStopResult {
+  plan: AgentPlan
+  runtime: AgentPlanStopRuntime
+}
+
 export interface AgentTaskResult {
   session: AgentSession
   turn: AgentTurn
@@ -2143,6 +2158,14 @@ export async function recoverAgentPlan(planID: number, input: { reason?: string 
     input,
   )
   return response.data.data.plan
+}
+
+export async function stopAgentPlan(planID: number, input: { reason?: string } = {}) {
+  const response = await apiClient.post<APIEnvelope<AgentPlanStopResult>>(
+    `/api/v1/agent/plans/${planID}/stop`,
+    input,
+  )
+  return response.data.data
 }
 
 export async function recoverAgentScheduledTask(id: number, input: { reason?: string } = {}) {

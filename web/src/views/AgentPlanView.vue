@@ -25,10 +25,10 @@ import {
   createAgentTask,
   getAgentProgress,
   listAgentTasks,
-  recoverAgentPlan,
   recoverAgentScheduledTask,
   retryAgentPlan,
   retryAgentPlanStep,
+  stopAgentPlan,
   type AgentAlertChannel,
   type AgentAlertAutoRecovery,
   type AgentAlertDedupeEscalation,
@@ -302,7 +302,7 @@ const cancelingTaskID = ref(0)
 const recoveringTaskID = ref(0)
 const retryingStepID = ref(0)
 const retryingPlan = ref(false)
-const recoveringPlan = ref(false)
+const stoppingPlan = ref(false)
 const errorMessage = ref('')
 const refreshNotice = ref('')
 const lastLoadedAt = ref('')
@@ -398,9 +398,7 @@ const streamStatusLabel = computed(() => {
 })
 
 const canRetryPlan = computed(() => Boolean(plan.value && plan.value.status === 'failed' && retryableStepCount.value > 0))
-const canRecoverPlan = computed(() =>
-  Boolean(plan.value && (plan.value.status === 'executing' || sortedSteps.value.some((step) => step.status === 'executing'))),
-)
+const canStopPlan = computed(() => Boolean(plan.value && !isTerminalAgentProgressStatus(plan.value.status)))
 const multiTurnMetadata = computed(() => {
   const value = plan.value?.metadata?.multi_turn
   return isRecord(value) ? value : null
@@ -1889,20 +1887,20 @@ async function retryCurrentPlan() {
   }
 }
 
-async function recoverCurrentPlan() {
-  if (!plan.value || !canRecoverPlan.value) {
+async function stopCurrentPlan() {
+  if (!plan.value || !canStopPlan.value) {
     return
   }
-  recoveringPlan.value = true
+  stoppingPlan.value = true
   controlError.value = ''
   try {
-    await recoverAgentPlan(plan.value.id, { reason: 'web recovery request' })
+    await stopAgentPlan(plan.value.id, { reason: '用户停止执行' })
     await loadPlan({ silent: true })
     await loadTasks()
   } catch (error) {
     controlError.value = formatAPIError(error)
   } finally {
-    recoveringPlan.value = false
+    stoppingPlan.value = false
   }
 }
 
@@ -3312,14 +3310,14 @@ onBeforeUnmount(() => {
             {{ retryingPlan ? '重试中' : '重试失败步骤' }}
           </button>
           <button
-            v-if="canRecoverPlan"
+            v-if="canStopPlan"
             class="settings-action-button agent-plan-page__refresh"
             type="button"
-            :disabled="recoveringPlan"
-            @click="recoverCurrentPlan"
+            :disabled="stoppingPlan"
+            @click="stopCurrentPlan"
           >
-            <IconPlayCircle />
-            {{ recoveringPlan ? '恢复中' : '恢复计划' }}
+            <IconCloseCircleFill />
+            {{ stoppingPlan ? '停止中' : '停止计划' }}
           </button>
           <button class="settings-action-button agent-plan-page__refresh" type="button" :disabled="loading" @click="loadPlan()">
             <IconRefresh :class="{ 'agent-plan-page__spin': refreshing }" />
@@ -3914,14 +3912,14 @@ onBeforeUnmount(() => {
           {{ retryingPlan ? '重试中' : '重试失败步骤' }}
         </button>
         <button
-          v-if="canRecoverPlan"
+          v-if="canStopPlan"
           class="settings-action-button agent-plan-page__refresh"
           type="button"
-          :disabled="recoveringPlan"
-          @click="recoverCurrentPlan"
+          :disabled="stoppingPlan"
+          @click="stopCurrentPlan"
         >
-          <IconPlayCircle />
-          {{ recoveringPlan ? '恢复中' : '恢复计划' }}
+          <IconCloseCircleFill />
+          {{ stoppingPlan ? '停止中' : '停止计划' }}
         </button>
         <button class="settings-action-button agent-plan-page__refresh" type="button" :disabled="loading" @click="loadPlan()">
           <IconRefresh :class="{ 'agent-plan-page__spin': refreshing }" />
