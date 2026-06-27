@@ -7,34 +7,17 @@ import (
 	"messagefeed/internal/metrics"
 	"messagefeed/internal/notifier"
 	"strings"
-	"time"
 )
 
-// approvalRequiredReply 构造需要用户确认时的最小可执行反馈。
-func (s *AgentConversationService) approvalRequiredReply(plan domain.AgentPlan, token string) string {
-	var builder strings.Builder
-	builder.WriteString("该操作需要确认后才能继续。\n计划：")
-	builder.WriteString(plan.Summary)
-	builder.WriteString("\n状态锚点：approval_required/")
-	builder.WriteString(string(plan.Status))
-	builder.WriteString("\n影响：")
-	builder.WriteString(plan.ImpactSummary)
-	builder.WriteString("\n权限：")
-	builder.WriteString(planPermissionSummary(plan))
-	builder.WriteString("\n预算：")
-	builder.WriteString(planBudgetSummary(plan))
-	builder.WriteString("\n进度摘要：")
-	builder.WriteString(s.agentPlanProgressText(plan))
-	builder.WriteString("\n审批地址：")
-	builder.WriteString(s.agentApprovalURL(token))
-	if plan.ID > 0 {
-		builder.WriteString("\n进度地址：")
-		builder.WriteString(s.agentPlanURL(plan.ID))
-	}
-	builder.WriteString("\n下一步：打开审批地址确认或拒绝；如需查看实时执行细节，请打开进度地址。")
-	builder.WriteString("\n")
-	builder.WriteString(s.agentWeChatActionFallbackText(plan, token))
-	return builder.String()
+// approvalRequiredReply 将确认请求的结构化事实交给模型生成用户可见短回复。
+func (s *AgentConversationService) approvalRequiredReply(ctx context.Context, input ReceiveWeChatWorkAppMessageInput, plan domain.AgentPlan, token string) string {
+	return s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+		Stage:       "approval_waiting",
+		UserMessage: input.TextContent,
+		Plan:        plan,
+		ProgressURL: s.agentPlanURLIfAvailable(plan.ID),
+		ApprovalURL: s.agentApprovalURL(token),
+	})
 }
 
 func (s *AgentConversationService) sendPlanStartedFeedback(
@@ -48,7 +31,7 @@ func (s *AgentConversationService) sendPlanStartedFeedback(
 	if s == nil || plan.ID == 0 || !s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "process") {
 		return
 	}
-	s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "started", "工作已开始")
+	s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "started", "started")
 }
 
 // sendPlanProgressNotification 将关键阶段进度同步到企业微信。
@@ -77,7 +60,8 @@ func (s *AgentConversationService) sendPlanProgressNotification(
 		stage = "progress"
 	}
 	progressURL := s.agentPlanURL(plan.ID)
-	reply := s.agentPlanProgressNotificationText(plan, stage, title)
+	currentStep := planProgressNotificationStep(plan)
+	reply := s.agentPlanProgressNotificationText(ctx, input, plan, currentStep, stage, title)
 	delivery := s.sendWeChatWorkProgressDelivery(ctx, input.ExternalUserID, plan, stage, title, reply)
 	status := "succeeded"
 	message := "agent plan progress notification sent"
@@ -119,49 +103,22 @@ func (s *AgentConversationService) sendPlanProgressNotification(
 	})
 }
 
-func (s *AgentConversationService) agentPlanProgressNotificationText(plan domain.AgentPlan, stage string, title string) string {
-	if stage == "started" {
-		return s.agentPlanStartedReply(plan)
-	}
-	title = strings.TrimSpace(title)
-	if title == "" {
-		title = "进度更新"
-	}
-	var builder strings.Builder
-	builder.WriteString(title)
-	builder.WriteString("。\n")
-	builder.WriteString("进度：")
-	builder.WriteString(s.agentPlanWeChatProgressText(plan))
-	builder.WriteString("\n下一步：")
-	builder.WriteString(agentProgressNextAction(string(plan.Status), true, plan, nil))
-	builder.WriteString("\n详情：")
-	builder.WriteString(s.agentPlanURL(plan.ID))
-	if failedStep := firstFailedPlanStep(plan); failedStep.ID > 0 {
-		builder.WriteString("\n失败步骤：")
-		builder.WriteString(planStepLabel(failedStep))
-		if failedStep.ErrorMessage != "" {
-			builder.WriteString(" / ")
-			builder.WriteString(safeSummary(failedStep.ErrorMessage, 160))
-		}
-	}
-	return strings.TrimSpace(builder.String())
-}
-
-func (s *AgentConversationService) agentPlanStartedReply(plan domain.AgentPlan) string {
-	var builder strings.Builder
-	builder.WriteString("已开始处理")
-	if strings.TrimSpace(plan.Goal) != "" {
-		builder.WriteString("：")
-		builder.WriteString(strings.TrimSpace(plan.Goal))
-	}
-	builder.WriteString("。\n")
-	builder.WriteString("进度：")
-	builder.WriteString(s.agentPlanWeChatProgressText(plan))
-	if plan.ID > 0 {
-		builder.WriteString("\n详情：")
-		builder.WriteString(s.agentPlanURL(plan.ID))
-	}
-	return strings.TrimSpace(builder.String())
+func (s *AgentConversationService) agentPlanProgressNotificationText(
+	ctx context.Context,
+	input ReceiveWeChatWorkAppMessageInput,
+	plan domain.AgentPlan,
+	step domain.AgentPlanStep,
+	stage string,
+	title string,
+) string {
+	return s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+		Stage:       stage,
+		UserMessage: input.TextContent,
+		Plan:        plan,
+		Step:        step,
+		ErrorText:   firstNonEmptyString(step.ErrorMessage, plan.ErrorMessage),
+		ProgressURL: s.agentPlanURL(plan.ID),
+	})
 }
 
 func (s *AgentConversationService) agentTurnCompletionReply(plan domain.AgentPlan, reply string) string {
@@ -169,33 +126,15 @@ func (s *AgentConversationService) agentTurnCompletionReply(plan domain.AgentPla
 	if reply != "" {
 		return reply
 	}
-	status := "已完成"
+	key := "completed_empty"
 	if plan.Status == domain.AgentPlanStatusFailed {
-		status = "处理失败"
+		key = "failed"
 	}
-	var builder strings.Builder
-	builder.WriteString(status)
-	if plan.ID > 0 {
-		builder.WriteString("。详情：")
-		builder.WriteString(s.agentPlanURL(plan.ID))
-	}
-	return builder.String()
-}
-
-func (s *AgentConversationService) agentWeChatActionFallbackText(plan domain.AgentPlan, approvalToken string) string {
-	progressURL := s.agentPlanURL(plan.ID)
-	approvalURL := progressURL
-	if strings.TrimSpace(approvalToken) != "" {
-		approvalURL = s.agentApprovalURL(approvalToken)
-	}
-	actions := []string{
-		"view_progress=" + progressURL,
-		"approval=" + approvalURL,
-		"retry_plan=" + progressURL,
-		"recover_plan=" + progressURL,
-		"cancel_scheduled_task=" + progressURL,
-	}
-	return "企微动作组件：" + strings.Join(actions, "；")
+	return finalizeAgentWeChatFeedbackText(renderAgentWeChatFeedbackTemplate(key, agentWeChatFeedbackRequest{
+		Stage:       key,
+		Plan:        plan,
+		ProgressURL: s.agentPlanURLIfAvailable(plan.ID),
+	}.templateData()))
 }
 
 func (s *AgentConversationService) sendWeChatWorkTaskAcceptedFeedback(
@@ -205,7 +144,10 @@ func (s *AgentConversationService) sendWeChatWorkTaskAcceptedFeedback(
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
 ) (string, notifier.WeChatWorkSendResult, int) {
-	reply := agentTaskAcceptedFeedbackText()
+	reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+		Stage:       "accepted",
+		UserMessage: input.TextContent,
+	})
 	if s == nil || !s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "process") {
 		return reply, notifier.WeChatWorkSendResult{}, 0
 	}
@@ -238,65 +180,18 @@ func (s *AgentConversationService) sendWeChatWorkTaskAcceptedFeedback(
 	return reply, sendResult, sendCount
 }
 
-func agentTaskAcceptedFeedbackText() string {
-	return "已收到任务，后台正在处理，请稍等。完成后会在这里返回结果。"
-}
-
-func (s *AgentConversationService) agentPlanProgressText(plan domain.AgentPlan) string {
-	updatedAt := plan.UpdatedAt
-	if updatedAt.IsZero() {
-		updatedAt = s.now().UTC()
-	}
-	response := agentPlanResponse(plan, true)
-	return AgentProgressTextSummary(AgentProgressSnapshot{
-		SubjectType: "plan",
-		SubjectID:   plan.ID,
-		Status:      string(plan.Status),
-		Summary:     plan.Summary,
-		NextAction:  agentProgressNextAction(string(plan.Status), true, plan, nil),
-		Version:     updatedAt.UnixNano(),
-		EventCursor: fmt.Sprintf("plan:%d:%s", plan.ID, updatedAt.UTC().Format(time.RFC3339Nano)),
-		UpdatedAt:   formatOptionalTime(&updatedAt),
-		Plan:        &response,
-	})
-}
-
-func (s *AgentConversationService) agentPlanWeChatProgressText(plan domain.AgentPlan) string {
-	summary := strings.TrimSpace(plan.Goal)
-	if summary == "" {
-		summary = strings.TrimSpace(plan.Summary)
-	}
-	if summary == "" {
-		summary = "任务处理中"
-	}
-	status := "处理中"
-	switch plan.Status {
-	case domain.AgentPlanStatusCompleted:
-		status = "已完成"
-	case domain.AgentPlanStatusFailed:
-		status = "处理失败"
-	case domain.AgentPlanStatusAwaitingApproval:
-		status = "等待确认"
-	case domain.AgentPlanStatusRejected:
-		status = "已拒绝"
-	case domain.AgentPlanStatusExecuting, domain.AgentPlanStatusApproved:
-		status = "处理中"
-	}
-	return safeSummary(summary, 120) + "，" + status
-}
-
 func planStepLabel(step domain.AgentPlanStep) string {
 	title := strings.TrimSpace(step.Title)
 	if title == "" {
 		title = strings.TrimSpace(step.CapabilityKey)
 	}
 	if title == "" {
-		return "执行计划步骤"
+		return "step"
 	}
 	if step.CapabilityKey == "" {
 		return title
 	}
-	return title + "（" + step.CapabilityKey + "）"
+	return title + " (" + step.CapabilityKey + ")"
 }
 
 func firstFailedPlanStep(plan domain.AgentPlan) domain.AgentPlanStep {
@@ -308,12 +203,31 @@ func firstFailedPlanStep(plan domain.AgentPlan) domain.AgentPlanStep {
 	return domain.AgentPlanStep{}
 }
 
+func planProgressNotificationStep(plan domain.AgentPlan) domain.AgentPlanStep {
+	if failed := firstFailedPlanStep(plan); failed.ID > 0 {
+		return failed
+	}
+	for index := len(plan.Steps) - 1; index >= 0; index-- {
+		if plan.Steps[index].Status == domain.AgentPlanStepStatusCompleted {
+			return plan.Steps[index]
+		}
+	}
+	return domain.AgentPlanStep{}
+}
+
 func (s *AgentConversationService) agentPlanURL(planID int64) string {
 	path := fmt.Sprintf("/agent/plans/%d", planID)
 	if s == nil || s.publicBaseURL == "" {
 		return path
 	}
 	return s.publicBaseURL + path
+}
+
+func (s *AgentConversationService) agentPlanURLIfAvailable(planID int64) string {
+	if planID < 1 {
+		return ""
+	}
+	return s.agentPlanURL(planID)
 }
 
 func (s *AgentConversationService) agentApprovalURL(token string) string {

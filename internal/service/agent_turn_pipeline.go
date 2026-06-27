@@ -60,7 +60,13 @@ func (s *AgentConversationService) processTurn(
 		}
 	}
 	if plan.Status == domain.AgentPlanStatusRejected {
-		reply := "计划已被 capability 策略拒绝。\n计划：" + plan.Summary + "\n策略：" + planCapabilityPolicySummary(plan) + "\n进度地址：" + s.agentPlanURL(plan.ID)
+		reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+			Stage:       "rejected",
+			UserMessage: input.TextContent,
+			Plan:        plan,
+			ErrorText:   planCapabilityPolicySummary(plan),
+			ProgressURL: s.agentPlanURLIfAvailable(plan.ID),
+		})
 		_, _ = s.runManager.CompleteRun(ctx, controllerRun, "plan_rejected_by_capability_policy")
 		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "rejected")
 		result.Plan = plan
@@ -71,9 +77,9 @@ func (s *AgentConversationService) processTurn(
 	}
 	if plan.Status == domain.AgentPlanStatusAwaitingApproval {
 		if !s.processInline {
-			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "approval_waiting", "等待用户确认")
+			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "approval_waiting", "approval_waiting")
 		}
-		reply := s.approvalRequiredReply(plan, approvalToken)
+		reply := s.approvalRequiredReply(ctx, input, plan, approvalToken)
 		_, _ = s.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 			RunID:     controllerRun.ID,
 			TraceKind: "plan_awaiting_approval",
@@ -111,7 +117,7 @@ func (s *AgentConversationService) processTurn(
 			plan = s.applyAgentPlanTerminalMetadata(ctx, account.UserID, failedPlan)
 		}
 		if !s.processInline {
-			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "failed", "处理失败")
+			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "failed", "failed")
 		}
 		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
 		opErr = err
@@ -127,7 +133,7 @@ func (s *AgentConversationService) processTurn(
 			plan = s.applyAgentPlanTerminalMetadata(ctx, account.UserID, failedPlan)
 		}
 		if !s.processInline {
-			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "failed", "步骤结果回填失败")
+			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "failed", "failed")
 		}
 		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
 		opErr = err
@@ -139,7 +145,9 @@ func (s *AgentConversationService) processTurn(
 		plan = updatedPlan
 	}
 	if !s.processInline && plan.Status == domain.AgentPlanStatusFailed {
-		s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "step_failed", "计划步骤失败")
+		s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "step_failed", "step_failed")
+	} else if !s.processInline && len(runResult.Context.Observations) > 0 {
+		s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "subagent_stage_completed", "subagent_stage_completed")
 	}
 	_, _ = s.runManager.CompleteRun(ctx, controllerRun, "turn_output")
 	reply := runResult.Reply

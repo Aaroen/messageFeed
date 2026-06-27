@@ -12,31 +12,38 @@ import (
 const (
 	defaultAgentOwnerUserID = int64(1)
 	agentReplyMaxTokens     = 768
+	// defaultAgentProcessTimeout 是单轮后台执行上限。
+	// 真实模型规划、联网搜索和工具收敛可能超过几十秒，因此生产默认给到 10 分钟。
+	defaultAgentProcessTimeout = 10 * time.Minute
+	// defaultAgentNotificationTimeout 只约束企业微信发送动作。
+	// 通知超时必须独立于执行超时，避免主流程超时后连失败消息也发不出去。
+	defaultAgentNotificationTimeout = 15 * time.Second
 )
 
 type AgentConversationService struct {
-	repository         AgentConversationRepository
-	llmClient          AgentConversationLLM
-	sender             AgentConversationSender
-	resolver           AgentExternalAccountResolver
-	userCtx            AgentUserContextProvider
-	recentItems        AgentRecentItemsProvider
-	sourceProvider     AgentSourceProvider
-	notificationJobs   AgentNotificationJobStore
-	scheduledTasks     AgentScheduleEvalRepository
-	webFetcher         agentWebFetcher
-	turnRunner         *agent.TurnRunner
-	runManager         *agent.RunManager
-	planner            *agent.Planner
-	capabilityRegistry *agent.CapabilityRegistry
-	policyEngine       *agent.PolicyEngine
-	now                func() time.Time
-	ownerID            int64
-	publicBaseURL      string
-	processInline      bool
-	processTimeout     time.Duration
-	lockMu             sync.Mutex
-	sessionLocks       map[int64]*sync.Mutex
+	repository          AgentConversationRepository
+	llmClient           AgentConversationLLM
+	sender              AgentConversationSender
+	resolver            AgentExternalAccountResolver
+	userCtx             AgentUserContextProvider
+	recentItems         AgentRecentItemsProvider
+	sourceProvider      AgentSourceProvider
+	notificationJobs    AgentNotificationJobStore
+	scheduledTasks      AgentScheduleEvalRepository
+	webFetcher          agentWebFetcher
+	turnRunner          *agent.TurnRunner
+	runManager          *agent.RunManager
+	planner             *agent.Planner
+	capabilityRegistry  *agent.CapabilityRegistry
+	policyEngine        *agent.PolicyEngine
+	now                 func() time.Time
+	ownerID             int64
+	publicBaseURL       string
+	processInline       bool
+	processTimeout      time.Duration
+	notificationTimeout time.Duration
+	lockMu              sync.Mutex
+	sessionLocks        map[int64]*sync.Mutex
 }
 
 type AgentConversationServiceOption func(*AgentConversationService)
@@ -109,6 +116,14 @@ func WithAgentConversationProcessTimeout(timeout time.Duration) AgentConversatio
 	}
 }
 
+func WithAgentConversationNotificationTimeout(timeout time.Duration) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		if timeout > 0 {
+			service.notificationTimeout = timeout
+		}
+	}
+}
+
 func WithAgentConversationNow(now func() time.Time) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		if now != nil {
@@ -133,13 +148,14 @@ func WithAgentConversationPublicBaseURL(publicBaseURL string) AgentConversationS
 
 func NewAgentConversationService(repository AgentConversationRepository, options ...AgentConversationServiceOption) *AgentConversationService {
 	service := &AgentConversationService{
-		repository:         repository,
-		capabilityRegistry: agent.NewP0CapabilityRegistry(),
-		policyEngine:       agent.NewPolicyEngine(),
-		now:                time.Now,
-		ownerID:            defaultAgentOwnerUserID,
-		processTimeout:     30 * time.Second,
-		sessionLocks:       map[int64]*sync.Mutex{},
+		repository:          repository,
+		capabilityRegistry:  agent.NewP0CapabilityRegistry(),
+		policyEngine:        agent.NewPolicyEngine(),
+		now:                 time.Now,
+		ownerID:             defaultAgentOwnerUserID,
+		processTimeout:      defaultAgentProcessTimeout,
+		notificationTimeout: defaultAgentNotificationTimeout,
+		sessionLocks:        map[int64]*sync.Mutex{},
 	}
 	for _, option := range options {
 		option(service)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/notifier"
-	"strconv"
 	"strings"
 )
 
@@ -24,6 +23,8 @@ func (s *AgentConversationService) sendWeChatWorkFinalReportDelivery(ctx context
 	if plan.ID > 0 {
 		progressURL = s.agentPlanURL(plan.ID)
 	}
+	sendCtx, cancelSend := s.outboundNotificationContext(ctx)
+	defer cancelSend()
 	result := agentWeChatFinalReportDeliveryResult{
 		DeliveryMode:   "text",
 		TemplateStatus: "not_attempted",
@@ -31,26 +32,38 @@ func (s *AgentConversationService) sendWeChatWorkFinalReportDelivery(ctx context
 		ProgressURL:    progressURL,
 	}
 	if progressURL != "" {
+		templateData := agentWeChatFeedbackRequest{
+			Stage:       "final",
+			Plan:        plan,
+			ProgressURL: progressURL,
+		}.templateData()
+		cardTitle := renderAgentWeChatFeedbackTemplate("final_card_title", templateData)
+		cardDescription := renderAgentWeChatFeedbackTemplate("final_card_description", templateData)
+		buttonText := renderAgentWeChatFeedbackTemplate("final_card_button_text", templateData)
 		if templateSender, ok := s.sender.(agentWeChatTemplateCardSender); ok {
-			sendResult, err := templateSender.SendTemplateCard(ctx, notifier.WeChatWorkTemplateCardMessage{
-				ToUser:       toUser,
-				Title:        agentWeChatFinalReportCardTitle(outcome),
-				Description:  agentWeChatFinalReportCardDescription(plan, outcome),
-				URL:          progressURL,
-				FallbackText: reply,
-				Buttons: []notifier.WeChatWorkTemplateCardButton{
-					{Key: "view_final_report", Text: "查看结果", URL: progressURL},
-				},
-			})
-			if err != nil {
-				result.TemplateStatus = "failed"
-				result.TemplateError = strings.TrimSpace(err.Error())
-				result.SendResult = sendResult
+			if strings.TrimSpace(cardTitle) == "" || strings.TrimSpace(cardDescription) == "" || strings.TrimSpace(buttonText) == "" {
+				result.TemplateStatus = "unsupported"
 			} else {
-				result.TemplateStatus = "succeeded"
-				result.DeliveryMode = "template_card_with_text"
-				result.SendResult = sendResult
-				result.SendCount = 1
+				sendResult, err := templateSender.SendTemplateCard(sendCtx, notifier.WeChatWorkTemplateCardMessage{
+					ToUser:       toUser,
+					Title:        cardTitle,
+					Description:  cardDescription,
+					URL:          progressURL,
+					FallbackText: reply,
+					Buttons: []notifier.WeChatWorkTemplateCardButton{
+						{Key: "view_final_report", Text: buttonText, URL: progressURL},
+					},
+				})
+				if err != nil {
+					result.TemplateStatus = "failed"
+					result.TemplateError = strings.TrimSpace(err.Error())
+					result.SendResult = sendResult
+				} else {
+					result.TemplateStatus = "succeeded"
+					result.DeliveryMode = "template_card_with_text"
+					result.SendResult = sendResult
+					result.SendCount = 1
+				}
 			}
 		} else {
 			result.TemplateStatus = "unsupported"
@@ -70,33 +83,6 @@ func (s *AgentConversationService) sendWeChatWorkFinalReportDelivery(ctx context
 		result.DeliveryMode = "text_fallback"
 	}
 	return result, nil
-}
-
-func agentWeChatFinalReportCardTitle(outcome string) string {
-	switch strings.TrimSpace(outcome) {
-	case "failed", "failure":
-		return "Agent 任务处理失败"
-	case "awaiting_approval":
-		return "Agent 任务等待确认"
-	case "rejected":
-		return "Agent 任务已拒绝"
-	default:
-		return "Agent 任务结果"
-	}
-}
-
-func agentWeChatFinalReportCardDescription(plan domain.AgentPlan, outcome string) string {
-	parts := []string{"最终结果已生成"}
-	if plan.ID > 0 {
-		parts = append(parts, "计划 #"+strconv.FormatInt(plan.ID, 10))
-	}
-	if plan.Status != "" {
-		parts = append(parts, "状态 "+string(plan.Status))
-	}
-	if outcome = strings.TrimSpace(outcome); outcome != "" {
-		parts = append(parts, "结果 "+outcome)
-	}
-	return strings.Join(parts, " / ")
 }
 
 func agentWeChatFinalReportMetadata(delivery agentWeChatFinalReportDeliveryResult) domain.AgentJSON {

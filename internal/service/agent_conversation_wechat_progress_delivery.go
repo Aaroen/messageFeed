@@ -4,7 +4,6 @@ import (
 	"context"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/notifier"
-	"strconv"
 	"strings"
 )
 
@@ -24,21 +23,31 @@ type agentWeChatProgressDeliveryResult struct {
 
 func (s *AgentConversationService) sendWeChatWorkProgressDelivery(ctx context.Context, toUser string, plan domain.AgentPlan, stage string, title string, fallbackText string) agentWeChatProgressDeliveryResult {
 	progressURL := s.agentPlanURL(plan.ID)
+	sendCtx, cancelSend := s.outboundNotificationContext(ctx)
+	defer cancelSend()
+	templateData := agentWeChatFeedbackRequest{
+		Stage:       stage,
+		Plan:        plan,
+		ProgressURL: progressURL,
+	}.templateData()
+	cardTitle := renderAgentWeChatFeedbackTemplate("progress_card_title", templateData)
+	cardDescription := renderAgentWeChatFeedbackTemplate("progress_card_description", templateData)
+	buttonText := renderAgentWeChatFeedbackTemplate("progress_card_button_text", templateData)
 	result := agentWeChatProgressDeliveryResult{
 		DeliveryMode:   "template_card",
 		TemplateStatus: "not_attempted",
 		FallbackStatus: "not_attempted",
 	}
 	templateSender, ok := s.sender.(agentWeChatTemplateCardSender)
-	if ok {
-		sendResult, err := templateSender.SendTemplateCard(ctx, notifier.WeChatWorkTemplateCardMessage{
+	if ok && strings.TrimSpace(cardTitle) != "" && strings.TrimSpace(cardDescription) != "" && strings.TrimSpace(buttonText) != "" {
+		sendResult, err := templateSender.SendTemplateCard(sendCtx, notifier.WeChatWorkTemplateCardMessage{
 			ToUser:       toUser,
-			Title:        agentWeChatProgressCardTitle(title),
-			Description:  agentWeChatProgressCardDescription(plan, stage),
+			Title:        cardTitle,
+			Description:  cardDescription,
 			URL:          progressURL,
 			FallbackText: fallbackText,
 			Buttons: []notifier.WeChatWorkTemplateCardButton{
-				{Key: "view_progress", Text: "查看进度", URL: progressURL},
+				{Key: "view_progress", Text: buttonText, URL: progressURL},
 			},
 		})
 		if err == nil {
@@ -65,26 +74,4 @@ func (s *AgentConversationService) sendWeChatWorkProgressDelivery(ctx context.Co
 	}
 	result.FallbackStatus = "succeeded"
 	return result
-}
-
-func agentWeChatProgressCardTitle(title string) string {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return "Agent 实时工作进度"
-	}
-	return title
-}
-
-func agentWeChatProgressCardDescription(plan domain.AgentPlan, stage string) string {
-	parts := []string{"计划进度可在 Web 浏览器查看"}
-	if plan.ID > 0 {
-		parts = append(parts, "计划 #"+strconv.FormatInt(plan.ID, 10))
-	}
-	if stage = strings.TrimSpace(stage); stage != "" {
-		parts = append(parts, "阶段 "+stage)
-	}
-	if plan.Status != "" {
-		parts = append(parts, "状态 "+string(plan.Status))
-	}
-	return strings.Join(parts, " / ")
 }

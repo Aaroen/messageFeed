@@ -957,10 +957,10 @@ func TestAgentConversationServiceFailsWithoutPlanningLLM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if !strings.Contains(result.Reply, "这次处理没有成功") {
+	if strings.TrimSpace(result.Reply) == "" {
 		t.Fatalf("Reply = %q", result.Reply)
 	}
-	if !strings.Contains(sender.sent.Content, "这次处理没有成功") {
+	if strings.TrimSpace(sender.sent.Content) == "" {
 		t.Fatalf("sent Content = %q", sender.sent.Content)
 	}
 	if result.Turn.Status != domain.AgentTurnStatusFailed {
@@ -1048,7 +1048,7 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	if result.Turn.Status != domain.AgentTurnStatusRunning {
 		t.Fatalf("initial turn status = %q, want running", result.Turn.Status)
 	}
-	if result.Reply != agentTaskAcceptedFeedbackText() {
+	if strings.TrimSpace(result.Reply) == "" {
 		t.Fatalf("initial reply = %q", result.Reply)
 	}
 
@@ -1058,7 +1058,7 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("task acceptance feedback was not sent")
 	}
-	if acceptedMessage.Content != agentTaskAcceptedFeedbackText() || acceptedMessage.ToUser != "zhangsan" {
+	if acceptedMessage.Content != result.Reply || acceptedMessage.ToUser != "zhangsan" {
 		t.Fatalf("acceptance feedback = %#v", acceptedMessage)
 	}
 	for _, forbidden := range []string{"状态锚点", "企微动作组件", "调度方式", "权限：", "预算：", "详情："} {
@@ -1073,8 +1073,7 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("agent start feedback was not sent")
 	}
-	if !strings.Contains(startedMessage.Content, "已开始处理") ||
-		!strings.Contains(startedMessage.Content, "详情：") ||
+	if strings.TrimSpace(startedMessage.Content) == "" ||
 		!strings.Contains(startedMessage.Content, "https://messagefeed.example/agent/plans/") {
 		t.Fatalf("start feedback = %q", startedMessage.Content)
 	}
@@ -1090,12 +1089,9 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 		t.Fatal("llm was not started asynchronously")
 	}
 	close(llmRelease)
-	var completionMessage notifier.WeChatWorkTextMessage
-	select {
-	case completionMessage = <-sentEvents:
-	case <-time.After(time.Second):
-		t.Fatal("async reply was not sent")
-	}
+	completionMessage := waitForWeChatTextMessage(t, sentEvents, func(message notifier.WeChatWorkTextMessage) bool {
+		return strings.Contains(message.Content, "异步回复")
+	})
 	if !strings.Contains(completionMessage.Content, "异步回复") {
 		t.Fatalf("completion feedback = %q", completionMessage.Content)
 	}
@@ -1173,8 +1169,7 @@ func TestAgentConversationServiceSendsWeChatProgressNotificationWithAudit(t *tes
 		t.Fatalf("text fallback calls = %d, want 0", sender.calls)
 	}
 	if sender.sentTemplate.URL != "https://messagefeed.example/agent/plans/9" ||
-		!strings.Contains(sender.sentTemplate.Description, "计划 #9") ||
-		!strings.Contains(sender.sentTemplate.FallbackText, "详情：https://messagefeed.example/agent/plans/9") ||
+		!strings.Contains(sender.sentTemplate.Description, "https://messagefeed.example/agent/plans/9") ||
 		!strings.Contains(sender.sentTemplate.FallbackText, "https://messagefeed.example/agent/plans/9") {
 		t.Fatalf("template = %#v", sender.sentTemplate)
 	}
@@ -1223,7 +1218,7 @@ func TestAgentConversationServiceFallsBackToTextWhenProgressTemplateFails(t *tes
 		},
 		plan,
 		"started",
-		"工作已开始",
+		"started",
 	)
 
 	if sender.templateCalls != 1 || sender.calls != 1 {
@@ -1757,17 +1752,22 @@ func TestAgentConversationServiceScheduleMessageRequiresConfirmation(t *testing.
 	}
 }
 
-func TestAgentConversationServicePlanStartedReplyIncludesProgressSummary(t *testing.T) {
+func TestAgentConversationServicePlanStartedFeedbackUsesTemplateSource(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	service := NewAgentConversationService(newFakeAgentConversationRepository(), WithAgentConversationNow(func() time.Time { return now }))
-	reply := service.agentPlanStartedReply(domain.AgentPlan{
+	plan := domain.AgentPlan{
 		ID:            7,
 		Status:        domain.AgentPlanStatusExecuting,
 		Summary:       "执行网页检索",
 		AllowedScopes: []string{"web.search"},
 		UpdatedAt:     now,
+	}
+	reply := service.generateAgentWeChatFeedbackText(context.Background(), agentWeChatFeedbackRequest{
+		Stage:       "started",
+		Plan:        plan,
+		ProgressURL: service.agentPlanURL(plan.ID),
 	})
-	if !strings.Contains(reply, "已开始处理") || !strings.Contains(reply, "进度：") || !strings.Contains(reply, "详情：") {
+	if strings.TrimSpace(reply) == "" || !strings.Contains(reply, "/agent/plans/7") {
 		t.Fatalf("reply = %q", reply)
 	}
 	for _, forbidden := range []string{"状态锚点", "企微动作组件", "授权范围", "预算：", "权限：", "实施步骤"} {
@@ -1777,14 +1777,14 @@ func TestAgentConversationServicePlanStartedReplyIncludesProgressSummary(t *test
 	}
 }
 
-func TestAgentConversationServiceApprovalRequiredReplyIncludesActionAnchors(t *testing.T) {
+func TestAgentConversationServiceApprovalRequiredReplyUsesGeneratedFeedback(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	service := NewAgentConversationService(
 		newFakeAgentConversationRepository(),
 		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
 		WithAgentConversationNow(func() time.Time { return now }),
 	)
-	reply := service.approvalRequiredReply(domain.AgentPlan{
+	reply := service.approvalRequiredReply(context.Background(), ReceiveWeChatWorkAppMessageInput{TextContent: "approve"}, domain.AgentPlan{
 		ID:            11,
 		Status:        domain.AgentPlanStatusAwaitingApproval,
 		Summary:       "发送外部通知",
@@ -1792,13 +1792,13 @@ func TestAgentConversationServiceApprovalRequiredReplyIncludesActionAnchors(t *t
 		AllowedScopes: []string{"agent.schedule_message"},
 		UpdatedAt:     now,
 	}, "approval-token")
-	if !strings.Contains(reply, "状态锚点：approval_required/awaiting_approval") ||
-		!strings.Contains(reply, "审批地址：https://messagefeed.example/agent/approvals/approval-token") ||
-		!strings.Contains(reply, "进度地址：https://messagefeed.example/agent/plans/11") ||
-		!strings.Contains(reply, "下一步：") ||
-		!strings.Contains(reply, "企微动作组件：view_progress=https://messagefeed.example/agent/plans/11") ||
-		!strings.Contains(reply, "approval=https://messagefeed.example/agent/approvals/approval-token") {
+	if !strings.Contains(reply, "https://messagefeed.example/agent/approvals/approval-token") {
 		t.Fatalf("reply = %q", reply)
+	}
+	for _, forbidden := range []string{"状态锚点", "企微动作组件", "权限：", "预算："} {
+		if strings.Contains(reply, forbidden) {
+			t.Fatalf("reply leaked %q: %q", forbidden, reply)
+		}
 	}
 }
 
@@ -1943,13 +1943,13 @@ func TestAgentConversationServiceSendsFallbackWhenScheduleCreationFails(t *testi
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if !strings.Contains(result.Reply, "没有成功") {
+	if strings.TrimSpace(result.Reply) == "" {
 		t.Fatalf("fallback reply = %q", result.Reply)
 	}
-	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "没有成功") {
+	if sender.calls == 0 || strings.TrimSpace(sender.sent.Content) == "" {
 		t.Fatalf("sent fallback = %#v", sender.sent)
 	}
-	if len(repository.transcripts) < 2 || !strings.Contains(repository.transcripts[len(repository.transcripts)-1].Content, "没有成功") {
+	if len(repository.transcripts) < 2 || strings.TrimSpace(repository.transcripts[len(repository.transcripts)-1].Content) == "" {
 		t.Fatalf("transcripts = %#v", repository.transcripts)
 	}
 }
@@ -1986,7 +1986,7 @@ func TestAgentConversationServiceFailsTurnWhenPlanCreationFails(t *testing.T) {
 	if repository.inbound.Status != domain.AgentInboundMessageStatusFailed {
 		t.Fatalf("inbound status = %q, want failed", repository.inbound.Status)
 	}
-	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "没有成功") {
+	if sender.calls == 0 || strings.TrimSpace(sender.sent.Content) == "" {
 		t.Fatalf("failure feedback was not sent: calls=%d sent=%#v", sender.calls, sender.sent)
 	}
 	if !fakeAuditContains(repository.audits, "agent.turn_failed") || !fakeAuditContains(repository.audits, "agent.turn_failure_feedback") {
@@ -2484,6 +2484,21 @@ func testAgentExternalAccount(now time.Time) domain.ExternalAccount {
 	}
 }
 
+func waitForWeChatTextMessage(t *testing.T, messages <-chan notifier.WeChatWorkTextMessage, match func(notifier.WeChatWorkTextMessage) bool) notifier.WeChatWorkTextMessage {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case message := <-messages:
+			if match == nil || match(message) {
+				return message
+			}
+		case <-deadline:
+			t.Fatal("wechat text message was not received")
+		}
+	}
+}
+
 type fakeAgentConversationLLM struct {
 	calls       int
 	lastRequest llm.ChatRequest
@@ -2504,6 +2519,9 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 	f.lastRequest = request
 	if fakeIsMainAgentPlanSpecRequest(request) {
 		return fakeMainAgentPlanSpecResponse(request, f.fakePlanCapabilityKeys()), nil
+	}
+	if fakeIsAgentWeChatFeedbackRequest(request) {
+		return fakeAgentWeChatFeedbackResponse(request), nil
 	}
 	if f.started != nil {
 		f.startOnce.Do(func() { close(f.started) })
@@ -2549,6 +2567,43 @@ func fakeIsMainAgentPlanSpecRequest(request llm.ChatRequest) bool {
 		return false
 	}
 	return strings.Contains(request.Messages[0].Content, "主 Agent 规划器")
+}
+
+func fakeIsAgentWeChatFeedbackRequest(request llm.ChatRequest) bool {
+	if len(request.Messages) == 0 {
+		return false
+	}
+	return strings.Contains(request.Messages[0].Content, "企业微信短消息生成器")
+}
+
+func fakeAgentWeChatFeedbackResponse(request llm.ChatRequest) llm.ChatResponse {
+	stage := "feedback"
+	progressURL := ""
+	approvalURL := ""
+	if len(request.Messages) > 1 {
+		var wrapper map[string]any
+		if err := json.Unmarshal([]byte(request.Messages[1].Content), &wrapper); err == nil {
+			if payload, ok := wrapper["payload"].(map[string]any); ok {
+				if value, ok := payload["stage"].(string); ok && strings.TrimSpace(value) != "" {
+					stage = strings.TrimSpace(value)
+				}
+				if value, ok := payload["progress_url"].(string); ok {
+					progressURL = strings.TrimSpace(value)
+				}
+				if value, ok := payload["approval_url"].(string); ok {
+					approvalURL = strings.TrimSpace(value)
+				}
+			}
+		}
+	}
+	parts := []string{"feedback:" + stage}
+	if progressURL != "" {
+		parts = append(parts, progressURL)
+	}
+	if approvalURL != "" {
+		parts = append(parts, approvalURL)
+	}
+	return llm.ChatResponse{Provider: "openai_compatible", Model: "feedback-model", Content: strings.Join(parts, "\n")}
 }
 
 // fakeMainAgentPlanSpecResponse 构造符合生产 JSON 契约的测试计划。

@@ -54,6 +54,8 @@ func (s *AgentConversationService) sendWeChatWorkReply(ctx context.Context, toUs
 		attribute.Int("agent.reply_chunks", len(chunks)),
 		attribute.Int("agent.reply_bytes", len([]byte(reply))),
 	)
+	sendCtx, cancelSend := s.outboundNotificationContext(ctx)
+	defer cancelSend()
 	var sendErr error
 	defer func() {
 		status := "success"
@@ -68,7 +70,7 @@ func (s *AgentConversationService) sendWeChatWorkReply(ctx context.Context, toUs
 	for i, chunk := range chunks {
 		var err error
 		span.SetAttributes(attribute.Int("agent.reply_chunk_index", i+1))
-		result, err = s.sender.SendText(ctx, notifier.WeChatWorkTextMessage{
+		result, err = s.sender.SendText(sendCtx, notifier.WeChatWorkTextMessage{
 			ToUser:  toUser,
 			Content: chunk,
 		})

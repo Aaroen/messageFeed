@@ -6,7 +6,6 @@ import (
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/notifier"
-	"strings"
 )
 
 // finishTurnWithReply 记录直接回复并关闭当前 turn。
@@ -145,7 +144,14 @@ func (s *AgentConversationService) sendTurnFailureFeedback(
 	if failedTurn.ID == 0 {
 		failedTurn = originalTurn
 	}
-	reply := agentTurnFailureFeedback(input.TextContent)
+	reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+		Stage:       "failed",
+		UserMessage: input.TextContent,
+		Plan:        plan,
+		ErrorText:   truncateError(cause.Error(), 500),
+		Cause:       cause,
+		ProgressURL: s.agentPlanURLIfAvailable(plan.ID),
+	})
 	if !s.processInline {
 		reply = s.agentTurnCompletionReply(plan, reply)
 	}
@@ -209,14 +215,6 @@ func (s *AgentConversationService) sendTurnFailureFeedback(
 		Reply:           reply,
 		SendResult:      sendResult,
 	}
-}
-
-func agentTurnFailureFeedback(text string) string {
-	normalized := strings.TrimSpace(text)
-	if strings.Contains(normalized, "提醒") || strings.Contains(normalized, "定时") {
-		return "没有设置成功，后台创建提醒时出错。请稍后再试，或重新发送提醒时间和内容。"
-	}
-	return "这次处理没有成功，请稍后再试。"
 }
 
 func (s *AgentConversationService) failTurn(ctx context.Context, userID int64, sessionID int64, turn domain.AgentTurn, input ReceiveWeChatWorkAppMessageInput, cause error) (ReceiveWeChatWorkAppMessageResult, error) {

@@ -2011,7 +2011,9 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
 }
 
 .agent-plan-page {
+  width: min(100%, 980px);
   max-width: 980px;
+  margin-inline: auto;
 }
 
 .agent-plan-page > .settings-panel {
