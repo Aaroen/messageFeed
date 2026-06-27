@@ -1287,6 +1287,47 @@ func TestAgentConversationServiceBindPlanStepsWritesQualityAndDeploymentMetadata
 	}
 }
 
+func TestAgentConversationServiceBindPlanStepsReturnsUpdateError(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.updatePlanStepErr = errors.New("update step failed")
+	plan := domain.AgentPlan{
+		ID:        10,
+		UserID:    1,
+		SessionID: 2,
+		TurnID:    3,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "汇总订阅",
+		Summary:   "执行订阅汇总",
+		RiskLevel: "low",
+		Metadata:  domain.AgentJSON{},
+		Steps: []domain.AgentPlanStep{
+			{ID: 11, PlanID: 10, Status: domain.AgentPlanStepStatusExecuting, CapabilityKey: "web.search", Title: "联网查询"},
+		},
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}
+	repository.plans = append(repository.plans, plan)
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	_, err := service.bindPlanStepsToObservations(context.Background(), 1, plan, []agent.CapabilityObservation{
+		{
+			Capability:     "web.search",
+			Status:         "succeeded",
+			Summary:        "完成查询",
+			RunID:          20,
+			ObservationRef: "observation:20:web.search",
+			ArtifactRefs:   []string{"artifact:web:1"},
+		},
+	})
+	if !errors.Is(err, repository.updatePlanStepErr) {
+		t.Fatalf("bindPlanStepsToObservations() error = %v, want %v", err, repository.updatePlanStepErr)
+	}
+	if repository.plans[0].Status != domain.AgentPlanStatusExecuting {
+		t.Fatalf("plan status = %q, want unchanged executing", repository.plans[0].Status)
+	}
+}
+
 func TestAgentConversationServiceAppliesCapabilityPolicyToPlan(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 30, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -1948,26 +1989,27 @@ func TestAgentConversationServiceFailsTurnWhenPlanCreationFails(t *testing.T) {
 }
 
 type fakeAgentConversationRepository struct {
-	nextID           int64
-	forceDuplicate   bool
-	createPlanErr    error
-	account          domain.ExternalAccount
-	inbound          domain.AgentInboundMessage
-	session          domain.AgentSession
-	turns            []domain.AgentTurn
-	transcripts      []domain.AgentTranscriptEntry
-	recalls          []domain.AgentRecallEvent
-	audits           []domain.AgentAuditLog
-	runs             []domain.AgentRun
-	contextTraces    []domain.AgentRunContextTrace
-	observations     []domain.AgentObservation
-	artifacts        []domain.AgentArtifact
-	plans            []domain.AgentPlan
-	scheduledTasks   []domain.AgentScheduledTask
-	approvals        []domain.AgentApproval
-	preference       domain.AgentNotificationPreference
-	capabilityLogs   []domain.AgentCapabilityAuditLog
-	externalAccounts []domain.ExternalAccount
+	nextID            int64
+	forceDuplicate    bool
+	createPlanErr     error
+	updatePlanStepErr error
+	account           domain.ExternalAccount
+	inbound           domain.AgentInboundMessage
+	session           domain.AgentSession
+	turns             []domain.AgentTurn
+	transcripts       []domain.AgentTranscriptEntry
+	recalls           []domain.AgentRecallEvent
+	audits            []domain.AgentAuditLog
+	runs              []domain.AgentRun
+	contextTraces     []domain.AgentRunContextTrace
+	observations      []domain.AgentObservation
+	artifacts         []domain.AgentArtifact
+	plans             []domain.AgentPlan
+	scheduledTasks    []domain.AgentScheduledTask
+	approvals         []domain.AgentApproval
+	preference        domain.AgentNotificationPreference
+	capabilityLogs    []domain.AgentCapabilityAuditLog
+	externalAccounts  []domain.ExternalAccount
 }
 
 func newFakeAgentConversationRepository() *fakeAgentConversationRepository {
@@ -2307,6 +2349,9 @@ func (r *fakeAgentConversationRepository) UpdateAgentPlanMetadata(_ context.Cont
 }
 
 func (r *fakeAgentConversationRepository) UpdateAgentPlanStepStatus(_ context.Context, userID int64, step domain.AgentPlanStep) (domain.AgentPlanStep, error) {
+	if r.updatePlanStepErr != nil {
+		return domain.AgentPlanStep{}, r.updatePlanStepErr
+	}
 	for planIndex := range r.plans {
 		if r.plans[planIndex].UserID != userID {
 			continue

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"messagefeed/internal/domain"
 	"strings"
 	"time"
@@ -223,8 +224,13 @@ func (r *AgentRepository) UpdateAgentPlanMetadata(ctx context.Context, userID in
 	if metadata == nil {
 		metadata = domain.AgentJSON{}
 	}
+	metadataExpr, err := repositoryJSONBExpr(metadata)
+	if err != nil {
+		opErr = err
+		return domain.AgentPlan{}, opErr
+	}
 	result := r.db.WithContext(ctx).Model(&agentPlanModel{}).Where("id = ? AND user_id = ?", planID, userID).Updates(map[string]any{
-		"metadata_json": clause.Expr{SQL: "?", Vars: []any{metadata}},
+		"metadata_json": metadataExpr,
 		"updated_at":    now.UTC(),
 	})
 	if result.Error != nil {
@@ -244,30 +250,34 @@ func (r *AgentRepository) UpdateAgentPlanStepStatus(ctx context.Context, userID 
 	defer func() { finish(opErr) }()
 
 	step = normalizeAgentPlanStep(step)
+	artifactRefsExpr, err := repositoryJSONBExpr(step.ArtifactRefs)
+	if err != nil {
+		opErr = err
+		return domain.AgentPlanStep{}, opErr
+	}
+	retryMetadataExpr, err := repositoryJSONBExpr(step.RetryMetadata)
+	if err != nil {
+		opErr = err
+		return domain.AgentPlanStep{}, opErr
+	}
 	result := r.db.WithContext(ctx).
 		Model(&agentPlanStepModel{}).
 		Where("agent_plan_steps.id = ? AND EXISTS (SELECT 1 FROM agent_plans WHERE agent_plans.id = agent_plan_steps.plan_id AND agent_plans.user_id = ?)", step.ID, userID).
 		Updates(map[string]any{
-			"status":          string(step.Status),
-			"output_summary":  step.OutputSummary,
-			"executor_run_id": int64Pointer(step.ExecutorRunID),
-			"observation_ref": step.ObservationRef,
-			"artifact_refs_json": clause.Expr{
-				SQL:  "?",
-				Vars: []any{step.ArtifactRefs},
-			},
-			"error_message": step.ErrorMessage,
-			"retry_count":   step.RetryCount,
-			"max_retries":   step.MaxRetries,
-			"last_retry_at": step.LastRetryAt,
-			"retry_reason":  step.RetryReason,
-			"retry_metadata_json": clause.Expr{
-				SQL:  "?",
-				Vars: []any{step.RetryMetadata},
-			},
-			"started_at":   step.StartedAt,
-			"completed_at": step.CompletedAt,
-			"updated_at":   time.Now().UTC(),
+			"status":              string(step.Status),
+			"output_summary":      step.OutputSummary,
+			"executor_run_id":     int64Pointer(step.ExecutorRunID),
+			"observation_ref":     step.ObservationRef,
+			"artifact_refs_json":  artifactRefsExpr,
+			"error_message":       step.ErrorMessage,
+			"retry_count":         step.RetryCount,
+			"max_retries":         step.MaxRetries,
+			"last_retry_at":       step.LastRetryAt,
+			"retry_reason":        step.RetryReason,
+			"retry_metadata_json": retryMetadataExpr,
+			"started_at":          step.StartedAt,
+			"completed_at":        step.CompletedAt,
+			"updated_at":          time.Now().UTC(),
 		})
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
@@ -283,6 +293,14 @@ func (r *AgentRepository) UpdateAgentPlanStepStatus(ctx context.Context, userID 
 		return domain.AgentPlanStep{}, opErr
 	}
 	return agentPlanStepModelToDomain(model), nil
+}
+
+func repositoryJSONBExpr(value any) (clause.Expr, error) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return clause.Expr{}, err
+	}
+	return clause.Expr{SQL: "?::jsonb", Vars: []any{string(body)}}, nil
 }
 
 func (r *AgentRepository) CreateAgentCapabilityAuditLog(ctx context.Context, log domain.AgentCapabilityAuditLog) (domain.AgentCapabilityAuditLog, error) {

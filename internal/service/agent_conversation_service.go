@@ -1704,7 +1704,21 @@ func (s *AgentConversationService) processTurn(
 		return result, nil
 	}
 	s.recordControllerTrace(ctx, controllerRun, runResult, "controller_output")
-	updatedPlan, _ := s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
+	updatedPlan, err := s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
+	if err != nil {
+		failedPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, s.now().UTC(), err.Error())
+		if failedPlan.ID > 0 {
+			plan = s.applyAgentPlanTerminalMetadata(ctx, account.UserID, failedPlan)
+		}
+		if !s.processInline {
+			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "failed", "步骤结果回填失败")
+		}
+		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
+		opErr = err
+		result := s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, plan, err)
+		result.Plan = plan
+		return result, nil
+	}
 	if updatedPlan.ID > 0 {
 		plan = updatedPlan
 	}
@@ -1846,7 +1860,9 @@ func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Conte
 		step.ObservationRef = observation.ObservationRef
 		step.ArtifactRefs = append([]string(nil), observation.ArtifactRefs...)
 		step.OutputSummary = observation.Summary
-		_, _ = s.repository.UpdateAgentPlanStepStatus(ctx, userID, step)
+		if _, err := s.repository.UpdateAgentPlanStepStatus(ctx, userID, step); err != nil {
+			return domain.AgentPlan{}, err
+		}
 	}
 	status := domain.AgentPlanStatusCompleted
 	errorMessage := ""
