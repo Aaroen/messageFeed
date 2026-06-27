@@ -532,6 +532,11 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		Turn:            turn,
 		ProcessingAsync: !s.processInline,
 	}
+	if !s.processInline {
+		reply, sendResult, _ := s.sendWeChatWorkTaskAcceptedFeedback(ctx, account, session, turn, input)
+		result.Reply = reply
+		result.SendResult = sendResult
+	}
 	if s.processInline {
 		processed, err := s.processTurn(context.WithoutCancel(ctx), account, inbound, session, turn, input)
 		if err != nil {
@@ -2312,6 +2317,50 @@ func (s *AgentConversationService) agentWeChatActionFallbackText(plan domain.Age
 		"cancel_scheduled_task=" + progressURL,
 	}
 	return "企微动作组件：" + strings.Join(actions, "；")
+}
+
+func (s *AgentConversationService) sendWeChatWorkTaskAcceptedFeedback(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+) (string, notifier.WeChatWorkSendResult, int) {
+	reply := agentTaskAcceptedFeedbackText()
+	if s == nil || !s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "process") {
+		return reply, notifier.WeChatWorkSendResult{}, 0
+	}
+	sendResult, sendCount, err := s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
+	status := "succeeded"
+	message := "wechat work task acceptance feedback sent"
+	if err != nil {
+		status = "failed"
+		message = strings.TrimSpace(err.Error())
+	}
+	metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "accepted").Add(float64(sendCount))
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: session.ID,
+		TurnID:    turn.ID,
+		UserID:    account.UserID,
+		EventType: "wechat_work.task_accepted_feedback",
+		Status:    status,
+		Message:   message,
+		Metadata: domain.AgentJSON{
+			"provider_message_id": input.ProviderMessageID,
+			"target_channel":      input.Provider,
+			"target_ref":          input.ExternalUserID,
+			"wechat_msgid":        sendResult.MessageID,
+			"send_count":          sendCount,
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: s.now().UTC(),
+	})
+	return reply, sendResult, sendCount
+}
+
+func agentTaskAcceptedFeedbackText() string {
+	return "已收到任务，后台正在处理，请稍等。完成后会在这里返回结果。"
 }
 
 func (s *AgentConversationService) agentPlanProgressText(plan domain.AgentPlan) string {

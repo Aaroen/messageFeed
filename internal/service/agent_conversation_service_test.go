@@ -1005,7 +1005,7 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(time.Now().UTC())}
 	llmStarted := make(chan struct{})
 	llmRelease := make(chan struct{})
-	sentEvents := make(chan notifier.WeChatWorkTextMessage, 2)
+	sentEvents := make(chan notifier.WeChatWorkTextMessage, 4)
 	llmClient := &fakeAgentConversationLLM{
 		started: llmStarted,
 		release: llmRelease,
@@ -1041,6 +1041,24 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	}
 	if result.Turn.Status != domain.AgentTurnStatusRunning {
 		t.Fatalf("initial turn status = %q, want running", result.Turn.Status)
+	}
+	if result.Reply != agentTaskAcceptedFeedbackText() {
+		t.Fatalf("initial reply = %q", result.Reply)
+	}
+
+	var acceptedMessage notifier.WeChatWorkTextMessage
+	select {
+	case acceptedMessage = <-sentEvents:
+	case <-time.After(time.Second):
+		t.Fatal("task acceptance feedback was not sent")
+	}
+	if acceptedMessage.Content != agentTaskAcceptedFeedbackText() || acceptedMessage.ToUser != "zhangsan" {
+		t.Fatalf("acceptance feedback = %#v", acceptedMessage)
+	}
+	for _, forbidden := range []string{"状态锚点", "企微动作组件", "调度方式", "权限：", "预算：", "详情："} {
+		if strings.Contains(acceptedMessage.Content, forbidden) {
+			t.Fatalf("acceptance feedback leaked %q: %q", forbidden, acceptedMessage.Content)
+		}
 	}
 
 	var startedMessage notifier.WeChatWorkTextMessage
@@ -1079,6 +1097,16 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 		if strings.Contains(completionMessage.Content, forbidden) {
 			t.Fatalf("completion feedback leaked %q: %q", forbidden, completionMessage.Content)
 		}
+	}
+	if !fakeAuditContains(repository.audits, "wechat_work.task_accepted_feedback") ||
+		!fakeAuditContains(repository.audits, "agent.plan_started_feedback") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+	acceptedAudit := fakeAuditByType(repository.audits, "wechat_work.task_accepted_feedback")
+	if acceptedAudit.Status != "succeeded" ||
+		acceptedAudit.Metadata["target_channel"] != domain.AgentProviderWeChatWorkApp ||
+		acceptedAudit.Metadata["send_count"] != 1 {
+		t.Fatalf("acceptance audit = %#v", acceptedAudit)
 	}
 	deadline := time.After(time.Second)
 	for repository.inbound.Status != domain.AgentInboundMessageStatusSucceeded {

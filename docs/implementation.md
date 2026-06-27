@@ -450,6 +450,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 17. 当前补充修复：Web 端 Agent 详细过程从首页底部内嵌改为独立详情页。`/agent` 只显示发起任务和最近任务；`/agent/plans/:id`、按 `scheduled_task_id` 进入的详情路由只显示执行过程详情，并提供返回助理入口。验证命令：`npm --prefix web run type-check`、`npm --prefix web run test`、`npm --prefix web run build`。
 18. 当前补充修复：Web 端 Agent 详情页进一步改为单一流水线，不再平铺旧的进度、阶段、步骤、调度记录、确认记录和事件板块。流水线按真实执行顺序合并为主 Agent 接收任务、理解任务、复杂度/权限/预算判断、提示词与子 Agent 上下文、子 Agent 执行、结果汇总、质量门禁、最终交付；子 Agent 明细默认收起，可展开查看步骤、observation、artifact 和重试操作。验证命令：`npm --prefix web run type-check`、`npm --prefix web run test`、`npm --prefix web run build`。
 19. 当前补充修复：流水线详情页补齐主 Agent 节点的可展开明细，修正“生成提示词并合成子 Agent 上下文”显示实时连接“已关闭”导致信息不足的问题。该节点现在显示 controller run 合成状态，展开后展示任务包、上下文预算、上下文快照、controller observation 和 artifact；接收、理解、复杂度、结果汇总、质量门禁和交付节点也提供默认收起的详情。验证命令：`npm --prefix web run type-check`、`npm --prefix web run test`、`npm --prefix web run build`。
+20. 当前补充修复：企业微信异步任务在入站消息、会话和 turn 创建成功后立即发送接收确认：“已收到任务，后台正在处理，请稍等。完成后会在这里返回结果。”后台随后继续执行既有计划生成、子 Agent 执行、质量门禁和最终回复流程；接收确认写入 `wechat_work.task_accepted_feedback` 审计，且不包含计划 ID、预算、质量评分、权限、动作组件等内部执行信息。验证命令：`go test ./internal/service -run 'TestAgentConversationServiceQueuesTurnAndProcessesAsync|TestAgentConversationServiceSendsWeChatProgressNotificationWithAudit'`、`go test ./internal/service`。
 
 ## 8. 最小验证命令
 
