@@ -448,7 +448,10 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 		if err == nil && strings.TrimSpace(response.Content) == "" && len(response.ToolCalls) == 0 {
 			err = domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "agent.turn_runner.chat", true, nil)
 		}
-		if err != nil && isEmptyLLMResponseError(err) && len(effectiveTools) > 0 {
+		if err == nil && len(response.ToolCalls) == 0 && isUnparsedToolCallMarkup(response.Content) {
+			err = domain.NewAppError(domain.ErrorKindUnavailable, "llm_unparsed_tool_call", "llm returned unparsed tool call markup", "agent.turn_runner.chat", true, nil)
+		}
+		if err != nil && isRecoverableLLMResponseShapeError(err) && len(effectiveTools) > 0 {
 			fallback, fallbackErr := r.chatWithPromptedToolAction(ctx, input, effectiveMessages, effectiveTools, requireToolCall, hasObservations)
 			if fallbackErr == nil {
 				r.record(ctx, AuditEvent{
@@ -492,21 +495,28 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 			return response, effectiveMessages, nil
 		}
 		lastErr = err
-		if !isEmptyLLMResponseError(err) || attempt == emptyLLMResponseRetryLimit {
+		if !isRecoverableLLMResponseShapeError(err) || attempt == emptyLLMResponseRetryLimit {
 			return llm.ChatResponse{}, effectiveMessages, err
+		}
+		eventType := "agent.llm_empty_response_retry"
+		eventMessage := "llm empty response retry scheduled"
+		if isUnparsedToolCallError(err) {
+			eventType = "agent.llm_unparsed_tool_call_retry"
+			eventMessage = "llm unparsed tool call retry scheduled"
 		}
 		r.record(ctx, AuditEvent{
 			SessionID: input.Session.ID,
 			TurnID:    input.Turn.ID,
 			UserID:    input.UserID,
-			EventType: "agent.llm_empty_response_retry",
+			EventType: eventType,
 			Status:    "retrying",
-			Message:   "llm empty response retry scheduled",
+			Message:   eventMessage,
 			Metadata: domain.AgentJSON{
 				"attempt":          attempt + 1,
 				"max_retries":      emptyLLMResponseRetryLimit,
 				"final_only":       finalOnly,
 				"has_observations": hasObservations,
+				"error":            err.Error(),
 			},
 			RequestID: input.RequestID,
 			TraceID:   input.TraceID,
@@ -514,7 +524,7 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 		})
 		effectiveMessages = append(effectiveMessages, llm.ChatMessage{
 			Role:    "user",
-			Content: emptyLLMResponseRetryPrompt(attempt+1, finalOnly, hasObservations, len(effectiveTools) > 0),
+			Content: llmResponseShapeRetryPrompt(err, attempt+1, finalOnly, hasObservations, len(effectiveTools) > 0),
 		})
 	}
 	return llm.ChatResponse{}, effectiveMessages, lastErr
@@ -624,21 +634,30 @@ func isEmptyLLMResponseError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "llm response is empty")
 }
 
-func emptyLLMResponseRetryPrompt(attempt int, finalOnly bool, hasObservations bool, hasTools bool) string {
-	switch {
-	case finalOnly:
-		return "上一轮模型没有返回内容。请只基于以上工具观察生成最终回答，不要再请求工具；如果证据不足，请直接说明证据不足。"
-	case hasObservations:
-		return "上一轮模型没有返回内容。当前已经有工具观察，请优先基于已有证据生成最终回答；只有证据明显不足时才继续调用已授权工具。"
-	case hasTools:
-		return "上一轮模型没有返回内容。请根据用户任务选择已授权工具调用，或者在不需要工具时直接给出回答；本轮必须返回内容或工具调用。"
-	default:
-		return "上一轮模型没有返回内容。请直接根据已有上下文给出回答；如果无法回答，请说明缺少哪些信息。"
+func isUnparsedToolCallError(err error) bool {
+	if err == nil {
+		return false
 	}
+	var appErr *domain.AppError
+	if errors.As(err, &appErr) && appErr.Code == "llm_unparsed_tool_call" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "unparsed tool call")
 }
 
-func requiredToolCallRetryPrompt(attempt int) string {
-	return "上一轮没有执行已授权工具。当前计划要求先取得工具观察，再基于观察结果回答；本轮必须调用至少一个已授权工具。"
+func isRecoverableLLMResponseShapeError(err error) bool {
+	return isEmptyLLMResponseError(err) || isUnparsedToolCallError(err)
+}
+
+func isUnparsedToolCallMarkup(content string) bool {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return false
+	}
+	return strings.Contains(content, "<|tool_calls_section_begin|>") ||
+		strings.Contains(content, "<|tool_call_begin|>") ||
+		strings.Contains(content, "<|tool_call_argument_begin|>") ||
+		strings.Contains(content, "chatcmpl-tool-")
 }
 
 func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, call llm.ToolCall) (MCPCallToolResult, error) {

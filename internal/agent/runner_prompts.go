@@ -122,8 +122,45 @@ func promptedToolActionAllowed(action promptedToolActionResponse, tools []MCPToo
 	return false
 }
 
+func requiredToolCallRetryPrompt(attempt int) string {
+	return "上一轮没有执行已授权工具。当前计划要求先取得工具观察，再基于观察结果回答；本轮必须调用至少一个已授权工具。"
+}
+
+func emptyLLMResponseRetryPrompt(attempt int, finalOnly bool, hasObservations bool, hasTools bool) string {
+	switch {
+	case finalOnly:
+		return "上一轮模型没有返回内容。请只基于以上工具观察生成最终回答，不要再请求工具；如果证据不足，请直接说明证据不足。"
+	case hasObservations:
+		return "上一轮模型没有返回内容。当前已经有工具观察，请优先基于已有证据生成最终回答；只有证据明显不足时才继续调用已授权工具。"
+	case hasTools:
+		return "上一轮模型没有返回内容。请根据用户任务选择已授权工具调用，或者在不需要工具时直接给出回答；本轮必须返回内容或工具调用。"
+	default:
+		return "上一轮模型没有返回内容。请直接根据已有上下文给出回答；如果无法回答，请说明缺少哪些信息。"
+	}
+}
+
 func emptyMCPToolResultPrompt() string {
 	return "MCP 工具调用完成，但 content[] 中没有可用文本内容。"
+}
+
+func llmResponseShapeRetryPrompt(err error, attempt int, finalOnly bool, hasObservations bool, hasTools bool) string {
+	if isUnparsedToolCallError(err) {
+		return unparsedToolCallRetryPrompt(finalOnly, hasObservations, hasTools)
+	}
+	return emptyLLMResponseRetryPrompt(attempt, finalOnly, hasObservations, hasTools)
+}
+
+func unparsedToolCallRetryPrompt(finalOnly bool, hasObservations bool, hasTools bool) string {
+	switch {
+	case finalOnly:
+		return "上一轮返回了无法执行的工具调用标记。当前阶段不再允许调用工具；请只基于已有工具观察生成最终回答。"
+	case hasTools && hasObservations:
+		return "上一轮返回了无法执行的工具调用标记。需要继续使用工具时必须返回原生 tool_calls；如果工具能力不可用，请按兼容 JSON 契约选择 action=tool_call 或 action=final。"
+	case hasTools:
+		return "上一轮返回了无法执行的工具调用标记。需要工具时必须返回原生 tool_calls；否则请直接给出最终回答。"
+	default:
+		return "上一轮返回了无法执行的工具调用标记。请不要输出工具调用标记，直接给出最终回答。"
+	}
 }
 
 func mcpToolScopeDeniedText() string {
