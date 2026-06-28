@@ -309,6 +309,72 @@ func TestTurnRunnerRejectsUnparsedToolCallMarkupAsFinalReply(t *testing.T) {
 	}
 }
 
+func TestTurnRunnerRepairsMalformedPromptedToolAction(t *testing.T) {
+	now := time.Date(2026, 6, 28, 23, 40, 0, 0, time.UTC)
+	chat := &runnerFakeChatClient{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "conversation.query_history", Arguments: `{"query":"市场分析","limit":5}`},
+				},
+			},
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				Content:  `<|tool_calls_section_begin|> <|tool_call_begin|> chatcmpl-tool-abc <|tool_call_argument_begin|> {"url":"https://example.com/report"} <|tool_call_end|> <|tool_calls_section_end|>`,
+			},
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				Content:  `{"url":"https://example.com/report"}`,
+			},
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				Content:  `{"action":"final","content":"已有证据显示，市场消息面需要分市场审慎观察。","reason":"修复格式后收敛回答"}`,
+			},
+		},
+	}
+	audit := &runnerFakeAuditLogger{}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store:        &runnerFakeTurnStore{},
+		AuditLogger:  audit,
+		ToolExecutor: &runnerFakeToolExecutor{content: "历史记录：用户关注港美股和A股。"},
+		LLMClient:    chat,
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"conversation.query_history"},
+		MessageType:     "text",
+		MessageText:     "分析市场",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Reply != "已有证据显示，市场消息面需要分市场审慎观察。" {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if chat.calls != 4 {
+		t.Fatalf("chat calls = %d, want 4", chat.calls)
+	}
+	if !runnerAuditContains(audit.events, "agent.prompted_tool_action_repair_retry") {
+		t.Fatalf("audit events = %#v", audit.events)
+	}
+	lastRequest := chat.requests[len(chat.requests)-1]
+	lastMessage := lastRequest.Messages[len(lastRequest.Messages)-1]
+	if lastMessage.Role != "user" || !strings.Contains(lastMessage.Content, "previous_error") {
+		t.Fatalf("repair prompt message = %#v", lastMessage)
+	}
+}
+
 func TestTurnRunnerFailsWhenModelKeepsSkippingRequiredTool(t *testing.T) {
 	now := time.Date(2026, 6, 28, 18, 30, 0, 0, time.UTC)
 	chat := &runnerFakeChatClient{

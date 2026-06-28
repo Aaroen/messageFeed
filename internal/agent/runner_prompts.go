@@ -150,6 +150,35 @@ func llmResponseShapeRetryPrompt(err error, attempt int, finalOnly bool, hasObse
 	return emptyLLMResponseRetryPrompt(attempt, finalOnly, hasObservations, hasTools)
 }
 
+// promptedToolActionRepairPrompt 是兼容工具动作的格式修复提示。
+// 业务流程只传入结构化状态；具体可见给模型的协议要求在这里集中维护。
+func promptedToolActionRepairPrompt(err error, attempt int, requireToolCall bool, hasObservations bool, hasTools bool) string {
+	payload := domain.AgentJSON{
+		"instruction":          promptedToolActionRepairInstruction(requireToolCall, hasObservations, hasTools),
+		"previous_error":       strings.TrimSpace(err.Error()),
+		"attempt":              attempt,
+		"required_json_schema": promptedToolActionSchema(),
+	}
+	body, marshalErr := json.Marshal(payload)
+	if marshalErr != nil {
+		return promptedToolActionRepairInstruction(requireToolCall, hasObservations, hasTools)
+	}
+	return string(body)
+}
+
+func promptedToolActionRepairInstruction(requireToolCall bool, hasObservations bool, hasTools bool) string {
+	switch {
+	case requireToolCall:
+		return "上一轮输出不符合兼容工具动作契约。请重新输出严格 JSON，必须包含 action=tool_call、tool_name 和 arguments；不要输出工具调用标记、Markdown 代码块或仅包含参数的 JSON。"
+	case hasTools && hasObservations:
+		return "上一轮输出不符合兼容工具动作契约。请重新输出严格 JSON：证据足够时使用 action=final 和 content；仍需工具时使用 action=tool_call、tool_name 和 arguments。不要输出工具调用标记、Markdown 代码块或仅包含参数的 JSON。"
+	case hasTools:
+		return "上一轮输出不符合兼容工具动作契约。请重新输出严格 JSON：需要工具时使用 action=tool_call、tool_name 和 arguments；不需要工具时使用 action=final 和 content。不要输出工具调用标记、Markdown 代码块或仅包含参数的 JSON。"
+	default:
+		return "上一轮输出不符合最终回答契约。请重新输出严格 JSON，使用 action=final 和 content；不要输出工具调用标记、Markdown 代码块或仅包含参数的 JSON。"
+	}
+}
+
 func unparsedToolCallRetryPrompt(finalOnly bool, hasObservations bool, hasTools bool) string {
 	switch {
 	case finalOnly:

@@ -176,6 +176,7 @@ type TurnRunResult struct {
 
 const emptyLLMResponseRetryLimit = 2
 const requiredToolCallRetryLimit = 2
+const promptedToolActionRetryLimit = 2
 
 func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult, error) {
 	ctx, span := observability.StartSpan(ctx, "agent.turn_runner.run",
@@ -452,7 +453,7 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 			err = domain.NewAppError(domain.ErrorKindUnavailable, "llm_unparsed_tool_call", "llm returned unparsed tool call markup", "agent.turn_runner.chat", true, nil)
 		}
 		if err != nil && isRecoverableLLMResponseShapeError(err) && len(effectiveTools) > 0 {
-			fallback, fallbackErr := r.chatWithPromptedToolAction(ctx, input, effectiveMessages, effectiveTools, requireToolCall, hasObservations)
+			fallback, fallbackErr := r.chatWithPromptedToolAction(ctx, input, effectiveMessages, effectiveTools, requireToolCall, hasObservations, isUnparsedToolCallError(err))
 			if fallbackErr == nil {
 				r.record(ctx, AuditEvent{
 					SessionID: input.Session.ID,
@@ -537,18 +538,71 @@ func (r *TurnRunner) chatWithPromptedToolAction(
 	tools []MCPToolDescriptor,
 	requireToolCall bool,
 	hasObservations bool,
+	repairMalformed bool,
 ) (llm.ChatResponse, error) {
 	if r == nil || r.llmClient == nil {
 		return llm.ChatResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_llm_client_unavailable", "agent llm client is unavailable", "agent.turn_runner.prompted_tool_action", true, nil)
 	}
-	response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
-		Messages:    buildPromptedToolActionMessages(messages, tools, requireToolCall, hasObservations),
-		Temperature: 0.1,
-		MaxTokens:   r.maxTokens,
-	})
-	if err != nil {
-		return llm.ChatResponse{}, err
+	// 兼容模式用于处理上游未返回原生 tool_calls 的情况。
+	// runner 只负责有限重试和审计，具体格式修正要求集中在 runner_prompts.go。
+	effectiveMessages := buildPromptedToolActionMessages(messages, tools, requireToolCall, hasObservations)
+	var lastErr error
+	retryLimit := 0
+	if repairMalformed {
+		retryLimit = promptedToolActionRetryLimit
 	}
+	for attempt := 0; attempt <= retryLimit; attempt++ {
+		response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
+			Messages:    effectiveMessages,
+			Temperature: 0.1,
+			MaxTokens:   r.maxTokens,
+		})
+		if err != nil {
+			return llm.ChatResponse{}, err
+		}
+		result, err := r.normalizePromptedToolAction(response, actionToolCallID(len(messages), attempt), tools, requireToolCall)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if attempt == retryLimit {
+			return llm.ChatResponse{}, err
+		}
+		r.record(ctx, AuditEvent{
+			SessionID: input.Session.ID,
+			TurnID:    input.Turn.ID,
+			UserID:    input.UserID,
+			EventType: "agent.prompted_tool_action_repair_retry",
+			Status:    "retrying",
+			Message:   "prompted tool action response repair retry scheduled",
+			Metadata: domain.AgentJSON{
+				"attempt":             attempt + 1,
+				"max_retries":         retryLimit,
+				"require_tool_call":   requireToolCall,
+				"has_observations":    hasObservations,
+				"tool_count":          len(tools),
+				"normalization_error": err.Error(),
+			},
+			RequestID: input.RequestID,
+			TraceID:   input.TraceID,
+			CreatedAt: r.now().UTC(),
+		})
+		effectiveMessages = append(effectiveMessages,
+			llm.ChatMessage{Role: "assistant", Content: response.Content},
+			llm.ChatMessage{Role: "user", Content: promptedToolActionRepairPrompt(err, attempt+1, requireToolCall, hasObservations, len(tools) > 0)},
+		)
+	}
+	return llm.ChatResponse{}, lastErr
+}
+
+// normalizePromptedToolAction 将兼容 JSON 契约转换为内部统一的 ChatResponse。
+// 该函数只校验协议形态和已授权工具，不根据用户语义补全缺失字段。
+func (r *TurnRunner) normalizePromptedToolAction(
+	response llm.ChatResponse,
+	callID string,
+	tools []MCPToolDescriptor,
+	requireToolCall bool,
+) (llm.ChatResponse, error) {
 	action, err := parsePromptedToolAction(response.Content)
 	if err != nil {
 		return llm.ChatResponse{}, err
@@ -567,7 +621,7 @@ func (r *TurnRunner) chatWithPromptedToolAction(
 			Model:    response.Model,
 			ToolCalls: []llm.ToolCall{
 				{
-					ID:        fmt.Sprintf("prompted_call_%d", len(messages)+1),
+					ID:        callID,
 					Name:      action.ToolName,
 					Arguments: string(arguments),
 				},
@@ -584,6 +638,10 @@ func (r *TurnRunner) chatWithPromptedToolAction(
 	default:
 		return llm.ChatResponse{}, fmt.Errorf("prompted tool action is unsupported: %s", action.Action)
 	}
+}
+
+func actionToolCallID(baseMessageCount int, attempt int) string {
+	return fmt.Sprintf("prompted_call_%d_%d", baseMessageCount+1, attempt+1)
 }
 
 func hasObservationForMCPTools(observations []CapabilityObservation, tools []MCPToolDescriptor) bool {
