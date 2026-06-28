@@ -31,6 +31,35 @@ run_compose() {
 	fi
 }
 
+# cloudflared QUIC 对 UDP 收发缓冲区比较敏感。systemd 以 root 运行时在启动前
+# 临时调高宿主机上限；该操作失败时不阻断应用启动，避免部署入口变成单点故障。
+tune_cloudflared_udp_buffers() {
+	if [ "$(id -u)" -ne 0 ] || ! command -v sysctl >/dev/null 2>&1; then
+		return 0
+	fi
+	sysctl -w net.core.rmem_max=7500000 net.core.wmem_max=7500000 >/dev/null 2>&1 || true
+}
+
+# 优先按正常发布路径构建并启动；若外部镜像仓库或网络临时失败，则退回到
+# 本地已有镜像启动，保证已经验证过的线上服务不会因为拉取元数据失败而停摆。
+compose_up_with_build_fallback() {
+	if run_compose "$@" --build; then
+		return 0
+	fi
+	printf '%s\n' "Docker 构建启动失败，尝试使用本地已有镜像恢复服务。" >&2
+	run_compose "$@" --no-build
+}
+
+start_cloudflare_stack() {
+	tune_cloudflared_udp_buffers
+	compose_up_with_build_fallback --profile cloudflare up -d api web gateway cloudflared
+}
+
+reload_cloudflare_app() {
+	tune_cloudflared_udp_buffers
+	compose_up_with_build_fallback --profile cloudflare up -d api web
+}
+
 cd "$PROJECT_DIR"
 
 export PUBLIC_BASE_URL
@@ -41,7 +70,7 @@ export CLOUDFLARED_TUNNEL_TOKEN="${CLOUDFLARED_TUNNEL_TOKEN:-}"
 
 case "${1:-up}" in
 	up|start)
-		run_compose up -d --build
+		compose_up_with_build_fallback up -d
 		printf '%s\n' "messageFeed standard mode is running."
 		printf '%s\n' "Web/API: ${PUBLIC_BASE_URL}"
 		printf '%s\n' "API: http://127.0.0.1:60001"
@@ -52,12 +81,27 @@ case "${1:-up}" in
 			printf '%s\n' "CLOUDFLARED_TUNNEL_TOKEN is required." >&2
 			exit 2
 		fi
-		run_compose --profile cloudflare up -d --build api web gateway cloudflared
+		start_cloudflare_stack
 		printf '%s\n' "messageFeed production Cloudflare mode is running."
 		printf '%s\n' "Web/API: ${PUBLIC_BASE_URL}"
 		if [ -n "$DOMAIN" ]; then
 			printf '%s\n' "Domain: https://${DOMAIN}"
 		fi
+		;;
+	reload|update|deploy)
+		if [ -z "${CLOUDFLARED_TUNNEL_TOKEN:-}" ]; then
+			printf '%s\n' "CLOUDFLARED_TUNNEL_TOKEN is required." >&2
+			exit 2
+		fi
+		running_services="$(run_compose --profile cloudflare ps --services --filter status=running || true)"
+		if printf '%s\n' "$running_services" | grep -qx cloudflared && printf '%s\n' "$running_services" | grep -qx gateway; then
+			reload_cloudflare_app
+			printf '%s\n' "messageFeed application services reloaded without restarting Cloudflare tunnel."
+		else
+			start_cloudflare_stack
+			printf '%s\n' "messageFeed production Cloudflare mode was not fully running; full stack started."
+		fi
+		printf '%s\n' "Web/API: ${PUBLIC_BASE_URL}"
 		;;
 	logs)
 		run_compose --profile cloudflare logs -f
@@ -69,7 +113,7 @@ case "${1:-up}" in
 		run_compose --profile cloudflare stop
 		;;
 	*)
-		printf '%s\n' "Usage: messageFeed-start [up|cloudflare|logs|status|stop]" >&2
+		printf '%s\n' "Usage: messageFeed-start [up|cloudflare|reload|logs|status|stop]" >&2
 		exit 2
 		;;
 esac
