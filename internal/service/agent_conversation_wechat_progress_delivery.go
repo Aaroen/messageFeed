@@ -64,7 +64,7 @@ func (s *AgentConversationService) sendWeChatWorkProgressDelivery(ctx context.Co
 	}
 
 	result.DeliveryMode = "text_fallback"
-	sendResult, sendCount, err := s.sendWeChatWorkReply(ctx, toUser, fallbackText)
+	sendResult, sendCount, err := s.sendWeChatWorkReply(sendCtx, toUser, fallbackText)
 	result.SendResult = sendResult
 	result.SendCount = sendCount
 	if err != nil {

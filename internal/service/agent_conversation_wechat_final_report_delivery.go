@@ -70,7 +70,7 @@ func (s *AgentConversationService) sendWeChatWorkFinalReportDelivery(ctx context
 		}
 	}
 
-	textResult, textCount, err := s.sendWeChatWorkReply(ctx, toUser, reply)
+	textResult, textCount, err := s.sendWeChatWorkReply(sendCtx, toUser, reply)
 	result.SendResult = textResult
 	result.SendCount += textCount
 	if err != nil {

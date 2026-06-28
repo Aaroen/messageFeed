@@ -2201,6 +2201,54 @@ func TestAgentConversationServiceFailsTurnWhenPlanCreationFails(t *testing.T) {
 	}
 }
 
+func TestAgentConversationServiceCreatesPlanWhenMainPlanningFails(t *testing.T) {
+	now := time.Date(2026, 6, 28, 15, 52, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	sender := &fakeAgentConversationSender{}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(&fakeAgentConversationLLM{planErr: errors.New("Invalid API key provided")}),
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-main-plan-failed",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "分析周五收盘以来到现在的所有港美股以及大a的基本面以及消息面消息。",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Turn.Status != domain.AgentTurnStatusFailed {
+		t.Fatalf("turn status = %q, want failed", result.Turn.Status)
+	}
+	if result.Plan.ID == 0 || result.Plan.Status != domain.AgentPlanStatusFailed {
+		t.Fatalf("plan = %#v, want failed planning plan", result.Plan)
+	}
+	if len(result.Plan.Steps) != 1 || result.Plan.Steps[0].Status != domain.AgentPlanStepStatusFailed {
+		t.Fatalf("plan steps = %#v", result.Plan.Steps)
+	}
+	if !strings.Contains(result.Reply, "https://messagefeed.example/agent/plans/") {
+		t.Fatalf("reply = %q, want progress url", result.Reply)
+	}
+	if sender.calls == 0 || strings.TrimSpace(sender.sent.Content) == "" {
+		t.Fatalf("failure feedback was not sent: calls=%d sent=%#v", sender.calls, sender.sent)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_planning_failed") ||
+		!fakeAuditContains(repository.audits, "agent.turn_failed") ||
+		!fakeAuditContains(repository.audits, "agent.turn_failure_feedback") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+}
+
 type fakeAgentConversationRepository struct {
 	nextID            int64
 	forceDuplicate    bool
@@ -2731,6 +2779,7 @@ type fakeAgentConversationLLM struct {
 	response       llm.ChatResponse
 	responses      []llm.ChatResponse
 	err            error
+	planErr        error
 	started        chan struct{}
 	release        chan struct{}
 	startOnce      sync.Once
@@ -2757,6 +2806,9 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 		return llm.ChatResponse{Provider: "openai_compatible", Model: "followup-model", Content: string(content)}, nil
 	}
 	if fakeIsMainAgentPlanSpecRequest(request) {
+		if f.planErr != nil {
+			return llm.ChatResponse{}, f.planErr
+		}
 		return fakeMainAgentPlanSpecResponse(request, f.fakePlanCapabilityKeys()), nil
 	}
 	if fakeIsAgentWeChatFeedbackRequest(request) {
