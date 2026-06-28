@@ -443,7 +443,11 @@ func (s *AgentConversationService) createPlanForTurn(
 	// 主 Agent 先由模型生成 PlanSpec，避免 service 层继续通过关键词硬编码推断用户意图。
 	mainPlan, err := s.buildMainAgentPlanSpec(ctx, account, session, turn, controllerRun, input)
 	if err != nil {
-		return domain.AgentPlan{}, "", err
+		failedPlan, createErr := s.createPlanningFailedPlan(ctx, account, session, turn, controllerRun, input, err)
+		if createErr != nil {
+			return domain.AgentPlan{}, "", createErr
+		}
+		return failedPlan, "", err
 	}
 	// planner 只把模型计划转换为持久化计划和步骤，权限、预算、确认策略仍走后续治理链路。
 	output := s.planner.BuildFromSpec(ctx, planInput, mainPlan.Spec)
@@ -561,6 +565,99 @@ func (s *AgentConversationService) createPlanForTurn(
 		return domain.AgentPlan{}, "", err
 	}
 	return plan, token, nil
+}
+
+// createPlanningFailedPlan 在主 Agent 规划阶段失败时保留可审计计划。
+// 规划失败发生在普通计划创建之前；如果不补建失败态 plan，Web 端只能看到 turn 失败，
+// 无法进入任务详情查看阶段、错误和后续审计信息。
+func (s *AgentConversationService) createPlanningFailedPlan(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	controllerRun domain.AgentRun,
+	input ReceiveWeChatWorkAppMessageInput,
+	cause error,
+) (domain.AgentPlan, error) {
+	if s == nil || s.repository == nil || cause == nil {
+		return domain.AgentPlan{}, nil
+	}
+	now := s.now().UTC()
+	failedAt := now
+	startedAt := now
+	completedAt := now
+	errorText := truncateError(cause.Error(), 500)
+	plan := domain.AgentPlan{
+		UserID:             account.UserID,
+		SessionID:          session.ID,
+		TurnID:             turn.ID,
+		ControllerRunID:    controllerRun.ID,
+		Status:             domain.AgentPlanStatusFailed,
+		Goal:               input.TextContent,
+		Summary:            "主 Agent 规划阶段未完成，错误原因已记录在任务详情中。",
+		ImpactSummary:      "未进入工具执行阶段。",
+		RiskLevel:          "low",
+		ConfirmationPolicy: "auto",
+		AllowedScopes:      []string{},
+		PolicyDecision:     "allow",
+		PolicyReason:       "规划阶段未涉及外部能力调用。",
+		FailedAt:           &failedAt,
+		ErrorMessage:       errorText,
+		Metadata: domain.AgentJSON{
+			"failure_stage":       "main_agent_planning",
+			"failure_reason":      errorText,
+			"provider_message_id": input.ProviderMessageID,
+			"request_id":          input.RequestID,
+			"trace_id":            input.TraceID,
+			"created_from":        "planning_failure",
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	step := domain.AgentPlanStep{
+		StepOrder:       1,
+		Status:          domain.AgentPlanStepStatusFailed,
+		CapabilityKey:   "main_agent.plan",
+		CapabilityScope: []string{},
+		Title:           "主 Agent 理解与规划",
+		InputSummary:    "根据用户消息生成结构化执行计划。",
+		OutputSummary:   "规划阶段失败，未生成可执行 PlanSpec。",
+		ExpectedOutput:  "结构化 PlanSpec。",
+		FailureStrategy: "停止本轮任务，并把失败阶段和错误原因反馈给用户。",
+		ErrorMessage:    errorText,
+		MaxRetries:      mainAgentPlanSpecMaxAttempts,
+		RetryCount:      mainAgentPlanSpecMaxAttempts,
+		RetryReason:     errorText,
+		RetryMetadata: domain.AgentJSON{
+			"failure_stage": "main_agent_planning",
+		},
+		StartedAt:   &startedAt,
+		CompletedAt: &completedAt,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	created, err := s.repository.CreateAgentPlan(ctx, plan, []domain.AgentPlanStep{step})
+	if err != nil {
+		return domain.AgentPlan{}, err
+	}
+	created = s.applyAgentPlanTerminalMetadata(ctx, account.UserID, created)
+	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+		SessionID: session.ID,
+		TurnID:    turn.ID,
+		UserID:    account.UserID,
+		EventType: "agent.plan_planning_failed",
+		Status:    "failed",
+		Message:   errorText,
+		Metadata: domain.AgentJSON{
+			"plan_id":             created.ID,
+			"failure_stage":       "main_agent_planning",
+			"provider_message_id": input.ProviderMessageID,
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: now,
+	})
+	return created, nil
 }
 
 func (s *AgentConversationService) applyCapabilityPolicyToPlan(ctx context.Context, userID int64, sessionID int64, turnID int64, plan domain.AgentPlan, input ReceiveWeChatWorkAppMessageInput) (domain.AgentPlan, error) {
