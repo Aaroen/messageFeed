@@ -689,7 +689,8 @@ func (p *Planner) budgetGovernance(goal string, keys []string) domain.AgentJSON 
 	contextBudget := 6000
 	toolBudget := 8
 	externalBudget := 4
-	replyBudget := 768
+	// 0 表示回复生成阶段暂不设置请求层最高 token 上限。
+	replyBudget := 0
 	status := "within_budget"
 	degradation := ""
 	if contextChars > contextBudget || toolCalls > toolBudget || externalCalls > externalBudget {

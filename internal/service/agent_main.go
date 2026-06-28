@@ -12,7 +12,9 @@ import (
 
 const (
 	defaultAgentOwnerUserID = int64(1)
-	agentReplyMaxTokens     = 768
+	// agentReplyMaxTokens 为 0 时不向模型请求写入 max_tokens / max_output_tokens。
+	// 当前 Agent 需要先保证复杂任务可完整收敛，暂不在最终回复层设置固定最高上限。
+	agentReplyMaxTokens = 0
 	// defaultAgentProcessTimeout 是单轮后台执行上限。
 	// 真实模型规划、联网搜索和工具收敛可能超过几十秒，因此生产默认给到 10 分钟。
 	defaultAgentProcessTimeout = 10 * time.Minute

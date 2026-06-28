@@ -1477,6 +1477,57 @@ func TestAgentConversationServiceBindPlanStepsWritesQualityAndDeploymentMetadata
 	}
 }
 
+func TestAgentConversationServiceMarksInterruptedPlanSteps(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 10, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	plan := domain.AgentPlan{
+		ID:        10,
+		UserID:    1,
+		SessionID: 2,
+		TurnID:    3,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "汇总市场消息",
+		Summary:   "执行市场消息汇总",
+		RiskLevel: "low",
+		Metadata:  domain.AgentJSON{},
+		Steps: []domain.AgentPlanStep{
+			{ID: 11, PlanID: 10, Status: domain.AgentPlanStepStatusExecuting, CapabilityKey: "web.search", Title: "联网查询"},
+			{ID: 12, PlanID: 10, Status: domain.AgentPlanStepStatusPending, CapabilityKey: "web.extract_page", Title: "读取网页"},
+			{ID: 13, PlanID: 10, Status: domain.AgentPlanStepStatusExecuting, CapabilityKey: "content.summarize_text", Title: "汇总分析"},
+		},
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}
+	repository.plans = append(repository.plans, plan)
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	updated, err := service.markInterruptedPlanSteps(context.Background(), 1, plan, []agent.CapabilityObservation{
+		{
+			Capability:     "web.search",
+			Status:         "succeeded",
+			Summary:        "完成查询",
+			RunID:          20,
+			ObservationRef: "agent_observations/20",
+			ArtifactRefs:   []string{"agent_artifacts/20"},
+		},
+	}, errors.New("llm response is incomplete: max_output_tokens"))
+	if err != nil {
+		t.Fatalf("markInterruptedPlanSteps() error = %v", err)
+	}
+	if updated.Steps[0].Status != domain.AgentPlanStepStatusCompleted || updated.Steps[0].ExecutorRunID != 20 || updated.Steps[0].ObservationRef == "" {
+		t.Fatalf("observed step = %#v", updated.Steps[0])
+	}
+	if updated.Steps[1].Status != domain.AgentPlanStepStatusSkipped {
+		t.Fatalf("pending step status = %q, want skipped", updated.Steps[1].Status)
+	}
+	if updated.Steps[2].Status != domain.AgentPlanStepStatusFailed {
+		t.Fatalf("executing step status = %q, want failed", updated.Steps[2].Status)
+	}
+	if updated.Steps[1].CompletedAt == nil || updated.Steps[2].CompletedAt == nil {
+		t.Fatalf("interrupted steps should have completed timestamps: %#v", updated.Steps)
+	}
+}
+
 func TestAgentConversationServiceBindPlanStepsReturnsUpdateError(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 30, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()

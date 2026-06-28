@@ -122,6 +122,9 @@ func (s *AgentConversationService) processTurn(
 			return s.finishStoppedAgentProcess(ctx, account, inbound, session, turn, plan), nil
 		}
 		s.recordControllerTrace(ctx, controllerRun, runResult, "controller_error")
+		if markedPlan, markErr := s.markInterruptedPlanSteps(ctx, account.UserID, plan, runResult.Context.Observations, err); markErr == nil && markedPlan.ID > 0 {
+			plan = markedPlan
+		}
 		failedPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, s.now().UTC(), err.Error())
 		if failedPlan.ID > 0 {
 			plan = s.applyAgentPlanTerminalMetadata(ctx, account.UserID, failedPlan)
@@ -258,6 +261,78 @@ func (s *AgentConversationService) processTurn(
 		Reply:           reply,
 		SendResult:      sendResult,
 	}, nil
+}
+
+// markInterruptedPlanSteps 在主流程异常中断时收敛 Web 计划步骤状态。
+// 已产生 observation 的步骤按实际结果标记；未执行到的步骤标记为 skipped，
+// 避免用户在详情页看到已经终止的计划仍停留在 pending。
+func (s *AgentConversationService) markInterruptedPlanSteps(ctx context.Context, userID int64, plan domain.AgentPlan, observations []agent.CapabilityObservation, cause error) (domain.AgentPlan, error) {
+	if s == nil || s.repository == nil || plan.ID == 0 || len(plan.Steps) == 0 {
+		return plan, nil
+	}
+	now := s.now().UTC()
+	errorText := ""
+	if cause != nil {
+		errorText = truncateError(cause.Error(), 500)
+	}
+	observationsByCapability := map[string][]agent.CapabilityObservation{}
+	for _, observation := range observations {
+		key := strings.TrimSpace(observation.Capability)
+		if key == "" {
+			continue
+		}
+		observationsByCapability[key] = append(observationsByCapability[key], observation)
+	}
+	for index, step := range plan.Steps {
+		if agentPlanStepTerminal(step.Status) {
+			continue
+		}
+		candidates := observationsByCapability[step.CapabilityKey]
+		if len(candidates) > 0 {
+			observation := candidates[0]
+			observationsByCapability[step.CapabilityKey] = candidates[1:]
+			step.Status = domain.AgentPlanStepStatusCompleted
+			if strings.EqualFold(observation.Status, "failed") {
+				step.Status = domain.AgentPlanStepStatusFailed
+				step.ErrorMessage = firstNonEmptyString(observation.Summary, errorText)
+			}
+			if step.StartedAt == nil {
+				startedAt := now
+				step.StartedAt = &startedAt
+			}
+			completedAt := now
+			step.CompletedAt = &completedAt
+			step.ExecutorRunID = observation.RunID
+			step.ObservationRef = observation.ObservationRef
+			step.ArtifactRefs = append([]string(nil), observation.ArtifactRefs...)
+			step.OutputSummary = firstNonEmptyString(observation.Summary, step.OutputSummary)
+		} else {
+			if step.Status == domain.AgentPlanStepStatusExecuting {
+				step.Status = domain.AgentPlanStepStatusFailed
+			} else {
+				step.Status = domain.AgentPlanStepStatusSkipped
+			}
+			completedAt := now
+			step.CompletedAt = &completedAt
+			step.ErrorMessage = errorText
+			step.OutputSummary = firstNonEmptyString(step.OutputSummary, "主流程中断，步骤未执行完成。")
+		}
+		updatedStep, err := s.repository.UpdateAgentPlanStepStatus(ctx, userID, step)
+		if err != nil {
+			return domain.AgentPlan{}, err
+		}
+		plan.Steps[index] = updatedStep
+	}
+	return plan, nil
+}
+
+func agentPlanStepTerminal(status domain.AgentPlanStepStatus) bool {
+	switch status {
+	case domain.AgentPlanStepStatusCompleted, domain.AgentPlanStepStatusFailed, domain.AgentPlanStepStatusSkipped:
+		return true
+	default:
+		return false
+	}
 }
 
 // bindPlanStepsToObservations 将工具观测回填到计划步骤，并汇总计划终态。

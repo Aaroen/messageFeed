@@ -188,12 +188,15 @@ type responsesTool struct {
 }
 
 type responsesResponse struct {
-	ID     string                `json:"id"`
-	Model  string                `json:"model"`
-	Object string                `json:"object"`
-	Status string                `json:"status"`
-	Output []responsesOutputItem `json:"output"`
-	Error  *struct {
+	ID                string                `json:"id"`
+	Model             string                `json:"model"`
+	Object            string                `json:"object"`
+	Status            string                `json:"status"`
+	Output            []responsesOutputItem `json:"output"`
+	IncompleteDetails *struct {
+		Reason string `json:"reason"`
+	} `json:"incomplete_details,omitempty"`
+	Error *struct {
 		Message string `json:"message"`
 		Type    string `json:"type"`
 	} `json:"error,omitempty"`
@@ -553,11 +556,11 @@ func (c *OpenAICompatibleClient) chatWithResponses(ctx context.Context, request 
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
 		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, "llm response is invalid: "+llmResponseSnippet(responseBody), true, err)
 	}
-	if decoded.Status == "incomplete" {
-		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, "llm response is incomplete", false, nil)
-	}
 	content := strings.TrimSpace(responsesOutputText(decoded.Output))
 	toolCalls := domainToolCallsFromResponses(decoded.Output)
+	if strings.EqualFold(decoded.Status, "incomplete") {
+		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, responsesIncompleteMessage(decoded), true, nil)
+	}
 	if content == "" && len(toolCalls) == 0 {
 		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, "llm response is empty", false, nil)
 	}
@@ -565,6 +568,17 @@ func (c *OpenAICompatibleClient) chatWithResponses(ctx context.Context, request 
 		recordLLMUsage(c.provider, c.model, decoded.Usage.InputTokens, decoded.Usage.OutputTokens, decoded.Usage.TotalTokens, span)
 	}
 	return ChatResponse{Provider: c.provider, Model: c.model, Content: content, ToolCalls: toolCalls}, nil
+}
+
+func responsesIncompleteMessage(response responsesResponse) string {
+	reason := ""
+	if response.IncompleteDetails != nil {
+		reason = strings.TrimSpace(response.IncompleteDetails.Reason)
+	}
+	if reason == "" {
+		return "llm response is incomplete"
+	}
+	return "llm response is incomplete: " + reason
 }
 
 func responsesInputFromChatMessages(messages []ChatMessage) []responsesInputItem {

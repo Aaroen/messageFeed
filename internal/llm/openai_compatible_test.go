@@ -74,6 +74,92 @@ func TestOpenAICompatibleClientUsesCustomBaseURL(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleClientOmitsTokenLimitWhenUnset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if _, ok := payload["max_output_tokens"]; ok {
+			t.Fatalf("max_output_tokens should be omitted when MaxTokens is zero: %#v", payload)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "custom-model",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+
+	response, err := client.Chat(context.Background(), ChatRequest{
+		Messages: []ChatMessage{{Role: "user", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if response.Content != "ok" {
+		t.Fatalf("content = %q, want ok", response.Content)
+	}
+}
+
+func TestOpenAICompatibleClientFallsBackWhenResponsesIncomplete(t *testing.T) {
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/responses":
+			_, _ = w.Write([]byte(`{"object":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"partial"}]}]}`))
+		case "/chat/completions":
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode chat request: %v", err)
+			}
+			if _, ok := payload["max_tokens"]; ok {
+				t.Fatalf("max_tokens should be omitted when MaxTokens is zero: %#v", payload)
+			}
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"chat fallback ok"}}]}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "custom-model",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+
+	response, err := client.Chat(context.Background(), ChatRequest{
+		Messages: []ChatMessage{{Role: "user", Content: "生成较长报告"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if response.Content != "chat fallback ok" {
+		t.Fatalf("content = %q, want chat fallback ok", response.Content)
+	}
+	want := []string{"/responses", "/chat/completions"}
+	if len(paths) != len(want) {
+		t.Fatalf("paths = %#v, want %#v", paths, want)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Fatalf("paths = %#v, want %#v", paths, want)
+		}
+	}
+}
+
 func TestOpenAICompatibleClientReturnsProviderError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
