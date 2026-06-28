@@ -974,6 +974,75 @@ func TestAgentConversationServiceRecordsParentPlanForDerivedWebTask(t *testing.T
 	}
 }
 
+func TestAgentConversationServiceRetryIntentStartsNewPlanForFailedTask(t *testing.T) {
+	now := time.Date(2026, 6, 28, 15, 20, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{
+		ID:                47,
+		UserID:            1,
+		ExternalAccountID: 10,
+		Provider:          domain.AgentProviderWeChatWorkApp,
+		ChannelSessionKey: "corp-a:1000002:zhangsan",
+		Status:            domain.AgentSessionStatusActive,
+		StartedAt:         now.Add(-time.Hour),
+		LastActiveAt:      now.Add(-time.Minute),
+	}
+	repository.plans = []domain.AgentPlan{{
+		ID:           31,
+		UserID:       1,
+		SessionID:    47,
+		TurnID:       65,
+		Status:       domain.AgentPlanStatusFailed,
+		Goal:         "分析周五收盘以来到现在的港美股和 A 股消息",
+		ErrorMessage: "upstream saturated",
+		Metadata:     domain.AgentJSON{},
+		CreatedAt:    now.Add(-30 * time.Minute),
+		UpdatedAt:    now.Add(-20 * time.Minute),
+	}}
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		followupIntent: agentFollowupIntentRetry,
+		response:       llm.ChatResponse{Provider: "openai_compatible", Model: "custom-model", Content: "重新执行结果"},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-retry-new-plan",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "分析周五收盘以来到现在的港美股和 A 股消息",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Plan.ID == 0 || result.Plan.ID == 31 {
+		t.Fatalf("new plan was not created: %#v", result.Plan)
+	}
+	if result.Turn.Status != domain.AgentTurnStatusSucceeded {
+		t.Fatalf("turn status = %q", result.Turn.Status)
+	}
+	if strings.TrimSpace(result.Reply) == "" || result.Reply != "重新执行结果" {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if len(repository.plans) != 2 {
+		t.Fatalf("plans = %#v", repository.plans)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_retry_requested") {
+		t.Fatalf("retry audit missing: %#v", repository.audits)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_governance_recorded") {
+		t.Fatalf("new plan governance audit missing: %#v", repository.audits)
+	}
+}
+
 func TestAgentConversationServiceSplitsLongWeChatWorkReply(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(time.Now().UTC())}

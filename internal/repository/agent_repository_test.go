@@ -41,6 +41,24 @@ func TestAgentRunUpdateColumnsPersistPlanScopeFields(t *testing.T) {
 	}
 }
 
+func TestAgentAuditLogModelUsesNullOptionalRefs(t *testing.T) {
+	model := agentAuditLogModelFromDomain(domain.AgentAuditLog{
+		UserID:    1,
+		EventType: "agent.test",
+		Status:    "review",
+		Metadata:  domain.AgentJSON{},
+	})
+	if model.SessionID != nil || model.TurnID != nil {
+		t.Fatalf("optional refs should be nil: session=%#v turn=%#v", model.SessionID, model.TurnID)
+	}
+	sessionID := int64(2)
+	turnID := int64(3)
+	converted := agentAuditLogModelToDomain(agentAuditLogModel{SessionID: &sessionID, TurnID: &turnID})
+	if converted.SessionID != 2 || converted.TurnID != 3 {
+		t.Fatalf("converted refs = %#v", converted)
+	}
+}
+
 func TestAgentContextMemoryMigrationDefinesArchiveAndRecallTables(t *testing.T) {
 	content, err := os.ReadFile("../../migrations/000019_add_agent_context_memory.up.sql")
 	if err != nil {

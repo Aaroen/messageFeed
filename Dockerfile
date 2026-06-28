@@ -69,6 +69,7 @@ WORKDIR /app
 
 # 从构建阶段复制编译好的二进制文件
 COPY --from=builder /build/messagefeed /app/messagefeed
+COPY configs /app/configs
 
 # 切换到非 root 用户
 USER appuser

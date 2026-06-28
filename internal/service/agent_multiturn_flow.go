@@ -124,16 +124,8 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 		if err != nil {
 			return false, ReceiveWeChatWorkAppMessageResult{}, err
 		}
-		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_retry_requested", "queued", message)
-		reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
-			Stage:       "retry_requested",
-			UserMessage: input.TextContent,
-			Plan:        updated,
-			ProgressURL: s.agentPlanURLIfAvailable(updated.ID),
-		})
-		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "retry_requested")
-		result.Plan = updated
-		return true, result, err
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_retry_requested", "rerouted_to_new_plan", message)
+		return false, ReceiveWeChatWorkAppMessageResult{}, nil
 	case agentFollowupIntentQuestion:
 		plan.Metadata = updateResultReuseMetadata(plan, message, now, false)
 		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, account.UserID, plan.ID, plan.Metadata, now)

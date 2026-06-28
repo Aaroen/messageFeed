@@ -6,6 +6,7 @@ import (
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/notifier"
+	"strings"
 )
 
 // finishTurnWithReply 记录直接回复并关闭当前 turn。
@@ -22,6 +23,10 @@ func (s *AgentConversationService) finishTurnWithReply(
 ) (ReceiveWeChatWorkAppMessageResult, error) {
 	now := s.now().UTC()
 	reply = sanitizeAgentReportText(reply)
+	if strings.TrimSpace(reply) == "" {
+		cause := domain.NewAppError(domain.ErrorKindUnavailable, "agent_direct_reply_empty", "agent direct reply is empty", "service.agent.finish_turn", true, nil)
+		return s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, cause), nil
+	}
 	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
 		SessionID: session.ID,
 		TurnID:    turn.ID,

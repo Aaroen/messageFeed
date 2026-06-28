@@ -133,8 +133,8 @@ type agentRecallEventModel struct {
 
 type agentAuditLogModel struct {
 	ID        int64 `gorm:"primaryKey"`
-	SessionID int64
-	TurnID    int64
+	SessionID *int64
+	TurnID    *int64
 	UserID    int64 `gorm:"not null"`
 	EventType string
 	Status    string
@@ -1404,8 +1404,8 @@ func transcriptIndexKeywords(content string) []string {
 func agentAuditLogModelFromDomain(log domain.AgentAuditLog) agentAuditLogModel {
 	return agentAuditLogModel{
 		ID:        log.ID,
-		SessionID: log.SessionID,
-		TurnID:    log.TurnID,
+		SessionID: int64Pointer(log.SessionID),
+		TurnID:    int64Pointer(log.TurnID),
 		UserID:    log.UserID,
 		EventType: log.EventType,
 		Status:    log.Status,
@@ -1420,8 +1420,8 @@ func agentAuditLogModelFromDomain(log domain.AgentAuditLog) agentAuditLogModel {
 func agentAuditLogModelToDomain(model agentAuditLogModel) domain.AgentAuditLog {
 	return domain.AgentAuditLog{
 		ID:        model.ID,
-		SessionID: model.SessionID,
-		TurnID:    model.TurnID,
+		SessionID: int64Value(model.SessionID),
+		TurnID:    int64Value(model.TurnID),
 		UserID:    model.UserID,
 		EventType: model.EventType,
 		Status:    model.Status,
