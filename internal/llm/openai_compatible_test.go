@@ -185,6 +185,13 @@ func TestOpenAICompatibleClientReturnsProviderError(t *testing.T) {
 
 func TestOpenAICompatibleClientRetriesRetryableStatus(t *testing.T) {
 	attempts := 0
+	delays := []time.Duration{}
+	originalSleep := sleepLLMRetryDelay
+	sleepLLMRetryDelay = func(ctx context.Context, delay time.Duration) error {
+		delays = append(delays, delay)
+		return nil
+	}
+	defer func() { sleepLLMRetryDelay = originalSleep }()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
@@ -217,6 +224,14 @@ func TestOpenAICompatibleClientRetriesRetryableStatus(t *testing.T) {
 	}
 	if attempts != 3 {
 		t.Fatalf("attempts = %d, want 3", attempts)
+	}
+	if len(delays) != 2 {
+		t.Fatalf("retry delays = %#v, want 2 entries", delays)
+	}
+	for _, delay := range delays {
+		if delay != llmRetryableHTTPStatusDelay {
+			t.Fatalf("retry delay = %s, want %s", delay, llmRetryableHTTPStatusDelay)
+		}
 	}
 	if response.Content != "retry ok" {
 		t.Fatalf("response = %#v", response)

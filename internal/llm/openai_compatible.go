@@ -33,6 +33,9 @@ const openAICompatibleExternalHTTPOperation = "llm_openai_compatible"
 // 因此先给非流式请求保留 180 秒，避免 30 秒级默认值误打断长思考模型。
 const llmDefaultHTTPTimeout = 180 * time.Second
 const llmDefaultHTTPMaxAttempts = 6
+const llmRetryableHTTPStatusDelay = 30 * time.Second
+
+var sleepLLMRetryDelay = sleepLLMRetryTimer
 
 type llmProtocol string
 
@@ -806,7 +809,7 @@ func (c *OpenAICompatibleClient) doLLMHTTPRequest(ctx context.Context, path stri
 		}
 		if isRetryableLLMHTTPStatus(httpResponse.StatusCode) && attempt < maxAttempts {
 			lastErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_retryable_status", llmResponseSnippet(responseBody), "llm.openai_compatible.chat", true, nil)
-			if sleepErr := sleepLLMRetry(ctx, attempt); sleepErr != nil {
+			if sleepErr := sleepLLMRetryableHTTPStatus(ctx, attempt); sleepErr != nil {
 				return nil, httpResponse.StatusCode, sleepErr
 			}
 			continue
@@ -851,6 +854,19 @@ func sleepLLMRetry(ctx context.Context, attempt int) error {
 	delay := time.Duration(1<<uint(attempt-1)) * 500 * time.Millisecond
 	if delay > 8*time.Second {
 		delay = 8 * time.Second
+	}
+	return sleepLLMRetryDelay(ctx, delay)
+}
+
+func sleepLLMRetryableHTTPStatus(ctx context.Context, attempt int) error {
+	// 429/5xx 通常表示上游限流或负载饱和。后台任务等待一个较长窗口再重试，
+	// 避免刚排队就把用户任务判失败。
+	return sleepLLMRetryDelay(ctx, llmRetryableHTTPStatusDelay)
+}
+
+func sleepLLMRetryTimer(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
 	}
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
