@@ -59,6 +59,7 @@ const settingsRoutes = [
   { path: 'security', name: 'settings-security', title: '安全', section: 'security' },
   { path: 'wechat', name: 'settings-wechat', title: '企业微信', section: 'wechat' },
   { path: 'preferences', name: 'settings-preferences', title: '偏好', section: 'preferences' },
+  { path: 'model', name: 'settings-model', title: '模型配置', section: 'model' },
   { path: 'overview', name: 'settings-overview', title: '系统概览', section: 'overview', ownerOnly: true },
   { path: 'invites', name: 'settings-invites', title: '邀请码', section: 'invites', ownerOnly: true },
   { path: 'users', name: 'settings-users', title: '用户管理', section: 'users', ownerOnly: true },

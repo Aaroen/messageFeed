@@ -40,6 +40,7 @@ export function useAppNavigationConfig() {
     { key: 'settings-security', label: '安全', path: '/settings/security', icon: IconLock },
     { key: 'settings-wechat', label: '企业微信', path: '/settings/wechat', icon: IconMessage },
     { key: 'settings-preferences', label: '偏好', path: '/settings/preferences', icon: IconSettings },
+    { key: 'settings-model', label: '模型配置', path: '/settings/model', icon: IconCode },
     { key: 'settings-overview', label: '系统概览', path: '/settings/overview', icon: IconDashboard, ownerOnly: true },
     { key: 'settings-invites', label: '邀请码', path: '/settings/invites', icon: IconLink, ownerOnly: true },
     { key: 'settings-users', label: '用户管理', path: '/settings/users', icon: IconUserGroup, ownerOnly: true },

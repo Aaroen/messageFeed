@@ -1986,6 +1986,59 @@ export interface AgentNotificationPreference {
   updated_at?: string
 }
 
+export interface AgentLLMFallbackConfig {
+  enabled: boolean
+  provider?: string
+  model?: string
+  base_url?: string
+  api_key_present: boolean
+}
+
+export interface AgentLLMProviderConfig {
+  id: number
+  name: string
+  provider: string
+  base_url: string
+  model: string
+  api_key_hint: string
+  api_key_present: boolean
+  protocol_mode: 'auto' | 'responses' | 'chat_completions'
+  enabled: boolean
+  is_default: boolean
+  timeout_seconds: number
+  max_retries: number
+  last_used_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentLLMProviderConfigListResult {
+  configs: AgentLLMProviderConfig[]
+  fallback: AgentLLMFallbackConfig
+}
+
+export interface AgentLLMProviderConfigInput {
+  name?: string
+  provider?: string
+  base_url?: string
+  model?: string
+  api_key?: string
+  protocol_mode?: 'auto' | 'responses' | 'chat_completions'
+  enabled?: boolean
+  is_default?: boolean
+  timeout_seconds?: number
+  max_retries?: number
+}
+
+export interface AgentLLMProviderConfigTestResult {
+  status: string
+  provider: string
+  model: string
+  latency_ms: number
+  response_text: string
+  checked_at: string
+}
+
 export async function listAgentSessions() {
   const response = await apiClient.get<APIEnvelope<AgentSessionListResult>>('/api/v1/agent/sessions')
   return response.data.data
@@ -2122,6 +2175,40 @@ export async function updateAgentNotificationPreference(input: Partial<AgentNoti
   const response = await apiClient.patch<APIEnvelope<AgentNotificationPreference>>(
     '/api/v1/agent/notification-preferences',
     input,
+  )
+  return response.data.data
+}
+
+export async function listAgentLLMProviderConfigs() {
+  const response = await apiClient.get<APIEnvelope<AgentLLMProviderConfigListResult>>('/api/v1/agent/llm-provider-configs')
+  return response.data.data
+}
+
+export async function createAgentLLMProviderConfig(input: AgentLLMProviderConfigInput) {
+  const response = await apiClient.post<APIEnvelope<AgentLLMProviderConfig>>('/api/v1/agent/llm-provider-configs', input)
+  return response.data.data
+}
+
+export async function updateAgentLLMProviderConfig(id: number, input: AgentLLMProviderConfigInput) {
+  const response = await apiClient.patch<APIEnvelope<AgentLLMProviderConfig>>(
+    `/api/v1/agent/llm-provider-configs/${id}`,
+    input,
+  )
+  return response.data.data
+}
+
+export async function setDefaultAgentLLMProviderConfig(id: number) {
+  const response = await apiClient.post<APIEnvelope<AgentLLMProviderConfig>>(
+    `/api/v1/agent/llm-provider-configs/${id}/default`,
+  )
+  return response.data.data
+}
+
+export async function testAgentLLMProviderConfig(id: number, input: { message?: string } = {}) {
+  const response = await apiClient.post<APIEnvelope<AgentLLMProviderConfigTestResult>>(
+    `/api/v1/agent/llm-provider-configs/${id}/test`,
+    input,
+    { timeout: 120000 },
   )
   return response.data.data
 }

@@ -37,15 +37,24 @@ import {
 } from '@/api/adminConfig'
 import {
   clearAgentSessionContext,
+  createAgentLLMProviderConfig,
   createAgentSession,
   deleteAgentSession,
   getAgentNotificationPreference,
+  listAgentLLMProviderConfigs,
   listAgentSessions,
   listAgentTranscripts,
   rebuildAgentSessionContext,
   selectAgentSession,
+  setDefaultAgentLLMProviderConfig,
+  testAgentLLMProviderConfig,
+  updateAgentLLMProviderConfig,
   updateAgentNotificationPreference,
   type AgentExternalAccount,
+  type AgentLLMFallbackConfig,
+  type AgentLLMProviderConfig,
+  type AgentLLMProviderConfigInput,
+  type AgentLLMProviderConfigTestResult,
   type AgentNotificationPreference,
   type AgentSession,
   type AgentTranscriptEntry,
@@ -80,6 +89,28 @@ const capabilityPolicyText = ref('')
 const agentNotificationPreferenceLoading = ref(false)
 const agentNotificationPreferenceSaving = ref(false)
 const agentNotificationPreferenceResult = ref('')
+const agentLLMConfigs = ref<AgentLLMProviderConfig[]>([])
+const agentLLMFallback = ref<AgentLLMFallbackConfig | null>(null)
+const agentLLMConfigsLoading = ref(false)
+const agentLLMConfigSaving = ref(false)
+const agentLLMConfigTestingID = ref<number | null>(null)
+const agentLLMConfigEditingID = ref<number | null>(null)
+const agentLLMConfigActionID = ref<number | null>(null)
+const agentLLMConfigResult = ref('')
+const agentLLMConfigTestMessage = ref('')
+const agentLLMConfigTestResult = ref<AgentLLMProviderConfigTestResult | null>(null)
+const agentLLMConfigForm = ref({
+  name: '',
+  provider: 'openai_compatible',
+  base_url: '',
+  model: '',
+  api_key: '',
+  protocol_mode: 'auto' as AgentLLMProviderConfig['protocol_mode'],
+  enabled: true,
+  is_default: false,
+  timeout_seconds: 600,
+  max_retries: 6,
+})
 const authStatus = ref<CurrentAuth | null>(null)
 const authLoading = ref(false)
 const authError = ref('')
@@ -173,6 +204,7 @@ const settingsSections = computed(() => {
     { id: 'security', title: '安全', meta: '密码与会话' },
     { id: 'wechat', title: '企业微信', meta: '账号绑定' },
     { id: 'preferences', title: '偏好', meta: '阅读行为' },
+    { id: 'model', title: '模型配置', meta: 'Agent 供应商' },
   ]
 
   if (!isOwner.value) {
@@ -270,6 +302,8 @@ async function loadAuthStatus() {
       userContext.value = null
       users.value = []
       invites.value = []
+      agentLLMConfigs.value = []
+      agentLLMFallback.value = null
       return
     }
     if (authStatus.value.profile) {
@@ -279,6 +313,9 @@ async function loadAuthStatus() {
     const tasks: Promise<void>[] = []
     if (section === 'security') {
       tasks.push(loadSessions())
+    }
+    if (section === 'model') {
+      tasks.push(loadAgentLLMConfigs())
     }
     if (authStatus.value.user?.role === 'owner') {
       if (section === 'context') {
@@ -530,6 +567,144 @@ async function saveAgentNotificationPreference() {
     agentNotificationPreferenceResult.value = formatAPIError(error)
   } finally {
     agentNotificationPreferenceSaving.value = false
+  }
+}
+
+async function loadAgentLLMConfigs() {
+  agentLLMConfigsLoading.value = true
+  agentLLMConfigResult.value = ''
+  try {
+    const result = await listAgentLLMProviderConfigs()
+    agentLLMConfigs.value = result.configs
+    agentLLMFallback.value = result.fallback
+    if (!agentLLMConfigEditingID.value && !agentLLMConfigForm.value.name.trim() && !agentLLMConfigForm.value.api_key.trim()) {
+      resetAgentLLMConfigForm()
+    }
+  } catch (error) {
+    agentLLMConfigResult.value = formatAPIError(error)
+  } finally {
+    agentLLMConfigsLoading.value = false
+  }
+}
+
+function resetAgentLLMConfigForm() {
+  const fallback = agentLLMFallback.value
+  agentLLMConfigEditingID.value = null
+  agentLLMConfigForm.value = {
+    name: '',
+    provider: fallback?.provider || 'openai_compatible',
+    base_url: fallback?.base_url || '',
+    model: fallback?.model || '',
+    api_key: '',
+    protocol_mode: 'auto',
+    enabled: true,
+    is_default: agentLLMConfigs.value.length === 0,
+    timeout_seconds: 600,
+    max_retries: 6,
+  }
+  agentLLMConfigTestResult.value = null
+  agentLLMConfigResult.value = ''
+}
+
+function editAgentLLMConfig(config: AgentLLMProviderConfig) {
+  agentLLMConfigEditingID.value = config.id
+  agentLLMConfigForm.value = {
+    name: config.name,
+    provider: config.provider,
+    base_url: config.base_url,
+    model: config.model,
+    api_key: '',
+    protocol_mode: config.protocol_mode,
+    enabled: config.enabled,
+    is_default: config.is_default,
+    timeout_seconds: config.timeout_seconds,
+    max_retries: config.max_retries,
+  }
+  agentLLMConfigTestResult.value = null
+  agentLLMConfigResult.value = ''
+}
+
+function agentLLMConfigPayload(includeBlankKey: boolean): AgentLLMProviderConfigInput {
+  const form = agentLLMConfigForm.value
+  const payload: AgentLLMProviderConfigInput = {
+    name: form.name.trim(),
+    provider: form.provider.trim(),
+    base_url: form.base_url.trim(),
+    model: form.model.trim(),
+    protocol_mode: form.protocol_mode,
+    enabled: form.enabled,
+    is_default: form.is_default,
+    timeout_seconds: Number(form.timeout_seconds),
+    max_retries: Number(form.max_retries),
+  }
+  const apiKey = form.api_key.trim()
+  if (apiKey || includeBlankKey) {
+    payload.api_key = apiKey
+  }
+  return payload
+}
+
+async function saveAgentLLMConfig() {
+  agentLLMConfigSaving.value = true
+  agentLLMConfigResult.value = ''
+  agentLLMConfigTestResult.value = null
+  try {
+    if (agentLLMConfigEditingID.value) {
+      await updateAgentLLMProviderConfig(agentLLMConfigEditingID.value, agentLLMConfigPayload(false))
+      agentLLMConfigResult.value = '模型配置已更新'
+    } else {
+      await createAgentLLMProviderConfig(agentLLMConfigPayload(true))
+      agentLLMConfigResult.value = '模型配置已保存'
+    }
+    resetAgentLLMConfigForm()
+    await loadAgentLLMConfigs()
+  } catch (error) {
+    agentLLMConfigResult.value = formatAPIError(error)
+  } finally {
+    agentLLMConfigSaving.value = false
+  }
+}
+
+async function setDefaultAgentLLMConfig(id: number) {
+  agentLLMConfigActionID.value = id
+  agentLLMConfigResult.value = ''
+  try {
+    await setDefaultAgentLLMProviderConfig(id)
+    agentLLMConfigResult.value = '默认模型配置已切换'
+    await loadAgentLLMConfigs()
+  } catch (error) {
+    agentLLMConfigResult.value = formatAPIError(error)
+  } finally {
+    agentLLMConfigActionID.value = null
+  }
+}
+
+async function toggleAgentLLMConfigEnabled(config: AgentLLMProviderConfig) {
+  agentLLMConfigActionID.value = config.id
+  agentLLMConfigResult.value = ''
+  try {
+    await updateAgentLLMProviderConfig(config.id, { enabled: !config.enabled })
+    agentLLMConfigResult.value = config.enabled ? '模型配置已停用' : '模型配置已启用'
+    await loadAgentLLMConfigs()
+  } catch (error) {
+    agentLLMConfigResult.value = formatAPIError(error)
+  } finally {
+    agentLLMConfigActionID.value = null
+  }
+}
+
+async function testAgentLLMConfig(id: number) {
+  agentLLMConfigTestingID.value = id
+  agentLLMConfigResult.value = ''
+  agentLLMConfigTestResult.value = null
+  try {
+    agentLLMConfigTestResult.value = await testAgentLLMProviderConfig(id, {
+      message: agentLLMConfigTestMessage.value,
+    })
+  } catch (error) {
+    agentLLMConfigResult.value = formatAPIError(error)
+  } finally {
+    agentLLMConfigTestingID.value = null
   }
 }
 
@@ -842,6 +1017,16 @@ async function deleteInviteCode(id: number) {
 
 function statusLabel(value: boolean) {
   return value ? '正常' : '待配置'
+}
+
+function protocolModeLabel(value: string) {
+  if (value === 'responses') {
+    return 'Responses 优先'
+  }
+  if (value === 'chat_completions') {
+    return 'Chat Completions 优先'
+  }
+  return '自动'
 }
 
 function yesNo(value: boolean | undefined) {
@@ -1331,6 +1516,186 @@ defineExpose({ refreshPage })
             {{ agentNotificationPreferenceResult }}
           </div>
         </section>
+
+        <div v-if="isSettingsSectionActive('model')" class="settings-section-stack">
+          <section class="settings-panel settings-panel--wide">
+            <div class="settings-panel__header">
+              <div>
+                <div class="settings-panel__title">模型配置</div>
+                <div class="settings-panel__meta">
+                  {{ agentLLMConfigEditingID ? `编辑配置 #${agentLLMConfigEditingID}` : '新增当前用户的 Agent 模型供应商' }}
+                </div>
+              </div>
+              <button class="settings-action-button" type="button" :disabled="agentLLMConfigSaving" @click="saveAgentLLMConfig">
+                {{ agentLLMConfigSaving ? '保存中' : '保存' }}
+              </button>
+            </div>
+            <div class="settings-form-grid settings-form-grid--split">
+              <label class="settings-field">
+                <span>名称</span>
+                <input v-model="agentLLMConfigForm.name" class="settings-input" type="text" autocomplete="off" />
+              </label>
+              <label class="settings-field">
+                <span>Provider</span>
+                <input v-model="agentLLMConfigForm.provider" class="settings-input" type="text" autocomplete="off" />
+              </label>
+              <label class="settings-field">
+                <span>Base URL</span>
+                <input v-model="agentLLMConfigForm.base_url" class="settings-input" type="url" autocomplete="off" />
+              </label>
+              <label class="settings-field">
+                <span>Model</span>
+                <input v-model="agentLLMConfigForm.model" class="settings-input" type="text" autocomplete="off" />
+              </label>
+              <label class="settings-field">
+                <span>API Key</span>
+                <input
+                  v-model="agentLLMConfigForm.api_key"
+                  class="settings-input"
+                  type="password"
+                  autocomplete="new-password"
+                  :placeholder="agentLLMConfigEditingID ? '留空则保留原密钥' : ''"
+                />
+              </label>
+              <label class="settings-field">
+                <span>协议优先级</span>
+                <select v-model="agentLLMConfigForm.protocol_mode" class="settings-input">
+                  <option value="auto">自动</option>
+                  <option value="responses">Responses 优先</option>
+                  <option value="chat_completions">Chat Completions 优先</option>
+                </select>
+              </label>
+              <label class="settings-field">
+                <span>超时秒数</span>
+                <input v-model.number="agentLLMConfigForm.timeout_seconds" class="settings-input" type="number" min="10" max="3600" />
+              </label>
+              <label class="settings-field">
+                <span>最大重试</span>
+                <input v-model.number="agentLLMConfigForm.max_retries" class="settings-input" type="number" min="1" max="50" />
+              </label>
+              <div class="settings-switch-row">
+                <span>启用</span>
+                <label class="settings-switch">
+                  <input v-model="agentLLMConfigForm.enabled" type="checkbox" />
+                  <span />
+                </label>
+              </div>
+              <div class="settings-switch-row">
+                <span>设为默认</span>
+                <label class="settings-switch">
+                  <input v-model="agentLLMConfigForm.is_default" type="checkbox" />
+                  <span />
+                </label>
+              </div>
+            </div>
+            <div class="settings-binding-row__actions">
+              <button class="settings-action-button" type="button" @click="resetAgentLLMConfigForm">新建配置</button>
+            </div>
+            <div v-if="agentLLMConfigResult" class="settings-inline-alert">
+              {{ agentLLMConfigResult }}
+            </div>
+          </section>
+
+          <section class="settings-panel settings-panel--wide">
+            <div class="settings-panel__header">
+              <div>
+                <div class="settings-panel__title">已保存配置</div>
+                <div class="settings-panel__meta">
+                  {{ agentLLMConfigsLoading ? '加载中' : `${agentLLMConfigs.length} 个配置` }}
+                </div>
+              </div>
+              <button class="settings-action-button" type="button" :disabled="agentLLMConfigsLoading" @click="loadAgentLLMConfigs">
+                刷新
+              </button>
+            </div>
+            <dl v-if="agentLLMFallback" class="settings-description-list">
+              <div>
+                <dt>环境兜底</dt>
+                <dd>{{ agentLLMFallback.enabled ? '已配置' : '未配置' }}</dd>
+              </div>
+              <div>
+                <dt>Provider</dt>
+                <dd>{{ agentLLMFallback.provider || '无' }}</dd>
+              </div>
+              <div>
+                <dt>Model</dt>
+                <dd>{{ agentLLMFallback.model || '无' }}</dd>
+              </div>
+              <div>
+                <dt>Base URL</dt>
+                <dd class="settings-mono">{{ agentLLMFallback.base_url || '默认' }}</dd>
+              </div>
+            </dl>
+            <label class="settings-field">
+              <span>测试消息</span>
+              <input v-model="agentLLMConfigTestMessage" class="settings-input" type="text" autocomplete="off" placeholder="请回复 OK" />
+            </label>
+            <div class="settings-bindings">
+              <div v-for="config in agentLLMConfigs" :key="config.id" class="settings-binding-row">
+                <div>
+                  <div class="settings-binding-row__title">
+                    {{ config.name }}
+                    <span v-if="config.is_default" class="settings-status-pill settings-status-pill--ok">默认</span>
+                    <span class="settings-status-pill" :class="{ 'settings-status-pill--ok': config.enabled }">
+                      {{ config.enabled ? '启用' : '停用' }}
+                    </span>
+                  </div>
+                  <div class="settings-binding-row__meta">
+                    {{ config.provider }} / {{ config.model }} / {{ protocolModeLabel(config.protocol_mode) }}
+                  </div>
+                  <div class="settings-binding-row__meta">
+                    {{ config.base_url || '默认 Base URL' }} / Key {{ config.api_key_hint || '未保存' }} / 最近
+                    {{ formatTime(config.last_used_at) }}
+                  </div>
+                </div>
+                <div class="settings-binding-row__actions">
+                  <button class="settings-action-button" type="button" @click="editAgentLLMConfig(config)">编辑</button>
+                  <button
+                    class="settings-action-button"
+                    type="button"
+                    :disabled="config.is_default || agentLLMConfigActionID === config.id"
+                    @click="setDefaultAgentLLMConfig(config.id)"
+                  >
+                    设默认
+                  </button>
+                  <button
+                    class="settings-action-button"
+                    type="button"
+                    :disabled="agentLLMConfigActionID === config.id"
+                    @click="toggleAgentLLMConfigEnabled(config)"
+                  >
+                    {{ config.enabled ? '停用' : '启用' }}
+                  </button>
+                  <button
+                    class="settings-action-button"
+                    type="button"
+                    :disabled="agentLLMConfigTestingID === config.id"
+                    @click="testAgentLLMConfig(config.id)"
+                  >
+                    {{ agentLLMConfigTestingID === config.id ? '测试中' : '测试' }}
+                  </button>
+                </div>
+              </div>
+              <div v-if="!agentLLMConfigs.length" class="settings-panel__meta">
+                {{ agentLLMConfigsLoading ? '加载中' : '暂无模型配置' }}
+              </div>
+            </div>
+            <dl v-if="agentLLMConfigTestResult" class="settings-description-list">
+              <div>
+                <dt>测试结果</dt>
+                <dd>{{ agentLLMConfigTestResult.status }} / {{ agentLLMConfigTestResult.latency_ms }}ms</dd>
+              </div>
+              <div>
+                <dt>模型</dt>
+                <dd>{{ agentLLMConfigTestResult.provider }} / {{ agentLLMConfigTestResult.model }}</dd>
+              </div>
+              <div>
+                <dt>回复</dt>
+                <dd>{{ agentLLMConfigTestResult.response_text }}</dd>
+              </div>
+            </dl>
+          </section>
+        </div>
 
         <section v-if="isSettingsSectionActive('overview') && isOwner" class="settings-panel settings-panel--wide">
           <div class="settings-panel__header">

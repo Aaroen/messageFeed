@@ -71,6 +71,21 @@ function friendlyErrorMessage(message: string) {
   if (normalized === 'invalid request body') {
     return '提交内容不完整，请检查后重试'
   }
+  if (normalized === 'api key is required') {
+    return '请输入 API Key'
+  }
+  if (normalized === 'name is required') {
+    return '请输入配置名称'
+  }
+  if (normalized === 'provider is invalid') {
+    return 'Provider 格式不正确'
+  }
+  if (normalized === 'model is required') {
+    return '请输入模型名称'
+  }
+  if (normalized === 'base url is invalid') {
+    return 'Base URL 格式不正确'
+  }
   return cleaned
 }
 
