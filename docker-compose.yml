@@ -143,6 +143,10 @@ services:
     ports:
       - "127.0.0.1:60001:60001"
 
+    # 允许容器内 API 通过 host.docker.internal 访问宿主机上的 ccswitch 代理。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
     # 健康检查
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:60001/healthz"]
@@ -257,6 +261,10 @@ services:
 
     expose:
       - "60001"
+
+    # 允许容器内 API 通过 host.docker.internal 访问宿主机上的 ccswitch 代理。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:60001/healthz"]
