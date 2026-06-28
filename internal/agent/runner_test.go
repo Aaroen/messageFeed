@@ -74,6 +74,63 @@ func TestTurnRunnerExecutesToolCallAndContinuesChat(t *testing.T) {
 	}
 }
 
+func TestTurnRunnerRetriesEmptyResponseAfterToolObservation(t *testing.T) {
+	now := time.Date(2026, 6, 28, 16, 10, 0, 0, time.UTC)
+	chat := &runnerFakeChatClient{
+		errs: []error{
+			nil,
+			domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "test", true, nil),
+			nil,
+		},
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "conversation__query_history", Arguments: `{"keyword":"偏好"}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "历史记录显示你偏好 Go 和 AI。"},
+		},
+	}
+	audit := &runnerFakeAuditLogger{}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store:        &runnerFakeTurnStore{},
+		AuditLogger:  audit,
+		ToolExecutor: &runnerFakeToolExecutor{content: "2026-06-24 12:00 用户：我的偏好是 Go 和 AI。"},
+		LLMClient:    chat,
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"conversation.query_history"},
+		MessageType:     "text",
+		MessageText:     "查一下我的偏好",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !strings.Contains(result.Reply, "Go") || !strings.Contains(result.Reply, "AI") {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if chat.calls != 3 {
+		t.Fatalf("chat calls = %d, want 3", chat.calls)
+	}
+	if !runnerAuditContains(audit.events, "agent.llm_empty_response_retry") {
+		t.Fatalf("audit events = %#v", audit.events)
+	}
+	lastRequest := chat.requests[len(chat.requests)-1]
+	lastMessage := lastRequest.Messages[len(lastRequest.Messages)-1]
+	if lastMessage.Role != "user" || !strings.Contains(lastMessage.Content, "上一轮模型没有返回内容") {
+		t.Fatalf("retry prompt message = %#v", lastMessage)
+	}
+}
+
 func TestTurnRunnerSystemPromptGuidesScheduledMessageConfirmation(t *testing.T) {
 	now := time.Date(2026, 6, 24, 13, 55, 0, 0, time.UTC)
 	runner := NewTurnRunner(TurnRunnerOptions{
@@ -309,10 +366,12 @@ func TestTurnRunnerDoesNotReplaceModelReplyWithKeywordQualityGate(t *testing.T) 
 }
 
 type runnerFakeChatClient struct {
-	calls     int
-	requests  []llm.ChatRequest
-	responses []llm.ChatResponse
-	err       error
+	calls       int
+	responseIdx int
+	requests    []llm.ChatRequest
+	responses   []llm.ChatResponse
+	errs        []error
+	err         error
 }
 
 func (c *runnerFakeChatClient) Chat(_ context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
@@ -321,11 +380,28 @@ func (c *runnerFakeChatClient) Chat(_ context.Context, request llm.ChatRequest) 
 	if c.err != nil {
 		return llm.ChatResponse{}, c.err
 	}
-	index := c.calls - 1
+	callIndex := c.calls - 1
+	if callIndex < len(c.errs) && c.errs[callIndex] != nil {
+		return llm.ChatResponse{}, c.errs[callIndex]
+	}
+	if len(c.responses) == 0 {
+		return llm.ChatResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "test_llm_response_missing", "test llm response is missing", "test", false, nil)
+	}
+	index := c.responseIdx
 	if index >= len(c.responses) {
 		index = len(c.responses) - 1
 	}
+	c.responseIdx++
 	return c.responses[index], nil
+}
+
+func runnerAuditContains(events []AuditEvent, eventType string) bool {
+	for _, event := range events {
+		if event.EventType == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 type runnerFakeContextBuilder struct {

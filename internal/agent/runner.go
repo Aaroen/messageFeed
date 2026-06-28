@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/observability"
@@ -190,6 +191,8 @@ type TurnRunResult struct {
 	Context       ContextSnapshot
 }
 
+const emptyLLMResponseRetryLimit = 2
+
 func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult, error) {
 	ctx, span := observability.StartSpan(ctx, "agent.turn_runner.run",
 		attribute.Int64("agent.session_id", input.Session.ID),
@@ -308,16 +311,11 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 	tools := r.buildToolDefinitions(input.AllowedToolKeys)
 	const maxToolRounds = 50
 	for round := 0; round <= maxToolRounds; round++ {
-		response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
-			Messages:    messages,
-			Tools:       tools,
-			ToolChoice:  toolChoiceForDefinitions(tools),
-			Temperature: r.temperature,
-			MaxTokens:   r.maxTokens,
-		})
+		response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, tools, false, len(snapshot.Observations) > 0)
 		if err != nil {
 			return llm.ChatResponse{}, snapshot, err
 		}
+		messages = effectiveMessages
 		if len(response.ToolCalls) == 0 {
 			return response, snapshot, nil
 		}
@@ -367,11 +365,7 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 			Role:    "user",
 			Content: "工具调用轮次已经达到上限。请只基于以上工具结果生成最终回答，不要再请求工具；如果证据不足，请直接说明证据不足。",
 		})
-		response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
-			Messages:    messages,
-			Temperature: r.temperature,
-			MaxTokens:   r.maxTokens,
-		})
+		response, _, err := r.chatWithEmptyResponseRetry(ctx, input, messages, nil, true, true)
 		if err != nil {
 			return llm.ChatResponse{}, snapshot, err
 		}
@@ -380,6 +374,91 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 		}
 	}
 	return llm.ChatResponse{}, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_round_limit", "agent tool call round limit exceeded", "agent.turn_runner.tools", true, nil)
+}
+
+// chatWithEmptyResponseRetry 处理上游模型“请求成功但没有内容”的临界情况。
+// 它只追加模型收敛提示并有限重试，不在后端生成业务结论，避免把固定分析逻辑塞进服务端。
+func (r *TurnRunner) chatWithEmptyResponseRetry(
+	ctx context.Context,
+	input TurnRunInput,
+	messages []llm.ChatMessage,
+	tools []llm.ToolDefinition,
+	finalOnly bool,
+	hasObservations bool,
+) (llm.ChatResponse, []llm.ChatMessage, error) {
+	effectiveMessages := append([]llm.ChatMessage(nil), messages...)
+	effectiveTools := append([]llm.ToolDefinition(nil), tools...)
+	if finalOnly {
+		effectiveTools = nil
+	}
+	var lastErr error
+	for attempt := 0; attempt <= emptyLLMResponseRetryLimit; attempt++ {
+		response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
+			Messages:    effectiveMessages,
+			Tools:       effectiveTools,
+			ToolChoice:  toolChoiceForDefinitions(effectiveTools),
+			Temperature: r.temperature,
+			MaxTokens:   r.maxTokens,
+		})
+		if err == nil && strings.TrimSpace(response.Content) == "" && len(response.ToolCalls) == 0 {
+			err = domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "agent.turn_runner.chat", true, nil)
+		}
+		if err == nil {
+			return response, effectiveMessages, nil
+		}
+		lastErr = err
+		if !isEmptyLLMResponseError(err) || attempt == emptyLLMResponseRetryLimit {
+			return llm.ChatResponse{}, effectiveMessages, err
+		}
+		r.record(ctx, AuditEvent{
+			SessionID: input.Session.ID,
+			TurnID:    input.Turn.ID,
+			UserID:    input.UserID,
+			EventType: "agent.llm_empty_response_retry",
+			Status:    "retrying",
+			Message:   "llm empty response retry scheduled",
+			Metadata: domain.AgentJSON{
+				"attempt":          attempt + 1,
+				"max_retries":      emptyLLMResponseRetryLimit,
+				"final_only":       finalOnly,
+				"has_observations": hasObservations,
+			},
+			RequestID: input.RequestID,
+			TraceID:   input.TraceID,
+			CreatedAt: r.now().UTC(),
+		})
+		effectiveMessages = append(effectiveMessages, llm.ChatMessage{
+			Role:    "user",
+			Content: emptyLLMResponseRetryPrompt(attempt+1, finalOnly, hasObservations, len(effectiveTools) > 0),
+		})
+	}
+	return llm.ChatResponse{}, effectiveMessages, lastErr
+}
+
+func isEmptyLLMResponseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var appErr *domain.AppError
+	if errors.As(err, &appErr) {
+		if appErr.Code == "llm_empty_response" || appErr.Code == "agent_empty_reply" {
+			return true
+		}
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "llm response is empty")
+}
+
+func emptyLLMResponseRetryPrompt(attempt int, finalOnly bool, hasObservations bool, hasTools bool) string {
+	switch {
+	case finalOnly:
+		return "上一轮模型没有返回内容。请只基于以上工具观察生成最终回答，不要再请求工具；如果证据不足，请直接说明证据不足。"
+	case hasObservations:
+		return "上一轮模型没有返回内容。当前已经有工具观察，请优先基于已有证据生成最终回答；只有证据明显不足时才继续调用已授权工具。"
+	case hasTools:
+		return "上一轮模型没有返回内容。请根据用户任务选择已授权工具调用，或者在不需要工具时直接给出回答；本轮必须返回内容或工具调用。"
+	default:
+		return "上一轮模型没有返回内容。请直接根据已有上下文给出回答；如果无法回答，请说明缺少哪些信息。"
+	}
 }
 
 func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, call llm.ToolCall) (ToolExecuteResult, error) {
