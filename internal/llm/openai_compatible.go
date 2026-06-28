@@ -69,9 +69,13 @@ type Client interface {
 }
 
 type ToolDefinition struct {
-	Name        string
-	Description string
-	Parameters  map[string]any
+	Name         string
+	Title        string
+	Description  string
+	InputSchema  map[string]any
+	OutputSchema map[string]any
+	Annotations  map[string]any
+	Meta         map[string]any
 }
 
 type ToolCall struct {
@@ -123,7 +127,7 @@ type chatCompletionTool struct {
 type chatCompletionToolFunction struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
+	InputSchema map[string]any `json:"parameters,omitempty"`
 }
 
 type chatCompletionToolCall struct {
@@ -175,7 +179,7 @@ type responsesTool struct {
 	Type        string         `json:"type"`
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
+	InputSchema map[string]any `json:"parameters,omitempty"`
 }
 
 type responsesResponse struct {
@@ -281,7 +285,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request ChatRequest) 
 		return ChatResponse{}, chatErr
 	}
 	var lastErr error
-	for _, protocol := range c.protocolOrder() {
+	for _, protocol := range c.protocolOrder(request) {
 		response, err := c.chatWithProtocol(ctx, request, protocol, host, span)
 		if err == nil {
 			c.rememberProtocol(protocol)
@@ -316,16 +320,21 @@ func compactChatMessages(messages []ChatMessage) []ChatMessage {
 }
 
 // protocolOrder 返回当前客户端的协议尝试顺序。
-// 默认优先 Chat Completions；一旦某个协议成功，后续同一客户端会优先复用该协议。
-func (c *OpenAICompatibleClient) protocolOrder() []llmProtocol {
+// 默认优先 Responses；一旦某个协议成功，后续同一客户端会优先复用该协议。
+// 当前接入的部分 OpenAI-compatible 服务在 /chat/completions 下能返回普通文本，
+// 但带 tools 时不返回 tool_calls；Responses 原生 function_call 更稳定，因此作为默认主路由。
+func (c *OpenAICompatibleClient) protocolOrder(request ChatRequest) []llmProtocol {
 	c.routeMu.Lock()
 	preferred := c.preferredProtocol
 	c.routeMu.Unlock()
-	switch preferred {
-	case llmProtocolResponses:
+	if len(request.Tools) > 0 {
 		return []llmProtocol{llmProtocolResponses, llmProtocolChatCompletions}
-	default:
+	}
+	switch preferred {
+	case llmProtocolChatCompletions:
 		return []llmProtocol{llmProtocolChatCompletions, llmProtocolResponses}
+	default:
+		return []llmProtocol{llmProtocolResponses, llmProtocolChatCompletions}
 	}
 }
 
@@ -381,12 +390,12 @@ func (c *OpenAICompatibleClient) chatWithChatCompletions(ctx context.Context, re
 		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is invalid: "+llmResponseSnippet(responseBody), true, err)
 	}
 	if len(decoded.Choices) == 0 {
-		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is empty", false, nil)
+		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is empty", len(request.Tools) > 0, nil)
 	}
 	content := strings.TrimSpace(decoded.Choices[0].Message.Content)
 	toolCalls := domainToolCallsFromChatCompletion(decoded.Choices[0].Message.ToolCalls)
 	if content == "" && len(toolCalls) == 0 {
-		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is empty", false, nil)
+		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is empty", len(request.Tools) > 0, nil)
 	}
 	if decoded.Usage != nil {
 		recordLLMUsage(c.provider, c.model, decoded.Usage.PromptTokens, decoded.Usage.CompletionTokens, decoded.Usage.TotalTokens, span)
@@ -432,7 +441,7 @@ func chatCompletionToolsFromDomain(tools []ToolDefinition) []chatCompletionTool 
 		if name == "" {
 			continue
 		}
-		parameters := tool.Parameters
+		parameters := tool.InputSchema
 		if parameters == nil {
 			parameters = map[string]any{"type": "object", "properties": map[string]any{}}
 		}
@@ -441,7 +450,7 @@ func chatCompletionToolsFromDomain(tools []ToolDefinition) []chatCompletionTool 
 			Function: chatCompletionToolFunction{
 				Name:        name,
 				Description: strings.TrimSpace(tool.Description),
-				Parameters:  parameters,
+				InputSchema: parameters,
 			},
 		})
 	}
@@ -588,7 +597,7 @@ func responsesToolsFromDomain(tools []ToolDefinition) []responsesTool {
 		if name == "" {
 			continue
 		}
-		parameters := tool.Parameters
+		parameters := tool.InputSchema
 		if parameters == nil {
 			parameters = map[string]any{"type": "object", "properties": map[string]any{}}
 		}
@@ -596,7 +605,7 @@ func responsesToolsFromDomain(tools []ToolDefinition) []responsesTool {
 			Type:        "function",
 			Name:        name,
 			Description: strings.TrimSpace(tool.Description),
-			Parameters:  parameters,
+			InputSchema: parameters,
 		})
 	}
 	return output

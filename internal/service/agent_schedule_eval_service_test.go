@@ -558,7 +558,7 @@ func TestAgentP0CapabilityExecutorScheduleTaskCreatesScheduledTask(t *testing.T)
 		scheduledTasks: store,
 		now:            func() time.Time { return now },
 	}
-	result, err := executor.ExecuteTool(context.Background(), agent.ToolExecuteInput{
+	result, err := executor.CallTool(context.Background(), agent.MCPCallToolInput{
 		Capability:     agent.Capability{Key: "agent.schedule_task"},
 		UserID:         1,
 		SessionID:      2,
@@ -568,7 +568,7 @@ func TestAgentP0CapabilityExecutorScheduleTaskCreatesScheduledTask(t *testing.T)
 		RawArguments:   `{"task_type":"digest","goal":"汇总 AI 新闻","scheduled_at":"2026-06-25T09:00:00+08:00","allowed_capabilities":["web.search","content.summarize_text"],"confirmed":true}`,
 	})
 	if err != nil {
-		t.Fatalf("ExecuteTool() error = %v", err)
+		t.Fatalf("CallTool() error = %v", err)
 	}
 	if result.Observation.Status != "succeeded" {
 		t.Fatalf("observation = %#v", result.Observation)

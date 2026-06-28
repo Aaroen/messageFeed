@@ -41,7 +41,7 @@ type Capability struct {
 	ExternalAccess bool
 	Schedulable    bool
 	Reusable       bool
-	Parameters     map[string]any
+	InputSchema    map[string]any
 }
 
 type CapabilityRegistry struct {
@@ -58,7 +58,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Risk:        CapabilityRiskLow,
 		DataDomain:  "local_feed",
 		Reusable:    true,
-		Parameters:  feedItemQueryParameters(false),
+		InputSchema: feedItemQueryInputSchema(false),
 	})
 	registry.Register(Capability{
 		Key:         "source.query_latest_items",
@@ -68,7 +68,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Risk:        CapabilityRiskLow,
 		DataDomain:  "local_feed",
 		Reusable:    true,
-		Parameters:  feedItemQueryParameters(true),
+		InputSchema: feedItemQueryInputSchema(true),
 	})
 	registry.Register(Capability{
 		Key:         "conversation.query_history",
@@ -78,7 +78,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		Risk:        CapabilityRiskLow,
 		DataDomain:  "long_term_memory",
 		Reusable:    true,
-		Parameters: map[string]any{
+		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"mode": map[string]any{
@@ -117,7 +117,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		DataDomain:  "notification",
 		Mutates:     true,
 		Schedulable: true,
-		Parameters: map[string]any{
+		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"task_type": map[string]any{
@@ -163,7 +163,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		DataDomain:  "scheduled_task",
 		Mutates:     true,
 		Schedulable: true,
-		Parameters: map[string]any{
+		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"task_type": map[string]any{
@@ -220,7 +220,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		DataDomain:     "external_web",
 		ExternalAccess: true,
 		Reusable:       true,
-		Parameters: map[string]any{
+		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
@@ -246,7 +246,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		DataDomain:     "external_web",
 		ExternalAccess: true,
 		Reusable:       true,
-		Parameters: map[string]any{
+		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"url": map[string]any{
@@ -266,7 +266,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		DataDomain:     "external_web",
 		ExternalAccess: true,
 		Reusable:       true,
-		Parameters: map[string]any{
+		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"url": map[string]any{
@@ -286,7 +286,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		DataDomain:     "external_repo",
 		ExternalAccess: true,
 		Reusable:       true,
-		Parameters: map[string]any{
+		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"query": map[string]any{
@@ -312,7 +312,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		DataDomain:     "external_repo",
 		ExternalAccess: true,
 		Reusable:       true,
-		Parameters: map[string]any{
+		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"repo": map[string]any{
@@ -351,7 +351,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 	return registry
 }
 
-func feedItemQueryParameters(requireSource bool) map[string]any {
+func feedItemQueryInputSchema(requireSource bool) map[string]any {
 	required := []string{}
 	return map[string]any{
 		"type": "object",
@@ -477,7 +477,7 @@ func (e *PolicyEngine) Decide(_ context.Context, input PolicyInput) PolicyResult
 // capabilityUsesToolConfirmation 根据 capability schema 判断工具是否自带 confirmed 确认参数。
 // 该判断属于能力安全契约校验，不依据用户文本推断是否已经确认。
 func capabilityUsesToolConfirmation(capability Capability) bool {
-	properties, ok := capability.Parameters["properties"].(map[string]any)
+	properties, ok := capability.InputSchema["properties"].(map[string]any)
 	if !ok {
 		return false
 	}

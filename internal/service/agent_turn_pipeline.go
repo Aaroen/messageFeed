@@ -110,7 +110,7 @@ func (s *AgentConversationService) processTurn(
 		Turn:            turn,
 		InboundMessage:  inbound,
 		ControllerRunID: controllerRun.ID,
-		AllowedToolKeys: append([]string(nil), plan.AllowedScopes...),
+		AllowedToolKeys: append([]string{}, plan.AllowedScopes...),
 		MessageType:     input.MsgType,
 		MessageText:     input.TextContent,
 		RequestID:       input.RequestID,

@@ -42,11 +42,11 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 	return result, nil
 }
 
-func (e agentRunRecordingExecutor) ExecuteTool(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	run, _ := e.createExecutorRun(ctx, input.ControllerRunID, input.SessionID, input.TurnID, input.Capability, domain.AgentJSON{
 		"message":        safeSummary(input.Message, 500),
 		"capability_key": input.Capability.Key,
-		"tool_call_id":   input.ToolCallID,
+		"tool_call_id":   input.CallID,
 		"tool_arguments": safeSummary(input.RawArguments, 1000),
 	})
 	if run.ID > 0 {
@@ -62,12 +62,12 @@ func (e agentRunRecordingExecutor) ExecuteTool(ctx context.Context, input agent.
 		})
 	}
 
-	result, err := e.base.ExecuteTool(ctx, input)
+	result, err := e.base.CallTool(ctx, input)
 	if err != nil {
 		result.Observation = e.recordExecutorFailure(ctx, run, input.Capability.Key, input.RawArguments, err)
 		return result, err
 	}
-	result.Observation = e.recordExecutorSuccess(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.Content, 1)
+	result.Observation = e.recordExecutorSuccess(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.TextContent(), 1)
 	return result, nil
 }
 

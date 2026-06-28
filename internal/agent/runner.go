@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/observability"
@@ -28,7 +30,7 @@ type AuditLogger interface {
 }
 
 type ToolExecutor interface {
-	ExecuteTool(ctx context.Context, input ToolExecuteInput) (ToolExecuteResult, error)
+	CallTool(ctx context.Context, input MCPCallToolInput) (MCPCallToolResult, error)
 }
 
 type ContextBuilder interface {
@@ -93,25 +95,6 @@ type AuditEvent struct {
 	RequestID string
 	TraceID   string
 	CreatedAt time.Time
-}
-
-type ToolExecuteInput struct {
-	Capability      Capability
-	UserID          int64
-	SessionID       int64
-	TurnID          int64
-	ControllerRunID int64
-	Message         string
-	ExternalUserID  string
-	ToolCallID      string
-	RawArguments    string
-	RequestID       string
-	TraceID         string
-}
-
-type ToolExecuteResult struct {
-	Content     string
-	Observation CapabilityObservation
 }
 
 type TurnRunner struct {
@@ -309,12 +292,13 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 }
 
 func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, error) {
-	tools := r.buildToolDefinitions(input.AllowedToolKeys)
+	tools := r.listMCPTools(input.AllowedToolKeys)
 	const maxToolRounds = 50
 	requiredToolRetries := 0
+	toolInteractionObserved := false
 	for round := 0; round <= maxToolRounds; round++ {
-		hasObservations := len(snapshot.Observations) > 0
-		response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, tools, false, hasObservations, len(tools) > 0 && !hasObservations)
+		hasToolObservation := toolInteractionObserved || hasObservationForMCPTools(snapshot.Observations, tools)
+		response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, tools, false, hasToolObservation, len(tools) > 0 && !hasToolObservation)
 		if err != nil {
 			return llm.ChatResponse{}, snapshot, err
 		}
@@ -322,7 +306,7 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 		if len(response.ToolCalls) == 0 {
 			// 主 Agent 已下发工具 scope 时，子 Agent 至少要产生一次真实 observation。
 			// 如果模型首轮直接给出文本，runner 不把它当作完成结果，而是拉回工具执行路径。
-			if len(tools) > 0 && len(snapshot.Observations) == 0 {
+			if len(tools) > 0 && !toolInteractionObserved && !hasObservationForMCPTools(snapshot.Observations, tools) {
 				requiredToolRetries++
 				if requiredToolRetries > requiredToolCallRetryLimit {
 					return llm.ChatResponse{}, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_required_tool_skipped", "agent did not call an approved tool before answering", "agent.turn_runner.tools", true, nil)
@@ -364,6 +348,7 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 			ToolCalls: response.ToolCalls,
 		})
 		for _, call := range response.ToolCalls {
+			toolInteractionObserved = true
 			result, err := r.executeToolCall(ctx, input, call)
 			if err != nil {
 				return llm.ChatResponse{}, snapshot, err
@@ -379,9 +364,9 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 				observation.Status = "succeeded"
 			}
 			snapshot.Observations = append(snapshot.Observations, observation)
-			content := strings.TrimSpace(result.Content)
+			content := strings.TrimSpace(result.TextContent())
 			if content == "" {
-				content = "工具没有返回内容。"
+				content = emptyMCPToolResultPrompt()
 			}
 			messages = append(messages, llm.ChatMessage{
 				Role:       "tool",
@@ -414,13 +399,13 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 	ctx context.Context,
 	input TurnRunInput,
 	messages []llm.ChatMessage,
-	tools []llm.ToolDefinition,
+	tools []MCPToolDescriptor,
 	finalOnly bool,
 	hasObservations bool,
 	requireToolCall bool,
 ) (llm.ChatResponse, []llm.ChatMessage, error) {
 	effectiveMessages := append([]llm.ChatMessage(nil), messages...)
-	effectiveTools := append([]llm.ToolDefinition(nil), tools...)
+	effectiveTools := append([]MCPToolDescriptor(nil), tools...)
 	if finalOnly {
 		effectiveTools = nil
 	}
@@ -429,7 +414,7 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 		toolChoice := toolChoiceForDefinitions(effectiveTools, requireToolCall)
 		response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
 			Messages:    effectiveMessages,
-			Tools:       effectiveTools,
+			Tools:       llmToolsFromMCPTools(effectiveTools),
 			ToolChoice:  toolChoice,
 			Temperature: r.temperature,
 			MaxTokens:   r.maxTokens,
@@ -454,7 +439,7 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 			})
 			response, err = r.llmClient.Chat(ctx, llm.ChatRequest{
 				Messages:    effectiveMessages,
-				Tools:       effectiveTools,
+				Tools:       llmToolsFromMCPTools(effectiveTools),
 				ToolChoice:  toolChoiceForDefinitions(effectiveTools, false),
 				Temperature: r.temperature,
 				MaxTokens:   r.maxTokens,
@@ -462,6 +447,46 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 		}
 		if err == nil && strings.TrimSpace(response.Content) == "" && len(response.ToolCalls) == 0 {
 			err = domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "agent.turn_runner.chat", true, nil)
+		}
+		if err != nil && isEmptyLLMResponseError(err) && len(effectiveTools) > 0 {
+			fallback, fallbackErr := r.chatWithPromptedToolAction(ctx, input, effectiveMessages, effectiveTools, requireToolCall, hasObservations)
+			if fallbackErr == nil {
+				r.record(ctx, AuditEvent{
+					SessionID: input.Session.ID,
+					TurnID:    input.Turn.ID,
+					UserID:    input.UserID,
+					EventType: "agent.prompted_tool_action_fallback",
+					Status:    "succeeded",
+					Message:   "prompted tool action fallback succeeded",
+					Metadata: domain.AgentJSON{
+						"native_error":       err.Error(),
+						"require_tool_call":  requireToolCall,
+						"has_observations":   hasObservations,
+						"fallback_tool_call": len(fallback.ToolCalls) > 0,
+					},
+					RequestID: input.RequestID,
+					TraceID:   input.TraceID,
+					CreatedAt: r.now().UTC(),
+				})
+				return fallback, effectiveMessages, nil
+			}
+			r.record(ctx, AuditEvent{
+				SessionID: input.Session.ID,
+				TurnID:    input.Turn.ID,
+				UserID:    input.UserID,
+				EventType: "agent.prompted_tool_action_fallback",
+				Status:    "failed",
+				Message:   "prompted tool action fallback failed",
+				Metadata: domain.AgentJSON{
+					"native_error":      err.Error(),
+					"fallback_error":    fallbackErr.Error(),
+					"require_tool_call": requireToolCall,
+					"has_observations":  hasObservations,
+				},
+				RequestID: input.RequestID,
+				TraceID:   input.TraceID,
+				CreatedAt: r.now().UTC(),
+			})
 		}
 		if err == nil {
 			return response, effectiveMessages, nil
@@ -493,6 +518,83 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 		})
 	}
 	return llm.ChatResponse{}, effectiveMessages, lastErr
+}
+
+func (r *TurnRunner) chatWithPromptedToolAction(
+	ctx context.Context,
+	input TurnRunInput,
+	messages []llm.ChatMessage,
+	tools []MCPToolDescriptor,
+	requireToolCall bool,
+	hasObservations bool,
+) (llm.ChatResponse, error) {
+	if r == nil || r.llmClient == nil {
+		return llm.ChatResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_llm_client_unavailable", "agent llm client is unavailable", "agent.turn_runner.prompted_tool_action", true, nil)
+	}
+	response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
+		Messages:    buildPromptedToolActionMessages(messages, tools, requireToolCall, hasObservations),
+		Temperature: 0.1,
+		MaxTokens:   r.maxTokens,
+	})
+	if err != nil {
+		return llm.ChatResponse{}, err
+	}
+	action, err := parsePromptedToolAction(response.Content)
+	if err != nil {
+		return llm.ChatResponse{}, err
+	}
+	switch action.Action {
+	case "tool_call":
+		if !promptedToolActionAllowed(action, tools) {
+			return llm.ChatResponse{}, fmt.Errorf("prompted tool action selected unavailable tool: %s", action.ToolName)
+		}
+		arguments, err := json.Marshal(action.Arguments)
+		if err != nil {
+			return llm.ChatResponse{}, fmt.Errorf("prompted tool action arguments marshal failed: %w", err)
+		}
+		return llm.ChatResponse{
+			Provider: response.Provider,
+			Model:    response.Model,
+			ToolCalls: []llm.ToolCall{
+				{
+					ID:        fmt.Sprintf("prompted_call_%d", len(messages)+1),
+					Name:      action.ToolName,
+					Arguments: string(arguments),
+				},
+			},
+		}, nil
+	case "final":
+		if requireToolCall {
+			return llm.ChatResponse{}, fmt.Errorf("prompted tool action returned final while tool call is required")
+		}
+		if strings.TrimSpace(action.Content) == "" {
+			return llm.ChatResponse{}, fmt.Errorf("prompted tool action final content is empty")
+		}
+		return llm.ChatResponse{Provider: response.Provider, Model: response.Model, Content: action.Content}, nil
+	default:
+		return llm.ChatResponse{}, fmt.Errorf("prompted tool action is unsupported: %s", action.Action)
+	}
+}
+
+func hasObservationForMCPTools(observations []CapabilityObservation, tools []MCPToolDescriptor) bool {
+	if len(observations) == 0 || len(tools) == 0 {
+		return false
+	}
+	toolKeys := map[string]struct{}{}
+	for _, tool := range tools {
+		key := strings.TrimSpace(tool.Name)
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		toolKeys[key] = struct{}{}
+	}
+	for _, observation := range observations {
+		key := strings.TrimSpace(observation.Capability)
+		if _, ok := toolKeys[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func isToolChoiceRequiredUnsupportedError(err error) bool {
@@ -539,11 +641,11 @@ func requiredToolCallRetryPrompt(attempt int) string {
 	return "上一轮没有执行已授权工具。当前计划要求先取得工具观察，再基于观察结果回答；本轮必须调用至少一个已授权工具。"
 }
 
-func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, call llm.ToolCall) (ToolExecuteResult, error) {
+func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, call llm.ToolCall) (MCPCallToolResult, error) {
 	key := capabilityKeyForToolName(call.Name)
 	capability, ok := r.toolRegistry.Get(key)
 	if !ok {
-		return ToolExecuteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_unknown_tool", "agent tool is not registered", "agent.turn_runner.tools", false, nil)
+		return MCPCallToolResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_unknown_tool", "agent tool is not registered", "agent.turn_runner.tools", false, nil)
 	}
 	if !r.toolAllowedInCurrentScope(key, input.AllowedToolKeys) {
 		summary := "agent tool is outside approved capability scope"
@@ -563,28 +665,28 @@ func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, ca
 			TraceID:   input.TraceID,
 			CreatedAt: r.now().UTC(),
 		})
-		return ToolExecuteResult{
-			Content: "工具状态：forbidden\n原因：该能力不在当前已批准的 capability scope 内。",
-			Observation: CapabilityObservation{
-				Capability: key,
-				Decision:   string(PolicyDecisionForbidden),
-				Status:     "failed",
-				Summary:    summary,
-			},
-		}, nil
+		return NewMCPTextCallToolResult(mcpToolScopeDeniedText(), true, CapabilityObservation{
+			Capability: key,
+			Decision:   string(PolicyDecisionForbidden),
+			Status:     "failed",
+			Summary:    summary,
+		}), nil
 	}
 	if (capability.Mutates && !capability.Schedulable) || capability.Risk == CapabilityRiskHigh {
-		return ToolExecuteResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_tool_not_allowed", "agent tool is not allowed in current policy", "agent.turn_runner.tools", false, nil)
+		return MCPCallToolResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_tool_not_allowed", "agent tool is not allowed in current policy", "agent.turn_runner.tools", false, nil)
 	}
-	return r.toolExecutor.ExecuteTool(ctx, ToolExecuteInput{
+	tool := capability.MCPDescriptor()
+	return r.toolExecutor.CallTool(ctx, MCPCallToolInput{
 		Capability:      capability,
+		Tool:            tool,
 		UserID:          input.UserID,
 		SessionID:       input.Session.ID,
 		TurnID:          input.Turn.ID,
 		ControllerRunID: input.ControllerRunID,
 		Message:         input.MessageText,
 		ExternalUserID:  input.InboundMessage.ExternalUserID,
-		ToolCallID:      call.ID,
+		CallID:          call.ID,
+		Name:            tool.Name,
 		RawArguments:    call.Arguments,
 		RequestID:       input.RequestID,
 		TraceID:         input.TraceID,
@@ -596,21 +698,21 @@ func (r *TurnRunner) toolAllowedInCurrentScope(key string, scopedKeys []string) 
 	if key == "" {
 		return false
 	}
+	if scopedKeys != nil {
+		for _, scoped := range scopedKeys {
+			if scopeMatchesTool(strings.TrimSpace(scoped), key) {
+				return true
+			}
+		}
+		return false
+	}
 	keys := append([]string(nil), r.toolKeys...)
 	if len(keys) == 0 {
 		keys = []string{"conversation.query_history"}
 	}
 	for _, allowed := range keys {
 		if strings.TrimSpace(allowed) == key {
-			if len(scopedKeys) == 0 {
-				return true
-			}
-			for _, scoped := range scopedKeys {
-				if scopeMatchesTool(strings.TrimSpace(scoped), key) {
-					return true
-				}
-			}
-			return false
+			return true
 		}
 	}
 	return false
@@ -623,15 +725,18 @@ func scopeMatchesTool(scope string, key string) bool {
 	return scope == "agent.schedule_task" && key == "agent.schedule_message"
 }
 
-func (r *TurnRunner) buildToolDefinitions(scopedKeys []string) []llm.ToolDefinition {
+func (r *TurnRunner) listMCPTools(scopedKeys []string) []MCPToolDescriptor {
 	if r == nil || r.toolRegistry == nil || r.toolExecutor == nil {
+		return nil
+	}
+	if scopedKeys != nil && len(scopedKeys) == 0 {
 		return nil
 	}
 	keys := append([]string(nil), r.toolKeys...)
 	if len(keys) == 0 {
 		keys = []string{"conversation.query_history"}
 	}
-	definitions := make([]llm.ToolDefinition, 0, len(keys))
+	tools := make([]MCPToolDescriptor, 0, len(keys))
 	for _, key := range keys {
 		if !r.toolAllowedInCurrentScope(key, scopedKeys) {
 			continue
@@ -640,13 +745,9 @@ func (r *TurnRunner) buildToolDefinitions(scopedKeys []string) []llm.ToolDefinit
 		if !ok || (capability.Mutates && !capability.Schedulable) || capability.Risk == CapabilityRiskHigh {
 			continue
 		}
-		definitions = append(definitions, llm.ToolDefinition{
-			Name:        toolNameForCapabilityKey(capability.Key),
-			Description: capability.Description,
-			Parameters:  capability.Parameters,
-		})
+		tools = append(tools, capability.MCPDescriptor())
 	}
-	return definitions
+	return tools
 }
 
 func (r *TurnRunner) buildChatMessages(systemPrompt string, snapshot ContextSnapshot, currentMessage string) []llm.ChatMessage {
@@ -707,7 +808,7 @@ func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot, currentMessage 
 	return builder.String()
 }
 
-func toolChoiceForDefinitions(tools []llm.ToolDefinition, requireToolCall bool) string {
+func toolChoiceForDefinitions(tools []MCPToolDescriptor, requireToolCall bool) string {
 	if len(tools) == 0 {
 		return ""
 	}
@@ -715,6 +816,20 @@ func toolChoiceForDefinitions(tools []llm.ToolDefinition, requireToolCall bool) 
 		return "required"
 	}
 	return "auto"
+}
+
+func llmToolsFromMCPTools(tools []MCPToolDescriptor) []llm.ToolDefinition {
+	if len(tools) == 0 {
+		return nil
+	}
+	definitions := make([]llm.ToolDefinition, 0, len(tools))
+	for _, tool := range tools {
+		if strings.TrimSpace(tool.Name) == "" {
+			continue
+		}
+		definitions = append(definitions, LLMToolDefinitionFromMCP(tool))
+	}
+	return definitions
 }
 
 func toolNameForCapabilityKey(key string) string {

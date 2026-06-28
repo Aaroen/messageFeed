@@ -20,16 +20,16 @@ func TestOpenAICompatibleClientUsesCustomBaseURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedPath = r.URL.Path
 		receivedAuth = r.Header.Get("Authorization")
-		var request chatCompletionRequest
+		var request responsesRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
 		receivedModel = request.Model
-		if len(request.Messages) > 1 {
-			receivedUserContent = request.Messages[1].Content
+		if len(request.Input) > 1 {
+			receivedUserContent = request.Input[1].Content
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"自定义 AI 回复"}}]}`))
+		_, _ = w.Write([]byte(`{"object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"自定义 AI 回复"}]}]}`))
 	}))
 	defer server.Close()
 
@@ -54,8 +54,8 @@ func TestOpenAICompatibleClientUsesCustomBaseURL(t *testing.T) {
 		t.Fatalf("Chat() error = %v", err)
 	}
 
-	if receivedPath != "/chat/completions" {
-		t.Fatalf("path = %q, want /chat/completions", receivedPath)
+	if receivedPath != "/responses" {
+		t.Fatalf("path = %q, want /responses", receivedPath)
 	}
 	if receivedAuth != "Bearer test-key" {
 		t.Fatalf("Authorization = %q", receivedAuth)
@@ -100,7 +100,7 @@ func TestOpenAICompatibleClientReturnsProviderError(t *testing.T) {
 func TestOpenAICompatibleClientRetriesRetryableStatus(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/chat/completions" {
+		if r.URL.Path != "/responses" {
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
 		attempts++
@@ -110,7 +110,7 @@ func TestOpenAICompatibleClientRetriesRetryableStatus(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"retry ok"}}]}`))
+		_, _ = w.Write([]byte(`{"object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"retry ok"}]}]}`))
 	}))
 	defer server.Close()
 
@@ -198,17 +198,17 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 	var receivedToolName string
 	var receivedToolChoice any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request chatCompletionRequest
+		var request responsesRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
 		if len(request.Tools) != 1 {
 			t.Fatalf("tool count = %d, want 1", len(request.Tools))
 		}
-		receivedToolName = request.Tools[0].Function.Name
+		receivedToolName = request.Tools[0].Name
 		receivedToolChoice = request.ToolChoice
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"conversation__query_history","arguments":"{\"keyword\":\"偏好\"}"}}]}}]}`))
+		_, _ = w.Write([]byte(`{"object":"response","status":"completed","output":[{"type":"function_call","call_id":"call-1","name":"conversation__query_history","arguments":"{\"keyword\":\"偏好\"}"}]}`))
 	}))
 	defer server.Close()
 
@@ -227,7 +227,7 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 			{
 				Name:        "conversation__query_history",
 				Description: "查询历史聊天",
-				Parameters:  map[string]any{"type": "object"},
+				InputSchema: map[string]any{"type": "object"},
 			},
 		},
 		ToolChoice: "auto",
@@ -249,21 +249,21 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 	}
 }
 
-func TestOpenAICompatibleClientFallsBackToResponsesAndRemembersRoute(t *testing.T) {
+func TestOpenAICompatibleClientFallsBackToChatCompletionsAndRemembersRoute(t *testing.T) {
 	paths := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
 		switch r.URL.Path {
-		case "/chat/completions":
+		case "/responses":
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":{"message":"not found"}}`))
-		case "/responses":
-			var request responsesRequest
+		case "/chat/completions":
+			var request chatCompletionRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				t.Fatalf("decode responses request: %v", err)
+				t.Fatalf("decode chat request: %v", err)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"responses ok"}]}]}`))
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"chat ok"}}]}`))
 		default:
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
@@ -286,11 +286,129 @@ func TestOpenAICompatibleClientFallsBackToResponsesAndRemembersRoute(t *testing.
 		if err != nil {
 			t.Fatalf("Chat() attempt %d error = %v", i+1, err)
 		}
-		if response.Content != "responses ok" {
+		if response.Content != "chat ok" {
 			t.Fatalf("response = %#v", response)
 		}
 	}
-	want := []string{"/chat/completions", "/responses", "/responses"}
+	want := []string{"/responses", "/chat/completions", "/chat/completions"}
+	if len(paths) != len(want) {
+		t.Fatalf("paths = %#v, want %#v", paths, want)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Fatalf("paths = %#v, want %#v", paths, want)
+		}
+	}
+}
+
+func TestOpenAICompatibleClientUsesResponsesFirstForToolsEvenWhenChatIsRemembered(t *testing.T) {
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/chat/completions":
+			t.Fatalf("tools request should try /responses before remembered chat route")
+		case "/responses":
+			var request responsesRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode responses request: %v", err)
+			}
+			if len(request.Tools) != 1 || request.Tools[0].Name != "conversation__query_history" {
+				t.Fatalf("responses tools = %#v", request.Tools)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"response","status":"completed","output":[{"type":"function_call","call_id":"call-1","name":"conversation__query_history","arguments":"{\"query\":\"偏好\"}"}]}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "custom-model",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+	client.rememberProtocol(llmProtocolChatCompletions)
+
+	response, err := client.Chat(context.Background(), ChatRequest{
+		Messages: []ChatMessage{{Role: "user", Content: "查历史"}},
+		Tools: []ToolDefinition{{
+			Name:        "conversation__query_history",
+			Description: "查询历史",
+			InputSchema: map[string]any{"type": "object"},
+		}},
+		ToolChoice: "required",
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if len(response.ToolCalls) != 1 || response.ToolCalls[0].Name != "conversation__query_history" {
+		t.Fatalf("tool calls = %#v", response.ToolCalls)
+	}
+	want := []string{"/responses"}
+	if len(paths) != len(want) {
+		t.Fatalf("paths = %#v, want %#v", paths, want)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Fatalf("paths = %#v, want %#v", paths, want)
+		}
+	}
+}
+
+func TestOpenAICompatibleClientFallsBackToChatCompletionsForToolsWhenResponsesUnavailable(t *testing.T) {
+	paths := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch r.URL.Path {
+		case "/responses":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":{"message":"not found"}}`))
+		case "/chat/completions":
+			var request chatCompletionRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode chat request: %v", err)
+			}
+			if len(request.Tools) != 1 || request.Tools[0].Function.Name != "conversation__query_history" {
+				t.Fatalf("chat tools = %#v", request.Tools)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"conversation__query_history","arguments":"{\"query\":\"偏好\"}"}}]}}]}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "custom-model",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+
+	response, err := client.Chat(context.Background(), ChatRequest{
+		Messages: []ChatMessage{{Role: "user", Content: "查历史"}},
+		Tools: []ToolDefinition{{
+			Name:        "conversation__query_history",
+			Description: "查询历史",
+			InputSchema: map[string]any{"type": "object"},
+		}},
+		ToolChoice: "required",
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if len(response.ToolCalls) != 1 || response.ToolCalls[0].Name != "conversation__query_history" {
+		t.Fatalf("tool calls = %#v", response.ToolCalls)
+	}
+	want := []string{"/responses", "/chat/completions"}
 	if len(paths) != len(want) {
 		t.Fatalf("paths = %#v, want %#v", paths, want)
 	}

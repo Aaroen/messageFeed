@@ -133,6 +133,123 @@ func TestTurnRunnerRetriesWhenModelSkipsRequiredTool(t *testing.T) {
 	}
 }
 
+func TestTurnRunnerRequiresToolWhenSnapshotOnlyHasContextObservation(t *testing.T) {
+	now := time.Date(2026, 6, 28, 18, 25, 0, 0, time.UTC)
+	chat := &runnerFakeChatClient{
+		responses: []llm.ChatResponse{
+			{Provider: "openai_compatible", Model: "custom-model", Content: "我先直接回答。"},
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "conversation__query_history", Arguments: `{"query":"偏好"}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "历史记录显示你关注 Go。"},
+		},
+	}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store: &runnerFakeTurnStore{},
+		ContextBuilder: runnerFakeContextBuilder{snapshot: ContextSnapshot{
+			Observations: []CapabilityObservation{
+				{Capability: "user.context", Decision: string(PolicyDecisionAllow), Status: "succeeded", Summary: "loaded user context"},
+				{Capability: "conversation.query_recent", Decision: string(PolicyDecisionAllow), Status: "succeeded", Summary: "loaded recent messages"},
+			},
+		}},
+		ToolExecutor: &runnerFakeToolExecutor{content: "2026-06-24 用户：我关注 Go。"},
+		LLMClient:    chat,
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"conversation.query_history"},
+		MessageType:     "text",
+		MessageText:     "请结合历史回答我的偏好",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if chat.calls != 3 {
+		t.Fatalf("chat calls = %d, want 3", chat.calls)
+	}
+	if result.Reply != "历史记录显示你关注 Go。" {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if !hasObservationForMCPTools(result.Context.Observations, runner.listMCPTools([]string{"conversation.query_history"})) {
+		t.Fatalf("tool observation missing: %#v", result.Context.Observations)
+	}
+}
+
+func TestTurnRunnerFallsBackToPromptedToolActionWhenNativeToolsReturnEmpty(t *testing.T) {
+	now := time.Date(2026, 6, 28, 19, 10, 0, 0, time.UTC)
+	emptyErr := domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "test", true, nil)
+	chat := &runnerFakeChatClient{
+		errs: []error{
+			emptyErr,
+			nil,
+			emptyErr,
+			nil,
+		},
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				Content:  `{"action":"tool_call","tool_name":"conversation.query_history","arguments":{"query":"长期偏好","limit":8},"reason":"需要读取历史"}`,
+			},
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				Content:  `{"action":"final","content":"历史记录显示你长期关注 Go 和 AI 基础设施。","reason":"已有历史观察"}`,
+			},
+		},
+	}
+	audit := &runnerFakeAuditLogger{}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store:        &runnerFakeTurnStore{},
+		AuditLogger:  audit,
+		ToolExecutor: &runnerFakeToolExecutor{content: "2026-06-24 用户：我的长期偏好是 Go 和 AI 基础设施。"},
+		LLMClient:    chat,
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"conversation.query_history"},
+		MessageType:     "text",
+		MessageText:     "请根据历史聊天原文查一下我的长期偏好是什么",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Reply != "历史记录显示你长期关注 Go 和 AI 基础设施。" {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if chat.calls != 4 {
+		t.Fatalf("chat calls = %d, want 4", chat.calls)
+	}
+	if len(chat.requests[1].Tools) != 0 || chat.requests[1].ToolChoice != "" {
+		t.Fatalf("prompted tool request should not use native tools: %#v", chat.requests[1])
+	}
+	if !strings.Contains(chat.requests[1].Messages[len(chat.requests[1].Messages)-1].Content, "available_tools") {
+		t.Fatalf("prompted tool request payload = %q", chat.requests[1].Messages[len(chat.requests[1].Messages)-1].Content)
+	}
+	if !runnerAuditContains(audit.events, "agent.prompted_tool_action_fallback") {
+		t.Fatalf("audit events = %#v", audit.events)
+	}
+	if len(result.Context.Observations) == 0 || result.Context.Observations[len(result.Context.Observations)-1].Capability != "conversation.query_history" {
+		t.Fatalf("observations = %#v", result.Context.Observations)
+	}
+}
+
 func TestTurnRunnerFailsWhenModelKeepsSkippingRequiredTool(t *testing.T) {
 	now := time.Date(2026, 6, 28, 18, 30, 0, 0, time.UTC)
 	chat := &runnerFakeChatClient{
@@ -223,8 +340,8 @@ func TestTurnRunnerRetriesEmptyResponseAfterToolObservation(t *testing.T) {
 	if !strings.Contains(result.Reply, "Go") || !strings.Contains(result.Reply, "AI") {
 		t.Fatalf("reply = %q", result.Reply)
 	}
-	if chat.calls != 3 {
-		t.Fatalf("chat calls = %d, want 3", chat.calls)
+	if chat.calls != 4 {
+		t.Fatalf("chat calls = %d, want 4", chat.calls)
 	}
 	if !runnerAuditContains(audit.events, "agent.llm_empty_response_retry") {
 		t.Fatalf("audit events = %#v", audit.events)
@@ -523,21 +640,18 @@ func (b runnerFakeContextBuilder) Build(_ context.Context, input ContextBuildInp
 }
 
 type runnerFakeToolExecutor struct {
-	input   ToolExecuteInput
+	input   MCPCallToolInput
 	content string
 }
 
-func (e *runnerFakeToolExecutor) ExecuteTool(_ context.Context, input ToolExecuteInput) (ToolExecuteResult, error) {
+func (e *runnerFakeToolExecutor) CallTool(_ context.Context, input MCPCallToolInput) (MCPCallToolResult, error) {
 	e.input = input
-	return ToolExecuteResult{
-		Content: e.content,
-		Observation: CapabilityObservation{
-			Capability: input.Capability.Key,
-			Decision:   string(PolicyDecisionAllow),
-			Status:     "succeeded",
-			Summary:    "loaded 1 history messages",
-		},
-	}, nil
+	return NewMCPTextCallToolResult(e.content, false, CapabilityObservation{
+		Capability: input.Capability.Key,
+		Decision:   string(PolicyDecisionAllow),
+		Status:     "succeeded",
+		Summary:    "loaded 1 history messages",
+	}), nil
 }
 
 type runnerFakeTurnStore struct {

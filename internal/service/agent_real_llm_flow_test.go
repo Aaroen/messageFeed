@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -98,9 +97,6 @@ func realAgentFlowLLMClient(t *testing.T) *llm.OpenAICompatibleClient {
 		BaseURL:  os.Getenv("LLM_BASE_URL"),
 		APIKey:   os.Getenv("LLM_API_KEY"),
 		Model:    os.Getenv("LLM_MODEL"),
-		HTTPClient: &http.Client{
-			Timeout: 90 * time.Second,
-		},
 	})
 	if err != nil {
 		t.Fatalf("create real llm client: %v", err)
@@ -140,7 +136,7 @@ func realAgentFlowSession(now time.Time) domain.AgentSession {
 // realAgentFlowReceive 执行一次完整企微文本消息闭环，并给真实模型调用设置总超时。
 func realAgentFlowReceive(t *testing.T, service *AgentConversationService, messageID string, text string) ReceiveWeChatWorkAppMessageResult {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	result, err := service.ReceiveWeChatWorkAppMessage(ctx, ReceiveWeChatWorkAppMessageInput{
 		ProviderMessageID: messageID,
@@ -162,9 +158,11 @@ func realAgentFlowReceive(t *testing.T, service *AgentConversationService, messa
 func assertRealAgentFlowCompleted(t *testing.T, result ReceiveWeChatWorkAppMessageResult, repository *fakeAgentConversationRepository) {
 	t.Helper()
 	if result.Turn.Status != domain.AgentTurnStatusSucceeded {
+		t.Logf("plan scopes=%#v steps=%#v observations=%#v traces=%s", result.Plan.AllowedScopes, result.Plan.Steps, repository.observations, realAgentFlowTraceKinds(repository.contextTraces))
 		t.Fatalf("turn status = %q, error = %q, reply = %q", result.Turn.Status, result.Turn.ErrorMessage, result.Reply)
 	}
 	if result.Plan.Status != domain.AgentPlanStatusCompleted {
+		t.Logf("plan scopes=%#v steps=%#v observations=%#v traces=%s", result.Plan.AllowedScopes, result.Plan.Steps, repository.observations, realAgentFlowTraceKinds(repository.contextTraces))
 		t.Fatalf("plan status = %q, error = %q, reply = %q", result.Plan.Status, result.Plan.ErrorMessage, result.Reply)
 	}
 	if strings.TrimSpace(result.Reply) == "" {
@@ -176,6 +174,17 @@ func assertRealAgentFlowCompleted(t *testing.T, result ReceiveWeChatWorkAppMessa
 	if result.Plan.Metadata["main_agent_plan"] == nil {
 		t.Fatalf("main_agent_plan metadata is missing: %#v", result.Plan.Metadata)
 	}
+}
+
+func realAgentFlowTraceKinds(traces []domain.AgentRunContextTrace) string {
+	kinds := make([]string, 0, len(traces))
+	for _, trace := range traces {
+		if strings.TrimSpace(trace.TraceKind) == "" {
+			continue
+		}
+		kinds = append(kinds, trace.TraceKind)
+	}
+	return strings.Join(kinds, ",")
 }
 
 // assertRealAgentFlowPlanContainsCapability 校验主 Agent 输出的子 Agent 授权范围包含指定能力。

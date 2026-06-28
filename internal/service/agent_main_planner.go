@@ -194,6 +194,7 @@ func (s *AgentConversationService) mainAgentCapabilityCatalog() []domain.AgentJS
 		if capability.Mode == agent.CapabilityModeHidden {
 			continue
 		}
+		tool := capability.MCPDescriptor()
 		items = append(items, domain.AgentJSON{
 			"key":             capability.Key,
 			"name":            capability.Name,
@@ -204,7 +205,10 @@ func (s *AgentConversationService) mainAgentCapabilityCatalog() []domain.AgentJS
 			"mutates":         capability.Mutates,
 			"external_access": capability.ExternalAccess,
 			"schedulable":     capability.Schedulable,
-			"parameters":      capability.Parameters,
+			"mcp_tool":        tool,
+			"inputSchema":     tool.InputSchema,
+			"annotations":     tool.Annotations,
+			"_meta":           tool.Meta,
 		})
 	}
 	return items

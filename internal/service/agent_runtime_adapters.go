@@ -125,7 +125,7 @@ func (e agentP0CapabilityExecutor) Execute(ctx context.Context, input agent.Capa
 	}
 }
 
-func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentP0CapabilityExecutor) CallTool(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	switch input.Capability.Key {
 	case "feed.query_recent_items":
 		result, err := e.queryRecentItems(ctx, agent.CapabilityExecuteInput{
@@ -168,19 +168,16 @@ func (e agentP0CapabilityExecutor) ExecuteTool(ctx context.Context, input agent.
 	case "content.summarize_text":
 		return e.summarizeTextTool(input), nil
 	default:
-		return agent.ToolExecuteResult{
-			Content: "当前工具执行器不支持该能力。",
-			Observation: agent.CapabilityObservation{
-				Capability: input.Capability.Key,
-				Decision:   string(agent.PolicyDecisionForbidden),
-				Status:     "skipped",
-				Summary:    "tool executor does not support this capability",
-			},
-		}, nil
+		return agent.NewMCPTextCallToolResult("当前 MCP tools/call 执行器不支持该工具。", true, agent.CapabilityObservation{
+			Capability: input.Capability.Key,
+			Decision:   string(agent.PolicyDecisionForbidden),
+			Status:     "skipped",
+			Summary:    "tool executor does not support this capability",
+		}), nil
 	}
 }
 
-func capabilityExecuteResultToToolResult(result agent.CapabilityExecuteResult) agent.ToolExecuteResult {
+func capabilityExecuteResultToToolResult(result agent.CapabilityExecuteResult) agent.MCPCallToolResult {
 	parts := make([]string, 0, len(result.Blocks))
 	for _, block := range result.Blocks {
 		content := strings.TrimSpace(block.Content)
@@ -188,10 +185,7 @@ func capabilityExecuteResultToToolResult(result agent.CapabilityExecuteResult) a
 			parts = append(parts, content)
 		}
 	}
-	return agent.ToolExecuteResult{
-		Content:     strings.Join(parts, "\n\n"),
-		Observation: result.Observation,
-	}
+	return agent.NewMCPTextCallToolResult(strings.Join(parts, "\n\n"), false, result.Observation)
 }
 
 func (e agentP0CapabilityExecutor) queryRecentItems(ctx context.Context, input agent.CapabilityExecuteInput) (agent.CapabilityExecuteResult, error) {
@@ -517,7 +511,7 @@ type repoInspectToolArgs struct {
 	Repo string `json:"repo"`
 }
 
-func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	observation := agent.CapabilityObservation{
 		Capability: input.Capability.Key,
 		Decision:   string(agent.PolicyDecisionAllow),
@@ -525,7 +519,7 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 	if e.repository == nil {
 		observation.Status = "skipped"
 		observation.Summary = "conversation repository is unavailable"
-		return agent.ToolExecuteResult{Content: "历史聊天查询能力暂不可用。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("历史聊天查询能力暂不可用。", true, observation), nil
 	}
 
 	args := parseConversationHistoryToolArgs(input.RawArguments)
@@ -539,15 +533,12 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 	}
 	timeRange := parseConversationHistoryTimeRange("", args.TimeHint, e.currentTime())
 	if mode == conversationHistoryModeTimeRange && !timeRange.Valid {
-		return agent.ToolExecuteResult{
-			Content: "没有识别出明确时间范围。请让用户补充具体时间，例如昨天上午、上周或 2026-06-23 晚上。",
-			Observation: agent.CapabilityObservation{
-				Capability: input.Capability.Key,
-				Decision:   string(agent.PolicyDecisionAllow),
-				Status:     "empty",
-				Summary:    "time range is ambiguous",
-			},
-		}, nil
+		return agent.NewMCPTextCallToolResult("没有识别出明确时间范围。请让用户补充具体时间，例如昨天上午、上周或 2026-06-23 晚上。", true, agent.CapabilityObservation{
+			Capability: input.Capability.Key,
+			Decision:   string(agent.PolicyDecisionAllow),
+			Status:     "empty",
+			Summary:    "time range is ambiguous",
+		}), nil
 	}
 	limit := args.Limit
 	if limit <= 0 {
@@ -593,7 +584,7 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 		Limit:         limit,
 	})
 	if err != nil {
-		return agent.ToolExecuteResult{}, err
+		return agent.MCPCallToolResult{}, err
 	}
 
 	contextMessages := transcriptEntriesToContextMessages(entries)
@@ -619,7 +610,7 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 		UserID:    input.UserID,
 		Query:     keyword,
 		QueryParams: domain.AgentJSON{
-			"tool_call_id":    input.ToolCallID,
+			"tool_call_id":    input.CallID,
 			"raw_arguments":   input.RawArguments,
 			"mode":            mode,
 			"keyword":         keyword,
@@ -650,12 +641,12 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 		CreatedAt:   e.currentTime(),
 	})
 	if err != nil {
-		return agent.ToolExecuteResult{}, err
+		return agent.MCPCallToolResult{}, err
 	}
-	return agent.ToolExecuteResult{Content: content, Observation: observation}, nil
+	return agent.NewMCPTextCallToolResult(content, false, observation), nil
 }
 
-func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	if e.scheduledTasks != nil {
 		return e.scheduleTask(ctx, input)
 	}
@@ -666,7 +657,7 @@ func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input ag
 	if e.notificationJobs == nil {
 		observation.Status = "skipped"
 		observation.Summary = "notification job store is unavailable"
-		return agent.ToolExecuteResult{Content: "定时消息能力暂不可用。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("定时消息能力暂不可用。", true, observation), nil
 	}
 	args := parseScheduleMessageToolArgs(input.RawArguments)
 	if args.TaskType == "" {
@@ -675,37 +666,34 @@ func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input ag
 	if args.TaskType != "reminder" && args.TaskType != "send_message" {
 		observation.Status = "failed"
 		observation.Summary = "unsupported scheduled task type"
-		return agent.ToolExecuteResult{Content: "不支持该定时任务类型。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("不支持该定时任务类型。", true, observation), nil
 	}
 	content := strings.TrimSpace(args.Content)
 	if content == "" {
 		observation.Status = "failed"
 		observation.Summary = "scheduled content is empty"
-		return agent.ToolExecuteResult{Content: "定时消息内容不能为空。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("定时消息内容不能为空。", true, observation), nil
 	}
 	if strings.TrimSpace(input.ExternalUserID) == "" {
 		observation.Status = "failed"
 		observation.Summary = "wechat work recipient is missing"
-		return agent.ToolExecuteResult{Content: "无法确定当前企微接收人，不能创建定时消息。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("无法确定当前企微接收人，不能创建定时消息。", true, observation), nil
 	}
 	scheduledAt, parseResult := parseScheduleInstant(args.ScheduledAt, args.TimeHint, args.TimeZone, e.currentTime())
 	if scheduledAt.IsZero() {
 		observation.Status = "failed"
 		observation.Summary = "scheduled time is ambiguous"
-		return agent.ToolExecuteResult{Content: "工具状态：requires_clarification\n原因：没有明确的 scheduled_at，且 time_hint 无法被后端校验为具体时间点。请结合当前时间和最近上下文，让用户补充日期、上午/下午/晚上，或由模型归一化为 RFC3339 scheduled_at 后再次调用工具。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("工具状态：requires_clarification\n原因：没有明确的 scheduled_at，且 time_hint 无法被后端校验为具体时间点。请结合当前时间和最近上下文，让用户补充日期、上午/下午/晚上，或由模型归一化为 RFC3339 scheduled_at 后再次调用工具。", true, observation), nil
 	}
 	if scheduledAt.Before(e.currentTime().Add(-time.Minute)) {
 		observation.Status = "failed"
 		observation.Summary = "scheduled time is in the past"
-		return agent.ToolExecuteResult{Content: "工具状态：failed\n原因：scheduled_at 已经过期，不能创建定时消息。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("工具状态：failed\n原因：scheduled_at 已经过期，不能创建定时消息。", true, observation), nil
 	}
 	if !args.Confirmed {
 		observation.Status = "requires_confirmation"
 		observation.Summary = "scheduled message requires user confirmation"
-		return agent.ToolExecuteResult{
-			Content:     fmt.Sprintf("工具状态：requires_confirmation\n计划时间：%s\n提醒内容：%s\n说明：需要用户明确确认后才能创建；用户确认后必须再次调用 agent.schedule_message，并传 confirmed=true。", scheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), content),
-			Observation: observation,
-		}, nil
+		return agent.NewMCPTextCallToolResult(fmt.Sprintf("工具状态：requires_confirmation\n计划时间：%s\n提醒内容：%s\n说明：需要用户明确确认后才能创建；用户确认后必须再次调用 agent.schedule_message，并传 confirmed=true。", scheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), content), false, observation), nil
 	}
 	now := e.currentTime()
 	job := domain.NotificationJob{
@@ -742,18 +730,15 @@ func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input ag
 	}
 	created, err := e.notificationJobs.CreateJob(ctx, job)
 	if err != nil {
-		return agent.ToolExecuteResult{}, err
+		return agent.MCPCallToolResult{}, err
 	}
 	observation.Decision = string(agent.PolicyDecisionAllow)
 	observation.Status = "succeeded"
 	observation.Summary = fmt.Sprintf("scheduled notification job %d", created.ID)
-	return agent.ToolExecuteResult{
-		Content:     fmt.Sprintf("工具状态：created\n任务 ID：%d\n计划时间：%s\n提醒内容：%s", created.ID, created.ScheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), content),
-		Observation: observation,
-	}, nil
+	return agent.NewMCPTextCallToolResult(fmt.Sprintf("工具状态：created\n任务 ID：%d\n计划时间：%s\n提醒内容：%s", created.ID, created.ScheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), content), false, observation), nil
 }
 
-func (e agentP0CapabilityExecutor) scheduleTask(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentP0CapabilityExecutor) scheduleTask(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	observation := agent.CapabilityObservation{
 		Capability: input.Capability.Key,
 		Decision:   string(agent.PolicyDecisionPrompt),
@@ -761,7 +746,7 @@ func (e agentP0CapabilityExecutor) scheduleTask(ctx context.Context, input agent
 	if e.scheduledTasks == nil {
 		observation.Status = "skipped"
 		observation.Summary = "scheduled task store is unavailable"
-		return agent.ToolExecuteResult{Content: "定时 Agent 任务能力暂不可用。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("定时 Agent 任务能力暂不可用。", true, observation), nil
 	}
 	args := parseScheduleMessageToolArgs(input.RawArguments)
 	if args.TaskType == "" {
@@ -778,26 +763,23 @@ func (e agentP0CapabilityExecutor) scheduleTask(ctx context.Context, input agent
 	if goal == "" {
 		observation.Status = "failed"
 		observation.Summary = "scheduled task goal is empty"
-		return agent.ToolExecuteResult{Content: "定时任务目标不能为空。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("定时任务目标不能为空。", true, observation), nil
 	}
 	scheduledAt, parseResult := parseScheduleInstant(args.ScheduledAt, args.TimeHint, args.TimeZone, e.currentTime())
 	if scheduledAt.IsZero() {
 		observation.Status = "failed"
 		observation.Summary = "scheduled time is ambiguous"
-		return agent.ToolExecuteResult{Content: "工具状态：requires_clarification\n原因：没有明确的 scheduled_at，且 time_hint 无法被后端校验为具体时间点。请结合当前时间和最近上下文，让用户补充日期、上午/下午/晚上，或由模型归一化为 RFC3339 scheduled_at 后再次调用工具。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("工具状态：requires_clarification\n原因：没有明确的 scheduled_at，且 time_hint 无法被后端校验为具体时间点。请结合当前时间和最近上下文，让用户补充日期、上午/下午/晚上，或由模型归一化为 RFC3339 scheduled_at 后再次调用工具。", true, observation), nil
 	}
 	if scheduledAt.Before(e.currentTime().Add(-time.Minute)) {
 		observation.Status = "failed"
 		observation.Summary = "scheduled time is in the past"
-		return agent.ToolExecuteResult{Content: "工具状态：failed\n原因：scheduled_at 已经过期，不能创建定时任务。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("工具状态：failed\n原因：scheduled_at 已经过期，不能创建定时任务。", true, observation), nil
 	}
 	if !args.Confirmed {
 		observation.Status = "requires_confirmation"
 		observation.Summary = "scheduled agent task requires user confirmation"
-		return agent.ToolExecuteResult{
-			Content:     fmt.Sprintf("工具状态：requires_confirmation\n计划时间：%s\n任务目标：%s\n说明：需要用户明确确认后才能创建；用户确认后必须再次调用 agent.schedule_task，并传 confirmed=true。", scheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), goal),
-			Observation: observation,
-		}, nil
+		return agent.NewMCPTextCallToolResult(fmt.Sprintf("工具状态：requires_confirmation\n计划时间：%s\n任务目标：%s\n说明：需要用户明确确认后才能创建；用户确认后必须再次调用 agent.schedule_task，并传 confirmed=true。", scheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), goal), false, observation), nil
 	}
 	targetChannel := args.TargetChannel
 	if targetChannel == "" {
@@ -850,15 +832,12 @@ func (e agentP0CapabilityExecutor) scheduleTask(ctx context.Context, input agent
 		UpdatedAt:   now,
 	})
 	if err != nil {
-		return agent.ToolExecuteResult{}, err
+		return agent.MCPCallToolResult{}, err
 	}
 	observation.Decision = string(agent.PolicyDecisionAllow)
 	observation.Status = "succeeded"
 	observation.Summary = fmt.Sprintf("scheduled agent task %d", task.ID)
-	return agent.ToolExecuteResult{
-		Content:     fmt.Sprintf("工具状态：created\n任务 ID：%d\n计划时间：%s\n任务目标：%s", task.ID, task.ScheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), task.Goal),
-		Observation: observation,
-	}, nil
+	return agent.NewMCPTextCallToolResult(fmt.Sprintf("工具状态：created\n任务 ID：%d\n计划时间：%s\n任务目标：%s", task.ID, task.ScheduledAt.In(agentTimeLocation()).Format("2006-01-02 15:04"), task.Goal), false, observation), nil
 }
 
 func (e agentP0CapabilityExecutor) summarizeTextCapability(input agent.CapabilityExecuteInput) agent.CapabilityExecuteResult {
@@ -883,27 +862,24 @@ func (e agentP0CapabilityExecutor) summarizeTextCapability(input agent.Capabilit
 	}
 }
 
-func (e agentP0CapabilityExecutor) summarizeTextTool(input agent.ToolExecuteInput) agent.ToolExecuteResult {
+func (e agentP0CapabilityExecutor) summarizeTextTool(input agent.MCPCallToolInput) agent.MCPCallToolResult {
 	args := parseSummarizeTextToolArgs(input.RawArguments)
 	content := formatSummarizeTextResult(args, input.Message)
-	return agent.ToolExecuteResult{
-		Content: content,
-		Observation: agent.CapabilityObservation{
-			Capability: input.Capability.Key,
-			Decision:   string(agent.PolicyDecisionAllow),
-			Status:     "succeeded",
-			Summary:    "generated structured text summary",
-		},
-	}
+	return agent.NewMCPTextCallToolResult(content, false, agent.CapabilityObservation{
+		Capability: input.Capability.Key,
+		Decision:   string(agent.PolicyDecisionAllow),
+		Status:     "succeeded",
+		Summary:    "generated structured text summary",
+	})
 }
 
-func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	args := parseWebSearchToolArgs(input.RawArguments)
 	if args.Query == "" {
 		args.Query = strings.TrimSpace(input.Message)
 	}
 	content, observation, _, err := e.runWebSearch(ctx, input.Capability.Key, args.Query, args.Limit)
-	return agent.ToolExecuteResult{Content: content, Observation: observation}, err
+	return agent.NewMCPTextCallToolResult(content, observation.Status == "failed", observation), err
 }
 
 func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityKey string, query string, limit int) (string, agent.CapabilityObservation, int, error) {
@@ -987,7 +963,7 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 	return formatWebSearchResult(query, finalURL, statusCode, contentType, e.currentTime(), results), observation, len(results), nil
 }
 
-func (e agentP0CapabilityExecutor) webFetchPage(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentP0CapabilityExecutor) webFetchPage(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	args := parseWebURLToolArgs(input.RawArguments)
 	observation := agent.CapabilityObservation{
 		Capability: input.Capability.Key,
@@ -996,23 +972,20 @@ func (e agentP0CapabilityExecutor) webFetchPage(ctx context.Context, input agent
 	if args.URL == "" {
 		observation.Status = "failed"
 		observation.Summary = "web fetch url is empty"
-		return agent.ToolExecuteResult{Content: "web.fetch_page 需要非空 url。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("web.fetch_page 需要非空 url。", true, observation), nil
 	}
 	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, args.URL)
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
-		return agent.ToolExecuteResult{Content: "web.fetch_page 执行失败：" + err.Error(), Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("web.fetch_page 执行失败："+err.Error(), true, observation), nil
 	}
 	observation.Status = "succeeded"
 	observation.Summary = fmt.Sprintf("fetched %d bytes from %s", len(body), finalURL)
-	return agent.ToolExecuteResult{
-		Content:     formatWebFetchResult(finalURL, statusCode, contentType, e.currentTime(), body),
-		Observation: observation,
-	}, nil
+	return agent.NewMCPTextCallToolResult(formatWebFetchResult(finalURL, statusCode, contentType, e.currentTime(), body), false, observation), nil
 }
 
-func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	args := parseWebURLToolArgs(input.RawArguments)
 	observation := agent.CapabilityObservation{
 		Capability: input.Capability.Key,
@@ -1021,13 +994,13 @@ func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input age
 	if args.URL == "" {
 		observation.Status = "failed"
 		observation.Summary = "web extract url is empty"
-		return agent.ToolExecuteResult{Content: "web.extract_page 需要非空 url。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("web.extract_page 需要非空 url。", true, observation), nil
 	}
 	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, args.URL)
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
-		return agent.ToolExecuteResult{Content: "web.extract_page 执行失败：" + err.Error(), Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("web.extract_page 执行失败："+err.Error(), true, observation), nil
 	}
 	extracted := extractAgentWebPage(body, finalURL)
 	observation.Status = "succeeded"
@@ -1036,13 +1009,10 @@ func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input age
 		observation.Status = "empty"
 		observation.Summary = "no readable page content extracted"
 	}
-	return agent.ToolExecuteResult{
-		Content:     formatWebExtractResult(finalURL, statusCode, contentType, e.currentTime(), extracted),
-		Observation: observation,
-	}, nil
+	return agent.NewMCPTextCallToolResult(formatWebExtractResult(finalURL, statusCode, contentType, e.currentTime(), extracted), false, observation), nil
 }
 
-func (e agentP0CapabilityExecutor) repoSearch(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentP0CapabilityExecutor) repoSearch(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	args := parseRepoSearchToolArgs(input.RawArguments)
 	if args.Query == "" {
 		args.Query = strings.TrimSpace(input.Message)
@@ -1058,7 +1028,7 @@ func (e agentP0CapabilityExecutor) repoSearch(ctx context.Context, input agent.T
 	if args.Query == "" {
 		observation.Status = "failed"
 		observation.Summary = "repo search query is empty"
-		return agent.ToolExecuteResult{Content: "repo.search 需要非空 query。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("repo.search 需要非空 query。", true, observation), nil
 	}
 	endpoint := "https://api.github.com/search/repositories?" + url.Values{
 		"q":        []string{args.Query},
@@ -1068,7 +1038,7 @@ func (e agentP0CapabilityExecutor) repoSearch(ctx context.Context, input agent.T
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
-		return agent.ToolExecuteResult{Content: "repo.search 执行失败：" + err.Error(), Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("repo.search 执行失败："+err.Error(), true, observation), nil
 	}
 	results := parseGitHubRepoSearchResults(body, limit)
 	observation.Status = "succeeded"
@@ -1077,13 +1047,10 @@ func (e agentP0CapabilityExecutor) repoSearch(ctx context.Context, input agent.T
 		observation.Status = "empty"
 		observation.Summary = "no repository result parsed"
 	}
-	return agent.ToolExecuteResult{
-		Content:     formatRepoSearchResult(args.Query, finalURL, statusCode, contentType, e.currentTime(), results),
-		Observation: observation,
-	}, nil
+	return agent.NewMCPTextCallToolResult(formatRepoSearchResult(args.Query, finalURL, statusCode, contentType, e.currentTime(), results), false, observation), nil
 }
 
-func (e agentP0CapabilityExecutor) repoInspectRemote(ctx context.Context, input agent.ToolExecuteInput) (agent.ToolExecuteResult, error) {
+func (e agentP0CapabilityExecutor) repoInspectRemote(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	args := parseRepoInspectToolArgs(input.RawArguments)
 	if args.Repo == "" {
 		args.Repo = extractRepoRef(input.Message)
@@ -1093,24 +1060,21 @@ func (e agentP0CapabilityExecutor) repoInspectRemote(ctx context.Context, input 
 	if !ok {
 		observation.Status = "failed"
 		observation.Summary = "github repository reference is invalid"
-		return agent.ToolExecuteResult{Content: "repo.inspect_remote 需要 GitHub URL 或 owner/repo。", Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("repo.inspect_remote 需要 GitHub URL 或 owner/repo。", true, observation), nil
 	}
 	metaURL := fmt.Sprintf("https://api.github.com/repos/%s/%s", url.PathEscape(owner), url.PathEscape(repo))
 	metaBody, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, metaURL)
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
-		return agent.ToolExecuteResult{Content: "repo.inspect_remote 执行失败：" + err.Error(), Observation: observation}, nil
+		return agent.NewMCPTextCallToolResult("repo.inspect_remote 执行失败："+err.Error(), true, observation), nil
 	}
 	meta := parseGitHubRepoMetadata(metaBody)
 	readme := fetchGitHubReadmeSummary(ctx, owner, repo)
 	license := fetchGitHubLicenseSummary(ctx, owner, repo)
 	observation.Status = "succeeded"
 	observation.Summary = fmt.Sprintf("inspected remote repository %s/%s", owner, repo)
-	return agent.ToolExecuteResult{
-		Content:     formatRepoInspectResult(finalURL, statusCode, contentType, e.currentTime(), meta, readme, license),
-		Observation: observation,
-	}, nil
+	return agent.NewMCPTextCallToolResult(formatRepoInspectResult(finalURL, statusCode, contentType, e.currentTime(), meta, readme, license), false, observation), nil
 }
 
 func parseConversationHistoryToolArgs(raw string) conversationHistoryToolArgs {

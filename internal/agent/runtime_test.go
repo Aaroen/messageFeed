@@ -90,7 +90,7 @@ func TestPolicyEngineAllowsReadOnlyAndPromptsMutatingCapability(t *testing.T) {
 		Key:     "agent.schedule_task",
 		Risk:    CapabilityRiskMedium,
 		Mutates: true,
-		Parameters: map[string]any{"properties": map[string]any{
+		InputSchema: map[string]any{"properties": map[string]any{
 			"confirmed": map[string]any{"type": "boolean"},
 		}},
 	}
@@ -102,7 +102,7 @@ func TestPolicyEngineAllowsReadOnlyAndPromptsMutatingCapability(t *testing.T) {
 		Key:     "source.edit",
 		Risk:    CapabilityRiskHigh,
 		Mutates: true,
-		Parameters: map[string]any{"properties": map[string]any{
+		InputSchema: map[string]any{"properties": map[string]any{
 			"confirmed": map[string]any{"type": "boolean"},
 		}},
 	}

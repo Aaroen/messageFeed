@@ -2440,7 +2440,7 @@ func (r *fakeAgentConversationRepository) QueryTranscriptEntries(_ context.Conte
 		if len(options.Roles) > 0 && !fakeTranscriptRoleAllowed(entry.Role, options.Roles) {
 			continue
 		}
-		if keyword != "" && !strings.Contains(strings.ToLower(entry.Content), keyword) {
+		if keyword != "" && !fakeTranscriptKeywordMatches(entry.Content, keyword) {
 			continue
 		}
 		entries = append(entries, entry)
@@ -2472,6 +2472,27 @@ func (r *fakeAgentConversationRepository) QueryTranscriptEntries(_ context.Conte
 		}
 	}
 	return entries, nil
+}
+
+func fakeTranscriptKeywordMatches(content string, keyword string) bool {
+	content = strings.ToLower(strings.TrimSpace(content))
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	if keyword == "" {
+		return true
+	}
+	if strings.Contains(content, keyword) {
+		return true
+	}
+	for _, token := range strings.Fields(keyword) {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		if !strings.Contains(content, token) {
+			return false
+		}
+	}
+	return true
 }
 
 type fakeAgentNotificationJobStore struct {
@@ -2851,6 +2872,14 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 	if f.err != nil {
 		return llm.ChatResponse{}, f.err
 	}
+	if request.ToolChoice == "required" && len(request.Tools) > 0 {
+		response := f.peekExecutionResponse()
+		if len(response.ToolCalls) > 0 {
+			f.responseIdx++
+			return response, nil
+		}
+		return fakeRequiredToolCallResponse(request), nil
+	}
 	if len(f.responses) > 0 {
 		index := f.responseIdx
 		if index >= len(f.responses) {
@@ -2860,6 +2889,78 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 		return f.responses[index], nil
 	}
 	return f.response, nil
+}
+
+func (f *fakeAgentConversationLLM) peekExecutionResponse() llm.ChatResponse {
+	if len(f.responses) > 0 {
+		index := f.responseIdx
+		if index >= len(f.responses) {
+			index = len(f.responses) - 1
+		}
+		return f.responses[index]
+	}
+	return f.response
+}
+
+func fakeRequiredToolCallResponse(request llm.ChatRequest) llm.ChatResponse {
+	tool := request.Tools[0]
+	name := strings.TrimSpace(tool.Name)
+	if name == "" {
+		name = "conversation__query_history"
+	}
+	args := domain.AgentJSON{}
+	switch name {
+	case "web__search", "repo__search":
+		args["query"] = fakeToolQueryFromRequest(request)
+		args["limit"] = 5
+	case "web__fetch_page", "web__extract_page":
+		args["url"] = "https://example.com"
+	case "repo__inspect_remote":
+		args["repo"] = "owner/repo"
+	case "agent__schedule_task":
+		args["task_type"] = "reminder"
+		args["goal"] = fakeToolQueryFromRequest(request)
+		args["content"] = fakeToolQueryFromRequest(request)
+		args["time_hint"] = "明天上午9点"
+		args["confirmed"] = false
+	case "agent__schedule_message":
+		args["task_type"] = "reminder"
+		args["content"] = fakeToolQueryFromRequest(request)
+		args["time_hint"] = "明天上午9点"
+		args["confirmed"] = false
+	case "conversation__query_history":
+		args["mode"] = "search"
+		args["query"] = fakeToolQueryFromRequest(request)
+		args["limit"] = 8
+	case "source__query_latest_items":
+		args["source_name"] = "测试来源"
+		args["query"] = fakeToolQueryFromRequest(request)
+		args["limit"] = 5
+	default:
+		args["query"] = fakeToolQueryFromRequest(request)
+	}
+	body, _ := json.Marshal(args)
+	return llm.ChatResponse{
+		Provider: "openai_compatible",
+		Model:    "fake-required-tool-model",
+		ToolCalls: []llm.ToolCall{
+			{ID: "call-required-1", Name: name, Arguments: string(body)},
+		},
+	}
+}
+
+func fakeToolQueryFromRequest(request llm.ChatRequest) string {
+	for index := len(request.Messages) - 1; index >= 0; index-- {
+		message := request.Messages[index]
+		if message.Role != "user" {
+			continue
+		}
+		content := strings.TrimSpace(message.Content)
+		if content != "" {
+			return content
+		}
+	}
+	return "测试任务"
 }
 
 // fakePlanCapabilityKeys 为测试规划阶段准备 capability scope。

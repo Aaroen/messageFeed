@@ -295,12 +295,13 @@ team manager        -> ControllerAgent 调度 ExecutorAgentRun
 
 ### 2.12 MCP 与能力协议边界
 
-MCP 适合描述 Agent 使用工具和资源，A2A 适合 Agent 与 Agent 之间协作。本项目短期应先实现内部 `AgentCapability` 协议，后续再提供 MCP server 或接入外部 MCP client。原因是当前最重要的是权限、审计、用户确认、业务 service binding 和数据边界，而不是协议兼容性本身。
+MCP 适合描述 Agent 使用工具和资源，A2A 适合 Agent 与 Agent 之间协作。本项目内部工具协议已改为 MCP 原生契约：工具发现使用 MCP `Tool` 描述，工具执行使用 `tools/call` 语义和 `content[]/structuredContent/isError` 结果。权限、审计、用户确认、业务 service binding 和数据边界仍由本项目后端强制执行，MCP annotations 只作为模型和 UI 的提示信息。
 
 取舍：
 
-- 内部 capability schema 应尽量接近 MCP tool 的输入输出结构，降低后续桥接成本。
-- 外部 MCP 工具默认进入 `deferred` 或 `hidden`，必须经 `PolicyEngine` 和 adapter 白名单。
+- 内部 capability registry 继续作为业务注册表存在，但对外向主 Agent、子 Agent 和未来 MCP server 暴露时统一转换为 MCP Tool descriptor。
+- 外部 MCP 工具默认进入 `deferred` 或 `hidden`，必须经 `PolicyEngine`、用户 scope、服务端白名单和审计链路。
+- 当前先完成内部原生 MCP 工具契约，不新增外部 MCP transport/server endpoint；后续暴露 HTTP 或 stdio MCP server 时复用同一 Tool descriptor 和 CallTool 结果结构。
 - A2A 作为后续外部 Agent 发现和委托边界，不进入阶段五 P0。
 
 ### 2.13 最终推导：messageFeed 自有 Agent Runtime 方案
