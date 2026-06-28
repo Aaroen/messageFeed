@@ -31,6 +31,8 @@ function combinedTransition(...transitions: string[]) {
   return activeTransitions.length ? activeTransitions.join(', ') : 'none'
 }
 
+const contentTopGapVar = 'var(--app-content-top-offset, var(--app-content-top-gap, 14px))'
+
 export function useAppShellMotion(options: AppShellMotionOptions) {
   const contentState = computed(() => {
     const detailSurfaceProgress = clampProgress(options.detailSurfaceProgress.value)
@@ -86,7 +88,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
     return {
       '--feed-content-shift': cssPx(state.feedContentShift),
       '--feed-content-shift-transition': state.feedContentShiftTransition,
-      paddingTop: `calc(${cssPx(state.feedContentSpace)} + var(--app-content-top-offset, 10px))`,
+      paddingTop: `calc(${cssPx(state.feedContentSpace)} + ${contentTopGapVar})`,
       opacity: state.underlayOpacity.toFixed(3),
       filter: `blur(${state.underlayBlur.toFixed(2)}px)`,
       transition: combinedTransition(state.transition, state.contentSpaceTransition),
@@ -98,7 +100,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
     return {
       '--page-content-shift': cssPx(state.pageContentShift),
       '--page-content-shift-transition': state.pageContentShiftTransition,
-      paddingTop: `calc(${cssPx(state.pageContentSpace)} + var(--app-content-top-offset, 10px))`,
+      paddingTop: `calc(${cssPx(state.pageContentSpace)} + ${contentTopGapVar})`,
       opacity: state.underlayOpacity.toFixed(3),
       filter: `blur(${state.underlayBlur.toFixed(2)}px)`,
       transition: combinedTransition(state.transition, state.contentSpaceTransition),

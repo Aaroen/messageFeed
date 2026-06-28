@@ -137,6 +137,7 @@ a:active,
 .app-main--feed {
   --feed-header-height: 86px;
   --feed-header-space: 86px;
+  --app-content-top-gap: 14px;
   height: var(--mf-viewport-height);
   min-height: var(--mf-viewport-height);
   overflow: hidden;
@@ -145,6 +146,7 @@ a:active,
 .app-main--page {
   --feed-header-height: 86px;
   --feed-header-space: 86px;
+  --app-content-top-gap: 14px;
   height: var(--mf-viewport-height);
   min-height: var(--mf-viewport-height);
   overflow: hidden;
@@ -778,11 +780,12 @@ body[arco-theme='dark'] .feed-tab--active {
 }
 
 .app-content--feed {
-  --app-content-top-offset: 10px;
+  --app-content-top-offset: var(--app-content-top-gap, 14px);
   height: var(--mf-viewport-height);
   overflow: hidden;
   overflow-y: auto;
   padding-top: calc(var(--feed-header-height) + var(--app-content-top-offset));
+  scroll-padding-top: calc(var(--feed-header-height) + var(--app-content-top-offset));
   touch-action: pan-y;
   user-select: none;
   overflow-anchor: none;
@@ -790,11 +793,12 @@ body[arco-theme='dark'] .feed-tab--active {
 }
 
 .app-content--page {
-  --app-content-top-offset: 10px;
+  --app-content-top-offset: var(--app-content-top-gap, 14px);
   height: var(--mf-viewport-height);
   overflow: hidden;
   overflow-y: auto;
   padding-top: calc(var(--feed-header-height) + var(--app-content-top-offset));
+  scroll-padding-top: calc(var(--feed-header-height) + var(--app-content-top-offset));
   overflow-anchor: none;
   -webkit-overflow-scrolling: touch;
 }
@@ -3020,6 +3024,7 @@ body[arco-theme='dark'] .empty-surface {
   .app-main--page {
     --feed-header-height: 78px;
     --feed-header-space: 78px;
+    --app-content-top-gap: 12px;
   }
 
   .nav-open-button {
@@ -3056,8 +3061,9 @@ body[arco-theme='dark'] .empty-surface {
 
   .app-content--feed,
   .app-content--page {
-    --app-content-top-offset: 8px;
+    --app-content-top-offset: var(--app-content-top-gap, 12px);
     padding-top: calc(var(--feed-header-height) + var(--app-content-top-offset));
+    scroll-padding-top: calc(var(--feed-header-height) + var(--app-content-top-offset));
   }
 
   .feed-stage {
