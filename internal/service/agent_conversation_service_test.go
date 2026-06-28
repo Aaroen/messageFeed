@@ -1984,6 +1984,34 @@ func TestAgentConversationServicePlanStartedFeedbackUsesTemplateSource(t *testin
 	}
 }
 
+func TestAgentConversationServiceFeedbackMarksThinkingTimeout(t *testing.T) {
+	now := time.Date(2026, 6, 28, 18, 0, 0, 0, time.UTC)
+	service := NewAgentConversationService(newFakeAgentConversationRepository(), WithAgentConversationNow(func() time.Time { return now }))
+	cause := domain.NewAppError(domain.ErrorKindUnavailable, "llm_thinking_timeout", "model thinking timed out", "test", true, context.DeadlineExceeded)
+	reply := service.generateAgentWeChatFeedbackText(context.Background(), agentWeChatFeedbackRequest{
+		Stage: "failed",
+		Plan: domain.AgentPlan{
+			ID:        8,
+			Status:    domain.AgentPlanStatusFailed,
+			Goal:      "分析市场消息",
+			UpdatedAt: now,
+		},
+		Step: domain.AgentPlanStep{
+			ID:     12,
+			Status: domain.AgentPlanStepStatusFailed,
+			Title:  "生成最终分析",
+		},
+		Cause:       cause,
+		ProgressURL: service.agentPlanURL(8),
+	})
+	if !strings.Contains(reply, "模型思考阶段超时") {
+		t.Fatalf("reply = %q, want thinking timeout reason", reply)
+	}
+	if !strings.Contains(reply, "/agent/plans/8") {
+		t.Fatalf("reply = %q, want progress url", reply)
+	}
+}
+
 func TestAgentConversationServiceApprovalRequiredReplyUsesGeneratedFeedback(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	service := NewAgentConversationService(

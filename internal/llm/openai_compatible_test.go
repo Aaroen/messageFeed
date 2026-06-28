@@ -3,9 +3,13 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"messagefeed/internal/domain"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestOpenAICompatibleClientUsesCustomBaseURL(t *testing.T) {
@@ -130,6 +134,63 @@ func TestOpenAICompatibleClientRetriesRetryableStatus(t *testing.T) {
 	}
 	if response.Content != "retry ok" {
 		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestOpenAICompatibleClientDefaultTimeoutIsThinkingWindow(t *testing.T) {
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL: "https://llm.example/v1",
+		APIKey:  "test-key",
+		Model:   "custom-model",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+	if client.httpClient == nil {
+		t.Fatal("http client is nil")
+	}
+	if client.httpClient.Timeout != 180*time.Second {
+		t.Fatalf("timeout = %s, want 180s", client.httpClient.Timeout)
+	}
+}
+
+func TestOpenAICompatibleClientClassifiesRequestTimeoutAsThinkingTimeout(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		time.Sleep(100 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"late"}}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "custom-model",
+		HTTPClient: &http.Client{
+			Timeout: 10 * time.Millisecond,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+
+	_, err = client.Chat(context.Background(), ChatRequest{
+		Messages: []ChatMessage{{Role: "user", Content: "需要较长思考"}},
+	})
+	if err == nil {
+		t.Fatal("Chat() error = nil, want thinking timeout")
+	}
+	var appErr *domain.AppError
+	if !errors.As(err, &appErr) {
+		t.Fatalf("error = %T %v, want AppError", err, err)
+	}
+	if appErr.Code != "llm_thinking_timeout" {
+		t.Fatalf("code = %q, want llm_thinking_timeout", appErr.Code)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Fatalf("attempts = %d, want 1", got)
 	}
 }
 

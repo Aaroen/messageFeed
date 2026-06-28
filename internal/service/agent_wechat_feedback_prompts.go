@@ -16,6 +16,7 @@ func agentWeChatFeedbackSystemPrompt() string {
 		"进度消息最多两句，语气直接、日常，不要夸张，不要营销。",
 		"错误消息必须说明失败阶段和用户能理解的原因；如果 payload.error 非空，不允许只说处理失败。",
 		"如果 timed_out=true，必须明确说本轮处理超时。",
+		"如果 thinking_timeout=true 或 error_type=thinking_timeout，必须明确说明这是模型思考阶段超时。",
 		"不要暴露状态锚点、权限、预算、质量评分、成本、trace、run_id、plan_id、内部错误栈或开发实现细节。",
 		"如果 payload 提供 progress_url 或 approval_url，可以在必要时自然包含对应 URL。",
 	}, "\n")
@@ -25,17 +26,18 @@ func agentWeChatFeedbackSystemPrompt() string {
 // 字段来自后端已经确认的运行状态，不替代主 Agent 的任务规划。
 func agentWeChatFeedbackPayloadSchema() domain.AgentJSON {
 	return domain.AgentJSON{
-		"stage":        "当前消息场景，例如 accepted、started、subagent_stage_completed、failed。",
-		"user_message": "用户原始消息，可为空。",
-		"goal":         "主 Agent 理解后的任务目标，可为空。",
-		"summary":      "计划摘要或阶段摘要，可为空。",
-		"status":       "当前计划状态。",
-		"step":         "当前子 Agent 阶段摘要，可为空。",
-		"error":        "错误摘要，可为空。",
-		"error_type":   "错误类型，例如 timeout 或 error。",
-		"timed_out":    "是否由处理超时触发。",
-		"progress_url": "Web 详情地址，可为空。",
-		"approval_url": "需要用户确认时的审批地址，可为空。",
+		"stage":            "当前消息场景，例如 accepted、started、subagent_stage_completed、failed。",
+		"user_message":     "用户原始消息，可为空。",
+		"goal":             "主 Agent 理解后的任务目标，可为空。",
+		"summary":          "计划摘要或阶段摘要，可为空。",
+		"status":           "当前计划状态。",
+		"step":             "当前子 Agent 阶段摘要，可为空。",
+		"error":            "错误摘要，可为空。",
+		"error_type":       "错误类型，例如 thinking_timeout、timeout 或 error。",
+		"timed_out":        "是否由处理超时触发。",
+		"thinking_timeout": "是否由模型思考阶段超时触发。",
+		"progress_url":     "Web 详情地址，可为空。",
+		"approval_url":     "需要用户确认时的审批地址，可为空。",
 	}
 }
 

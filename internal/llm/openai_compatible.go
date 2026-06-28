@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -27,6 +28,11 @@ const defaultOpenAIBaseURL = "https://api.openai.com/v1"
 const openAICompatibleChatOperation = "auto_route"
 const openAICompatibleExternalHTTPOperation = "llm_openai_compatible"
 const llmHTTPMaxAttempts = 6
+
+// llmDefaultHTTPTimeout 是非流式模型单次请求的思考等待窗口。
+// 参考项目通常把模型长响应与普通短 HTTP 请求区分处理；本项目暂不启用流式，
+// 因此先给非流式请求保留 180 秒，避免 30 秒级默认值误打断长思考模型。
+const llmDefaultHTTPTimeout = 180 * time.Second
 
 type llmProtocol string
 
@@ -231,7 +237,7 @@ func NewOpenAICompatibleClient(config OpenAICompatibleConfig) (*OpenAICompatible
 	httpClient := config.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{
-			Timeout:   30 * time.Second,
+			Timeout:   llmDefaultHTTPTimeout,
 			Transport: otelhttp.NewTransport(http.DefaultTransport),
 		}
 	}
@@ -726,6 +732,11 @@ func (c *OpenAICompatibleClient) doLLMHTTPRequest(ctx context.Context, path stri
 		httpResponse, err := c.httpClient.Do(httpRequest)
 		if err != nil {
 			recordLLMExternalHTTPRequest(openAICompatibleExternalHTTPOperation, host, "error", time.Since(httpStartedAt))
+			if isLLMThinkingTimeoutError(err) {
+				// 模型思考超时通常意味着上游已经长时间未产出结果。
+				// 这里不做 HTTP 层重复提交，避免同一用户任务被上游模型并发执行多份。
+				return nil, 0, domain.NewAppError(domain.ErrorKindUnavailable, "llm_thinking_timeout", "model thinking timed out", "llm.openai_compatible.chat", true, err)
+			}
 			lastErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_request_failed", "llm request failed", "llm.openai_compatible.chat", true, err)
 			if attempt < llmHTTPMaxAttempts {
 				if sleepErr := sleepLLMRetry(ctx, attempt); sleepErr != nil {
@@ -754,6 +765,21 @@ func (c *OpenAICompatibleClient) doLLMHTTPRequest(ctx context.Context, path stri
 		return nil, 0, lastErr
 	}
 	return nil, 0, domain.NewAppError(domain.ErrorKindUnavailable, "llm_request_failed", "llm request failed", "llm.openai_compatible.chat", true, nil)
+}
+
+func isLLMThinkingTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "client.timeout") || strings.Contains(lower, "timeout awaiting headers")
 }
 
 func isRetryableLLMHTTPStatus(statusCode int) bool {

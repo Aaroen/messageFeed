@@ -7,6 +7,7 @@
     "subagent_stage_completed": "阶段处理完成。{{if .StepTitle}}\n{{.StepTitle}}{{end}}{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",
     "step_failed": "这个阶段没有处理成功。{{if .StepTitle}}\n阶段：{{.StepTitle}}{{end}}{{if .Error}}\n原因：{{.Error}}{{end}}{{if .ProgressURL}}\n详情：{{.ProgressURL}}{{end}}",
     "failed": "这次任务没有完成。{{if .StepTitle}}\n失败阶段：{{.StepTitle}}{{end}}{{if .Error}}\n原因：{{.Error}}{{end}}{{if .ProgressURL}}\n详情：{{.ProgressURL}}{{end}}",
+    "failed_thinking_timeout": "这次是模型思考阶段超时。{{if .StepTitle}}\n失败阶段：{{.StepTitle}}{{end}}{{if .Error}}\n原因：{{.Error}}{{end}}{{if .ProgressURL}}\n详情：{{.ProgressURL}}{{end}}",
     "failed_timeout": "这次处理超时了。{{if .StepTitle}}\n失败阶段：{{.StepTitle}}{{end}}{{if .Error}}\n原因：{{.Error}}{{end}}{{if .ProgressURL}}\n详情：{{.ProgressURL}}{{end}}",
     "stopped": "已停止当前任务。{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",
     "retry_skipped": "当前任务还不需要重试。{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",

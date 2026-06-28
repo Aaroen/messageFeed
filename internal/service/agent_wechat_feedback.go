@@ -36,17 +36,18 @@ type agentWeChatFeedbackTemplateFile struct {
 }
 
 type agentWeChatFeedbackTemplateData struct {
-	Stage       string
-	Status      string
-	Goal        string
-	Summary     string
-	StepTitle   string
-	StepSummary string
-	Error       string
-	ErrorType   string
-	TimedOut    bool
-	ProgressURL string
-	ApprovalURL string
+	Stage            string
+	Status           string
+	Goal             string
+	Summary          string
+	StepTitle        string
+	StepSummary      string
+	Error            string
+	ErrorType        string
+	TimedOut         bool
+	ThinkingTimedOut bool
+	ProgressURL      string
+	ApprovalURL      string
 }
 
 // outboundNotificationContext 为企业微信发送动作创建独立短超时上下文。
@@ -99,18 +100,20 @@ func (request agentWeChatFeedbackRequest) agentWeChatFeedbackPayload() domain.Ag
 	if progressURL == "" && request.Plan.ID > 0 {
 		progressURL = ""
 	}
+	thinkingTimedOut := isAgentThinkingTimeoutError(request.Cause, errorText)
 	payload := domain.AgentJSON{
-		"schema":       agentWeChatFeedbackPayloadSchema(),
-		"stage":        strings.TrimSpace(request.Stage),
-		"user_message": safeSummary(request.UserMessage, 300),
-		"goal":         safeSummary(request.Plan.Goal, 300),
-		"summary":      safeSummary(request.Plan.Summary, 300),
-		"status":       string(request.Plan.Status),
-		"error":        safeSummary(errorText, 300),
-		"error_type":   agentFeedbackErrorType(request.Cause, errorText),
-		"timed_out":    isAgentTimeoutError(request.Cause) || strings.Contains(strings.ToLower(errorText), "deadline exceeded"),
-		"progress_url": progressURL,
-		"approval_url": strings.TrimSpace(request.ApprovalURL),
+		"schema":           agentWeChatFeedbackPayloadSchema(),
+		"stage":            strings.TrimSpace(request.Stage),
+		"user_message":     safeSummary(request.UserMessage, 300),
+		"goal":             safeSummary(request.Plan.Goal, 300),
+		"summary":          safeSummary(request.Plan.Summary, 300),
+		"status":           string(request.Plan.Status),
+		"error":            safeSummary(errorText, 300),
+		"error_type":       agentFeedbackErrorType(request.Cause, errorText),
+		"timed_out":        thinkingTimedOut || isAgentTimeoutError(request.Cause) || strings.Contains(strings.ToLower(errorText), "deadline exceeded"),
+		"thinking_timeout": thinkingTimedOut,
+		"progress_url":     progressURL,
+		"approval_url":     strings.TrimSpace(request.ApprovalURL),
 	}
 	if request.Step.ID > 0 || strings.TrimSpace(request.Step.Title) != "" {
 		payload["step"] = domain.AgentJSON{
@@ -128,18 +131,20 @@ func (request agentWeChatFeedbackRequest) templateData() agentWeChatFeedbackTemp
 	if errorText == "" && request.Cause != nil {
 		errorText = request.Cause.Error()
 	}
+	thinkingTimedOut := isAgentThinkingTimeoutError(request.Cause, errorText)
 	return agentWeChatFeedbackTemplateData{
-		Stage:       strings.TrimSpace(request.Stage),
-		Status:      string(request.Plan.Status),
-		Goal:        safeSummary(request.Plan.Goal, 300),
-		Summary:     safeSummary(request.Plan.Summary, 300),
-		StepTitle:   safeSummary(request.Step.Title, 160),
-		StepSummary: safeSummary(firstNonEmptyString(request.Step.OutputSummary, request.Step.InputSummary), 220),
-		Error:       safeSummary(errorText, 300),
-		ErrorType:   agentFeedbackErrorType(request.Cause, errorText),
-		TimedOut:    isAgentTimeoutError(request.Cause) || strings.Contains(strings.ToLower(errorText), "deadline exceeded"),
-		ProgressURL: strings.TrimSpace(request.ProgressURL),
-		ApprovalURL: strings.TrimSpace(request.ApprovalURL),
+		Stage:            strings.TrimSpace(request.Stage),
+		Status:           string(request.Plan.Status),
+		Goal:             safeSummary(request.Plan.Goal, 300),
+		Summary:          safeSummary(request.Plan.Summary, 300),
+		StepTitle:        safeSummary(request.Step.Title, 160),
+		StepSummary:      safeSummary(firstNonEmptyString(request.Step.OutputSummary, request.Step.InputSummary), 220),
+		Error:            safeSummary(errorText, 300),
+		ErrorType:        agentFeedbackErrorType(request.Cause, errorText),
+		TimedOut:         thinkingTimedOut || isAgentTimeoutError(request.Cause) || strings.Contains(strings.ToLower(errorText), "deadline exceeded"),
+		ThinkingTimedOut: thinkingTimedOut,
+		ProgressURL:      strings.TrimSpace(request.ProgressURL),
+		ApprovalURL:      strings.TrimSpace(request.ApprovalURL),
 	}
 }
 
@@ -149,6 +154,9 @@ func (request agentWeChatFeedbackRequest) fallbackTemplateKey() string {
 		stage = "progress"
 	}
 	data := request.templateData()
+	if stage == "failed" && data.ThinkingTimedOut {
+		return "failed_thinking_timeout"
+	}
 	if stage == "failed" && data.TimedOut {
 		return "failed_timeout"
 	}
@@ -176,7 +184,20 @@ func isAgentTimeoutError(err error) bool {
 	return err != nil && (errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "deadline exceeded") || strings.Contains(strings.ToLower(err.Error()), "timeout"))
 }
 
+// isAgentThinkingTimeoutError 只做工程错误归类，不生成任何用户可见话术。
+// 用户最终看到的表述仍由模型提示词或集中模板基于该结构化字段生成。
+func isAgentThinkingTimeoutError(cause error, errorText string) bool {
+	var appErr *domain.AppError
+	if errors.As(cause, &appErr) && appErr.Code == "llm_thinking_timeout" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(errorText), "llm_thinking_timeout")
+}
+
 func agentFeedbackErrorType(cause error, errorText string) string {
+	if isAgentThinkingTimeoutError(cause, errorText) {
+		return "thinking_timeout"
+	}
 	if isAgentTimeoutError(cause) || strings.Contains(strings.ToLower(errorText), "deadline exceeded") {
 		return "timeout"
 	}
