@@ -192,6 +192,7 @@ type TurnRunResult struct {
 }
 
 const emptyLLMResponseRetryLimit = 2
+const requiredToolCallRetryLimit = 2
 
 func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult, error) {
 	ctx, span := observability.StartSpan(ctx, "agent.turn_runner.run",
@@ -310,13 +311,44 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, error) {
 	tools := r.buildToolDefinitions(input.AllowedToolKeys)
 	const maxToolRounds = 50
+	requiredToolRetries := 0
 	for round := 0; round <= maxToolRounds; round++ {
-		response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, tools, false, len(snapshot.Observations) > 0)
+		hasObservations := len(snapshot.Observations) > 0
+		response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, tools, false, hasObservations, len(tools) > 0 && !hasObservations)
 		if err != nil {
 			return llm.ChatResponse{}, snapshot, err
 		}
 		messages = effectiveMessages
 		if len(response.ToolCalls) == 0 {
+			// 主 Agent 已下发工具 scope 时，子 Agent 至少要产生一次真实 observation。
+			// 如果模型首轮直接给出文本，runner 不把它当作完成结果，而是拉回工具执行路径。
+			if len(tools) > 0 && len(snapshot.Observations) == 0 {
+				requiredToolRetries++
+				if requiredToolRetries > requiredToolCallRetryLimit {
+					return llm.ChatResponse{}, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_required_tool_skipped", "agent did not call an approved tool before answering", "agent.turn_runner.tools", true, nil)
+				}
+				r.record(ctx, AuditEvent{
+					SessionID: input.Session.ID,
+					TurnID:    input.Turn.ID,
+					UserID:    input.UserID,
+					EventType: "agent.required_tool_call_retry",
+					Status:    "retrying",
+					Message:   "agent required tool call retry scheduled",
+					Metadata: domain.AgentJSON{
+						"attempt":     requiredToolRetries,
+						"max_retries": requiredToolCallRetryLimit,
+						"tool_count":  len(tools),
+					},
+					RequestID: input.RequestID,
+					TraceID:   input.TraceID,
+					CreatedAt: r.now().UTC(),
+				})
+				if strings.TrimSpace(response.Content) != "" {
+					messages = append(messages, llm.ChatMessage{Role: "assistant", Content: response.Content})
+				}
+				messages = append(messages, llm.ChatMessage{Role: "user", Content: requiredToolCallRetryPrompt(requiredToolRetries)})
+				continue
+			}
 			return response, snapshot, nil
 		}
 		if r.toolExecutor == nil {
@@ -365,7 +397,7 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 			Role:    "user",
 			Content: "工具调用轮次已经达到上限。请只基于以上工具结果生成最终回答，不要再请求工具；如果证据不足，请直接说明证据不足。",
 		})
-		response, _, err := r.chatWithEmptyResponseRetry(ctx, input, messages, nil, true, true)
+		response, _, err := r.chatWithEmptyResponseRetry(ctx, input, messages, nil, true, true, false)
 		if err != nil {
 			return llm.ChatResponse{}, snapshot, err
 		}
@@ -385,6 +417,7 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 	tools []llm.ToolDefinition,
 	finalOnly bool,
 	hasObservations bool,
+	requireToolCall bool,
 ) (llm.ChatResponse, []llm.ChatMessage, error) {
 	effectiveMessages := append([]llm.ChatMessage(nil), messages...)
 	effectiveTools := append([]llm.ToolDefinition(nil), tools...)
@@ -393,13 +426,40 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 	}
 	var lastErr error
 	for attempt := 0; attempt <= emptyLLMResponseRetryLimit; attempt++ {
+		toolChoice := toolChoiceForDefinitions(effectiveTools, requireToolCall)
 		response, err := r.llmClient.Chat(ctx, llm.ChatRequest{
 			Messages:    effectiveMessages,
 			Tools:       effectiveTools,
-			ToolChoice:  toolChoiceForDefinitions(effectiveTools),
+			ToolChoice:  toolChoice,
 			Temperature: r.temperature,
 			MaxTokens:   r.maxTokens,
 		})
+		if err != nil && toolChoice == "required" && isToolChoiceRequiredUnsupportedError(err) {
+			// 部分 OpenAI-compatible 服务不完整支持 tool_choice=required。
+			// 此处只做协议兼容降级，后续仍由 runner 检查是否真的产生了工具调用。
+			r.record(ctx, AuditEvent{
+				SessionID: input.Session.ID,
+				TurnID:    input.Turn.ID,
+				UserID:    input.UserID,
+				EventType: "agent.tool_choice_required_fallback",
+				Status:    "retrying",
+				Message:   "tool choice required is unsupported, retrying with auto",
+				Metadata: domain.AgentJSON{
+					"tool_count": len(effectiveTools),
+					"error":      err.Error(),
+				},
+				RequestID: input.RequestID,
+				TraceID:   input.TraceID,
+				CreatedAt: r.now().UTC(),
+			})
+			response, err = r.llmClient.Chat(ctx, llm.ChatRequest{
+				Messages:    effectiveMessages,
+				Tools:       effectiveTools,
+				ToolChoice:  toolChoiceForDefinitions(effectiveTools, false),
+				Temperature: r.temperature,
+				MaxTokens:   r.maxTokens,
+			})
+		}
 		if err == nil && strings.TrimSpace(response.Content) == "" && len(response.ToolCalls) == 0 {
 			err = domain.NewAppError(domain.ErrorKindUnavailable, "llm_empty_response", "llm response is empty", "agent.turn_runner.chat", true, nil)
 		}
@@ -435,6 +495,20 @@ func (r *TurnRunner) chatWithEmptyResponseRetry(
 	return llm.ChatResponse{}, effectiveMessages, lastErr
 }
 
+func isToolChoiceRequiredUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	if !strings.Contains(lower, "tool_choice") || !strings.Contains(lower, "required") {
+		return false
+	}
+	return strings.Contains(lower, "unsupported") ||
+		strings.Contains(lower, "not supported") ||
+		strings.Contains(lower, "not support") ||
+		strings.Contains(lower, "invalid")
+}
+
 func isEmptyLLMResponseError(err error) bool {
 	if err == nil {
 		return false
@@ -459,6 +533,10 @@ func emptyLLMResponseRetryPrompt(attempt int, finalOnly bool, hasObservations bo
 	default:
 		return "上一轮模型没有返回内容。请直接根据已有上下文给出回答；如果无法回答，请说明缺少哪些信息。"
 	}
+}
+
+func requiredToolCallRetryPrompt(attempt int) string {
+	return "上一轮没有执行已授权工具。当前计划要求先取得工具观察，再基于观察结果回答；本轮必须调用至少一个已授权工具。"
 }
 
 func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, call llm.ToolCall) (ToolExecuteResult, error) {
@@ -629,9 +707,12 @@ func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot, currentMessage 
 	return builder.String()
 }
 
-func toolChoiceForDefinitions(tools []llm.ToolDefinition) string {
+func toolChoiceForDefinitions(tools []llm.ToolDefinition, requireToolCall bool) string {
 	if len(tools) == 0 {
 		return ""
+	}
+	if requireToolCall {
+		return "required"
 	}
 	return "auto"
 }

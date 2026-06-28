@@ -53,6 +53,7 @@
 - LLM 客户端已支持 OpenAI-compatible 双协议智能路由：默认优先 `/chat/completions`，遇到协议不兼容时自动尝试 `/responses`，成功后在客户端实例内记忆可用协议；HTTP 429/5xx 和瞬时网络错误具备指数退避重试，非协议类 5xx 不再误触发协议切换。当前 `.env` 真实模型验证使用 `/v1/chat/completions` 完成。
 - 已参考 `../references/openai_go` 与 `../references/opencode` 的长请求、SSE 超时、用户中断和 thinking 展示处理方式，将本项目非流式模型单次思考等待窗口调整为 180 秒；模型思考超时归类为 `llm_thinking_timeout`，不会在 HTTP 层重复提交同一长请求，并通过企业微信反馈 payload/template 显式暴露为“模型思考阶段超时”。
 - 子 Agent 工具循环上限已提高到 50 次；达到上限时不再无限调用工具，而是进入强制收敛阶段，要求模型基于已有 observation 输出最终回答或明确说明证据不足。
+- 已修复子 Agent 跳过工具直接回答的问题：当主 Agent 已下发 capability scope 且当前 turn 尚无 observation 时，runner 首轮使用 `tool_choice=required`，遇到兼容服务不支持时降级为 `auto` 并继续检查真实工具调用；模型若连续返回无工具文本，会记录 `agent.required_tool_call_retry` 并最终失败为 `agent_required_tool_skipped`，避免无证据假完成。
 - 已清理旧的任务规格、证据评分和质量门禁主路径规则：`TaskSpec` 保留兼容结构，不再从用户文本推断领域、搜索方向或结论；证据评分只检查标题、URL、来源、摘要和发布时间等结构完整性；最终回答质量门禁不再按涨跌、市场方向或低质量词表替模型判断。
 - 已修复企微重复发送失败任务无响应问题：自然语言 `retry` 命中旧失败计划时，不再只记录重试请求并结束 turn，而是重新进入主 Agent 规划与执行闭环；直接回复为空时转入失败反馈链路；生产镜像已打包 `configs/agent_wechat_feedback.zh-CN.json`，保障模型短反馈为空时仍有配置化模板兜底。
 - 已强化企微阶段失败反馈：企业微信短反馈集中提示词要求失败消息必须说明失败阶段和用户可理解原因；配置化兜底模板同步展示阶段、原因和详情地址；主 Agent 规划阶段在 PlanSpec 生成前失败时会补建 failed plan 与 failed step，Web 详情页可直接查看规划阶段错误、审计和进度地址。

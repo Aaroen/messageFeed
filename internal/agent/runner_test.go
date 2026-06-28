@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"strings"
@@ -58,6 +59,9 @@ func TestTurnRunnerExecutesToolCallAndContinuesChat(t *testing.T) {
 	if chat.calls != 2 {
 		t.Fatalf("chat calls = %d, want 2", chat.calls)
 	}
+	if chat.requests[0].ToolChoice != "required" {
+		t.Fatalf("first tool choice = %q, want required", chat.requests[0].ToolChoice)
+	}
 	if toolExecutor.input.Capability.Key != "conversation.query_history" {
 		t.Fatalf("tool capability = %q", toolExecutor.input.Capability.Key)
 	}
@@ -71,6 +75,107 @@ func TestTurnRunnerExecutesToolCallAndContinuesChat(t *testing.T) {
 	}
 	if len(store.transcripts) != 1 || store.transcripts[0].Role != domain.AgentTranscriptRoleAssistant {
 		t.Fatalf("assistant transcript = %#v", store.transcripts)
+	}
+}
+
+func TestTurnRunnerRetriesWhenModelSkipsRequiredTool(t *testing.T) {
+	now := time.Date(2026, 6, 28, 18, 20, 0, 0, time.UTC)
+	chat := &runnerFakeChatClient{
+		responses: []llm.ChatResponse{
+			{Provider: "openai_compatible", Model: "custom-model", Content: "我可以直接回答。"},
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "conversation__query_history", Arguments: `{"query":"能力"}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "历史记录显示你询问过 Agent 能力。"},
+		},
+	}
+	audit := &runnerFakeAuditLogger{}
+	toolExecutor := &runnerFakeToolExecutor{content: "2026-06-28 18:00 用户：Agent 能力有哪些？"}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store:        &runnerFakeTurnStore{},
+		AuditLogger:  audit,
+		ToolExecutor: toolExecutor,
+		LLMClient:    chat,
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"conversation.query_history"},
+		MessageType:     "text",
+		MessageText:     "结合历史回答我的 Agent 能力",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Reply != "历史记录显示你询问过 Agent 能力。" {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if chat.calls != 3 {
+		t.Fatalf("chat calls = %d, want 3", chat.calls)
+	}
+	if chat.requests[0].ToolChoice != "required" || chat.requests[1].ToolChoice != "required" || chat.requests[2].ToolChoice != "auto" {
+		t.Fatalf("tool choices = %#v", []string{chat.requests[0].ToolChoice, chat.requests[1].ToolChoice, chat.requests[2].ToolChoice})
+	}
+	if !runnerAuditContains(audit.events, "agent.required_tool_call_retry") {
+		t.Fatalf("audit events = %#v", audit.events)
+	}
+	if toolExecutor.input.Capability.Key != "conversation.query_history" {
+		t.Fatalf("tool capability = %q", toolExecutor.input.Capability.Key)
+	}
+}
+
+func TestTurnRunnerFailsWhenModelKeepsSkippingRequiredTool(t *testing.T) {
+	now := time.Date(2026, 6, 28, 18, 30, 0, 0, time.UTC)
+	chat := &runnerFakeChatClient{
+		responses: []llm.ChatResponse{
+			{Provider: "openai_compatible", Model: "custom-model", Content: "第一次直接回答。"},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "第二次仍然直接回答。"},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "第三次仍然没有工具。"},
+		},
+	}
+	audit := &runnerFakeAuditLogger{}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store:        &runnerFakeTurnStore{},
+		AuditLogger:  audit,
+		ToolExecutor: &runnerFakeToolExecutor{content: "不会执行"},
+		LLMClient:    chat,
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"conversation.query_history"},
+		MessageType:     "text",
+		MessageText:     "必须结合历史再回答",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, result = %#v", result)
+	}
+	var appErr *domain.AppError
+	if !errors.As(err, &appErr) || appErr.Code != "agent_required_tool_skipped" {
+		t.Fatalf("error = %T %v, want agent_required_tool_skipped", err, err)
+	}
+	if chat.calls != 3 {
+		t.Fatalf("chat calls = %d, want 3", chat.calls)
+	}
+	if result.Turn.Status != domain.AgentTurnStatusFailed {
+		t.Fatalf("turn status = %q, want failed", result.Turn.Status)
+	}
+	if !runnerAuditContains(audit.events, "agent.required_tool_call_retry") {
+		t.Fatalf("audit events = %#v", audit.events)
 	}
 }
 
