@@ -163,10 +163,11 @@ func (cfg WeChatWorkConfig) Enabled() bool {
 
 // LLMConfig 保存自定义 AI 提供商配置。
 type LLMConfig struct {
-	Provider string
-	APIKey   string
-	BaseURL  string
-	Model    string
+	Provider     string
+	APIKey       string
+	BaseURL      string
+	Model        string
+	ConfigSecret string
 }
 
 // Enabled 表示是否启用模型调用。
@@ -218,6 +219,7 @@ func Load() (Config, error) {
 	cfg.LLM.APIKey = envString("LLM_API_KEY", cfg.LLM.APIKey)
 	cfg.LLM.BaseURL = envString("LLM_BASE_URL", cfg.LLM.BaseURL)
 	cfg.LLM.Model = envString("LLM_MODEL", cfg.LLM.Model)
+	cfg.LLM.ConfigSecret = envString("LLM_CONFIG_SECRET", cfg.LLM.ConfigSecret)
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

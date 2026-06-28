@@ -27,12 +27,12 @@ import (
 const defaultOpenAIBaseURL = "https://api.openai.com/v1"
 const openAICompatibleChatOperation = "auto_route"
 const openAICompatibleExternalHTTPOperation = "llm_openai_compatible"
-const llmHTTPMaxAttempts = 6
 
 // llmDefaultHTTPTimeout 是非流式模型单次请求的思考等待窗口。
 // 参考项目通常把模型长响应与普通短 HTTP 请求区分处理；本项目暂不启用流式，
 // 因此先给非流式请求保留 180 秒，避免 30 秒级默认值误打断长思考模型。
 const llmDefaultHTTPTimeout = 180 * time.Second
+const llmDefaultHTTPMaxAttempts = 6
 
 type llmProtocol string
 
@@ -85,11 +85,14 @@ type ToolCall struct {
 }
 
 type OpenAICompatibleConfig struct {
-	Provider   string
-	BaseURL    string
-	APIKey     string
-	Model      string
-	HTTPClient *http.Client
+	Provider     string
+	BaseURL      string
+	APIKey       string
+	Model        string
+	ProtocolMode string
+	Timeout      time.Duration
+	MaxAttempts  int
+	HTTPClient   *http.Client
 }
 
 type OpenAICompatibleClient struct {
@@ -98,6 +101,8 @@ type OpenAICompatibleClient struct {
 	apiKey            string
 	model             string
 	httpClient        *http.Client
+	protocolMode      string
+	maxAttempts       int
 	routeMu           sync.Mutex
 	preferredProtocol llmProtocol
 }
@@ -238,19 +243,33 @@ func NewOpenAICompatibleClient(config OpenAICompatibleConfig) (*OpenAICompatible
 	if model == "" {
 		return nil, domain.NewAppError(domain.ErrorKindInvalidInput, "llm_missing_model", "llm model is required", "llm.openai_compatible.new", false, nil)
 	}
+	protocolMode := normalizeOpenAICompatibleProtocolMode(config.ProtocolMode)
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = llmDefaultHTTPTimeout
+	}
+	maxAttempts := config.MaxAttempts
+	if maxAttempts < 1 {
+		maxAttempts = llmDefaultHTTPMaxAttempts
+	}
+	if maxAttempts > 50 {
+		maxAttempts = 50
+	}
 	httpClient := config.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{
-			Timeout:   llmDefaultHTTPTimeout,
+			Timeout:   timeout,
 			Transport: otelhttp.NewTransport(http.DefaultTransport),
 		}
 	}
 	return &OpenAICompatibleClient{
-		provider:   provider,
-		baseURL:    baseURL,
-		apiKey:     apiKey,
-		model:      model,
-		httpClient: httpClient,
+		provider:     provider,
+		baseURL:      baseURL,
+		apiKey:       apiKey,
+		model:        model,
+		httpClient:   httpClient,
+		protocolMode: protocolMode,
+		maxAttempts:  maxAttempts,
 	}, nil
 }
 
@@ -324,6 +343,12 @@ func compactChatMessages(messages []ChatMessage) []ChatMessage {
 // 当前接入的部分 OpenAI-compatible 服务在 /chat/completions 下能返回普通文本，
 // 但带 tools 时不返回 tool_calls；Responses 原生 function_call 更稳定，因此作为默认主路由。
 func (c *OpenAICompatibleClient) protocolOrder(request ChatRequest) []llmProtocol {
+	switch c.protocolMode {
+	case "responses":
+		return []llmProtocol{llmProtocolResponses, llmProtocolChatCompletions}
+	case "chat_completions":
+		return []llmProtocol{llmProtocolChatCompletions, llmProtocolResponses}
+	}
 	c.routeMu.Lock()
 	preferred := c.preferredProtocol
 	c.routeMu.Unlock()
@@ -349,7 +374,7 @@ func (c *OpenAICompatibleClient) rememberProtocol(protocol llmProtocol) {
 }
 
 // chatWithProtocol 将统一的业务 ChatRequest 映射到指定上游协议。
-// 当前默认协议为 Chat Completions；Responses 作为需要该协议的模型或服务的备用路由。
+// 协议尝试顺序由 protocolOrder 统一决定，默认优先 Responses，再降级到 Chat Completions。
 func (c *OpenAICompatibleClient) chatWithProtocol(ctx context.Context, request ChatRequest, protocol llmProtocol, host string, span trace.Span) (ChatResponse, error) {
 	switch protocol {
 	case llmProtocolResponses:
@@ -730,7 +755,11 @@ func recordLLMUsage(provider string, model string, inputTokens int, outputTokens
 
 func (c *OpenAICompatibleClient) doLLMHTTPRequest(ctx context.Context, path string, body []byte, host string) ([]byte, int, error) {
 	var lastErr error
-	for attempt := 1; attempt <= llmHTTPMaxAttempts; attempt++ {
+	maxAttempts := c.maxAttempts
+	if maxAttempts < 1 {
+		maxAttempts = llmDefaultHTTPMaxAttempts
+	}
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
 		if err != nil {
 			return nil, 0, err
@@ -747,7 +776,7 @@ func (c *OpenAICompatibleClient) doLLMHTTPRequest(ctx context.Context, path stri
 				return nil, 0, domain.NewAppError(domain.ErrorKindUnavailable, "llm_thinking_timeout", "model thinking timed out", "llm.openai_compatible.chat", true, err)
 			}
 			lastErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_request_failed", "llm request failed", "llm.openai_compatible.chat", true, err)
-			if attempt < llmHTTPMaxAttempts {
+			if attempt < maxAttempts {
 				if sleepErr := sleepLLMRetry(ctx, attempt); sleepErr != nil {
 					return nil, 0, sleepErr
 				}
@@ -761,7 +790,7 @@ func (c *OpenAICompatibleClient) doLLMHTTPRequest(ctx context.Context, path stri
 		if readErr != nil {
 			return nil, httpResponse.StatusCode, readErr
 		}
-		if isRetryableLLMHTTPStatus(httpResponse.StatusCode) && attempt < llmHTTPMaxAttempts {
+		if isRetryableLLMHTTPStatus(httpResponse.StatusCode) && attempt < maxAttempts {
 			lastErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_retryable_status", llmResponseSnippet(responseBody), "llm.openai_compatible.chat", true, nil)
 			if sleepErr := sleepLLMRetry(ctx, attempt); sleepErr != nil {
 				return nil, httpResponse.StatusCode, sleepErr
@@ -849,6 +878,17 @@ func recordLLMExternalHTTPRequest(operation string, host string, status string, 
 	}
 	metrics.ExternalHTTPRequestsTotal.WithLabelValues(operation, host, status).Inc()
 	metrics.ExternalHTTPRequestDuration.WithLabelValues(operation, host).Observe(duration.Seconds())
+}
+
+func normalizeOpenAICompatibleProtocolMode(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "responses":
+		return "responses"
+	case "chat_completions", "chat-completions", "chat", "completions":
+		return "chat_completions"
+	default:
+		return "auto"
+	}
 }
 
 func llmHTTPHost(baseURL string) string {

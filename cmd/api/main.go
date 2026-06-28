@@ -76,6 +76,7 @@ func main() {
 	var weChatWorkSender *notifier.WeChatWorkAppClient
 	var llmClient llm.Client
 	var agentConversationService *service.AgentConversationService
+	var agentLLMConfigService *service.AgentLLMConfigService
 	var adminConfigService *service.AdminConfigService
 	var authService *service.AuthService
 	var agentApprovalService *service.AgentApprovalService
@@ -213,12 +214,23 @@ func main() {
 		agentApprovalService = service.NewAgentApprovalService(agentApprovalRepository)
 		agentSessionService = service.NewAgentSessionService(agentRepository)
 		agentScheduleEvalService = service.NewAgentScheduleEvalService(agentRepository)
+		agentLLMConfigSecret := service.AgentLLMConfigSecretFromConfig(cfg)
+		agentLLMConfigService = service.NewAgentLLMConfigService(
+			agentRepository,
+			service.WithAgentLLMConfigDefaultConfig(cfg.LLM),
+			service.WithAgentLLMConfigSecret(agentLLMConfigSecret),
+		)
+		agentLLMRuntime := service.NewAgentLLMRuntime(
+			agentRepository,
+			service.WithAgentLLMRuntimeDefaultClient(llmClient),
+			service.WithAgentLLMRuntimeSecret(agentLLMConfigSecret),
+		)
 		if weChatWorkSender != nil {
 			notificationWorkerService = service.NewNotificationWorkerService(notificationRepository, weChatWorkSender)
 		}
 		agentConversationService = service.NewAgentConversationService(
 			agentRepository,
-			service.WithAgentConversationLLM(llmClient),
+			service.WithAgentConversationLLM(agentLLMRuntime),
 			service.WithAgentConversationSender(weChatWorkSender),
 			service.WithAgentConversationExternalAccountResolver(authService),
 			service.WithAgentConversationUserContextProvider(authService),
@@ -268,6 +280,7 @@ func main() {
 		AgentSessionService:   agentSessionService,
 		AgentTaskService:      agentConversationService,
 		AgentEvalService:      agentScheduleEvalService,
+		AgentLLMConfigService: agentLLMConfigService,
 		ServiceName:           cfg.Observability.ServiceName,
 	})
 

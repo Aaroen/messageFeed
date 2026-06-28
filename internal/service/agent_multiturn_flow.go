@@ -31,6 +31,7 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
 ) (bool, ReceiveWeChatWorkAppMessageResult, error) {
+	ctx = withAgentLLMUserID(ctx, account.UserID)
 	message := strings.TrimSpace(input.TextContent)
 	if s == nil || s.repository == nil || message == "" {
 		return false, ReceiveWeChatWorkAppMessageResult{}, nil

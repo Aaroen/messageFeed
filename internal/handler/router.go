@@ -40,6 +40,7 @@ type RouterOptions struct {
 	AgentSessionService   agentSessionService
 	AgentTaskService      agentTaskService
 	AgentEvalService      agentEvalService
+	AgentLLMConfigService agentLLMConfigService
 	ServiceName           string
 }
 
@@ -83,6 +84,7 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	registerAgentSessionRoutes(protectedAPI, options.AgentSessionService, options.AuthService)
 	registerAgentTaskRoutes(protectedAPI, options.AgentTaskService)
 	registerAgentEvalRoutes(protectedAPI, options.AgentEvalService)
+	registerAgentLLMConfigRoutes(protectedAPI, options.AgentLLMConfigService)
 
 	router.NoRoute(func(c *gin.Context) {
 		Error(c, http.StatusNotFound, http.StatusNotFound, "request path not found")

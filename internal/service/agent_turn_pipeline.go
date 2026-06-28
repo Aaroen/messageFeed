@@ -23,6 +23,7 @@ func (s *AgentConversationService) processTurn(
 	input ReceiveWeChatWorkAppMessageInput,
 ) (ReceiveWeChatWorkAppMessageResult, error) {
 	ctx, cancelProcess := context.WithCancel(ctx)
+	ctx = withAgentLLMUserID(ctx, account.UserID)
 	activeProcess := s.registerAgentProcess(turn.ID, cancelProcess)
 	defer cancelProcess()
 	defer s.unregisterAgentProcess(activeProcess)
