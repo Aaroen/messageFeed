@@ -335,6 +335,72 @@ func agentPlanStepTerminal(status domain.AgentPlanStepStatus) bool {
 	}
 }
 
+// popBestPlanStepObservation 为同一 capability 的多次调用选择最能代表最终执行结果的观测。
+// 模型可能先给出错误工具参数，随后根据工具反馈重试成功；计划步骤应绑定成功观测，而不是第一次失败观测。
+func popBestPlanStepObservation(observationsByCapability map[string][]agent.CapabilityObservation, capabilityKey string) (agent.CapabilityObservation, bool) {
+	candidates := observationsByCapability[capabilityKey]
+	if len(candidates) == 0 {
+		return agent.CapabilityObservation{}, false
+	}
+	bestIndex := 0
+	bestRank := agentPlanObservationRank(candidates[0])
+	for index := 1; index < len(candidates); index++ {
+		if rank := agentPlanObservationRank(candidates[index]); rank > bestRank {
+			bestIndex = index
+			bestRank = rank
+		}
+	}
+	observation := candidates[bestIndex]
+	candidates = append(candidates[:bestIndex], candidates[bestIndex+1:]...)
+	if len(candidates) == 0 {
+		delete(observationsByCapability, capabilityKey)
+	} else {
+		observationsByCapability[capabilityKey] = candidates
+	}
+	return observation, true
+}
+
+func agentPlanObservationRank(observation agent.CapabilityObservation) int {
+	switch strings.ToLower(strings.TrimSpace(observation.Status)) {
+	case "succeeded":
+		return 4
+	case "empty":
+		return 3
+	case "skipped":
+		return 2
+	case "failed":
+		return 1
+	default:
+		return 2
+	}
+}
+
+func agentPlanStepStatusForObservation(observation agent.CapabilityObservation) domain.AgentPlanStepStatus {
+	switch strings.ToLower(strings.TrimSpace(observation.Status)) {
+	case "failed":
+		return domain.AgentPlanStepStatusFailed
+	case "skipped":
+		return domain.AgentPlanStepStatusSkipped
+	default:
+		return domain.AgentPlanStepStatusCompleted
+	}
+}
+
+// convergeUnobservedPlanStep 把终态计划中未被实际执行路径使用的步骤收敛为 skipped。
+// Web 详情仍能看到原始计划步骤，但不会出现 completed plan 保留 pending/executing 的不一致状态。
+func convergeUnobservedPlanStep(step domain.AgentPlanStep, now time.Time) domain.AgentPlanStep {
+	if agentPlanStepTerminal(step.Status) {
+		return step
+	}
+	step.Status = domain.AgentPlanStepStatusSkipped
+	if strings.TrimSpace(step.OutputSummary) == "" {
+		step.OutputSummary = "模型实际执行路径未使用该计划步骤，终态收敛时已跳过。"
+	}
+	completedAt := now
+	step.CompletedAt = &completedAt
+	return step
+}
+
 // bindPlanStepsToObservations 将工具观测回填到计划步骤，并汇总计划终态。
 func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Context, userID int64, plan domain.AgentPlan, observations []agent.CapabilityObservation) (domain.AgentPlan, error) {
 	if s == nil || s.repository == nil || plan.ID == 0 {
@@ -350,16 +416,14 @@ func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Conte
 		observationsByCapability[key] = append(observationsByCapability[key], observation)
 	}
 	hasFailure := false
-	for _, step := range plan.Steps {
-		candidates := observationsByCapability[step.CapabilityKey]
-		if len(candidates) == 0 {
+	for index := range plan.Steps {
+		step := plan.Steps[index]
+		observation, ok := popBestPlanStepObservation(observationsByCapability, step.CapabilityKey)
+		if !ok {
 			continue
 		}
-		observation := candidates[0]
-		observationsByCapability[step.CapabilityKey] = candidates[1:]
-		step.Status = domain.AgentPlanStepStatusCompleted
-		if strings.EqualFold(observation.Status, "failed") {
-			step.Status = domain.AgentPlanStepStatusFailed
+		step.Status = agentPlanStepStatusForObservation(observation)
+		if step.Status == domain.AgentPlanStepStatusFailed {
 			step.ErrorMessage = observation.Summary
 			hasFailure = true
 		}
@@ -373,9 +437,22 @@ func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Conte
 		step.ObservationRef = observation.ObservationRef
 		step.ArtifactRefs = append([]string(nil), observation.ArtifactRefs...)
 		step.OutputSummary = observation.Summary
-		if _, err := s.repository.UpdateAgentPlanStepStatus(ctx, userID, step); err != nil {
+		updatedStep, err := s.repository.UpdateAgentPlanStepStatus(ctx, userID, step)
+		if err != nil {
 			return domain.AgentPlan{}, err
 		}
+		plan.Steps[index] = updatedStep
+	}
+	for index := range plan.Steps {
+		step := convergeUnobservedPlanStep(plan.Steps[index], now)
+		if step.Status == plan.Steps[index].Status {
+			continue
+		}
+		updatedStep, err := s.repository.UpdateAgentPlanStepStatus(ctx, userID, step)
+		if err != nil {
+			return domain.AgentPlan{}, err
+		}
+		plan.Steps[index] = updatedStep
 	}
 	status := domain.AgentPlanStatusCompleted
 	errorMessage := ""

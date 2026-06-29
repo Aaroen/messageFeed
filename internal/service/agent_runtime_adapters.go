@@ -290,7 +290,7 @@ func (e agentP0CapabilityExecutor) querySourceLatestItems(ctx context.Context, i
 }
 
 func (e agentP0CapabilityExecutor) webSearchCapability(ctx context.Context, input agent.CapabilityExecuteInput) (agent.CapabilityExecuteResult, error) {
-	content, observation, itemCount, err := e.runWebSearch(ctx, input.Capability.Key, input.Message, 5)
+	content, observation, itemCount, err := e.runWebSearch(ctx, input.Capability.Key, input.Message, 5, input.Message)
 	if err != nil {
 		return agent.CapabilityExecuteResult{}, err
 	}
@@ -878,11 +878,11 @@ func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.MC
 	if args.Query == "" {
 		args.Query = strings.TrimSpace(input.Message)
 	}
-	content, observation, _, err := e.runWebSearch(ctx, input.Capability.Key, args.Query, args.Limit)
+	content, observation, _, err := e.runWebSearch(ctx, input.Capability.Key, args.Query, args.Limit, input.Message)
 	return agent.NewMCPTextCallToolResult(content, observation.Status == "failed", observation), err
 }
 
-func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityKey string, query string, limit int) (string, agent.CapabilityObservation, int, error) {
+func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityKey string, query string, limit int, userMessage string) (string, agent.CapabilityObservation, int, error) {
 	query = normalizeWebSearchQuery(query)
 	if limit < 1 {
 		limit = 5
@@ -898,6 +898,13 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 		observation.Status = "failed"
 		observation.Summary = "web search query is empty"
 		return "web.search 需要非空 query。", observation, 0, nil
+	}
+	now := e.currentTime()
+	temporal := validateAgentToolTemporalRequest(query, userMessage, now)
+	if !temporal.OK {
+		observation.Status = "failed"
+		observation.Summary = "web search query temporal validation failed: " + temporal.Status
+		return formatAgentToolTemporalValidationFailure("web.search", query, temporal), observation, 0, nil
 	}
 	endpoint := "https://duckduckgo.com/html/?" + url.Values{"q": []string{query}}.Encode()
 	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, endpoint)
@@ -954,13 +961,19 @@ func (e agentP0CapabilityExecutor) runWebSearch(ctx context.Context, capabilityK
 		observation.Summary = safeSummary(err.Error(), 300)
 		return "web.search 执行失败：" + err.Error(), observation, 0, nil
 	}
+	rawCount := len(results)
+	results, temporalCounts := filterAgentWebSearchResultsByTemporalEvidence(query, userMessage, now, results)
 	observation.Status = "succeeded"
-	observation.Summary = fmt.Sprintf("loaded %d web search results", len(results))
+	observation.Summary = fmt.Sprintf("loaded %d web search results after temporal filter", len(results))
 	if len(results) == 0 {
 		observation.Status = "empty"
-		observation.Summary = "no web search result parsed"
+		if rawCount == 0 {
+			observation.Summary = "no web search result parsed"
+		} else {
+			observation.Summary = "no current web search result remained after temporal filter"
+		}
 	}
-	return formatWebSearchResult(query, finalURL, statusCode, contentType, e.currentTime(), results), observation, len(results), nil
+	return formatWebSearchResult(query, finalURL, statusCode, contentType, now, results, temporalCounts), observation, len(results), nil
 }
 
 func (e agentP0CapabilityExecutor) webFetchPage(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
@@ -974,15 +987,28 @@ func (e agentP0CapabilityExecutor) webFetchPage(ctx context.Context, input agent
 		observation.Summary = "web fetch url is empty"
 		return agent.NewMCPTextCallToolResult("web.fetch_page 需要非空 url。", true, observation), nil
 	}
+	now := e.currentTime()
+	temporal := validateAgentToolTemporalRequest(args.URL, input.Message, now)
+	if !temporal.OK {
+		observation.Status = "empty"
+		observation.Summary = "web fetch url temporal validation failed: " + temporal.Status
+		return agent.NewMCPTextCallToolResult(formatAgentToolTemporalValidationFailure("web.fetch_page", args.URL, temporal), true, observation), nil
+	}
 	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, args.URL)
 	if err != nil {
 		observation.Status = "failed"
 		observation.Summary = safeSummary(err.Error(), 300)
 		return agent.NewMCPTextCallToolResult("web.fetch_page 执行失败："+err.Error(), true, observation), nil
 	}
+	evidenceTemporal := assessAgentWebEvidenceTemporalStatus(args.URL, input.Message, strings.Join([]string{finalURL, string(body[:minInt(len(body), 4000)])}, " "), "", now)
+	if !evidenceTemporal.OK {
+		observation.Status = "empty"
+		observation.Summary = "web fetch evidence temporal validation failed: " + evidenceTemporal.Status
+		return agent.NewMCPTextCallToolResult(formatAgentToolTemporalValidationFailure("web.fetch_page", finalURL, evidenceTemporal), true, observation), nil
+	}
 	observation.Status = "succeeded"
 	observation.Summary = fmt.Sprintf("fetched %d bytes from %s", len(body), finalURL)
-	return agent.NewMCPTextCallToolResult(formatWebFetchResult(finalURL, statusCode, contentType, e.currentTime(), body), false, observation), nil
+	return agent.NewMCPTextCallToolResult(formatWebFetchResult(finalURL, statusCode, contentType, now, body, evidenceTemporal), false, observation), nil
 }
 
 func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
@@ -996,6 +1022,13 @@ func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input age
 		observation.Summary = "web extract url is empty"
 		return agent.NewMCPTextCallToolResult("web.extract_page 需要非空 url。", true, observation), nil
 	}
+	now := e.currentTime()
+	temporal := validateAgentToolTemporalRequest(args.URL, input.Message, now)
+	if !temporal.OK {
+		observation.Status = "empty"
+		observation.Summary = "web extract url temporal validation failed: " + temporal.Status
+		return agent.NewMCPTextCallToolResult(formatAgentToolTemporalValidationFailure("web.extract_page", args.URL, temporal), true, observation), nil
+	}
 	body, finalURL, statusCode, contentType, err := e.fetchWebURL(ctx, args.URL)
 	if err != nil {
 		observation.Status = "failed"
@@ -1003,13 +1036,19 @@ func (e agentP0CapabilityExecutor) webExtractPage(ctx context.Context, input age
 		return agent.NewMCPTextCallToolResult("web.extract_page 执行失败："+err.Error(), true, observation), nil
 	}
 	extracted := extractAgentWebPage(body, finalURL)
+	evidenceTemporal := assessAgentWebEvidenceTemporalStatus(args.URL, input.Message, strings.Join([]string{finalURL, extracted.Title, extracted.Summary}, " "), extracted.PublishedAt, now)
+	if !evidenceTemporal.OK {
+		observation.Status = "empty"
+		observation.Summary = "web extract evidence temporal validation failed: " + evidenceTemporal.Status
+		return agent.NewMCPTextCallToolResult(formatAgentToolTemporalValidationFailure("web.extract_page", finalURL, evidenceTemporal), true, observation), nil
+	}
 	observation.Status = "succeeded"
 	observation.Summary = "extracted web page content"
 	if extracted.Summary == "" && extracted.Title == "" {
 		observation.Status = "empty"
 		observation.Summary = "no readable page content extracted"
 	}
-	return agent.NewMCPTextCallToolResult(formatWebExtractResult(finalURL, statusCode, contentType, e.currentTime(), extracted), false, observation), nil
+	return agent.NewMCPTextCallToolResult(formatWebExtractResult(finalURL, statusCode, contentType, now, extracted, evidenceTemporal), false, observation), nil
 }
 
 func (e agentP0CapabilityExecutor) repoSearch(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
@@ -1864,7 +1903,7 @@ func extractAgentWebLinks(document *goquery.Document, sourceURL string, limit in
 	return links
 }
 
-func formatWebSearchResult(query string, source string, statusCode int, contentType string, fetchedAt time.Time, results []agentWebSearchResult) string {
+func formatWebSearchResult(query string, source string, statusCode int, contentType string, fetchedAt time.Time, results []agentWebSearchResult, temporalCounts map[string]int) string {
 	var builder strings.Builder
 	builder.WriteString("工具：web.search\n查询：")
 	builder.WriteString(query)
@@ -1879,6 +1918,8 @@ func formatWebSearchResult(query string, source string, statusCode int, contentT
 	builder.WriteString("\n证据引用：web_search:")
 	builder.WriteString(source)
 	builder.WriteString("\n新鲜度提示：联网结果 6 小时后建议刷新。")
+	builder.WriteString("\n证据时效过滤：")
+	builder.WriteString(formatAgentTemporalFilterSummary(temporalCounts))
 	builder.WriteString("\n结果：\n")
 	for index, result := range results {
 		builder.WriteString(strconv.Itoa(index + 1))
@@ -1909,20 +1950,21 @@ func formatWebSearchResult(query string, source string, statusCode int, contentT
 	return builder.String()
 }
 
-func formatWebFetchResult(source string, statusCode int, contentType string, fetchedAt time.Time, body []byte) string {
+func formatWebFetchResult(source string, statusCode int, contentType string, fetchedAt time.Time, body []byte, temporal agentTemporalValidationResult) string {
 	return fmt.Sprintf(
-		"工具：web.fetch_page\n来源：%s\n抓取时间：%s\nHTTP 状态：%d\n内容类型：%s\n证据引用：url:%s\n新鲜度提示：联网结果 6 小时后建议刷新。\n字节数：%d\n正文片段：\n%s",
+		"工具：web.fetch_page\n来源：%s\n抓取时间：%s\nHTTP 状态：%d\n内容类型：%s\n证据引用：url:%s\n新鲜度提示：联网结果 6 小时后建议刷新。\n证据时效状态：%s\n字节数：%d\n正文片段：\n%s",
 		source,
 		fetchedAt.UTC().Format(time.RFC3339),
 		statusCode,
 		contentType,
 		source,
+		temporal.Status,
 		len(body),
 		safeSummary(string(body), 4000),
 	)
 }
 
-func formatWebExtractResult(source string, statusCode int, contentType string, fetchedAt time.Time, page agentWebExtractedPage) string {
+func formatWebExtractResult(source string, statusCode int, contentType string, fetchedAt time.Time, page agentWebExtractedPage, temporal agentTemporalValidationResult) string {
 	var builder strings.Builder
 	builder.WriteString("工具：web.extract_page\n来源：")
 	builder.WriteString(source)
@@ -1935,6 +1977,8 @@ func formatWebExtractResult(source string, statusCode int, contentType string, f
 	builder.WriteString("\n证据引用：url:")
 	builder.WriteString(source)
 	builder.WriteString("\n新鲜度提示：联网结果 6 小时后建议刷新。")
+	builder.WriteString("\n证据时效状态：")
+	builder.WriteString(temporal.Status)
 	builder.WriteString("\n标题：")
 	builder.WriteString(page.Title)
 	if page.SiteName != "" {
@@ -1966,6 +2010,34 @@ func formatWebExtractResult(source string, statusCode int, contentType string, f
 		builder.WriteString("没有解析到主要链接。\n")
 	}
 	return builder.String()
+}
+
+func formatAgentToolTemporalValidationFailure(tool string, value string, result agentTemporalValidationResult) string {
+	var builder strings.Builder
+	builder.WriteString("工具：")
+	builder.WriteString(tool)
+	builder.WriteString("\n状态：时间校验未通过")
+	builder.WriteString("\n校验类型：")
+	builder.WriteString(result.Status)
+	if strings.TrimSpace(result.Reason) != "" {
+		builder.WriteString("\n原因：")
+		builder.WriteString(result.Reason)
+	}
+	if len(result.Matched) > 0 {
+		builder.WriteString("\n命中日期：")
+		builder.WriteString(strings.Join(result.Matched, ", "))
+	}
+	builder.WriteString("\n原始参数：")
+	builder.WriteString(value)
+	builder.WriteString("\n处理建议：请重新生成与用户原始时间要求一致的工具参数，并避免使用未来日期、错年日期或过期证据。")
+	return builder.String()
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func formatSummarizeTextResult(args summarizeTextToolArgs, fallback string) string {

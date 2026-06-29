@@ -613,7 +613,9 @@ func TestAgentConversationServiceRejectsWebAgentTaskWhenDailyQuotaExceeded(t *te
 		CreatedAt: now.Add(-time.Hour),
 		UpdatedAt: now.Add(-time.Minute),
 	})
-	llmClient := &fakeAgentConversationLLM{followupIntent: agentFollowupIntentQuestion}
+	llmClient := &fakeAgentConversationLLM{
+		followupIntent: agentFollowupIntentQuestion,
+	}
 	service := NewAgentConversationService(
 		repository,
 		WithAgentConversationLLM(llmClient),
@@ -789,7 +791,9 @@ func TestAgentConversationServiceStopAgentPlanConvergesRuntimeState(t *testing.T
 		CreatedAt: now.Add(-time.Minute),
 		UpdatedAt: now.Add(-time.Minute),
 	}}
-	llmClient := &fakeAgentConversationLLM{followupIntent: agentFollowupIntentQuestion}
+	llmClient := &fakeAgentConversationLLM{
+		followupIntent: agentFollowupIntentQuestion,
+	}
 	service := NewAgentConversationService(
 		repository,
 		WithAgentConversationLLM(llmClient),
@@ -845,7 +849,10 @@ func TestAgentConversationServiceReusesCompletedPlanForFollowup(t *testing.T) {
 		CreatedAt: now.Add(-time.Hour),
 		UpdatedAt: now.Add(-time.Hour),
 	}}
-	llmClient := &fakeAgentConversationLLM{followupIntent: agentFollowupIntentQuestion}
+	llmClient := &fakeAgentConversationLLM{
+		followupIntent: agentFollowupIntentQuestion,
+		followupAnswer: "依据主要来自已记录的网页观察和产物，结论是模型发布节奏加快。",
+	}
 	service := NewAgentConversationService(
 		repository,
 		WithAgentConversationLLM(llmClient),
@@ -859,11 +866,14 @@ func TestAgentConversationServiceReusesCompletedPlanForFollowup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
 	}
-	if result.Plan.ID != 22 || !strings.Contains(result.Reply, "已关联到计划 #22") {
+	if result.Plan.ID != 22 || result.Reply != "依据主要来自已记录的网页观察和产物，结论是模型发布节奏加快。" {
 		t.Fatalf("result = %#v reply = %q", result.Plan, result.Reply)
 	}
-	if !strings.Contains(result.Reply, "结果新鲜度：fresh") || !strings.Contains(result.Reply, "agent_artifact:41") {
-		t.Fatalf("reply missing freshness or evidence refs: %q", result.Reply)
+	if strings.Contains(result.Reply, "已关联到计划") || strings.Contains(result.Reply, "agent_artifact:41") {
+		t.Fatalf("reply leaked plan details: %q", result.Reply)
+	}
+	if !fakeIsAgentFollowupAnswerRequest(llmClient.lastRequest) || !strings.Contains(llmClient.lastRequest.Messages[1].Content, "agent_artifact:41") {
+		t.Fatalf("followup answer request missing evidence payload: %#v", llmClient.lastRequest)
 	}
 	multiTurn, _ := repository.plans[0].Metadata["multi_turn"].(map[string]any)
 	reuse, _ := multiTurn["result_reuse"].(map[string]any)
@@ -893,7 +903,10 @@ func TestAgentConversationServiceDoesNotReuseStaleCompletedPlanAsCurrentFact(t *
 		CreatedAt:     oldCompletedAt,
 		UpdatedAt:     oldCompletedAt,
 	}}
-	llmClient := &fakeAgentConversationLLM{followupIntent: agentFollowupIntentQuestion}
+	llmClient := &fakeAgentConversationLLM{
+		followupIntent: agentFollowupIntentQuestion,
+		followupAnswer: "这个结果已经过期，不能作为当前事实依据，需要重新检索模型新闻。",
+	}
 	service := NewAgentConversationService(
 		repository,
 		WithAgentConversationLLM(llmClient),
@@ -907,11 +920,14 @@ func TestAgentConversationServiceDoesNotReuseStaleCompletedPlanAsCurrentFact(t *
 	if err != nil {
 		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
 	}
-	if result.Plan.ID != 23 || !strings.Contains(result.Reply, "该结果已过期") {
+	if result.Plan.ID != 23 || result.Reply != "这个结果已经过期，不能作为当前事实依据，需要重新检索模型新闻。" {
 		t.Fatalf("result = %#v reply = %q", result.Plan, result.Reply)
 	}
 	if strings.Contains(result.Reply, "旧新闻摘要") {
 		t.Fatalf("stale reply reused old fact: %q", result.Reply)
+	}
+	if strings.Contains(result.Reply, "历史计划") || strings.Contains(result.Reply, "进度") {
+		t.Fatalf("stale reply leaked plan details: %q", result.Reply)
 	}
 	if !fakeAuditContains(repository.audits, "agent.plan_result_stale") {
 		t.Fatalf("audits = %#v", repository.audits)
@@ -1040,6 +1056,85 @@ func TestAgentConversationServiceRetryIntentStartsNewPlanForFailedTask(t *testin
 	}
 	if !fakeAuditContains(repository.audits, "agent.plan_governance_recorded") {
 		t.Fatalf("new plan governance audit missing: %#v", repository.audits)
+	}
+}
+
+func TestAgentConversationServiceRetryIntentPrefersRecentCompletedPlan(t *testing.T) {
+	now := time.Date(2026, 6, 28, 16, 0, 0, 0, time.UTC)
+	completedAt := now.Add(-5 * time.Minute)
+	failedAt := now.Add(-40 * time.Minute)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{
+		ID:                48,
+		UserID:            1,
+		ExternalAccountID: 10,
+		Provider:          domain.AgentProviderWeChatWorkApp,
+		ChannelSessionKey: "corp-a:1000002:zhangsan",
+		Status:            domain.AgentSessionStatusActive,
+		StartedAt:         now.Add(-time.Hour),
+		LastActiveAt:      now.Add(-time.Minute),
+	}
+	repository.plans = []domain.AgentPlan{
+		{
+			ID:           41,
+			UserID:       1,
+			SessionID:    48,
+			TurnID:       70,
+			Status:       domain.AgentPlanStatusFailed,
+			Goal:         "旧失败任务",
+			ErrorMessage: "old failure",
+			Metadata:     domain.AgentJSON{},
+			CreatedAt:    now.Add(-45 * time.Minute),
+			UpdatedAt:    failedAt,
+			FailedAt:     &failedAt,
+		},
+		{
+			ID:          42,
+			UserID:      1,
+			SessionID:   48,
+			TurnID:      71,
+			Status:      domain.AgentPlanStatusCompleted,
+			Goal:        "最近完成但被质疑的市场分析",
+			Summary:     "近期市场分析结果",
+			Metadata:    domain.AgentJSON{},
+			CreatedAt:   now.Add(-10 * time.Minute),
+			UpdatedAt:   completedAt,
+			CompletedAt: &completedAt,
+		},
+	}
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		followupIntent: agentFollowupIntentRetry,
+		response:       llm.ChatResponse{Provider: "openai_compatible", Model: "custom-model", Content: "重新生成后的结果"},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationInlineProcessing(true),
+	)
+
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-retry-completed-plan",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "你这全是假消息过时消息，重新搞",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if result.Plan.ID == 0 || result.Plan.ID == 41 || result.Plan.ID == 42 {
+		t.Fatalf("new retry plan was not created from completed target: %#v", result.Plan)
+	}
+	multiTurn, _ := repository.plans[1].Metadata["multi_turn"].(map[string]any)
+	if multiTurn["latest_intent"] != string(agentFollowupIntentRetry) {
+		t.Fatalf("completed plan retry metadata = %#v", repository.plans[1].Metadata)
+	}
+	if retryAudit := fakeAuditByType(repository.audits, "agent.plan_retry_requested"); retryAudit.Metadata["plan_id"] != int64(42) && retryAudit.Metadata["plan_id"] != 42 {
+		t.Fatalf("retry audit target = %#v", retryAudit.Metadata)
 	}
 }
 
@@ -1474,6 +1569,90 @@ func TestAgentConversationServiceBindPlanStepsWritesQualityAndDeploymentMetadata
 	}
 	if metadataString(metadataMap(updated.Metadata, "deployment_acceptance"), "status") != "ready" {
 		t.Fatalf("deployment acceptance = %#v", updated.Metadata["deployment_acceptance"])
+	}
+}
+
+func TestAgentConversationServiceBindPlanStepsSkipsUnobservedCompletedSteps(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 20, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	plan := domain.AgentPlan{
+		ID:        10,
+		UserID:    1,
+		SessionID: 2,
+		TurnID:    3,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "分析网页",
+		Summary:   "执行网页分析",
+		RiskLevel: "low",
+		Metadata:  domain.AgentJSON{},
+		Steps: []domain.AgentPlanStep{
+			{ID: 11, PlanID: 10, Status: domain.AgentPlanStepStatusExecuting, CapabilityKey: "web.search", Title: "联网查询"},
+			{ID: 12, PlanID: 10, Status: domain.AgentPlanStepStatusPending, CapabilityKey: "web.extract_page", Title: "读取网页"},
+			{ID: 13, PlanID: 10, Status: domain.AgentPlanStepStatusApproved, CapabilityKey: "content.summarize_text", Title: "汇总结果"},
+		},
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}
+	repository.plans = append(repository.plans, plan)
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	updated, err := service.bindPlanStepsToObservations(context.Background(), 1, plan, []agent.CapabilityObservation{
+		{
+			Capability:     "web.search",
+			Status:         "succeeded",
+			Summary:        "完成查询",
+			RunID:          20,
+			ObservationRef: "observation:20:web.search",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bindPlanStepsToObservations() error = %v", err)
+	}
+	if updated.Status != domain.AgentPlanStatusCompleted {
+		t.Fatalf("updated status = %q", updated.Status)
+	}
+	if updated.Steps[0].Status != domain.AgentPlanStepStatusCompleted {
+		t.Fatalf("observed step status = %q", updated.Steps[0].Status)
+	}
+	for _, step := range updated.Steps[1:] {
+		if step.Status != domain.AgentPlanStepStatusSkipped || step.CompletedAt == nil {
+			t.Fatalf("unobserved step was not skipped: %#v", step)
+		}
+	}
+}
+
+func TestAgentConversationServiceBindPlanStepsPrefersSuccessfulRetryObservation(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 25, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	plan := domain.AgentPlan{
+		ID:        10,
+		UserID:    1,
+		SessionID: 2,
+		TurnID:    3,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "搜索网页",
+		Metadata:  domain.AgentJSON{},
+		Steps: []domain.AgentPlanStep{
+			{ID: 11, PlanID: 10, Status: domain.AgentPlanStepStatusExecuting, CapabilityKey: "web.search", Title: "联网查询"},
+		},
+		CreatedAt: now.Add(-time.Minute),
+		UpdatedAt: now.Add(-time.Minute),
+	}
+	repository.plans = append(repository.plans, plan)
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	updated, err := service.bindPlanStepsToObservations(context.Background(), 1, plan, []agent.CapabilityObservation{
+		{Capability: "web.search", Status: "failed", Summary: "未来日期被拒绝"},
+		{Capability: "web.search", Status: "succeeded", Summary: "已用正确日期完成查询", RunID: 22, ObservationRef: "observation:22:web.search"},
+	})
+	if err != nil {
+		t.Fatalf("bindPlanStepsToObservations() error = %v", err)
+	}
+	if updated.Status != domain.AgentPlanStatusCompleted || updated.Steps[0].Status != domain.AgentPlanStepStatusCompleted {
+		t.Fatalf("updated = %#v", updated)
+	}
+	if updated.Steps[0].ObservationRef != "observation:22:web.search" || updated.Steps[0].OutputSummary != "已用正确日期完成查询" {
+		t.Fatalf("step did not bind successful retry observation: %#v", updated.Steps[0])
 	}
 }
 
@@ -2921,6 +3100,7 @@ type fakeAgentConversationLLM struct {
 	feedbackIdx       int
 	planKeys          []string
 	followupIntent    agentFollowupIntent
+	followupAnswer    string
 }
 
 // Chat 同时模拟主 Agent 规划调用和执行 Agent 调用。
@@ -2939,6 +3119,13 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 			"reason":     "unit_test_decision",
 		})
 		return llm.ChatResponse{Provider: "openai_compatible", Model: "followup-model", Content: string(content)}, nil
+	}
+	if fakeIsAgentFollowupAnswerRequest(request) {
+		answer := strings.TrimSpace(f.followupAnswer)
+		if answer == "" {
+			answer = "这是基于已有任务结果生成的追问答复。"
+		}
+		return llm.ChatResponse{Provider: "openai_compatible", Model: "followup-answer-model", Content: answer}, nil
 	}
 	if fakeIsMainAgentPlanSpecRequest(request) {
 		if f.planErr != nil {
@@ -3095,6 +3282,13 @@ func fakeIsAgentFollowupIntentRequest(request llm.ChatRequest) bool {
 		return false
 	}
 	return strings.Contains(request.Messages[0].Content, "多轮消息决策器")
+}
+
+func fakeIsAgentFollowupAnswerRequest(request llm.ChatRequest) bool {
+	if len(request.Messages) == 0 {
+		return false
+	}
+	return strings.Contains(request.Messages[0].Content, "多轮追问答疑器")
 }
 
 func fakeAgentWeChatFeedbackResponse(request llm.ChatRequest) llm.ChatResponse {

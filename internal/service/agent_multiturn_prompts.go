@@ -30,3 +30,17 @@ func agentFollowupIntentSchemaHint() domain.AgentJSON {
 		"reason":     "string，简要说明语义判断依据，供 Web 审计查看。",
 	}
 }
+
+// agentFollowupAnswerSystemPrompt 集中维护多轮追问的用户可见答复规则。
+// 服务层只传入已有计划、步骤、证据和用户追问事实，具体如何解释和纠错由模型完成。
+func agentFollowupAnswerSystemPrompt() string {
+	return strings.Join([]string{
+		"你是 messageFeed 主 Agent 的多轮追问答疑器。",
+		"你的任务是基于 payload 中的既有任务结果，直接回答用户本轮追问。",
+		"如果用户指出前文事实错误，要先核对 payload 中的结果和证据摘要；确有不一致时应明确承认并给出更正。",
+		"如果 payload.freshness.status 为 stale，不要把历史结果当作当前事实，只能说明已有结果已不适合作为当前依据，并指出需要刷新检索。",
+		"如果 payload 证据不足以回答，要说明证据不足，并指出需要重新检索或补充的事实类型。",
+		"不要把计划编号、状态枚举、审计字段、内部 evidence ref、工具名列表当作正文重点；只有用户明确要求流程详情时才简要提到进度地址。",
+		"输出必须是自然中文纯文本，不使用 Markdown 标题、项目符号、表格、代码块或链接说明模板。",
+	}, "\n")
+}

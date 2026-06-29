@@ -1,6 +1,6 @@
 # messageFeed 实施进度台账
 
-**最后更新**：2026-06-28
+**最后更新**：2026-06-29
 
 本文件是当前实现进度的主台账。每轮迭代除更新 `docs/nowdoit` 活动文档外，必须同步更新本文档以及相关设计文档，例如 `docs/agent-plan.md`。历史已完成活动文档保留在 `docs/nowdoit/archive/`。
 
@@ -22,7 +22,7 @@
 | 分支 | `master` |
 | 工作区 | Agent 主闭环服务已完成结构拆分，主 Agent 模型 PlanSpec 已接入 service 主路径；提交推送后以 `git status -sb` 为准 |
 | 当前活动文档 | `docs/nowdoit/agent-web-assistant-entry-plan.md` |
-| 最近本轮验证 | 已通过 `go test ./... -count=1`、`npm run build`；使用 `.env` 真实 LLM 配置通过 `RUN_REAL_LLM_TESTS=1 go test ./internal/service -run TestAgentConversationServiceRealLLMFullFlowContracts -count=1 -timeout 10m -v` |
+| 最近本轮验证 | 已通过 `go test ./...`；使用 `.env` 真实 LLM 配置通过 `RUN_REAL_LLM_TESTS=1 go test ./internal/service -run TestAgentConversationServiceRealLLMFullFlowContracts -count=1 -timeout=10m` |
 | 最近核对提交 | 以 `git log -1 --oneline` 为准；本文档作为实现进度台账，不替代 Git 提交记录 |
 
 ## 3. 已完成能力
@@ -479,6 +479,7 @@ Agent session 审批执行与工单 SLA recorder 拆分阶段性结果：
 22. 当前补充修复：主 Agent 模型规划正式接入 service 主路径。`createPlanForTurn` 由旧 fallback `Build()` 改为主 Agent 模型生成 `PlanSpec` 后调用 `BuildFromSpec()`；提示词集中在 `agent_main_prompts.go`；规划结果、原始响应摘要和校验结果写入 controller trace 与 plan metadata。非高风险且工具 schema 带 `confirmed` 参数的变更能力允许进入工具级确认检查点，高风险能力仍保留计划/对话框复核确认。LLM 客户端支持 `/responses` 与 `/chat/completions` 双协议智能路由，当前默认优先 `/responses`，不可用再降级 `/chat/completions`，并对 429/5xx 做有限重试。子 Agent 工具循环上限调整为 50，耗尽后基于已有 observation 强制收敛回答。验证命令：`go test ./internal/llm ./internal/agent ./internal/service -count=1`、`RUN_REAL_LLM_TESTS=1 go test ./internal/service -run TestAgentConversationServiceRealLLMFullFlowContracts -count=1 -timeout=8m -v`。
 23. 当前补充修复：企业微信用户可见回复不再由 Go 流程代码硬编码。后端只传 `stage`、`status`、`timed_out`、`error_type`、`error`、`progress_url`、`approval_url`、plan/step 摘要等结构化事实；主 Agent/模型按集中提示词 `agent_wechat_feedback_prompts.go` 生成自然短回复；模型不可用时才读取外部配置模板 `configs/agent_wechat_feedback.zh-CN.json` 兜底。后台执行超时默认提升为 10 分钟，企微发送使用独立 15 秒通知上下文，避免执行超时吞掉失败说明；Web Agent 详情页容器改为居中显示。验证命令：`go test ./internal/llm ./internal/agent ./internal/service -count=1`、`npm --prefix web run build`。
 24. 当前补充修复：联网核实 MCP 官方 2025-11-25 `tools/list`、`tools/call`、生命周期和安全最佳实践后，已将内部工具协议从旧 `ToolExecuteInput/ToolExecuteResult` 替换为 MCP 原生契约。新增 `internal/agent/mcp_tools.go` 定义 MCP server tools capability、Tool descriptor、ToolResult、CallTool 输入输出和文本 content 聚合；`TurnRunner` 仅持有 MCP Tool 目录并调用 `CallTool`，旧执行器入口改名为 `CallTool`；`agent_runtime_adapters.go` 所有模型可调用工具统一返回 MCP `content[]/isError`；主 Agent capability catalog 下发 `mcp_tool/inputSchema/annotations/_meta`；LLM 供应商适配层只负责把 MCP Tool 临时映射为 `/responses` 或 `/chat/completions` 所需函数格式。验证命令：`go test ./internal/agent ./internal/llm ./internal/service -count=1`。
+25. 当前补充修复：完成 Agent 五项执行质量修复。工具调用增加通用时间一致性校验，阻止模型引入未被用户授权的未来日期或明显错年日期；`web.search`、`web.fetch_page`、`web.extract_page` 在返回给模型前过滤 future、stale、date_conflict 证据并在工具结果中记录过滤摘要；多轮 `followup_question` 改为把计划、步骤、证据和新鲜度结构化交给模型生成事实纠错/答疑，不再向用户返回计划详情；`retry` 目标选择改为优先最近被用户质疑的 completed plan，再进入新计划闭环；completed plan 终态收敛时不再保留 pending/approved/executing 步骤，未执行步骤标记为 skipped，同一 capability 多次调用时优先绑定成功重试观测。新增 `internal/service/agent_temporal_validation.go` 和 `internal/service/agent_runtime_adapters_test.go`，验证命令：`go test ./...`、`RUN_REAL_LLM_TESTS=1 go test ./internal/service -run TestAgentConversationServiceRealLLMFullFlowContracts -count=1 -timeout=10m`。
 
 ## 8. 最小验证命令
 

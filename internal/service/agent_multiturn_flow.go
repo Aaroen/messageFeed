@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"strconv"
@@ -69,7 +70,10 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 			return false, ReceiveWeChatWorkAppMessageResult{}, err
 		}
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_result_stale", "stale", message)
-		reply := s.staleResultReply(updated)
+		reply, answerErr := s.generateMultiTurnFollowupAnswer(ctx, account, session, turn, input, updated, message)
+		if answerErr != nil {
+			return true, s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, updated, answerErr), nil
+		}
 		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "followup_stale")
 		result.Plan = updated
 		return true, result, err
@@ -105,7 +109,7 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 	case agentFollowupIntentAppendConstraints:
 		return false, ReceiveWeChatWorkAppMessageResult{}, nil
 	case agentFollowupIntentRetry:
-		if plan.Status != domain.AgentPlanStatusFailed {
+		if plan.Status != domain.AgentPlanStatusFailed && plan.Status != domain.AgentPlanStatusCompleted {
 			if !isActiveMultiTurnPlan(plan.Status) {
 				return false, ReceiveWeChatWorkAppMessageResult{}, nil
 			}
@@ -134,7 +138,10 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 			return false, ReceiveWeChatWorkAppMessageResult{}, err
 		}
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_result_reused", "succeeded", message)
-		reply := s.multiTurnFollowupReply(updated, message)
+		reply, answerErr := s.generateMultiTurnFollowupAnswer(ctx, account, session, turn, input, updated, message)
+		if answerErr != nil {
+			return true, s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, updated, answerErr), nil
+		}
 		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "followup_reused")
 		result.Plan = updated
 		return true, result, err
@@ -176,6 +183,15 @@ func (c multiTurnPlanCandidates) planForIntent(intent agentFollowupIntent) (doma
 	case agentFollowupIntentStop, agentFollowupIntentAppendConstraints:
 		return c.Active, c.ActiveFound, c.ActiveStale
 	case agentFollowupIntentRetry:
+		if c.CompletedFound && c.FailedFound {
+			if multiTurnPlanReferenceTime(c.Completed).After(multiTurnPlanReferenceTime(c.Failed)) {
+				return c.Completed, true, c.CompletedStale
+			}
+			return c.Failed, true, c.FailedStale
+		}
+		if c.CompletedFound {
+			return c.Completed, true, c.CompletedStale
+		}
 		if c.FailedFound {
 			return c.Failed, true, c.FailedStale
 		}
@@ -222,6 +238,20 @@ func (s *AgentConversationService) selectMultiTurnPlanCandidates(ctx context.Con
 		}
 	}
 	return candidates, nil
+}
+
+func multiTurnPlanReferenceTime(plan domain.AgentPlan) time.Time {
+	reference := plan.UpdatedAt
+	if reference.IsZero() {
+		reference = plan.CreatedAt
+	}
+	if plan.CompletedAt != nil && !plan.CompletedAt.IsZero() && plan.CompletedAt.After(reference) {
+		reference = *plan.CompletedAt
+	}
+	if plan.FailedAt != nil && !plan.FailedAt.IsZero() && plan.FailedAt.After(reference) {
+		reference = *plan.FailedAt
+	}
+	return reference.UTC()
 }
 
 func (s *AgentConversationService) classifyAgentFollowupIntent(
@@ -637,59 +667,146 @@ func (s *AgentConversationService) recordMultiTurnAudit(ctx context.Context, use
 	})
 }
 
-func (s *AgentConversationService) multiTurnFollowupReply(plan domain.AgentPlan, question string) string {
-	freshness := planResultFreshness(plan, s.now().UTC())
-	refs := planEvidenceRefs(plan)
-	var builder strings.Builder
-	builder.WriteString("已关联到计划 #")
-	builder.WriteString(strconv.FormatInt(plan.ID, 10))
-	builder.WriteString("。\n状态：")
-	builder.WriteString(string(plan.Status))
-	builder.WriteString("\n结果新鲜度：")
-	builder.WriteString(freshness.Status)
-	builder.WriteString("，")
-	builder.WriteString(freshness.Hint)
-	if plan.Summary != "" {
-		builder.WriteString("\n计划摘要：")
-		builder.WriteString(plan.Summary)
+func (s *AgentConversationService) generateMultiTurnFollowupAnswer(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	plan domain.AgentPlan,
+	question string,
+) (string, error) {
+	if s == nil || s.llmClient == nil {
+		return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_llm_unavailable", "agent followup answer llm is unavailable", "service.agent.followup_answer", true, nil)
 	}
-	if plan.ImpactSummary != "" {
-		builder.WriteString("\n影响摘要：")
-		builder.WriteString(plan.ImpactSummary)
+	payload := s.multiTurnFollowupAnswerPayload(account, session, turn, input, plan, question)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", domain.NewAppError(domain.ErrorKindInternal, "agent_followup_answer_payload_invalid", "agent followup answer payload is invalid", "service.agent.followup_answer", true, err)
 	}
-	if plan.ErrorMessage != "" {
-		builder.WriteString("\n错误信息：")
-		builder.WriteString(plan.ErrorMessage)
+	messages := []llm.ChatMessage{
+		{Role: "system", Content: agentFollowupAnswerSystemPrompt()},
+		{Role: "user", Content: string(body)},
 	}
-	if len(refs) > 0 {
-		builder.WriteString("\n证据引用：")
-		builder.WriteString(strings.Join(refs, ", "))
+	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
+		Messages:    messages,
+		Temperature: 0.2,
+		MaxTokens:   512,
+	})
+	if err != nil {
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_followup_answer", "failed", err.Error())
+		return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_failed", "agent followup answer generation failed", "service.agent.followup_answer", true, err)
 	}
-	builder.WriteString("\n最近问题：")
-	builder.WriteString(question)
-	builder.WriteString("\n进度：")
-	builder.WriteString(s.agentPlanURL(plan.ID))
-	return builder.String()
+	reply, err := s.repairMultiTurnFollowupPlainText(ctx, messages, response)
+	if err != nil {
+		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_followup_answer", "failed", err.Error())
+		return "", err
+	}
+	s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_followup_answer", "succeeded", "model generated followup answer")
+	return reply, nil
 }
 
-func (s *AgentConversationService) staleResultReply(plan domain.AgentPlan) string {
+func (s *AgentConversationService) multiTurnFollowupAnswerPayload(
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	plan domain.AgentPlan,
+	question string,
+) domain.AgentJSON {
 	freshness := planResultFreshness(plan, s.now().UTC())
-	var builder strings.Builder
-	builder.WriteString("已找到历史计划 #")
-	builder.WriteString(strconv.FormatInt(plan.ID, 10))
-	builder.WriteString("，但该结果已过期，不能作为当前事实直接复用。")
+	staleAfter := ""
 	if !freshness.ReferenceAt.IsZero() {
-		builder.WriteString("\n结果时间：")
-		builder.WriteString(freshness.ReferenceAt.Format(time.RFC3339))
+		staleAfter = formatAgentTime(freshness.ReferenceAt.Add(freshness.StaleAfter))
 	}
-	builder.WriteString("\n新鲜度：")
-	builder.WriteString(freshness.Status)
-	builder.WriteString("，")
-	builder.WriteString(freshness.Hint)
-	builder.WriteString("\n建议发送“基于刚才结果刷新任务”或重新描述目标，以创建新的执行计划。")
-	builder.WriteString("\n历史进度：")
-	builder.WriteString(s.agentPlanURL(plan.ID))
-	return builder.String()
+	return domain.AgentJSON{
+		"user_message": safeSummary(question, 600),
+		"user_id":      account.UserID,
+		"session_id":   session.ID,
+		"turn_id":      turn.ID,
+		"source_plan": domain.AgentJSON{
+			"id":             plan.ID,
+			"goal":           safeSummary(plan.Goal, 600),
+			"summary":        safeSummary(plan.Summary, 1200),
+			"impact_summary": safeSummary(plan.ImpactSummary, 1200),
+			"status":         string(plan.Status),
+			"error":          safeSummary(plan.ErrorMessage, 600),
+			"completed_at":   formatOptionalAgentTime(plan.CompletedAt),
+			"updated_at":     plan.UpdatedAt.UTC().Format(time.RFC3339),
+			"progress_url":   s.agentPlanURLIfAvailable(plan.ID),
+		},
+		"freshness": domain.AgentJSON{
+			"status":       freshness.Status,
+			"hint":         freshness.Hint,
+			"reference_at": formatAgentTime(freshness.ReferenceAt),
+			"stale_after":  staleAfter,
+		},
+		"steps":               multiTurnFollowupStepPayload(plan),
+		"evidence_refs":       planEvidenceRefs(plan),
+		"provider_message_id": input.ProviderMessageID,
+	}
+}
+
+func multiTurnFollowupStepPayload(plan domain.AgentPlan) []domain.AgentJSON {
+	steps := make([]domain.AgentJSON, 0, len(plan.Steps))
+	for _, step := range plan.Steps {
+		steps = append(steps, domain.AgentJSON{
+			"id":              step.ID,
+			"title":           safeSummary(step.Title, 200),
+			"capability":      step.CapabilityKey,
+			"status":          string(step.Status),
+			"input_summary":   safeSummary(step.InputSummary, 500),
+			"output_summary":  safeSummary(step.OutputSummary, 1000),
+			"expected_output": safeSummary(step.ExpectedOutput, 500),
+			"error":           safeSummary(step.ErrorMessage, 500),
+			"observation_ref": step.ObservationRef,
+			"artifact_refs":   append([]string(nil), step.ArtifactRefs...),
+		})
+	}
+	return steps
+}
+
+func (s *AgentConversationService) repairMultiTurnFollowupPlainText(ctx context.Context, messages []llm.ChatMessage, response llm.ChatResponse) (string, error) {
+	current := strings.TrimSpace(response.Content)
+	if current == "" {
+		return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_empty", "agent followup answer is empty", "service.agent.followup_answer", true, nil)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		violation := agent.PlainTextReplyViolation(current)
+		if violation == "" {
+			return current, nil
+		}
+		repairMessages := append([]llm.ChatMessage(nil), messages...)
+		repairMessages = append(repairMessages, llm.ChatMessage{Role: "assistant", Content: current})
+		repairMessages = append(repairMessages, llm.ChatMessage{Role: "user", Content: agent.PlainTextReplyRepairPrompt(current, violation, attempt+1)})
+		repaired, err := s.llmClient.Chat(ctx, llm.ChatRequest{
+			Messages:    repairMessages,
+			Temperature: 0.2,
+			MaxTokens:   512,
+		})
+		if err != nil {
+			return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_repair_failed", "agent followup answer repair failed", "service.agent.followup_answer", true, err)
+		}
+		current = strings.TrimSpace(repaired.Content)
+		if current == "" {
+			return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_empty", "agent followup answer is empty", "service.agent.followup_answer", true, nil)
+		}
+	}
+	return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_plain_text_violation", "agent followup answer does not satisfy plain text format", "service.agent.followup_answer", true, nil)
+}
+
+func formatOptionalAgentTime(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return formatAgentTime(*value)
+}
+
+func formatAgentTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
 }
 
 func planStoppedByUser(plan domain.AgentPlan) bool {
