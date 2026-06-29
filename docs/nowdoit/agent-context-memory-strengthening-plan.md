@@ -93,17 +93,261 @@ ContextBundle
 
 ## 5. 长期记忆改造
 
-### 5.1 长期记忆分层
+### 5.1 长期记忆相关结构
 
-长期记忆分为五层：
+长期记忆不应理解为单独一张“长期记忆表”。本项目应把原始事实、归档索引、候选记忆、稳定记忆和用户画像分清职责，并在调用时保持证据链完整。
 
-1. 原始事实层：transcript、tool input、tool output、run trace、audit、artifact。
-2. 归档索引层：冷热状态、memory kind、重要度、实体、关键词、证据引用。
-3. 候选记忆层：模型从对话和行为证据中提取的偏好、事实、决策和任务习惯。
-4. 稳定记忆层：经过用户确认或多证据支持后进入长期可召回记忆。
+1. 原始事实层：transcript、tool input、tool output、run trace、audit、artifact。该层保存事实本体。
+2. 归档索引层：冷热状态、memory kind、重要度、实体、关键词、证据引用。该层不是独立事实，只能结合原始事实使用，用于快速定位证据。
+3. 候选记忆层：模型从对话和行为证据中提取的待审核偏好、事实、决策和任务习惯。
+4. 稳定记忆层：经过用户确认、明确表达或多证据支持后形成的用户程序偏好结论。
 5. 用户画像层：显式偏好、长期兴趣、负反馈、风险偏好、回复风格和通知偏好。
 
-### 5.2 模型驱动的记忆候选
+### 5.2 原始事实与归档索引
+
+原始事实和归档索引是一组绑定结构，不是两个互相替代的记忆来源。
+
+原始事实回答“当时实际发生了什么”。例如：
+
+1. 用户原始消息。
+2. assistant 最终回复。
+3. 工具调用参数。
+4. 工具返回结果。
+5. 网页抓取内容。
+6. observation、artifact、audit log、plan 和 step 状态。
+
+归档索引回答“后续如何快速找到这些原始事实”。例如：
+
+1. fact 类型。
+2. fact id。
+3. memory kind。
+4. topics、keywords、entities。
+5. importance。
+6. archive status。
+7. content hash。
+8. indexed_at、last_accessed_at、access_count。
+
+检索时必须先通过归档索引获得候选 fact ref，再回表读取原始事实。模型最终看到的证据应来自原始事实片段和引用，而不是只来自索引字段。
+
+目标查询流程：
+
+```text
+主 Agent 生成 history_query_plan
+  -> 查询归档索引
+  -> 得到候选 fact refs
+  -> 按相关性、重要度、时间、可信度排序
+  -> 根据 fact_type 回表读取原始事实
+  -> 生成本轮 ContextBundle 的证据投影视图
+  -> 写入 recall event
+```
+
+### 5.3 当前原始事实编号现状
+
+当前实现采用“各原始事实表各自编号”的方式：
+
+1. `agent_transcript_entries.id`：用户消息、assistant 回复、system/tool transcript。
+2. `agent_turns.id`：一轮用户输入处理。
+3. `agent_runs.id`：controller run 或 executor run。
+4. `agent_run_context_traces.id`：run 的上下文 trace。
+5. `agent_observations.id`：工具观察。
+6. `agent_artifacts.id`：工具产物摘要。
+7. `agent_plans.id` 和 `agent_plan_steps.id`：计划和步骤。
+
+当前 evidence ref 通过字符串拼接引用事实，例如：
+
+```text
+agent_transcript_entry:123
+agent_plan:5
+agent_turn:59
+agent_plan_step:6
+agent_run:12
+agent_observation:31
+agent_observations/31
+agent_artifact:41
+agent_artifacts/41
+item:3595
+web_search:https://example.com/path
+```
+
+该机制对单表追踪和执行链路复盘基本可用，但不利于后续统一检索：
+
+1. 不同表的自增 id 会重复，必须依赖字符串前缀判断事实类型。
+2. evidence ref 同时存在冒号和路径两种写法，例如 `agent_observation:1` 和 `agent_observations/1`。
+3. `artifact_refs_json`、`source_refs_json` 等 JSON 引用没有数据库外键约束。
+4. 当前归档索引主要绑定 transcript，不能统一索引 artifact、observation、web snapshot、item、plan 等事实。
+5. `web_search:URL` 使用 URL 作为引用，不如 `web_snapshot:id` 稳定。
+
+### 5.4 统一事实引用建议
+
+后续不替换现有主键，而是在现有主键之上建立统一事实引用规范。
+
+建议规范：
+
+```text
+fact_type:fact_id
+```
+
+示例：
+
+```text
+transcript:123
+turn:59
+plan:5
+plan_step:6
+run:12
+observation:31
+artifact:41
+item:3595
+web_snapshot:88
+```
+
+建议新增或改造通用事实索引：
+
+```text
+agent_fact_archive_index
+- fact_type
+- fact_id
+- canonical_ref
+- user_id
+- session_id
+- turn_id
+- memory_kind
+- topics
+- keywords
+- entities
+- importance
+- confidence
+- content_hash
+- index_model
+- index_prompt_version
+- index_status
+- indexed_at
+- last_accessed_at
+- access_count
+```
+
+其中 `canonical_ref` 是后续统一对外展示和模型证据引用的稳定格式。旧的 `agent_transcript_entry:123`、`agent_observations/31` 等引用可以保留兼容，但新流程应优先写入统一 `canonical_ref`。
+
+### 5.5 索引字段选择
+
+关键词、主题、实体和重要度不应由后端硬编码词表决定。推荐流程：
+
+```text
+原始事实写入
+  -> 创建索引任务
+  -> 模型或轻量抽取器输出结构化索引字段
+  -> 后端做枚举、长度、数量、证据引用和敏感信息校验
+  -> 写入归档索引
+```
+
+模型输出建议：
+
+```json
+{
+  "memory_kind": "preference",
+  "topics": ["市场分析", "回复风格"],
+  "keywords": ["结论", "依据", "风险", "不要执行过程"],
+  "entities": ["港股", "美股", "A股"],
+  "time_refs": [],
+  "importance": 82,
+  "should_recall_for": ["市场分析", "多轮追问", "回复格式"],
+  "summary_for_index": "用户要求市场分析回复直接给结论、依据和风险，不展示执行过程。",
+  "confidence": 0.91
+}
+```
+
+后端只做工程校验和标准化：
+
+1. 去空值、去重。
+2. 限制关键词数量和单个关键词长度。
+3. 校验 `memory_kind` 枚举。
+4. 校验 `importance` 和 `confidence` 范围。
+5. 绑定 `fact_type`、`fact_id` 和 `canonical_ref`。
+6. 记录模型版本、prompt 版本和 content hash。
+7. 敏感信息脱敏。
+8. 失败时标记 `index_status=failed`，不影响原始事实保存。
+
+检索时应多路召回：
+
+1. 结构化过滤：user_id、session_id、memory_kind、时间范围。
+2. 关键词召回：topics、keywords、entities。
+3. 全文召回：原始事实全文索引或 trigram。
+4. 语义召回：后续可加入 embedding。
+5. 排序：相关性、重要度、时间新鲜度、访问频次和可信度。
+6. 回表：根据 `canonical_ref` 读取原始事实。
+
+索引字段是派生数据，允许重建。重建索引不得改写原始事实。
+
+### 5.6 候选记忆
+
+候选记忆是从原始事实中提取出来、可能值得沉淀为稳定记忆的待审核结论。它不是原始事实，不是归档索引，也还不是稳定记忆。
+
+候选的作用是防止系统把每一句话都直接变成长期记忆。候选是缓冲层、审核层和置信度层。
+
+候选应包含：
+
+1. 候选内容。
+2. 类型：回复风格、任务习惯、内容偏好、风险偏好、禁忌项等。
+3. 证据引用：transcript、plan、artifact、observation。
+4. 置信度。
+5. 是否需要用户确认。
+6. 风险等级。
+7. 状态：pending、approved、rejected、promoted、expired。
+
+示例：
+
+原始事实：
+
+```text
+用户说：“以后回复别给我一堆执行过程，直接说结论、依据和风险。”
+```
+
+归档索引：
+
+```text
+memory_kind=preference
+keywords=["回复风格", "执行过程", "结论", "依据", "风险"]
+canonical_ref=transcript:123
+```
+
+候选记忆：
+
+```text
+用户偏好最终回复直接呈现结论、依据和风险，不展示执行过程细节。
+```
+
+稳定记忆：
+
+```text
+给该用户回复市场分析类任务时，默认输出结论、依据和风险，不展示执行治理细节。
+```
+
+### 5.7 稳定记忆
+
+稳定记忆是用户的程序偏好结论，不是原始事实，也不是索引摘要。
+
+稳定记忆用于后续 Agent 默认遵循，例如：
+
+1. 回复格式偏好。
+2. 分析任务默认关注维度。
+3. 禁止展示的内容类型。
+4. 通知偏好。
+5. 风险偏好。
+6. 工具使用或证据展示习惯。
+
+稳定记忆必须具备：
+
+1. 内容。
+2. 类型。
+3. 证据引用。
+4. 置信度。
+5. 是否用户确认。
+6. 更新时间。
+7. 可编辑、可撤销状态。
+
+高影响稳定记忆必须经过用户确认；低风险稳定记忆也必须保留证据链和撤销能力。
+
+### 5.8 模型驱动的记忆候选
 
 后续不再由后端关键词规则判断 transcript 的记忆类型。应由模型基于集中 prompt 输出结构化候选：
 
@@ -130,7 +374,7 @@ ContextBundle
 4. 是否涉及高风险画像写入。
 5. 是否需要用户确认。
 
-### 5.3 用户偏好沉淀
+### 5.9 用户偏好沉淀
 
 显式偏好处理：
 
@@ -162,7 +406,7 @@ ContextBundle
   -> 生成最终回复
   -> 生成记忆候选
   -> 需要确认的候选进入确认流程
-  -> 稳定记忆进入后续可召回层
+  -> 稳定记忆进入后续可默认遵循的用户程序偏好层
 ```
 
 ## 7. 拟修改文件和职责
@@ -244,6 +488,10 @@ ContextBundle
 
 1. 集中管理上下文选择、历史召回、记忆候选、偏好确认和回复风格相关 prompt。
 2. 禁止业务流程代码中散落用户可见回复文案。
+3. 增加索引字段抽取 prompt。
+4. 增加候选记忆抽取 prompt。
+5. 增加稳定记忆提升和用户确认 prompt。
+6. 所有索引、候选、稳定记忆的模型输出均要求结构化 JSON。
 
 ### 7.3 Repository 和 Domain 层
 
@@ -252,23 +500,27 @@ ContextBundle
 职责：
 
 1. 补齐 transcript archive、memory kind、recall event 相关领域字段时保持类型稳定。
-2. 如果引入候选记忆对象，可优先新增独立 domain 文件，避免继续扩大单文件。
+2. 保留现有 transcript 相关类型。
+3. 如果引入候选记忆对象、稳定记忆对象或通用 fact index，可优先新增独立 domain 文件，避免继续扩大单文件。
 
 `internal/repository/agent_repository.go`
 
 职责：
 
-1. 保留 transcript 原文和 archive index。
+1. 保留 transcript 原文和现有 archive index。
 2. 将当前关键词式 `classifyTranscriptMemory` 收敛为临时 fallback。
-3. 后续由模型生成的记忆候选更新 archive index。
+3. 后续由模型生成的结构化索引字段更新 archive index。
+4. 增加统一 `canonical_ref` 的解析、标准化和回表读取能力。
+5. 支持从通用 fact index 查询 transcript、artifact、observation、web snapshot、item、plan 和 step 等事实。
 
 可能新增迁移：
 
-1. `agent_memory_candidates`：保存模型提取的候选记忆、证据、置信度、确认状态。
-2. `agent_memory_blocks`：保存稳定长期记忆投影视图。
-3. `agent_memory_events`：保存候选生成、确认、拒绝、撤销和更新事件。
+1. `agent_fact_archive_index`：保存通用事实索引、统一 canonical ref、模型抽取字段、索引状态和访问统计。
+2. `agent_memory_candidates`：保存模型提取的候选记忆、证据、置信度、确认状态。
+3. `agent_memory_blocks`：保存稳定用户程序偏好结论。
+4. `agent_memory_events`：保存候选生成、确认、拒绝、撤销和更新事件。
 
-是否新增表需要审核确认。第一阶段可以优先复用 `agent_transcript_archive_index` 和 `agent_recall_events`，降低改动面。
+是否新增表需要审核确认。第一阶段可以优先复用 `agent_transcript_archive_index` 和 `agent_recall_events`，但需要明确其只能覆盖 transcript，不能满足跨事实类型统一检索的最终目标。
 
 ### 7.4 Web 展示层
 
@@ -309,14 +561,31 @@ Agent 计划详情页相关 Vue 文件
 2. 主 Agent 判断是否需要 `conversation.query_history`。
 3. 后端按模型计划执行受控查询。
 4. 记录 recall event，并在 Web 展示召回原因、参数和结果。
+5. 将召回结果统一转换为 `canonical_ref`，再回表读取原始事实。
 
 验收：
 
 1. “我之前说过什么偏好”必须触发历史查询。
 2. 历史查询结果有 transcript entry 引用。
 3. 查询不依赖后端关键词规则。
+4. Web 可展示召回 query、命中的 canonical refs、回表后的原始事实片段。
 
-### 阶段三：记忆候选和用户确认
+### 阶段三：通用归档索引和事实引用
+
+1. 建立统一 `fact_type:fact_id` 引用规范。
+2. 增加 legacy evidence ref 到 canonical ref 的兼容转换。
+3. 建立通用 fact index 的领域对象和 repository 能力。
+4. 模型抽取 topics、keywords、entities、importance、confidence 等索引字段。
+5. 索引写入失败不影响原始事实保存。
+
+验收：
+
+1. transcript、observation、artifact、plan、step 至少具备统一 canonical ref。
+2. 索引命中后必须回表读取原始事实。
+3. 索引字段抽取不依赖后端固定关键词词表。
+4. 旧 evidence ref 仍可兼容解析。
+
+### 阶段四：记忆候选和用户确认
 
 1. 模型从 turn 结果中生成候选记忆。
 2. 后端校验证据和风险等级。
@@ -330,7 +599,7 @@ Agent 计划详情页相关 Vue 文件
 2. 高风险画像写入不会静默生效。
 3. 每条候选都有证据引用和状态流转。
 
-### 阶段四：完整证据投影
+### 阶段五：完整证据投影
 
 1. 工具完整输出保存为可追溯 artifact 内容引用。
 2. ContextBudgetManager 只裁剪模型可见投影视图。
@@ -349,6 +618,8 @@ Agent 计划详情页相关 Vue 文件
    - 动态短期窗口。
    - 多轮追问 payload。
    - 历史召回计划解析。
+   - canonical ref 生成、解析和 legacy ref 兼容。
+   - 索引字段抽取结果校验。
    - 记忆候选风险校验。
 
 2. 集成测试：
@@ -375,3 +646,5 @@ Agent 计划详情页相关 Vue 文件
 3. 用户偏好候选是否先只支持显式偏好，不处理隐式阅读行为。
 4. Web 是否需要新增“记忆候选”独立页面，还是先放在 Agent 计划详情页。
 5. artifact 完整内容是否先存数据库字段，还是仅保存对象引用和原始来源定位。
+6. 是否在本轮新增 `agent_fact_archive_index`，还是先实现 canonical ref 兼容层。
+7. 是否将 `web_search:URL` 统一替换为 `web_snapshot:id` 形式，还是先保留 URL 引用兼容。
