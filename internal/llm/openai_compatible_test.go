@@ -350,6 +350,79 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleClientParsesEncodedResponsesToolCallText(t *testing.T) {
+	const encoded = "BkZ1bmN0aW9ucy53ZWJfX2V4dHJhY3RfcGFnZTp7InVybCI6Imh0dHBzOi8vd3d3LnNpLmNvbS9zb2NjZXIvZXZlcnktY29uZmlybWVkLXJvdW5kLW9mLTMyLW1hdGNoLTIwMjYtd29ybGQtY3VwIn19Cg=="
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("path = %q, want /responses", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"` + encoded + `"}]}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "custom-model",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+
+	response, err := client.Chat(context.Background(), ChatRequest{
+		Messages: []ChatMessage{{Role: "user", Content: "读取网页"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if response.Content != "" {
+		t.Fatalf("content leaked encoded tool call: %q", response.Content)
+	}
+	if len(response.ToolCalls) != 1 {
+		t.Fatalf("tool calls = %#v", response.ToolCalls)
+	}
+	call := response.ToolCalls[0]
+	if call.Name != "web__extract_page" || call.Arguments != `{"url":"https://www.si.com/soccer/every-confirmed-round-of-32-match-2026-world-cup"}` {
+		t.Fatalf("tool call = %#v", call)
+	}
+}
+
+func TestOpenAICompatibleClientParsesEncodedChatCompletionToolCallText(t *testing.T) {
+	const encoded = "BkZ1bmN0aW9ucy53ZWJfX2V4dHJhY3RfcGFnZTp7InVybCI6Imh0dHBzOi8vd3d3LnNpLmNvbS9zb2NjZXIvZXZlcnktY29uZmlybWVkLXJvdW5kLW9mLTMyLW1hdGNoLTIwMjYtd29ybGQtY3VwIn19Cg=="
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path = %q, want /chat/completions", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"` + encoded + `"}}]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleClient(OpenAICompatibleConfig{
+		BaseURL:      server.URL,
+		APIKey:       "test-key",
+		Model:        "custom-model",
+		ProtocolMode: "chat_completions",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleClient() error = %v", err)
+	}
+
+	response, err := client.Chat(context.Background(), ChatRequest{
+		Messages: []ChatMessage{{Role: "user", Content: "读取网页"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if response.Content != "" {
+		t.Fatalf("content leaked encoded tool call: %q", response.Content)
+	}
+	if len(response.ToolCalls) != 1 || response.ToolCalls[0].Name != "web__extract_page" {
+		t.Fatalf("tool calls = %#v", response.ToolCalls)
+	}
+}
+
 func TestOpenAICompatibleClientFallsBackToChatCompletionsAndRemembersRoute(t *testing.T) {
 	paths := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

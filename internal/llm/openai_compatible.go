@@ -3,6 +3,7 @@ package llm
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -425,6 +426,10 @@ func (c *OpenAICompatibleClient) chatWithChatCompletions(ctx context.Context, re
 	}
 	content := strings.TrimSpace(decoded.Choices[0].Message.Content)
 	toolCalls := domainToolCallsFromChatCompletion(decoded.Choices[0].Message.ToolCalls)
+	if encodedCall, ok := encodedToolCallFromText(content, "encoded_call_0_0"); ok {
+		toolCalls = append(toolCalls, encodedCall)
+		content = ""
+	}
 	if content == "" && len(toolCalls) == 0 {
 		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is empty", len(request.Tools) > 0, nil)
 	}
@@ -559,8 +564,9 @@ func (c *OpenAICompatibleClient) chatWithResponses(ctx context.Context, request 
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
 		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, "llm response is invalid: "+llmResponseSnippet(responseBody), true, err)
 	}
-	content := strings.TrimSpace(responsesOutputText(decoded.Output))
+	content, encodedToolCalls := responsesOutputTextAndEncodedToolCalls(decoded.Output)
 	toolCalls := domainToolCallsFromResponses(decoded.Output)
+	toolCalls = append(toolCalls, encodedToolCalls...)
 	if strings.EqualFold(decoded.Status, "incomplete") {
 		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, responsesIncompleteMessage(decoded), true, nil)
 	}
@@ -654,17 +660,27 @@ func responsesToolsFromDomain(tools []ToolDefinition) []responsesTool {
 }
 
 func responsesOutputText(items []responsesOutputItem) string {
+	text, _ := responsesOutputTextAndEncodedToolCalls(items)
+	return text
+}
+
+func responsesOutputTextAndEncodedToolCalls(items []responsesOutputItem) (string, []ToolCall) {
 	var builder strings.Builder
-	for _, item := range items {
+	calls := make([]ToolCall, 0)
+	for itemIndex, item := range items {
 		if item.Type != "message" {
 			continue
 		}
-		for _, content := range item.Content {
+		for contentIndex, content := range item.Content {
 			if content.Type != "output_text" && content.Type != "text" {
 				continue
 			}
 			text := strings.TrimSpace(content.Text)
 			if text == "" {
+				continue
+			}
+			if call, ok := encodedToolCallFromText(text, fmt.Sprintf("encoded_call_%d_%d", itemIndex, contentIndex)); ok {
+				calls = append(calls, call)
 				continue
 			}
 			if builder.Len() > 0 {
@@ -673,7 +689,7 @@ func responsesOutputText(items []responsesOutputItem) string {
 			builder.WriteString(text)
 		}
 	}
-	return builder.String()
+	return builder.String(), calls
 }
 
 func domainToolCallsFromResponses(items []responsesOutputItem) []ToolCall {
@@ -693,6 +709,98 @@ func domainToolCallsFromResponses(items []responsesOutputItem) []ToolCall {
 		})
 	}
 	return calls
+}
+
+// encodedToolCallFromText 兼容部分上游把工具调用编码进 output_text 的非标准形态。
+// 只有在 base64 解码后明确匹配 "Functions.<tool>:<json>" 时才转换为 ToolCall。
+func encodedToolCallFromText(text string, callID string) (ToolCall, bool) {
+	decoded, ok := decodeBase64Text(strings.TrimSpace(text))
+	if !ok {
+		return ToolCall{}, false
+	}
+	payload := strings.TrimSpace(strings.TrimLeftFunc(string(decoded), func(r rune) bool {
+		return r >= 0 && r < ' '
+	}))
+	payload = strings.TrimSpace(payload)
+	if !strings.HasPrefix(payload, "Functions.") {
+		return ToolCall{}, false
+	}
+	payload = strings.TrimPrefix(payload, "Functions.")
+	separator := strings.Index(payload, ":")
+	if separator <= 0 {
+		return ToolCall{}, false
+	}
+	name := strings.TrimSpace(payload[:separator])
+	arguments, ok := firstJSONObjectPrefix(payload[separator+1:])
+	if name == "" || !ok {
+		return ToolCall{}, false
+	}
+	if strings.TrimSpace(callID) == "" {
+		callID = "encoded_call"
+	}
+	return ToolCall{ID: callID, Name: name, Arguments: arguments}, true
+}
+
+func decodeBase64Text(text string) ([]byte, bool) {
+	candidate := strings.Join(strings.Fields(strings.TrimSpace(text)), "")
+	if len(candidate) < 12 {
+		return nil, false
+	}
+	encodings := []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	}
+	for _, encoding := range encodings {
+		decoded, err := encoding.DecodeString(candidate)
+		if err == nil && len(decoded) > 0 {
+			return decoded, true
+		}
+	}
+	return nil, false
+}
+
+func firstJSONObjectPrefix(text string) (string, bool) {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, "{") {
+		return "", false
+	}
+	depth := 0
+	inString := false
+	escaped := false
+	for index, value := range text {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if value == '\\' {
+				escaped = true
+				continue
+			}
+			if value == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch value {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				candidate := text[:index+1]
+				return candidate, json.Valid([]byte(candidate))
+			}
+			if depth < 0 {
+				return "", false
+			}
+		}
+	}
+	return "", false
 }
 
 type llmRouteError struct {
