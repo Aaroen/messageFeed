@@ -236,6 +236,32 @@ func TestContextBudgetProfileForCapabilityScope(t *testing.T) {
 	}
 }
 
+func TestNormalizeCanonicalRefSupportsLegacyEvidenceRefs(t *testing.T) {
+	cases := map[string]string{
+		"agent_transcript_entry:123": "transcript:123",
+		"agent_observations/31":      "observation:31",
+		"agent_artifact:41":          "artifact:41",
+		"agent_plan_step:6":          "plan_step:6",
+		"agent_run:12":               "run:12",
+		"item:3595":                  "item:3595",
+	}
+	for input, want := range cases {
+		if got := NormalizeCanonicalRef(input); got != want {
+			t.Fatalf("NormalizeCanonicalRef(%q) = %q, want %q", input, got, want)
+		}
+	}
+	if got := NormalizeCanonicalRef("web_search:https://example.com/path"); got != "web_search:https://example.com/path" {
+		t.Fatalf("URL ref should be preserved when no stable numeric fact id exists: %q", got)
+	}
+}
+
+func TestNormalizeCanonicalRefsDeduplicatesRefs(t *testing.T) {
+	refs := NormalizeCanonicalRefs([]string{"agent_observation:31", "agent_observations/31", "artifact:2"})
+	if strings.Join(refs, ",") != "observation:31,artifact:2" {
+		t.Fatalf("refs = %#v", refs)
+	}
+}
+
 func TestFormatContextMessagesDoesNotApplyFixedTwelveMessageWindow(t *testing.T) {
 	messages := make([]ContextMessage, 0, 13)
 	for i := 0; i < 13; i++ {
