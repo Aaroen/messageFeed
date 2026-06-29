@@ -47,6 +47,7 @@ type ContextBuildInput struct {
 	MessageType     string
 	RequestID       string
 	TraceID         string
+	BudgetProfile   ContextBudgetProfile
 }
 
 type ContextSnapshot struct {
@@ -54,16 +55,26 @@ type ContextSnapshot struct {
 	Messages        []ContextMessage
 	Observations    []CapabilityObservation
 	HistoryNeedHint HistoryNeedHint
+	Bundle          ContextBundle
+	SemanticUnits   []ContextSemanticUnit
+	BudgetProfile   ContextBudgetProfile
+	BudgetReport    ContextBudgetReport
 }
 
 type ContextBlock struct {
-	Name          string
-	CapabilityKey string
-	Content       string
-	ItemCount     int
-	Truncated     bool
-	GeneratedAt   time.Time
-	TrustLevel    string
+	Name            string
+	CapabilityKey   string
+	Content         string
+	ItemCount       int
+	Truncated       bool
+	GeneratedAt     time.Time
+	TrustLevel      string
+	Source          string
+	EvidenceRefs    []string
+	CanonicalRef    string
+	TokenEstimate   int
+	RetentionReason string
+	OmittedReason   string
 }
 
 type ContextMessage struct {

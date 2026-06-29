@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-const (
-	conversationRecentLimit = 12
-)
-
 type HistoryNeedHint string
 
 const (
@@ -108,10 +104,16 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 		return ContextSnapshot{}, nil
 	}
 	capabilityKeys := b.capabilityKeysForInput(input)
+	budgetSpec := ContextBudgetForProfile(input.BudgetProfile)
 	snapshot := ContextSnapshot{
-		Blocks:       make([]ContextBlock, 0, len(capabilityKeys)+2),
-		Messages:     []ContextMessage{},
-		Observations: make([]CapabilityObservation, 0, len(capabilityKeys)+1),
+		Blocks:        make([]ContextBlock, 0, len(capabilityKeys)+2),
+		Messages:      []ContextMessage{},
+		Observations:  make([]CapabilityObservation, 0, len(capabilityKeys)+1),
+		BudgetProfile: budgetSpec.Profile,
+	}
+	currentUnit := NewCurrentMessageSemanticUnit(input.MessageText)
+	if currentUnit.TokenEstimate > 0 {
+		snapshot.SemanticUnits = append(snapshot.SemanticUnits, currentUnit)
 	}
 
 	if b.userContextProvider != nil {
@@ -141,13 +143,17 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 		if err != nil {
 			return snapshot, err
 		}
-		snapshot.Messages = append(snapshot.Messages, memory.Messages...)
+		units := BuildConversationSemanticUnits(memory.Messages)
+		selectedUnits, budgetReport := SelectSemanticUnitsByTokenBudget(units, budgetSpec.RecentMessagesTokens, budgetSpec.Profile)
+		snapshot.SemanticUnits = append(snapshot.SemanticUnits, selectedUnits...)
+		snapshot.BudgetReport = budgetReport
+		snapshot.Messages = append(snapshot.Messages, SelectedMessagesFromSemanticUnits(selectedUnits)...)
 		snapshot.HistoryNeedHint = memory.HistoryNeedHint
 		snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
 			Capability: "conversation.query_recent",
 			Decision:   string(PolicyDecisionAllow),
 			Status:     "succeeded",
-			Summary:    fmt.Sprintf("loaded %d recent conversation messages", len(memory.Messages)),
+			Summary:    fmt.Sprintf("selected %d of %d recent conversation messages", len(snapshot.Messages), len(memory.Messages)),
 		})
 		if memory.HistoryQueried {
 			status := "succeeded"
@@ -255,7 +261,7 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 		GeneratedAt:   b.now().UTC(),
 		TrustLevel:    "system",
 	})
-	return snapshot, nil
+	return finalizeContextSnapshot(snapshot, input, budgetSpec), nil
 }
 
 func (b *DefaultContextBuilder) capabilityKeysForInput(input ContextBuildInput) []string {
@@ -291,7 +297,7 @@ func FormatContextMessages(messages []ContextMessage) string {
 		return ""
 	}
 	var builder strings.Builder
-	for i, message := range messages {
+	for _, message := range messages {
 		content := strings.TrimSpace(message.Content)
 		if content == "" {
 			continue
@@ -304,11 +310,88 @@ func FormatContextMessages(messages []ContextMessage) string {
 		builder.WriteString(formatContextMessageRole(message.Role))
 		builder.WriteString("：")
 		builder.WriteString(content)
-		if i >= conversationRecentLimit-1 {
-			break
-		}
 	}
 	return builder.String()
+}
+
+func finalizeContextSnapshot(snapshot ContextSnapshot, input ContextBuildInput, budgetSpec ContextBudgetSpec) ContextSnapshot {
+	snapshot.BudgetProfile = budgetSpec.Profile
+	report := snapshot.BudgetReport
+	if report.Profile == "" {
+		report = ContextBudgetReport{
+			Profile:              budgetSpec.Profile,
+			RecentMessagesTokens: budgetSpec.RecentMessagesTokens,
+			AvailableInputTokens: budgetSpec.TotalTokens - budgetSpec.OutputReserveTokens - budgetSpec.SafetyMarginTokens,
+		}
+	}
+	report.Profile = budgetSpec.Profile
+	report.TotalBudgetTokens = budgetSpec.TotalTokens
+	report.RecentMessagesTokens = budgetSpec.RecentMessagesTokens
+	report.OutputReserveTokens = budgetSpec.OutputReserveTokens
+	report.SafetyMarginTokens = budgetSpec.SafetyMarginTokens
+	if report.AvailableInputTokens == 0 {
+		report.AvailableInputTokens = budgetSpec.TotalTokens - budgetSpec.OutputReserveTokens - budgetSpec.SafetyMarginTokens
+	}
+	for index := range snapshot.Blocks {
+		if snapshot.Blocks[index].TokenEstimate == 0 {
+			snapshot.Blocks[index].TokenEstimate = estimateContextTokenCount(snapshot.Blocks[index].Content)
+		}
+		if strings.TrimSpace(snapshot.Blocks[index].Source) == "" {
+			snapshot.Blocks[index].Source = "context_block"
+		}
+		if strings.TrimSpace(snapshot.Blocks[index].RetentionReason) == "" {
+			snapshot.Blocks[index].RetentionReason = "context_block"
+		}
+	}
+	for _, unit := range snapshot.SemanticUnits {
+		if !unit.Selected {
+			continue
+		}
+		exists := false
+		for _, traced := range report.Units {
+			if traced.UnitID == unit.ID {
+				exists = true
+				break
+			}
+		}
+		if exists {
+			continue
+		}
+		report.UsedTokens += unit.TokenEstimate
+		report.SelectedUnitCount++
+		report.Units = append(report.Units, ContextBudgetUnitTrace{
+			UnitID:          unit.ID,
+			UnitType:        unit.Type,
+			TokenEstimate:   unit.TokenEstimate,
+			Selected:        unit.Selected,
+			Protected:       unit.Protected,
+			Projected:       unit.Projected,
+			RetentionReason: unit.RetentionReason,
+			OmittedReason:   unit.OmittedReason,
+		})
+	}
+	snapshot.BudgetReport = report
+	snapshot.Bundle = ContextBundle{
+		BudgetProfile:   budgetSpec.Profile,
+		SystemBlocks:    append([]ContextBlock(nil), snapshot.Blocks...),
+		RecentMessages:  append([]ContextMessage(nil), snapshot.Messages...),
+		CurrentMessage:  currentContextMessage(input.MessageText),
+		KeyObservations: append([]CapabilityObservation(nil), snapshot.Observations...),
+		SemanticUnits:   append([]ContextSemanticUnit(nil), snapshot.SemanticUnits...),
+		BudgetReport:    snapshot.BudgetReport,
+	}
+	return snapshot
+}
+
+func currentContextMessage(message string) *ContextMessage {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return nil
+	}
+	return &ContextMessage{
+		Role:    domain.AgentTranscriptRoleUser,
+		Content: message,
+	}
 }
 
 func formatContextMessageRole(role domain.AgentTranscriptRole) string {

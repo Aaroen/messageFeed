@@ -92,6 +92,129 @@ func TestDefaultContextBuilderUsesInputCapabilityKeysForPlannedScope(t *testing.
 	}
 }
 
+func TestDefaultContextBuilderBuildsContextBundleBudgetProfile(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	builder := NewDefaultContextBuilder(DefaultContextBuilderOptions{
+		ConversationMemory: fakeConversationMemoryProvider{
+			memory: ConversationMemory{
+				Messages: []ContextMessage{
+					{Role: domain.AgentTranscriptRoleUser, Content: "上一轮问题", TranscriptEntryID: 1, TurnID: 1, CreatedAt: now.Add(-2 * time.Minute)},
+					{Role: domain.AgentTranscriptRoleAssistant, Content: "上一轮回答", TranscriptEntryID: 2, TurnID: 1, CreatedAt: now.Add(-1 * time.Minute)},
+				},
+			},
+		},
+		Now: func() time.Time { return now },
+	})
+
+	snapshot, err := builder.Build(context.Background(), ContextBuildInput{
+		UserID:        1,
+		SessionID:     2,
+		TurnID:        3,
+		MessageText:   "继续刚才任务",
+		BudgetProfile: ContextBudgetProfileMainPlanning,
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if snapshot.BudgetProfile != ContextBudgetProfileMainPlanning {
+		t.Fatalf("budget profile = %q", snapshot.BudgetProfile)
+	}
+	if snapshot.Bundle.BudgetProfile != ContextBudgetProfileMainPlanning {
+		t.Fatalf("bundle budget profile = %q", snapshot.Bundle.BudgetProfile)
+	}
+	if snapshot.BudgetReport.TotalBudgetTokens != 64000 || snapshot.BudgetReport.RecentMessagesTokens != 32000 {
+		t.Fatalf("budget report = %#v", snapshot.BudgetReport)
+	}
+	if snapshot.Bundle.CurrentMessage == nil || snapshot.Bundle.CurrentMessage.Content != "继续刚才任务" {
+		t.Fatalf("current message = %#v", snapshot.Bundle.CurrentMessage)
+	}
+	if len(snapshot.Messages) != 2 {
+		t.Fatalf("selected message count = %d, want 2", len(snapshot.Messages))
+	}
+	if len(snapshot.SemanticUnits) == 0 || snapshot.SemanticUnits[0].ID != "current_user_message" {
+		t.Fatalf("semantic units = %#v", snapshot.SemanticUnits)
+	}
+}
+
+func TestSelectSemanticUnitsByTokenBudgetKeepsWholeUnits(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	messages := []ContextMessage{
+		{Role: domain.AgentTranscriptRoleUser, Content: "第一轮问题，内容较长较长较长", TranscriptEntryID: 1, TurnID: 1, CreatedAt: now.Add(-6 * time.Minute)},
+		{Role: domain.AgentTranscriptRoleAssistant, Content: "第一轮回答，内容较长较长较长", TranscriptEntryID: 2, TurnID: 1, CreatedAt: now.Add(-5 * time.Minute)},
+		{Role: domain.AgentTranscriptRoleUser, Content: "第二轮问题，内容较长较长较长", TranscriptEntryID: 3, TurnID: 2, CreatedAt: now.Add(-4 * time.Minute)},
+		{Role: domain.AgentTranscriptRoleAssistant, Content: "第二轮回答，内容较长较长较长", TranscriptEntryID: 4, TurnID: 2, CreatedAt: now.Add(-3 * time.Minute)},
+		{Role: domain.AgentTranscriptRoleUser, Content: "最新问题", TranscriptEntryID: 5, TurnID: 3, CreatedAt: now.Add(-2 * time.Minute)},
+		{Role: domain.AgentTranscriptRoleAssistant, Content: "最新回答", TranscriptEntryID: 6, TurnID: 3, CreatedAt: now.Add(-1 * time.Minute)},
+	}
+	units := BuildConversationSemanticUnits(messages)
+	if len(units) != 3 {
+		t.Fatalf("unit count = %d, want 3", len(units))
+	}
+	budget := units[2].TokenEstimate
+	selected, report := SelectSemanticUnitsByTokenBudget(units, budget, ContextBudgetProfileSubagentAnalysis)
+	selectedMessages := SelectedMessagesFromSemanticUnits(selected)
+
+	if len(selectedMessages) != 2 {
+		t.Fatalf("selected message count = %d, want 2", len(selectedMessages))
+	}
+	if selectedMessages[0].Content != "最新问题" || selectedMessages[1].Content != "最新回答" {
+		t.Fatalf("selected messages = %#v", selectedMessages)
+	}
+	if report.SelectedUnitCount != 1 || report.SkippedUnitCount != 2 {
+		t.Fatalf("budget report = %#v", report)
+	}
+	for _, unit := range selected {
+		if strings.Contains(unit.Content, "第一轮") && unit.Selected {
+			t.Fatalf("older unit should be skipped as a whole: %#v", unit)
+		}
+		if unit.OmittedReason != "" && strings.TrimSpace(unit.Content) == "" {
+			t.Fatalf("skipped unit lost original projection content: %#v", unit)
+		}
+	}
+}
+
+func TestSelectSemanticUnitsByTokenBudgetProjectsOversizedUnitWithoutHardTruncation(t *testing.T) {
+	unit := ContextSemanticUnit{
+		ID:              "oversized",
+		Type:            ContextSemanticUnitMessage,
+		Source:          "recent_conversation",
+		Content:         strings.Repeat("长内容", 40),
+		Messages:        []ContextMessage{{Role: domain.AgentTranscriptRoleAssistant, Content: strings.Repeat("长内容", 40)}},
+		Protected:       true,
+		RetentionReason: "previous_assistant_answer",
+	}
+	ensureSemanticUnitTokenEstimate(&unit)
+	original := unit.Content
+
+	selected, report := SelectSemanticUnitsByTokenBudget([]ContextSemanticUnit{unit}, 1, ContextBudgetProfileSubagentAnalysis)
+	if len(SelectedMessagesFromSemanticUnits(selected)) != 0 {
+		t.Fatalf("oversized unit should not be selected under impossible budget")
+	}
+	if !selected[0].Projected || selected[0].OmittedReason == "" {
+		t.Fatalf("oversized unit projection metadata missing: %#v", selected[0])
+	}
+	if selected[0].Content != original {
+		t.Fatalf("oversized unit content was hard-truncated")
+	}
+	if report.OversizedUnitCount != 1 || report.SkippedUnitCount != 1 {
+		t.Fatalf("budget report = %#v", report)
+	}
+}
+
+func TestFormatContextMessagesDoesNotApplyFixedTwelveMessageWindow(t *testing.T) {
+	messages := make([]ContextMessage, 0, 13)
+	for i := 0; i < 13; i++ {
+		messages = append(messages, ContextMessage{
+			Role:    domain.AgentTranscriptRoleUser,
+			Content: "消息" + string(rune('A'+i)),
+		})
+	}
+	formatted := FormatContextMessages(messages)
+	if !strings.Contains(formatted, "消息M") {
+		t.Fatalf("formatted messages should include the thirteenth semantic input: %q", formatted)
+	}
+}
+
 func TestHistoryNeedClassificationAndRecentEvidence(t *testing.T) {
 	for _, message := range []string{
 		"我之前说过关注什么吗",
@@ -125,6 +248,14 @@ func (p fakeUserContextProvider) BuildUserContextBlock(_ context.Context, _ int6
 		GeneratedAt: p.now,
 		TrustLevel:  "user_profile",
 	}, nil
+}
+
+type fakeConversationMemoryProvider struct {
+	memory ConversationMemory
+}
+
+func (p fakeConversationMemoryProvider) BuildConversationMemory(_ context.Context, _ ContextBuildInput) (ConversationMemory, error) {
+	return p.memory, nil
 }
 
 type fakeCapabilityExecutor struct {

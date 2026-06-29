@@ -878,8 +878,8 @@ RAG 接入应插入到现有长期记忆阶段之后分步实施：
 
 以下清单用于后续实现时逐项勾选。每完成一项，将对应条目从 `[ ]` 更新为 `[x]`，并保留必要的测试或核验证据。
 
-- [ ] 定义或扩展 `ContextBundle`，补齐 `budget_profile`、`budget_report`、block 来源、证据引用、可信等级、token 估算和裁剪状态。
-- [ ] 定义 `ContextBudgetProfile` 和预算策略，覆盖 `main_planning`、`main_evaluation`、`subagent_search`、`subagent_history_recall`、`subagent_analysis`、`final_synthesis`。
+- [x] 定义或扩展 `ContextBundle`，补齐 `budget_profile`、`budget_report`、block 来源、证据引用、可信等级、token 估算和裁剪状态。
+- [x] 定义 `ContextBudgetProfile` 和预算策略，覆盖 `main_planning`、`main_evaluation`、`subagent_search`、`subagent_history_recall`、`subagent_analysis`、`final_synthesis`。
 - [ ] 将最近 12 条固定窗口改为 token 预算驱动的语义单元窗口，设置主 Agent 热窗口 token 上限，并保证语义单元整体纳入或整体裁剪。
 - [ ] 为 ContextBundle 增加短期保护区，固定保留当前用户消息、系统规则、用户明确约束、活动计划、上一轮 assistant 完整回答、关键 observation 和关键 artifact 摘要。
 - [ ] 让主 Agent 规划阶段接收必要的 ContextBundle 投影视图，避免只基于当前用户消息、capability catalog 和 schema 规划。
