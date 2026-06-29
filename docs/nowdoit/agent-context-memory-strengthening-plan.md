@@ -637,7 +637,157 @@ Agent 计划详情页相关 Vue 文件
    - 前端类型检查和构建。
    - 部署后由用户进行企微和 Web 验收。
 
-## 10. 审核点
+## 10. RAG 接入方案
+
+### 10.1 接入边界
+
+RAG 不直接替代归档索引层。归档索引仍然负责事实定位、权限过滤、审计引用和回表取证；RAG 作为索引层的增强召回能力接入，用于提升语义召回、精确匹配、跨事实关联和证据重排质量。
+
+目标结构：
+
+```text
+原始事实层
+  -> 多路索引层
+  -> 召回融合层
+  -> rerank 重排
+  -> canonical_ref 回表读取原始事实
+  -> 主 Agent 判断证据是否充分
+  -> 生成回答或继续召回
+```
+
+必须保留的边界：
+
+1. 原始事实层是唯一可信事实来源。
+2. 索引、embedding、chunk summary 和 contextual text 都是派生数据，可以重建，不能替代原文。
+3. 模型最终可引用的证据必须带 `canonical_ref`，并能回表定位到 transcript、observation、artifact、web snapshot、item、plan 或 step。
+4. 所有召回必须先经过 `user_id`、session、权限、预算和风险边界过滤。
+5. 稳定记忆仍是用户程序偏好结论，不等同于普通 RAG 文档片段。
+
+### 10.2 多路索引层
+
+通用 fact index 应同时支持以下检索能力：
+
+1. 结构化索引：`user_id`、`session_id`、`turn_id`、`fact_type`、`memory_kind`、时间范围、来源、风险等级。
+2. 全文索引：用于精确词、项目名、错误码、URL、股票代码、机构名和用户明确表述。
+3. 语义索引：用于相似意图、近义表达、多轮追问和跨表事实回忆。
+4. 上下文化索引：在 chunk 入库前补充所属会话、计划、工具、来源、时间和任务背景，避免孤立片段丢失语义。
+5. 关系索引：记录 `fact -> fact`、`turn -> plan -> run -> observation -> artifact`、`user preference -> evidence refs` 的轻量关系边。
+
+建议第一版仍以 Postgres 为主：
+
+```text
+agent_fact_archive_index
+  - canonical_ref
+  - fact_type
+  - fact_id
+  - user_id
+  - session_id
+  - turn_id
+  - memory_kind
+  - topics
+  - keywords
+  - entities
+  - summary_for_index
+  - contextual_text
+  - full_text_vector
+  - embedding
+  - importance
+  - confidence
+  - source_refs
+  - relation_refs
+  - index_status
+```
+
+### 10.3 写入链路
+
+事实写入后不直接进入模型长期上下文，应先进入索引和记忆治理流程：
+
+```text
+原始事实写入
+  -> 生成 canonical_ref
+  -> 主 Agent 或索引模型抽取 topics、entities、summary_for_index、should_recall_for
+  -> 后端校验字段长度、枚举、证据引用、用户边界和敏感信息
+  -> 写入结构化索引和全文索引
+  -> 生成 contextual_text
+  -> 生成 embedding
+  -> 写入 relation_refs
+  -> 需要沉淀偏好时生成 memory candidate
+```
+
+写入失败处理：
+
+1. 原始事实保存成功后，索引失败不得回滚原始事实。
+2. 索引失败应记录 `index_status=failed`、错误类型和可重建任务。
+3. 后续可以通过后台任务批量重建索引、embedding 和 contextual text。
+
+### 10.4 查询链路
+
+用户追问、延续任务或复杂分析任务中，主 Agent 先生成结构化检索计划，后端执行受控召回：
+
+```text
+用户问题
+  -> 主 Agent 输出 recall_plan
+  -> 后端执行权限和预算校验
+  -> 结构化过滤
+  -> 全文召回
+  -> 语义召回
+  -> 关系扩展
+  -> 合并去重
+  -> rerank
+  -> canonical_ref 回表读取原始事实
+  -> 形成 ContextBundle evidence blocks
+  -> 主 Agent 判断证据是否充分
+```
+
+召回结果必须区分：
+
+1. `index_hit`：索引命中的派生信息，只说明为什么命中。
+2. `source_fact`：回表读取的原始事实片段，是可引用证据。
+3. `projection`：为本轮 prompt 压缩后的模型可见视图。
+
+如果证据不足，主 Agent 应继续生成新的 recall_plan 或外部工具计划，而不是基于低相关索引结果直接回答。
+
+### 10.5 与最新 RAG 技术的取舍
+
+本项目应吸收 RAG 的召回能力，但保留当前事实治理结构。
+
+1. Hybrid RAG：优先落地。结合全文检索、结构化过滤和语义向量，适合当前 transcript、artifact、observation 和网页事实召回。
+2. Contextual Retrieval：优先落地。chunk 入索引前补充任务、来源、时间和父级事实背景，避免“片段相关但无法解释”的问题。
+3. Rerank：优先落地。复杂分析任务先召回更多候选，再按用户问题重排，减少无关证据进入最终回答。
+4. GraphRAG：中期借鉴。先用 Postgres 关系边表达事实关联，不立即引入重型图数据库。
+5. 专用记忆产品：作为设计参考。Mem0、Zep/Graphiti 的用户记忆、session 记忆、agent 记忆、metadata filter 和审计能力可借鉴，但本项目用户数据和执行审计应优先保留在自有数据库中。
+
+### 10.6 实施顺序补充
+
+RAG 接入应插入到现有长期记忆阶段之后分步实施：
+
+1. 建立 `canonical_ref` 和通用 fact index。
+2. 在 Postgres 内先实现结构化过滤和全文召回。
+3. 接入 pgvector 或等价向量能力，增加 embedding 字段和语义召回。
+4. 增加 contextual_text 生成流程。
+5. 增加 rerank 阶段和证据充分性评分。
+6. 增加 relation_refs，形成轻量 GraphRAG 能力。
+7. Web 展示召回链路：query、index hit、rerank、source fact、projection 和最终证据。
+
+## 11. 参考项目
+
+本轮已将以下项目拉取到 `../references`，用于后续设计和实现核查：
+
+1. `../references/graphrag`：Microsoft GraphRAG，参考知识图谱索引、实体关系抽取、社区摘要和私有数据推理方式。
+2. `../references/llama_index`：LlamaIndex，参考 Agentic RAG、工具查询引擎、检索流程编排和多步任务循环。
+3. `../references/mem0`：Mem0，参考用户记忆、Agent 记忆、session 记忆、记忆增删改查、metadata filter 和审计设计。
+4. `../references/graphiti`：Zep Graphiti，参考时序知识图谱、事件事实、关系演化和长期记忆检索。
+5. `../references/haystack`：deepset Haystack，参考生产级 RAG pipeline、retriever、ranker、document store 和组件编排。
+
+既有参考目录中还可继续利用：
+
+1. `../references/pgvector_go`：参考 Go 侧 pgvector 使用方式。
+2. `../references/bleve`：参考 Go 全文索引实现。
+3. `../references/qdrant_go_client`：参考外部向量库 Go SDK。
+4. `../references/langgraph`：参考图式 Agent workflow 和状态流转。
+5. `../references/langchaingo`：参考 Go 生态 LLM、工具和检索链路封装。
+
+## 12. 审核点
 
 需要确认以下事项后再进入实现：
 
@@ -648,3 +798,6 @@ Agent 计划详情页相关 Vue 文件
 5. artifact 完整内容是否先存数据库字段，还是仅保存对象引用和原始来源定位。
 6. 是否在本轮新增 `agent_fact_archive_index`，还是先实现 canonical ref 兼容层。
 7. 是否将 `web_search:URL` 统一替换为 `web_snapshot:id` 形式，还是先保留 URL 引用兼容。
+8. RAG 第一版是否限定为 Postgres 内混合检索，还是允许引入外部向量库。
+9. contextual_text 和 embedding 是否同步写入，还是通过后台任务异步补齐。
+10. rerank 第一版使用模型重排、专用 reranker，还是先用规则化分数组合过渡。
