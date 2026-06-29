@@ -50,6 +50,7 @@
 ContextBundle
 - system_blocks
 - recent_messages
+- budget_profile
 - active_goal
 - active_plan
 - previous_assistant_answer
@@ -65,6 +66,7 @@ ContextBundle
 1. 统一描述本轮模型实际可见上下文。
 2. 保留每个 block 的来源、证据引用、更新时间、可信等级和 token 估算。
 3. 支持 Web 端展示“本轮为什么带了这些上下文”。
+4. 支持按主 Agent、子 Agent 和最终综合阶段区分上下文预算 profile。
 
 ### 4.2 短期保护区
 
@@ -73,7 +75,7 @@ ContextBundle
 1. 系统规则和能力边界。
 2. 当前用户原始消息。
 3. 当前主 Agent PlanSpec 和未完成步骤。
-4. 最近 8 到 20 条 `user/assistant` 对话作为热窗口，按任务复杂度和预算动态调整。
+4. 最近对话按语义单元组成热窗口，按 token 预算、任务复杂度和相关性动态选择，不再以固定条数作为保留策略。
 5. 上一轮 assistant 完整回复。
 6. 最近一次关键工具 observation。
 7. 最近一次关键 artifact 摘要和来源。
@@ -81,15 +83,78 @@ ContextBundle
 
 ### 4.3 动态预算
 
-将固定 `Limit: 12` 改为预算驱动：
+将固定 `Limit: 12` 改为 token 预算驱动的语义单元选择：
 
-1. 默认最近对话基础窗口为 12 条。
-2. 简单任务可下降到 8 条。
-3. 多轮追问、延续任务、分析任务可上升到 20 条。
-4. 超出热窗口或模型预算时，不直接丢弃较早消息导致上下文质量下降；主 Agent 应生成 `history_query_plan`，通过 `conversation.query_history` 回顾相关原文。
-5. 历史查询结果进入本轮 ContextBundle 时必须保留 transcript entry 引用、召回原因、查询参数和时间边界。
-6. 如果召回结果仍然过大，只对模型可见投影视图做结构化分页、摘要或分批回看；原始 transcript 不被截断、改写或删除。
-7. 工具结果和 artifact 使用投影视图，保留完整原始引用。
+1. 最近对话不再按 8、12、20 条等固定数量决定热窗口，而是按 `ContextBudgetProfile` 的 token 上限、任务复杂度、相关性和保护区优先级选择。
+2. 语义单元应整体纳入或整体裁剪，不能对原始消息、工具结果或证据片段做任意硬截断。
+3. 推荐语义单元包括：单轮 turn、连续用户/assistant 消息对、工具调用与工具结果对、history recall 结果块、observation/artifact 投影块、plan/step 投影块、用户约束块。
+4. 单个语义单元超过当前预算时，应生成结构化投影视图或摘要块，并保留 `canonical_ref`、原始 fact ref、裁剪原因和可回表路径；不得改写、截断或删除原始事实。
+5. 超出热窗口或模型预算时，主 Agent 应生成 `history_query_plan`，通过 `conversation.query_history` 回顾相关原文，而不是简单丢弃较早消息后凭近期上下文回答。
+6. 历史查询结果进入本轮 ContextBundle 时必须保留 transcript entry 引用、召回原因、查询参数和时间边界。
+7. 如果召回结果仍然过大，只对模型可见投影视图做结构化分页、摘要或分批回看；原始 transcript 不被截断、改写或删除。
+8. 工具结果和 artifact 使用投影视图，保留完整原始引用。
+
+### 4.4 主 Agent 与子 Agent 分层上下文预算
+
+主 Agent 与子 Agent 的上下文预算必须分开计算。总任务消耗可以超过单次模型窗口，但任一模型调用都必须在自己的预算内完成。本轮上下文管理改造应先落地预算模型和投影边界，不在同一阶段强制实现完整 SubAgentTask DAG 调度。
+
+建议引入 `ContextBudgetProfile`，至少包含：
+
+1. `main_planning`：主 Agent 规划阶段，重点保留对话连续性、当前目标、用户约束、活动计划和必要历史召回线索。
+2. `main_evaluation`：主 Agent 证据充分性评估阶段，重点保留 PlanSpec、evidence requirements、子 Agent 结构化结果、gaps 和必要回表事实。
+3. `subagent_search`：搜索类子 Agent，重点保留任务边界、时间范围、来源范围、少量相关对话和网页/订阅源证据。
+4. `subagent_history_recall`：历史召回类子 Agent，重点保留近期约束、历史候选、回表 transcript 原文片段和 recall reason。
+5. `subagent_analysis`：分析类子 Agent，重点保留多源事实、冲突点、用户偏好和输出契约。
+6. `final_synthesis`：最终综合阶段，重点保留最近对话、子 Agent 结构化结果、稳定记忆、关键 evidence refs 和输出预留。
+
+主 Agent 预算建议：
+
+```text
+总预算：64k
+最近对话热窗口：32k 默认，复杂连续任务 40k，硬上限 44k
+稳定记忆：4k-6k
+历史召回：6k-10k
+子 Agent 结果摘要：8k-12k
+计划和评估结构：4k-6k
+输出和安全余量：6k-8k
+```
+
+子 Agent 预算建议：
+
+```text
+搜索子 Agent：
+  最近对话 0k-4k
+  任务摘要和约束 2k-4k
+  搜索和网页证据 32k-44k
+  输出预留 6k-8k
+
+历史召回子 Agent：
+  最近对话 4k-8k
+  历史候选和回表事实 24k-36k
+  输出预留 4k-6k
+
+分析子 Agent：
+  最近对话 2k-6k
+  多源证据 32k-42k
+  用户偏好 2k-4k
+  输出预留 8k
+
+最终综合阶段：
+  最近对话 16k-24k
+  子 Agent 结果 20k-28k
+  稳定记忆 4k
+  输出预留 8k
+```
+
+预算裁剪原则：
+
+1. 子 Agent 不继承完整最近对话热窗口，只接收与子任务相关的用户约束、时间范围、来源范围、上游摘要和证据引用。
+2. 搜索类子 Agent 优先保留网页、订阅源和来源证据，不优先保留完整会话。
+3. 历史召回类子 Agent 优先保留回表后的 transcript 原文片段和召回边界。
+4. 分析类子 Agent 优先保留多源事实、冲突点和用户偏好。
+5. 最终综合阶段默认只读取子 Agent 结构化结果；证据不足或争议较大时，才按 `canonical_ref` 回表读取原始事实。
+6. `budget_report` 必须记录预算 profile、block 预算、实际 token 估算、裁剪状态、裁剪原因、保留原因、输出预留和安全余量。
+7. 上下文预算 trace 应写入 `agent_run_context_traces` 或等价审计记录，供 Web 展示“本轮为什么带这些上下文”。
 
 ## 5. 长期记忆改造
 
@@ -544,16 +609,20 @@ Agent 计划详情页相关 Vue 文件
 ### 阶段一：短期上下文连续性
 
 1. 增加 ContextBundle 数据结构。
-2. 让主 Agent 规划阶段获得必要的最近上下文投影。
-3. 将最近 12 条固定窗口改为预算驱动窗口。
-4. 多轮追问补充上一轮回答、observation 和 artifact 摘要。
-5. Web 展示本轮上下文包。
+2. 增加 `ContextBudgetProfile` 和 `budget_report`，区分主 Agent、子 Agent 和最终综合阶段。
+3. 让主 Agent 规划阶段获得必要的最近上下文投影。
+4. 将最近 12 条固定窗口改为 token 预算驱动的语义单元窗口。
+5. 多轮追问补充上一轮回答、observation 和 artifact 摘要。
+6. 子 Agent 上下文投影不继承完整热窗口，只携带任务相关约束、证据和引用。
+7. Web 展示本轮上下文包、预算 profile、裁剪记录和保留原因。
 
 验收：
 
 1. “继续刚才任务”“刚才结论依据是什么”“收红吗”能够引用上一轮结果和证据。
 2. Web 能看到本轮加载了哪些短期上下文。
-3. 单元测试覆盖短期窗口、保护区和追问上下文。
+3. Web 能看到预算 profile、block token 估算、裁剪记录和 evidence refs。
+4. 子 Agent 类上下文不会自动带入完整最近对话热窗口。
+5. 单元测试覆盖短期语义单元窗口、保护区、预算 profile、整体裁剪策略和追问上下文。
 
 ### 阶段二：长期历史召回
 
@@ -615,7 +684,10 @@ Agent 计划详情页相关 Vue 文件
 
 1. 单元测试：
    - ContextBundle 构建。
-   - 动态短期窗口。
+   - token 预算驱动的短期语义单元窗口。
+   - ContextBudgetProfile 分配。
+   - budget_report token 估算和语义单元整体裁剪记录。
+   - 子 Agent 上下文不继承完整热窗口。
    - 多轮追问 payload。
    - 历史召回计划解析。
    - canonical ref 生成、解析和 legacy ref 兼容。
@@ -801,3 +873,23 @@ RAG 接入应插入到现有长期记忆阶段之后分步实施：
 8. RAG 第一版是否限定为 Postgres 内混合检索，还是允许引入外部向量库。
 9. contextual_text 和 embedding 是否同步写入，还是通过后台任务异步补齐。
 10. rerank 第一版使用模型重排、专用 reranker，还是先用规则化分数组合过渡。
+
+## 13. 本轮实现步骤清单
+
+以下清单用于后续实现时逐项勾选。每完成一项，将对应条目从 `[ ]` 更新为 `[x]`，并保留必要的测试或核验证据。
+
+- [ ] 定义或扩展 `ContextBundle`，补齐 `budget_profile`、`budget_report`、block 来源、证据引用、可信等级、token 估算和裁剪状态。
+- [ ] 定义 `ContextBudgetProfile` 和预算策略，覆盖 `main_planning`、`main_evaluation`、`subagent_search`、`subagent_history_recall`、`subagent_analysis`、`final_synthesis`。
+- [ ] 将最近 12 条固定窗口改为 token 预算驱动的语义单元窗口，设置主 Agent 热窗口 token 上限，并保证语义单元整体纳入或整体裁剪。
+- [ ] 为 ContextBundle 增加短期保护区，固定保留当前用户消息、系统规则、用户明确约束、活动计划、上一轮 assistant 完整回答、关键 observation 和关键 artifact 摘要。
+- [ ] 让主 Agent 规划阶段接收必要的 ContextBundle 投影视图，避免只基于当前用户消息、capability catalog 和 schema 规划。
+- [ ] 扩展 PlanSpec 或规划 metadata，加入 `needs_recent_context`、`needs_history_recall`、`history_query_plan`、`required_memory_types` 和 `expected_evidence_scope`。
+- [ ] 保留 `conversation.query_history` 受控工具，按模型生成的 history query plan 执行召回，并在 ContextBundle 中记录 transcript entry 引用、召回原因、查询参数和时间边界。
+- [ ] 实现 canonical ref 兼容层，支持将 `agent_transcript_entry:123`、`agent_observations/31`、`agent_artifact:41` 等旧引用标准化为 `transcript:123`、`observation:31`、`artifact:41`。
+- [ ] 为子 Agent 类上下文投影建立预算规则，确保子 Agent 不继承完整最近对话热窗口，只接收任务相关约束、上游摘要、证据引用和必要回表事实。
+- [ ] 多轮追问 payload 补充上一轮 assistant 完整回答、关键 observation 摘要、artifact 摘要、来源 URL、抓取时间和证据引用。
+- [ ] 在 `agent_run_context_traces` 或等价审计记录中写入 ContextBundle 投影视图、预算 profile、token 估算、裁剪记录、保留原因和 evidence refs。
+- [ ] Web 计划详情页展示本轮 ContextBundle、预算 profile、短期窗口、历史召回、裁剪记录、关键 observation、关键 artifact 和 evidence refs。
+- [ ] 增加单元测试覆盖 ContextBundle 构建、语义单元窗口、预算 profile、整体裁剪策略、子 Agent 不继承完整热窗口、多轮追问上下文和历史召回计划解析。
+- [ ] 运行后端相关测试，并在实现完成后记录实际执行命令和结果。
+- [ ] 运行前端类型检查或相关构建验证，并在实现完成后记录实际执行命令和结果。
