@@ -38,16 +38,17 @@ type ContextBuilder interface {
 }
 
 type ContextBuildInput struct {
-	UserID          int64
-	SessionID       int64
-	TurnID          int64
-	ControllerRunID int64
-	CapabilityKeys  []string
-	MessageText     string
-	MessageType     string
-	RequestID       string
-	TraceID         string
-	BudgetProfile   ContextBudgetProfile
+	UserID           int64
+	SessionID        int64
+	TurnID           int64
+	ControllerRunID  int64
+	CapabilityKeys   []string
+	MessageText      string
+	MessageType      string
+	RequestID        string
+	TraceID          string
+	BudgetProfile    ContextBudgetProfile
+	HistoryQueryPlan PlanHistoryQueryPlan
 }
 
 type ContextSnapshot struct {
@@ -165,16 +166,17 @@ func NewTurnRunner(options TurnRunnerOptions) *TurnRunner {
 }
 
 type TurnRunInput struct {
-	UserID          int64
-	Session         domain.AgentSession
-	Turn            domain.AgentTurn
-	InboundMessage  domain.AgentInboundMessage
-	ControllerRunID int64
-	AllowedToolKeys []string
-	MessageType     string
-	MessageText     string
-	RequestID       string
-	TraceID         string
+	UserID           int64
+	Session          domain.AgentSession
+	Turn             domain.AgentTurn
+	InboundMessage   domain.AgentInboundMessage
+	ControllerRunID  int64
+	AllowedToolKeys  []string
+	MessageType      string
+	MessageText      string
+	RequestID        string
+	TraceID          string
+	HistoryQueryPlan PlanHistoryQueryPlan
 }
 
 type TurnRunResult struct {
@@ -274,16 +276,17 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 	if r.contextBuilder != nil {
 		var err error
 		snapshot, err = r.contextBuilder.Build(ctx, ContextBuildInput{
-			UserID:          input.UserID,
-			SessionID:       input.Session.ID,
-			TurnID:          input.Turn.ID,
-			ControllerRunID: input.ControllerRunID,
-			CapabilityKeys:  append([]string(nil), input.AllowedToolKeys...),
-			MessageText:     input.MessageText,
-			MessageType:     input.MessageType,
-			RequestID:       input.RequestID,
-			TraceID:         input.TraceID,
-			BudgetProfile:   ContextBudgetProfileForCapabilityScope(input.AllowedToolKeys),
+			UserID:           input.UserID,
+			SessionID:        input.Session.ID,
+			TurnID:           input.Turn.ID,
+			ControllerRunID:  input.ControllerRunID,
+			CapabilityKeys:   append([]string(nil), input.AllowedToolKeys...),
+			MessageText:      input.MessageText,
+			MessageType:      input.MessageType,
+			RequestID:        input.RequestID,
+			TraceID:          input.TraceID,
+			BudgetProfile:    ContextBudgetProfileForCapabilityScope(input.AllowedToolKeys),
+			HistoryQueryPlan: input.HistoryQueryPlan,
 		})
 		if err != nil {
 			return "", "", "", snapshot, err

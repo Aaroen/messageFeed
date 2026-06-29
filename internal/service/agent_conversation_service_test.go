@@ -274,6 +274,57 @@ func TestParseMainAgentPlanSpecJSONIncludesContextNeeds(t *testing.T) {
 	}
 }
 
+func TestConversationMemoryProviderExecutesPlannedHistoryQuery(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	_, _ = repository.AppendTranscriptEntry(context.Background(), domain.AgentTranscriptEntry{
+		SessionID: 2,
+		TurnID:    1,
+		UserID:    1,
+		Role:      domain.AgentTranscriptRoleUser,
+		Content:   "我的偏好是回答要先给结论。",
+		CreatedAt: now.Add(-10 * time.Minute),
+	})
+	_, _ = repository.AppendTranscriptEntry(context.Background(), domain.AgentTranscriptEntry{
+		SessionID: 2,
+		TurnID:    1,
+		UserID:    1,
+		Role:      domain.AgentTranscriptRoleAssistant,
+		Content:   "已记录该表达偏好。",
+		CreatedAt: now.Add(-9 * time.Minute),
+	})
+	provider := agentConversationMemoryProvider{
+		repository: repository,
+		now:        func() time.Time { return now },
+	}
+
+	memory, err := provider.BuildConversationMemory(context.Background(), agent.ContextBuildInput{
+		UserID:      1,
+		SessionID:   2,
+		TurnID:      3,
+		MessageText: "我之前说过什么偏好吗",
+		HistoryQueryPlan: agent.PlanHistoryQueryPlan{
+			Mode:   "search",
+			Query:  "偏好",
+			Reason: "用户询问历史偏好",
+			Limit:  5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildConversationMemory() error = %v", err)
+	}
+	if !memory.HistoryQueried {
+		t.Fatal("planned history query was not executed")
+	}
+	if len(memory.HistoryResults) == 0 {
+		t.Fatalf("history results = %#v", memory.HistoryResults)
+	}
+	if !strings.Contains(memory.HistoryResultContent, "召回原因：用户询问历史偏好") ||
+		!strings.Contains(memory.HistoryResultContent, "我的偏好是回答要先给结论") {
+		t.Fatalf("history result content = %q", memory.HistoryResultContent)
+	}
+}
+
 func TestAgentWebSearchNormalizesQueryAndParsesRSSResults(t *testing.T) {
 	if got := normalizeWebSearchQuery("搜索最新港股消息并分析"); got != "搜索最新港股消息并分析" {
 		t.Fatalf("normalized query = %q", got)

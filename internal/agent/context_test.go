@@ -136,6 +136,45 @@ func TestDefaultContextBuilderBuildsContextBundleBudgetProfile(t *testing.T) {
 	}
 }
 
+func TestDefaultContextBuilderAddsCanonicalRefsToHistoryBlock(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	builder := NewDefaultContextBuilder(DefaultContextBuilderOptions{
+		ConversationMemory: fakeConversationMemoryProvider{
+			memory: ConversationMemory{
+				HistoryQueried: true,
+				HistoryResults: []ContextMessage{
+					{Role: domain.AgentTranscriptRoleUser, Content: "历史偏好", TranscriptEntryID: 123, TurnID: 1, CreatedAt: now.Add(-time.Hour)},
+				},
+				HistoryResultContent: "命中原文：历史偏好",
+			},
+		},
+		Now: func() time.Time { return now },
+	})
+
+	snapshot, err := builder.Build(context.Background(), ContextBuildInput{
+		UserID:      1,
+		SessionID:   2,
+		TurnID:      3,
+		MessageText: "我之前说过什么偏好吗",
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	var historyBlock ContextBlock
+	for _, block := range snapshot.Blocks {
+		if block.CapabilityKey == "conversation.query_history" {
+			historyBlock = block
+			break
+		}
+	}
+	if strings.Join(historyBlock.EvidenceRefs, ",") != "transcript:123" {
+		t.Fatalf("history evidence refs = %#v", historyBlock.EvidenceRefs)
+	}
+	if historyBlock.Source != "history_query_plan" {
+		t.Fatalf("history block source = %q", historyBlock.Source)
+	}
+}
+
 func TestSelectSemanticUnitsByTokenBudgetKeepsWholeUnits(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	messages := []ContextMessage{

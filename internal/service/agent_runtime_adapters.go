@@ -88,7 +88,84 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 		return memory, err
 	}
 	memory.Messages = transcriptEntriesToContextMessages(recent)
+	if conversationHistoryPlanHasContent(input.HistoryQueryPlan) {
+		historyResults, historyContent, err := p.queryPlannedConversationHistory(ctx, input)
+		if err != nil {
+			return memory, err
+		}
+		memory.HistoryQueried = true
+		memory.HistoryResults = historyResults
+		memory.HistoryResultContent = historyContent
+	}
 	return memory, nil
+}
+
+func (p agentConversationMemoryProvider) queryPlannedConversationHistory(ctx context.Context, input agent.ContextBuildInput) ([]agent.ContextMessage, string, error) {
+	plan := input.HistoryQueryPlan
+	mode := inferConversationHistoryMode(plan.Mode)
+	keyword := strings.TrimSpace(plan.Query)
+	if mode != conversationHistoryModeSearch {
+		keyword = ""
+	}
+	now := time.Now().UTC()
+	if p.now != nil {
+		now = p.now().UTC()
+	}
+	timeRange := parseConversationHistoryTimeRange(input.MessageText, plan.TimeHint, now)
+	if mode == conversationHistoryModeTimeRange && !timeRange.Valid {
+		return nil, "历史查询计划的时间范围不明确，未执行历史回表查询。", nil
+	}
+	limit := plan.Limit
+	if limit <= 0 {
+		limit = 8
+	}
+	if mode == conversationHistoryModeEarliest || mode == conversationHistoryModeLatest {
+		limit = 1
+	}
+	if limit > 20 {
+		limit = 20
+	}
+	order := "desc"
+	if mode == conversationHistoryModeEarliest {
+		order = "asc"
+	}
+	entries, err := p.repository.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{
+		SessionID:    input.SessionID,
+		UserID:       input.UserID,
+		Mode:         mode,
+		Keyword:      keyword,
+		TimeHint:     plan.TimeHint,
+		Roles:        []domain.AgentTranscriptRole{domain.AgentTranscriptRoleUser, domain.AgentTranscriptRoleAssistant},
+		BeforeTurnID: input.TurnID,
+		After:        timeRange.After,
+		Before:       timeRange.Before,
+		Order:        order,
+		Limit:        limit,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	messages := transcriptEntriesToContextMessages(entries)
+	reason := strings.TrimSpace(plan.Reason)
+	if reason == "" {
+		reason = "main_agent_history_query_plan"
+	}
+	content := formatConversationHistoryResult(conversationHistoryResultInput{
+		Mode:         mode,
+		Scope:        "current_session",
+		Reason:       reason,
+		Entries:      entries,
+		MatchedCount: len(messages),
+		TimeRange:    timeRange,
+	})
+	return messages, content, nil
+}
+
+func conversationHistoryPlanHasContent(plan agent.PlanHistoryQueryPlan) bool {
+	return strings.TrimSpace(plan.Mode) != "" ||
+		strings.TrimSpace(plan.Query) != "" ||
+		strings.TrimSpace(plan.TimeHint) != "" ||
+		strings.TrimSpace(plan.Reason) != ""
 }
 
 type agentP0CapabilityExecutor struct {

@@ -169,12 +169,15 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 				content = "没有查到明确历史聊天记录。"
 			}
 			snapshot.Blocks = append(snapshot.Blocks, ContextBlock{
-				Name:          "历史聊天查询结果",
-				CapabilityKey: "conversation.query_history",
-				Content:       content,
-				ItemCount:     len(memory.HistoryResults),
-				GeneratedAt:   b.now().UTC(),
-				TrustLevel:    "transcript",
+				Name:            "历史聊天查询结果",
+				CapabilityKey:   "conversation.query_history",
+				Content:         content,
+				ItemCount:       len(memory.HistoryResults),
+				GeneratedAt:     b.now().UTC(),
+				TrustLevel:      "transcript",
+				Source:          "history_query_plan",
+				EvidenceRefs:    contextMessageCanonicalRefs(memory.HistoryResults),
+				RetentionReason: "history_query_plan",
 			})
 			snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
 				Capability: "conversation.query_history",
@@ -386,6 +389,17 @@ func currentContextMessage(message string) *ContextMessage {
 		Role:    domain.AgentTranscriptRoleUser,
 		Content: message,
 	}
+}
+
+func contextMessageCanonicalRefs(messages []ContextMessage) []string {
+	refs := make([]string, 0, len(messages))
+	for _, message := range messages {
+		if message.TranscriptEntryID <= 0 {
+			continue
+		}
+		refs = append(refs, "transcript:"+fmt.Sprint(message.TranscriptEntryID))
+	}
+	return NormalizeCanonicalRefs(refs)
 }
 
 func formatContextMessageRole(role domain.AgentTranscriptRole) string {

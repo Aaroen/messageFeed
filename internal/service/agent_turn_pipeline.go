@@ -105,17 +105,22 @@ func (s *AgentConversationService) processTurn(
 		result.Plan = plan
 		return result, err
 	}
+	historyQueryPlan := historyQueryPlanForTurn(plan)
+	if !planAllowsConversationHistory(plan) {
+		historyQueryPlan = agent.PlanHistoryQueryPlan{}
+	}
 	runResult, err := s.turnRunner.Run(ctx, agent.TurnRunInput{
-		UserID:          account.UserID,
-		Session:         session,
-		Turn:            turn,
-		InboundMessage:  inbound,
-		ControllerRunID: controllerRun.ID,
-		AllowedToolKeys: append([]string{}, plan.AllowedScopes...),
-		MessageType:     input.MsgType,
-		MessageText:     input.TextContent,
-		RequestID:       input.RequestID,
-		TraceID:         input.TraceID,
+		UserID:           account.UserID,
+		Session:          session,
+		Turn:             turn,
+		InboundMessage:   inbound,
+		ControllerRunID:  controllerRun.ID,
+		AllowedToolKeys:  append([]string{}, plan.AllowedScopes...),
+		MessageType:      input.MsgType,
+		MessageText:      input.TextContent,
+		RequestID:        input.RequestID,
+		TraceID:          input.TraceID,
+		HistoryQueryPlan: historyQueryPlan,
 	})
 	if err != nil {
 		if isAgentProcessStopError(ctx, err, activeProcess) {
@@ -718,6 +723,27 @@ func (s *AgentConversationService) createPlanForTurn(
 		return domain.AgentPlan{}, "", err
 	}
 	return plan, token, nil
+}
+
+func historyQueryPlanForTurn(plan domain.AgentPlan) agent.PlanHistoryQueryPlan {
+	mainPlan := metadataMap(plan.Metadata, "main_agent_plan")
+	historyPlan := metadataMap(domain.AgentJSON(mainPlan), "history_query_plan")
+	return agent.PlanHistoryQueryPlan{
+		Mode:     metadataString(historyPlan, "mode"),
+		Query:    metadataString(historyPlan, "query"),
+		TimeHint: metadataString(historyPlan, "time_hint"),
+		Reason:   metadataString(historyPlan, "reason"),
+		Limit:    metadataNumber(historyPlan, "limit"),
+	}
+}
+
+func planAllowsConversationHistory(plan domain.AgentPlan) bool {
+	for _, key := range plan.AllowedScopes {
+		if strings.TrimSpace(key) == "conversation.query_history" {
+			return true
+		}
+	}
+	return false
 }
 
 // createPlanningFailedPlan 在主 Agent 规划阶段失败时保留可审计计划。
