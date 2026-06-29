@@ -206,6 +206,25 @@ func ContextBudgetForProfile(profile ContextBudgetProfile) ContextBudgetSpec {
 	}
 }
 
+func RecentConversationCandidateLimit(profile ContextBudgetProfile) int {
+	spec := ContextBudgetForProfile(profile)
+	return recentConversationCandidateLimitForTokenBudget(spec.RecentMessagesTokens)
+}
+
+func recentConversationCandidateLimitForTokenBudget(tokenBudget int) int {
+	if tokenBudget <= 0 {
+		return 32
+	}
+	limit := tokenBudget / 80
+	if limit < 32 {
+		return 32
+	}
+	if limit > 240 {
+		return 240
+	}
+	return limit
+}
+
 func BuildConversationSemanticUnits(messages []ContextMessage) []ContextSemanticUnit {
 	units := make([]ContextSemanticUnit, 0, len(messages))
 	for index := 0; index < len(messages); index++ {

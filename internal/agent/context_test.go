@@ -201,6 +201,20 @@ func TestSelectSemanticUnitsByTokenBudgetProjectsOversizedUnitWithoutHardTruncat
 	}
 }
 
+func TestRecentConversationCandidateLimitIsDerivedFromTokenBudget(t *testing.T) {
+	mainLimit := RecentConversationCandidateLimit(ContextBudgetProfileMainPlanning)
+	searchLimit := RecentConversationCandidateLimit(ContextBudgetProfileSubagentSearch)
+	if mainLimit <= searchLimit {
+		t.Fatalf("main planning candidate limit = %d, search candidate limit = %d", mainLimit, searchLimit)
+	}
+	if searchLimit <= 12 {
+		t.Fatalf("candidate limit should not preserve the old fixed 12 message strategy: %d", searchLimit)
+	}
+	if mainLimit > 240 {
+		t.Fatalf("candidate limit should keep an engineering query cap: %d", mainLimit)
+	}
+}
+
 func TestFormatContextMessagesDoesNotApplyFixedTwelveMessageWindow(t *testing.T) {
 	messages := make([]ContextMessage, 0, 13)
 	for i := 0; i < 13; i++ {

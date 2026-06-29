@@ -880,7 +880,7 @@ RAG 接入应插入到现有长期记忆阶段之后分步实施：
 
 - [x] 定义或扩展 `ContextBundle`，补齐 `budget_profile`、`budget_report`、block 来源、证据引用、可信等级、token 估算和裁剪状态。
 - [x] 定义 `ContextBudgetProfile` 和预算策略，覆盖 `main_planning`、`main_evaluation`、`subagent_search`、`subagent_history_recall`、`subagent_analysis`、`final_synthesis`。
-- [ ] 将最近 12 条固定窗口改为 token 预算驱动的语义单元窗口，设置主 Agent 热窗口 token 上限，并保证语义单元整体纳入或整体裁剪。
+- [x] 将最近 12 条固定窗口改为 token 预算驱动的语义单元窗口，设置主 Agent 热窗口 token 上限，并保证语义单元整体纳入或整体裁剪。
 - [ ] 为 ContextBundle 增加短期保护区，固定保留当前用户消息、系统规则、用户明确约束、活动计划、上一轮 assistant 完整回答、关键 observation 和关键 artifact 摘要。
 - [ ] 让主 Agent 规划阶段接收必要的 ContextBundle 投影视图，避免只基于当前用户消息、capability catalog 和 schema 规划。
 - [ ] 扩展 PlanSpec 或规划 metadata，加入 `needs_recent_context`、`needs_history_recall`、`history_query_plan`、`required_memory_types` 和 `expected_evidence_scope`。
@@ -888,7 +888,7 @@ RAG 接入应插入到现有长期记忆阶段之后分步实施：
 - [ ] 实现 canonical ref 兼容层，支持将 `agent_transcript_entry:123`、`agent_observations/31`、`agent_artifact:41` 等旧引用标准化为 `transcript:123`、`observation:31`、`artifact:41`。
 - [ ] 为子 Agent 类上下文投影建立预算规则，确保子 Agent 不继承完整最近对话热窗口，只接收任务相关约束、上游摘要、证据引用和必要回表事实。
 - [ ] 多轮追问 payload 补充上一轮 assistant 完整回答、关键 observation 摘要、artifact 摘要、来源 URL、抓取时间和证据引用。
-- [ ] 在 `agent_run_context_traces` 或等价审计记录中写入 ContextBundle 投影视图、预算 profile、token 估算、裁剪记录、保留原因和 evidence refs。
+- [x] 在 `agent_run_context_traces` 或等价审计记录中写入 ContextBundle 投影视图、预算 profile、token 估算、裁剪记录、保留原因和 evidence refs。
 - [ ] Web 计划详情页展示本轮 ContextBundle、预算 profile、短期窗口、历史召回、裁剪记录、关键 observation、关键 artifact 和 evidence refs。
 - [ ] 增加单元测试覆盖 ContextBundle 构建、语义单元窗口、预算 profile、整体裁剪策略、子 Agent 不继承完整热窗口、多轮追问上下文和历史召回计划解析。
 - [ ] 运行后端相关测试，并在实现完成后记录实际执行命令和结果。

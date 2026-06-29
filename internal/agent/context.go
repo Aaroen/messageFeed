@@ -105,6 +105,7 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 	}
 	capabilityKeys := b.capabilityKeysForInput(input)
 	budgetSpec := ContextBudgetForProfile(input.BudgetProfile)
+	input.BudgetProfile = budgetSpec.Profile
 	snapshot := ContextSnapshot{
 		Blocks:        make([]ContextBlock, 0, len(capabilityKeys)+2),
 		Messages:      []ContextMessage{},

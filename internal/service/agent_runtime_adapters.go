@@ -82,7 +82,7 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 			domain.AgentTranscriptRoleUser,
 			domain.AgentTranscriptRoleAssistant,
 		},
-		Limit: 12,
+		Limit: agent.RecentConversationCandidateLimit(input.BudgetProfile),
 	})
 	if err != nil {
 		return memory, err
