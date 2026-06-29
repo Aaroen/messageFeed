@@ -177,6 +177,7 @@ type TurnRunResult struct {
 const emptyLLMResponseRetryLimit = 2
 const requiredToolCallRetryLimit = 2
 const promptedToolActionRetryLimit = 2
+const plainTextReplyRepairLimit = 2
 
 func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult, error) {
 	ctx, span := observability.StartSpan(ctx, "agent.turn_runner.run",
@@ -282,9 +283,13 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 
 	systemPrompt := r.buildSystemPrompt(snapshot, input.MessageText)
 	messages := r.buildChatMessages(systemPrompt, snapshot, input.MessageText)
-	response, snapshot, err := r.chatWithTools(ctx, input, snapshot, messages)
+	response, snapshot, finalMessages, err := r.chatWithTools(ctx, input, snapshot, messages)
 	if err != nil {
 		return "", "", "", snapshot, err
+	}
+	response, err = r.ensurePlainTextReply(ctx, input, finalMessages, response)
+	if err != nil {
+		return "", response.Provider, response.Model, snapshot, err
 	}
 	if strings.TrimSpace(response.Content) == "" {
 		return "", response.Provider, response.Model, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_empty_reply", "agent reply is empty", "agent.turn_runner.generate", true, nil)
@@ -292,7 +297,7 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 	return strings.TrimSpace(response.Content), response.Provider, response.Model, snapshot, nil
 }
 
-func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, error) {
+func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, []llm.ChatMessage, error) {
 	tools := r.listMCPTools(input.AllowedToolKeys)
 	const maxToolRounds = 50
 	requiredToolRetries := 0
@@ -301,7 +306,7 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 		hasToolObservation := toolInteractionObserved || hasObservationForMCPTools(snapshot.Observations, tools)
 		response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, tools, false, hasToolObservation, len(tools) > 0 && !hasToolObservation)
 		if err != nil {
-			return llm.ChatResponse{}, snapshot, err
+			return llm.ChatResponse{}, snapshot, messages, err
 		}
 		messages = effectiveMessages
 		if len(response.ToolCalls) == 0 {
@@ -310,7 +315,7 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 			if len(tools) > 0 && !toolInteractionObserved && !hasObservationForMCPTools(snapshot.Observations, tools) {
 				requiredToolRetries++
 				if requiredToolRetries > requiredToolCallRetryLimit {
-					return llm.ChatResponse{}, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_required_tool_skipped", "agent did not call an approved tool before answering", "agent.turn_runner.tools", true, nil)
+					return llm.ChatResponse{}, snapshot, messages, domain.NewAppError(domain.ErrorKindUnavailable, "agent_required_tool_skipped", "agent did not call an approved tool before answering", "agent.turn_runner.tools", true, nil)
 				}
 				r.record(ctx, AuditEvent{
 					SessionID: input.Session.ID,
@@ -334,13 +339,13 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 				messages = append(messages, llm.ChatMessage{Role: "user", Content: requiredToolCallRetryPrompt(requiredToolRetries)})
 				continue
 			}
-			return response, snapshot, nil
+			return response, snapshot, messages, nil
 		}
 		if r.toolExecutor == nil {
 			if strings.TrimSpace(response.Content) != "" {
-				return response, snapshot, nil
+				return response, snapshot, messages, nil
 			}
-			return llm.ChatResponse{}, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_executor_unavailable", "agent tool executor is unavailable", "agent.turn_runner.tools", true, nil)
+			return llm.ChatResponse{}, snapshot, messages, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_executor_unavailable", "agent tool executor is unavailable", "agent.turn_runner.tools", true, nil)
 		}
 
 		messages = append(messages, llm.ChatMessage{
@@ -352,7 +357,7 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 			toolInteractionObserved = true
 			result, err := r.executeToolCall(ctx, input, call)
 			if err != nil {
-				return llm.ChatResponse{}, snapshot, err
+				return llm.ChatResponse{}, snapshot, messages, err
 			}
 			observation := result.Observation
 			if observation.Capability == "" {
@@ -383,15 +388,69 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 			Role:    "user",
 			Content: "工具调用轮次已经达到上限。请只基于以上工具结果生成最终回答，不要再请求工具；如果证据不足，请直接说明证据不足。",
 		})
-		response, _, err := r.chatWithEmptyResponseRetry(ctx, input, messages, nil, true, true, false)
+		response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, nil, true, true, false)
 		if err != nil {
-			return llm.ChatResponse{}, snapshot, err
+			return llm.ChatResponse{}, snapshot, messages, err
 		}
+		messages = effectiveMessages
 		if strings.TrimSpace(response.Content) != "" {
-			return response, snapshot, nil
+			return response, snapshot, messages, nil
 		}
 	}
-	return llm.ChatResponse{}, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_round_limit", "agent tool call round limit exceeded", "agent.turn_runner.tools", true, nil)
+	return llm.ChatResponse{}, snapshot, messages, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_round_limit", "agent tool call round limit exceeded", "agent.turn_runner.tools", true, nil)
+}
+
+// ensurePlainTextReply 对最终用户可见回答执行纯文本协议校验。
+// 若模型输出 Markdown 形态，runner 会要求模型重写；后端不直接拼接或改写回答事实。
+func (r *TurnRunner) ensurePlainTextReply(ctx context.Context, input TurnRunInput, messages []llm.ChatMessage, response llm.ChatResponse) (llm.ChatResponse, error) {
+	if r == nil || r.llmClient == nil {
+		return response, nil
+	}
+	content := strings.TrimSpace(response.Content)
+	violation := PlainTextReplyViolation(content)
+	if violation == "" {
+		return response, nil
+	}
+	effectiveMessages := append([]llm.ChatMessage(nil), messages...)
+	if content != "" {
+		effectiveMessages = append(effectiveMessages, llm.ChatMessage{Role: "assistant", Content: content})
+	}
+	current := response
+	for attempt := 0; attempt < plainTextReplyRepairLimit; attempt++ {
+		r.record(ctx, AuditEvent{
+			SessionID: input.Session.ID,
+			TurnID:    input.Turn.ID,
+			UserID:    input.UserID,
+			EventType: "agent.plain_text_reply_repair_retry",
+			Status:    "retrying",
+			Message:   "agent reply plain text repair retry scheduled",
+			Metadata: domain.AgentJSON{
+				"attempt":   attempt + 1,
+				"violation": violation,
+			},
+			RequestID: input.RequestID,
+			TraceID:   input.TraceID,
+			CreatedAt: r.now().UTC(),
+		})
+		repairMessages := append([]llm.ChatMessage(nil), effectiveMessages...)
+		repairMessages = append(repairMessages, llm.ChatMessage{
+			Role:    "user",
+			Content: PlainTextReplyRepairPrompt(current.Content, violation, attempt+1),
+		})
+		repaired, _, err := r.chatWithEmptyResponseRetry(ctx, input, repairMessages, nil, true, false, false)
+		if err != nil {
+			return llm.ChatResponse{}, err
+		}
+		current = repaired
+		content = strings.TrimSpace(current.Content)
+		violation = PlainTextReplyViolation(content)
+		if violation == "" {
+			current.Content = content
+			return current, nil
+		}
+		effectiveMessages = append(repairMessages, llm.ChatMessage{Role: "assistant", Content: content})
+	}
+	return llm.ChatResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_reply_plain_text_violation", "agent reply does not satisfy plain text format", "agent.turn_runner.reply_format", true, nil)
 }
 
 // chatWithEmptyResponseRetry 处理上游模型“请求成功但没有内容”的临界情况。

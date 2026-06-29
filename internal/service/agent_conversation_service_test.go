@@ -2063,6 +2063,39 @@ func TestAgentConversationServiceFeedbackMarksThinkingTimeout(t *testing.T) {
 	}
 }
 
+func TestAgentConversationServiceRepairsMarkdownFeedback(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 30, 0, 0, time.UTC)
+	llmClient := &fakeAgentConversationLLM{
+		feedbackResponses: []llm.ChatResponse{
+			{Provider: "openai_compatible", Model: "feedback-model", Content: "## 已开始\n- 后台正在处理"},
+			{Provider: "openai_compatible", Model: "feedback-model", Content: "已开始在后台处理。"},
+		},
+	}
+	service := NewAgentConversationService(
+		newFakeAgentConversationRepository(),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationLLM(llmClient),
+	)
+	reply := service.generateAgentWeChatFeedbackText(context.Background(), agentWeChatFeedbackRequest{
+		Stage: "started",
+		Plan: domain.AgentPlan{
+			ID:        9,
+			Status:    domain.AgentPlanStatusExecuting,
+			Goal:      "分析市场消息",
+			UpdatedAt: now,
+		},
+	})
+	if reply != "已开始在后台处理。" {
+		t.Fatalf("reply = %q", reply)
+	}
+	if violation := agent.PlainTextReplyViolation(reply); violation != "" {
+		t.Fatalf("plain text violation = %q reply = %q", violation, reply)
+	}
+	if llmClient.feedbackIdx != 2 {
+		t.Fatalf("feedback calls = %d, want 2", llmClient.feedbackIdx)
+	}
+}
+
 func TestAgentConversationServiceApprovalRequiredReplyUsesGeneratedFeedback(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	service := NewAgentConversationService(
@@ -2874,18 +2907,20 @@ func waitForWeChatTextMessage(t *testing.T, messages <-chan notifier.WeChatWorkT
 }
 
 type fakeAgentConversationLLM struct {
-	calls          int
-	lastRequest    llm.ChatRequest
-	response       llm.ChatResponse
-	responses      []llm.ChatResponse
-	err            error
-	planErr        error
-	started        chan struct{}
-	release        chan struct{}
-	startOnce      sync.Once
-	responseIdx    int
-	planKeys       []string
-	followupIntent agentFollowupIntent
+	calls             int
+	lastRequest       llm.ChatRequest
+	response          llm.ChatResponse
+	responses         []llm.ChatResponse
+	feedbackResponses []llm.ChatResponse
+	err               error
+	planErr           error
+	started           chan struct{}
+	release           chan struct{}
+	startOnce         sync.Once
+	responseIdx       int
+	feedbackIdx       int
+	planKeys          []string
+	followupIntent    agentFollowupIntent
 }
 
 // Chat 同时模拟主 Agent 规划调用和执行 Agent 调用。
@@ -2912,6 +2947,14 @@ func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatReque
 		return fakeMainAgentPlanSpecResponse(request, f.fakePlanCapabilityKeys()), nil
 	}
 	if fakeIsAgentWeChatFeedbackRequest(request) {
+		if len(f.feedbackResponses) > 0 {
+			index := f.feedbackIdx
+			if index >= len(f.feedbackResponses) {
+				index = len(f.feedbackResponses) - 1
+			}
+			f.feedbackIdx++
+			return f.feedbackResponses[index], nil
+		}
 		return fakeAgentWeChatFeedbackResponse(request), nil
 	}
 	if f.started != nil {

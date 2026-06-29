@@ -712,6 +712,53 @@ func TestTurnRunnerDoesNotReplaceModelReplyWithKeywordQualityGate(t *testing.T) 
 	}
 }
 
+func TestTurnRunnerRepairsMarkdownFinalReply(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	chat := &runnerFakeChatClient{
+		responses: []llm.ChatResponse{
+			{Provider: "openai_compatible", Model: "custom-model", Content: "## 结论\n- 当前消息面偏谨慎\n- 继续观察资金流"},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "结论：当前消息面偏谨慎。继续观察资金流。"},
+		},
+	}
+	audit := &runnerFakeAuditLogger{}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store:        &runnerFakeTurnStore{},
+		AuditLogger:  audit,
+		LLMClient:    chat,
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:         1,
+		Session:        domain.AgentSession{ID: 10, UserID: 1},
+		Turn:           domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage: domain.AgentInboundMessage{ID: 30, UserID: 1},
+		MessageType:    "text",
+		MessageText:    "分析市场",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Reply != "结论：当前消息面偏谨慎。继续观察资金流。" {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if PlainTextReplyViolation(result.Reply) != "" {
+		t.Fatalf("reply still violates plain text format: %q", result.Reply)
+	}
+	if chat.calls != 2 {
+		t.Fatalf("chat calls = %d, want 2", chat.calls)
+	}
+	if !runnerAuditContains(audit.events, "agent.plain_text_reply_repair_retry") {
+		t.Fatalf("audit events = %#v", audit.events)
+	}
+	lastRequest := chat.requests[len(chat.requests)-1]
+	lastMessage := lastRequest.Messages[len(lastRequest.Messages)-1]
+	if lastMessage.Role != "user" || !strings.Contains(lastMessage.Content, "violation") {
+		t.Fatalf("repair prompt message = %#v", lastMessage)
+	}
+}
+
 type runnerFakeChatClient struct {
 	calls       int
 	responseIdx int

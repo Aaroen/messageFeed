@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"os"
@@ -88,7 +89,43 @@ func (s *AgentConversationService) generateAgentWeChatFeedbackText(ctx context.C
 	if text == "" {
 		text = renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData())
 	}
+	if agent.PlainTextReplyViolation(text) != "" {
+		text = s.repairAgentWeChatFeedbackPlainText(ctx, request, text)
+	}
 	return finalizeAgentWeChatFeedbackText(text)
+}
+
+// repairAgentWeChatFeedbackPlainText 复用 Agent 纯文本格式契约修复企微短反馈。
+// 如果模型仍不遵守格式，则回到集中配置模板，避免 Markdown 直接进入用户侧。
+func (s *AgentConversationService) repairAgentWeChatFeedbackPlainText(ctx context.Context, request agentWeChatFeedbackRequest, text string) string {
+	if s == nil || s.llmClient == nil {
+		return renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData())
+	}
+	current := strings.TrimSpace(text)
+	for attempt := 0; attempt < 2; attempt++ {
+		violation := agent.PlainTextReplyViolation(current)
+		if violation == "" {
+			return current
+		}
+		llmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentWeChatFeedbackLLMTimeout)
+		response, err := s.llmClient.Chat(llmCtx, llm.ChatRequest{
+			Messages: []llm.ChatMessage{
+				{Role: "system", Content: agentWeChatFeedbackSystemPrompt()},
+				{Role: "user", Content: agent.PlainTextReplyRepairPrompt(current, violation, attempt+1)},
+			},
+			Temperature: 0.2,
+			MaxTokens:   96,
+		})
+		cancel()
+		if err != nil {
+			break
+		}
+		current = normalizeAgentWeChatFeedbackText(response.Content)
+	}
+	if agent.PlainTextReplyViolation(current) == "" && current != "" {
+		return current
+	}
+	return renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData())
 }
 
 func (request agentWeChatFeedbackRequest) agentWeChatFeedbackPayload() domain.AgentJSON {
