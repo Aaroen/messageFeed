@@ -283,6 +283,7 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 			MessageType:     input.MessageType,
 			RequestID:       input.RequestID,
 			TraceID:         input.TraceID,
+			BudgetProfile:   ContextBudgetProfileForCapabilityScope(input.AllowedToolKeys),
 		})
 		if err != nil {
 			return "", "", "", snapshot, err

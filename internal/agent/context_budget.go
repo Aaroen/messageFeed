@@ -211,6 +211,32 @@ func RecentConversationCandidateLimit(profile ContextBudgetProfile) int {
 	return recentConversationCandidateLimitForTokenBudget(spec.RecentMessagesTokens)
 }
 
+func ContextBudgetProfileForCapabilityScope(capabilityKeys []string) ContextBudgetProfile {
+	if len(capabilityKeys) == 0 {
+		return ContextBudgetProfileSubagentAnalysis
+	}
+	hasHistory := false
+	hasSearch := false
+	hasAnalysis := false
+	for _, key := range capabilityKeys {
+		switch strings.TrimSpace(key) {
+		case "conversation.query_history":
+			hasHistory = true
+		case "feed.query_recent_items", "source.query_latest_items", "web.search", "web.fetch_page", "web.extract_page", "repo.search", "repo.inspect_remote":
+			hasSearch = true
+		default:
+			hasAnalysis = true
+		}
+	}
+	if hasHistory && !hasSearch && !hasAnalysis {
+		return ContextBudgetProfileSubagentHistoryRecall
+	}
+	if hasSearch {
+		return ContextBudgetProfileSubagentSearch
+	}
+	return ContextBudgetProfileSubagentAnalysis
+}
+
 func CompleteContextBudgetReport(report ContextBudgetReport, spec ContextBudgetSpec) ContextBudgetReport {
 	report.Profile = spec.Profile
 	report.TotalBudgetTokens = spec.TotalTokens

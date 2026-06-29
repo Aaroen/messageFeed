@@ -886,7 +886,7 @@ RAG 接入应插入到现有长期记忆阶段之后分步实施：
 - [ ] 扩展 PlanSpec 或规划 metadata，加入 `needs_recent_context`、`needs_history_recall`、`history_query_plan`、`required_memory_types` 和 `expected_evidence_scope`。
 - [ ] 保留 `conversation.query_history` 受控工具，按模型生成的 history query plan 执行召回，并在 ContextBundle 中记录 transcript entry 引用、召回原因、查询参数和时间边界。
 - [ ] 实现 canonical ref 兼容层，支持将 `agent_transcript_entry:123`、`agent_observations/31`、`agent_artifact:41` 等旧引用标准化为 `transcript:123`、`observation:31`、`artifact:41`。
-- [ ] 为子 Agent 类上下文投影建立预算规则，确保子 Agent 不继承完整最近对话热窗口，只接收任务相关约束、上游摘要、证据引用和必要回表事实。
+- [x] 为子 Agent 类上下文投影建立预算规则，确保子 Agent 不继承完整最近对话热窗口，只接收任务相关约束、上游摘要、证据引用和必要回表事实。
 - [ ] 多轮追问 payload 补充上一轮 assistant 完整回答、关键 observation 摘要、artifact 摘要、来源 URL、抓取时间和证据引用。
 - [x] 在 `agent_run_context_traces` 或等价审计记录中写入 ContextBundle 投影视图、预算 profile、token 估算、裁剪记录、保留原因和 evidence refs。
 - [ ] Web 计划详情页展示本轮 ContextBundle、预算 profile、短期窗口、历史召回、裁剪记录、关键 observation、关键 artifact 和 evidence refs。

@@ -215,6 +215,27 @@ func TestRecentConversationCandidateLimitIsDerivedFromTokenBudget(t *testing.T) 
 	}
 }
 
+func TestContextBudgetProfileForCapabilityScope(t *testing.T) {
+	cases := []struct {
+		name string
+		keys []string
+		want ContextBudgetProfile
+	}{
+		{name: "history recall", keys: []string{"conversation.query_history"}, want: ContextBudgetProfileSubagentHistoryRecall},
+		{name: "search", keys: []string{"web.search"}, want: ContextBudgetProfileSubagentSearch},
+		{name: "local source search", keys: []string{"feed.query_recent_items"}, want: ContextBudgetProfileSubagentSearch},
+		{name: "analysis", keys: []string{"content.summarize_text"}, want: ContextBudgetProfileSubagentAnalysis},
+		{name: "empty", keys: nil, want: ContextBudgetProfileSubagentAnalysis},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ContextBudgetProfileForCapabilityScope(tt.keys); got != tt.want {
+				t.Fatalf("profile = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFormatContextMessagesDoesNotApplyFixedTwelveMessageWindow(t *testing.T) {
 	messages := make([]ContextMessage, 0, 13)
 	for i := 0; i < 13; i++ {
