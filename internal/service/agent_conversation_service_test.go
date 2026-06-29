@@ -230,6 +230,50 @@ func TestMainAgentPlanSpecRequestIncludesPlanningContextProjection(t *testing.T)
 	}
 }
 
+func TestParseMainAgentPlanSpecJSONIncludesContextNeeds(t *testing.T) {
+	raw := `{
+		"goal": "回忆我之前说过的偏好",
+		"intent": "查询历史偏好并回答",
+		"task_type": "history_recall",
+		"complexity": "standard",
+		"requires_sub_agent": true,
+		"direct_answer_allowed": false,
+		"required_capabilities": ["conversation.query_history"],
+		"subtasks": [],
+		"evidence_requirements": [],
+		"needs_recent_context": true,
+		"needs_history_recall": true,
+		"history_query_plan": {
+			"mode": "search",
+			"query": "偏好",
+			"time_hint": "更早聊天",
+			"reason": "用户明确要求回忆偏好",
+			"limit": 6
+		},
+		"required_memory_types": ["preference"],
+		"expected_evidence_scope": ["history_recall", "recent_context"],
+		"max_iterations": 1,
+		"final_answer_constraints": ["引用原文证据"],
+		"metadata": {}
+	}`
+	spec, err := parseMainAgentPlanSpecJSON(raw)
+	if err != nil {
+		t.Fatalf("parseMainAgentPlanSpecJSON() error = %v", err)
+	}
+	if !spec.NeedsRecentContext || !spec.NeedsHistoryRecall {
+		t.Fatalf("context needs = %#v", spec)
+	}
+	if spec.HistoryQueryPlan.Query != "偏好" || spec.HistoryQueryPlan.Limit != 6 {
+		t.Fatalf("history query plan = %#v", spec.HistoryQueryPlan)
+	}
+	if len(spec.RequiredMemoryTypes) != 1 || spec.RequiredMemoryTypes[0] != "preference" {
+		t.Fatalf("required memory types = %#v", spec.RequiredMemoryTypes)
+	}
+	if len(spec.ExpectedEvidenceScope) != 2 {
+		t.Fatalf("expected evidence scope = %#v", spec.ExpectedEvidenceScope)
+	}
+}
+
 func TestAgentWebSearchNormalizesQueryAndParsesRSSResults(t *testing.T) {
 	if got := normalizeWebSearchQuery("搜索最新港股消息并分析"); got != "搜索最新港股消息并分析" {
 		t.Fatalf("normalized query = %q", got)

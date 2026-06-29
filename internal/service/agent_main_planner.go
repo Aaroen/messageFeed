@@ -35,6 +35,11 @@ type mainAgentPlanSpecJSON struct {
 	RequiredCapabilities   []string                           `json:"required_capabilities"`
 	Subtasks               []mainAgentPlanSubtaskJSON         `json:"subtasks"`
 	EvidenceRequirements   []mainAgentEvidenceRequirementJSON `json:"evidence_requirements"`
+	NeedsRecentContext     bool                               `json:"needs_recent_context"`
+	NeedsHistoryRecall     bool                               `json:"needs_history_recall"`
+	HistoryQueryPlan       mainAgentHistoryQueryPlanJSON      `json:"history_query_plan"`
+	RequiredMemoryTypes    []string                           `json:"required_memory_types"`
+	ExpectedEvidenceScope  []string                           `json:"expected_evidence_scope"`
 	MaxIterations          int                                `json:"max_iterations"`
 	FinalAnswerConstraints []string                           `json:"final_answer_constraints"`
 	Metadata               map[string]any                     `json:"metadata"`
@@ -60,6 +65,14 @@ type mainAgentEvidenceRequirementJSON struct {
 	MinimumCount int    `json:"minimum_count"`
 	Freshness    string `json:"freshness"`
 	Required     bool   `json:"required"`
+}
+
+type mainAgentHistoryQueryPlanJSON struct {
+	Mode     string `json:"mode"`
+	Query    string `json:"query"`
+	TimeHint string `json:"time_hint"`
+	Reason   string `json:"reason"`
+	Limit    int    `json:"limit"`
 }
 
 // buildMainAgentPlanSpec 通过主 Agent 模型生成结构化计划，后端只做结构和 capability 校验。
@@ -391,9 +404,24 @@ func (j mainAgentPlanSpecJSON) toAgentPlanSpec() agent.PlanSpec {
 		RequiredCapabilities:   compactNonEmptyStrings(j.RequiredCapabilities),
 		Subtasks:               subtasks,
 		EvidenceRequirements:   requirements,
+		NeedsRecentContext:     j.NeedsRecentContext,
+		NeedsHistoryRecall:     j.NeedsHistoryRecall,
+		HistoryQueryPlan:       j.HistoryQueryPlan.toAgentPlanHistoryQueryPlan(),
+		RequiredMemoryTypes:    compactNonEmptyStrings(j.RequiredMemoryTypes),
+		ExpectedEvidenceScope:  compactNonEmptyStrings(j.ExpectedEvidenceScope),
 		MaxIterations:          j.MaxIterations,
 		FinalAnswerConstraints: compactNonEmptyStrings(j.FinalAnswerConstraints),
 		Metadata:               domain.AgentJSON(j.Metadata),
+	}
+}
+
+func (j mainAgentHistoryQueryPlanJSON) toAgentPlanHistoryQueryPlan() agent.PlanHistoryQueryPlan {
+	return agent.PlanHistoryQueryPlan{
+		Mode:     j.Mode,
+		Query:    j.Query,
+		TimeHint: j.TimeHint,
+		Reason:   j.Reason,
+		Limit:    j.Limit,
 	}
 }
 
@@ -478,6 +506,17 @@ func mainAgentPlanSpecMetadata(spec agent.PlanSpec) domain.AgentJSON {
 		"direct_answer_allowed": spec.DirectAnswerAllowed,
 		"required_capabilities": spec.RequiredCapabilities,
 		"subtasks":              subtasks,
-		"max_iterations":        spec.MaxIterations,
+		"needs_recent_context":  spec.NeedsRecentContext,
+		"needs_history_recall":  spec.NeedsHistoryRecall,
+		"history_query_plan": domain.AgentJSON{
+			"mode":      spec.HistoryQueryPlan.Mode,
+			"query":     spec.HistoryQueryPlan.Query,
+			"time_hint": spec.HistoryQueryPlan.TimeHint,
+			"reason":    spec.HistoryQueryPlan.Reason,
+			"limit":     spec.HistoryQueryPlan.Limit,
+		},
+		"required_memory_types":   spec.RequiredMemoryTypes,
+		"expected_evidence_scope": spec.ExpectedEvidenceScope,
+		"max_iterations":          spec.MaxIterations,
 	}
 }

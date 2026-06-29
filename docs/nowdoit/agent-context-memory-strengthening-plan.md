@@ -883,7 +883,7 @@ RAG 接入应插入到现有长期记忆阶段之后分步实施：
 - [x] 将最近 12 条固定窗口改为 token 预算驱动的语义单元窗口，设置主 Agent 热窗口 token 上限，并保证语义单元整体纳入或整体裁剪。
 - [ ] 为 ContextBundle 增加短期保护区，固定保留当前用户消息、系统规则、用户明确约束、活动计划、上一轮 assistant 完整回答、关键 observation 和关键 artifact 摘要。
 - [x] 让主 Agent 规划阶段接收必要的 ContextBundle 投影视图，避免只基于当前用户消息、capability catalog 和 schema 规划。
-- [ ] 扩展 PlanSpec 或规划 metadata，加入 `needs_recent_context`、`needs_history_recall`、`history_query_plan`、`required_memory_types` 和 `expected_evidence_scope`。
+- [x] 扩展 PlanSpec 或规划 metadata，加入 `needs_recent_context`、`needs_history_recall`、`history_query_plan`、`required_memory_types` 和 `expected_evidence_scope`。
 - [ ] 保留 `conversation.query_history` 受控工具，按模型生成的 history query plan 执行召回，并在 ContextBundle 中记录 transcript entry 引用、召回原因、查询参数和时间边界。
 - [ ] 实现 canonical ref 兼容层，支持将 `agent_transcript_entry:123`、`agent_observations/31`、`agent_artifact:41` 等旧引用标准化为 `transcript:123`、`observation:31`、`artifact:41`。
 - [x] 为子 Agent 类上下文投影建立预算规则，确保子 Agent 不继承完整最近对话热窗口，只接收任务相关约束、上游摘要、证据引用和必要回表事实。

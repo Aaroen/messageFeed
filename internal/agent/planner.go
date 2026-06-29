@@ -64,6 +64,11 @@ type PlanSpec struct {
 	RequiredCapabilities   []string
 	Subtasks               []PlanSubtask
 	EvidenceRequirements   []PlanEvidenceRequirement
+	NeedsRecentContext     bool
+	NeedsHistoryRecall     bool
+	HistoryQueryPlan       PlanHistoryQueryPlan
+	RequiredMemoryTypes    []string
+	ExpectedEvidenceScope  []string
 	MaxIterations          int
 	FinalAnswerConstraints []string
 	Metadata               domain.AgentJSON
@@ -85,6 +90,14 @@ type PlanEvidenceRequirement struct {
 	MinimumCount int
 	Freshness    string
 	Required     bool
+}
+
+type PlanHistoryQueryPlan struct {
+	Mode     string
+	Query    string
+	TimeHint string
+	Reason   string
+	Limit    int
 }
 
 type PlanOutput struct {
@@ -318,6 +331,12 @@ func normalizePlanSpec(goal string, spec PlanSpec) PlanSpec {
 	}
 	spec.Subtasks = normalizedSubtasks
 	spec.EvidenceRequirements = normalizeEvidenceRequirements(spec.EvidenceRequirements)
+	spec.HistoryQueryPlan = normalizePlanHistoryQueryPlan(spec.HistoryQueryPlan)
+	if planHistoryQueryPlanHasContent(spec.HistoryQueryPlan) {
+		spec.NeedsHistoryRecall = true
+	}
+	spec.RequiredMemoryTypes = normalizeTextList(spec.RequiredMemoryTypes, 80)
+	spec.ExpectedEvidenceScope = normalizeTextList(spec.ExpectedEvidenceScope, 120)
 	spec.FinalAnswerConstraints = normalizeTextList(spec.FinalAnswerConstraints, 300)
 	spec.Complexity = normalizePlanningComplexity(spec.Complexity, spec)
 	spec.MaxIterations = normalizeMaxIterations(spec.MaxIterations, spec)
@@ -345,6 +364,30 @@ func normalizeEvidenceRequirements(requirements []PlanEvidenceRequirement) []Pla
 		output = append(output, requirement)
 	}
 	return output
+}
+
+func normalizePlanHistoryQueryPlan(plan PlanHistoryQueryPlan) PlanHistoryQueryPlan {
+	plan.Mode = safePlanText(plan.Mode, 40)
+	plan.Query = safePlanText(plan.Query, 500)
+	plan.TimeHint = safePlanText(plan.TimeHint, 120)
+	plan.Reason = safePlanText(plan.Reason, 300)
+	if plan.Limit < 0 {
+		plan.Limit = 0
+	}
+	if plan.Limit > 20 {
+		plan.Limit = 20
+	}
+	if plan.Limit == 0 && planHistoryQueryPlanHasContent(plan) {
+		plan.Limit = 8
+	}
+	return plan
+}
+
+func planHistoryQueryPlanHasContent(plan PlanHistoryQueryPlan) bool {
+	return strings.TrimSpace(plan.Mode) != "" ||
+		strings.TrimSpace(plan.Query) != "" ||
+		strings.TrimSpace(plan.TimeHint) != "" ||
+		strings.TrimSpace(plan.Reason) != ""
 }
 
 func normalizeTextList(values []string, limit int) []string {
@@ -460,6 +503,11 @@ func planSpecMetadata(spec PlanSpec) domain.AgentJSON {
 		"required_capabilities":    append([]string(nil), spec.RequiredCapabilities...),
 		"subtasks":                 subtasks,
 		"evidence_requirements":    evidenceRequirementMetadata(spec.EvidenceRequirements),
+		"needs_recent_context":     spec.NeedsRecentContext,
+		"needs_history_recall":     spec.NeedsHistoryRecall,
+		"history_query_plan":       historyQueryPlanMetadata(spec.HistoryQueryPlan),
+		"required_memory_types":    append([]string(nil), spec.RequiredMemoryTypes...),
+		"expected_evidence_scope":  append([]string(nil), spec.ExpectedEvidenceScope...),
 		"max_iterations":           spec.MaxIterations,
 		"final_answer_constraints": append([]string(nil), spec.FinalAnswerConstraints...),
 		"metadata":                 clonePlannerAgentJSON(spec.Metadata),
@@ -478,6 +526,16 @@ func evidenceRequirementMetadata(requirements []PlanEvidenceRequirement) []domai
 		})
 	}
 	return items
+}
+
+func historyQueryPlanMetadata(plan PlanHistoryQueryPlan) domain.AgentJSON {
+	return domain.AgentJSON{
+		"mode":      plan.Mode,
+		"query":     plan.Query,
+		"time_hint": plan.TimeHint,
+		"reason":    plan.Reason,
+		"limit":     plan.Limit,
+	}
 }
 
 func clonePlannerAgentJSON(input domain.AgentJSON) domain.AgentJSON {
