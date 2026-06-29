@@ -165,6 +165,71 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	}
 }
 
+func TestMainAgentPlanSpecRequestIncludesPlanningContextProjection(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
+	account := domain.ExternalAccount{UserID: 1}
+	session := domain.AgentSession{ID: 2}
+	turn := domain.AgentTurn{ID: 3}
+	_, _ = repository.AppendTranscriptEntry(context.Background(), domain.AgentTranscriptEntry{
+		SessionID: session.ID,
+		TurnID:    1,
+		UserID:    account.UserID,
+		Role:      domain.AgentTranscriptRoleUser,
+		Content:   "上一轮用户问题",
+		CreatedAt: now.Add(-2 * time.Minute),
+	})
+	_, _ = repository.AppendTranscriptEntry(context.Background(), domain.AgentTranscriptEntry{
+		SessionID: session.ID,
+		TurnID:    1,
+		UserID:    account.UserID,
+		Role:      domain.AgentTranscriptRoleAssistant,
+		Content:   "上一轮完整回答，不应在规划投影中被摘要截断。",
+		CreatedAt: now.Add(-1 * time.Minute),
+	})
+	input := ReceiveWeChatWorkAppMessageInput{
+		Provider:    "wechat_work",
+		MsgType:     "text",
+		TextContent: "继续刚才任务",
+	}
+
+	projection, err := service.mainAgentPlanningContextProjection(context.Background(), account, session, turn, input)
+	if err != nil {
+		t.Fatalf("mainAgentPlanningContextProjection() error = %v", err)
+	}
+	if projection["budget_profile"] != string(agent.ContextBudgetProfileMainPlanning) {
+		t.Fatalf("budget profile = %#v", projection["budget_profile"])
+	}
+	recentMessages, ok := projection["recent_messages"].([]domain.AgentJSON)
+	if !ok || len(recentMessages) != 2 {
+		t.Fatalf("recent messages = %#v", projection["recent_messages"])
+	}
+	if recentMessages[1]["content"] != "上一轮完整回答，不应在规划投影中被摘要截断。" {
+		t.Fatalf("recent message content = %#v", recentMessages[1])
+	}
+	report, ok := projection["context_budget_report"].(domain.AgentJSON)
+	if !ok || report["recent_messages_tokens"] != 32000 {
+		t.Fatalf("context budget report = %#v", projection["context_budget_report"])
+	}
+
+	request := service.mainAgentPlanSpecRequest(account, session, turn, input, projection, 1, nil, "")
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(request.Messages[1].Content), &payload); err != nil {
+		t.Fatalf("plan request payload unmarshal error = %v", err)
+	}
+	contextProjection, ok := payload["context_projection"].(map[string]any)
+	if !ok {
+		t.Fatalf("context projection missing from payload: %#v", payload)
+	}
+	if contextProjection["budget_profile"] != string(agent.ContextBudgetProfileMainPlanning) {
+		t.Fatalf("payload context projection = %#v", contextProjection)
+	}
+}
+
 func TestAgentWebSearchNormalizesQueryAndParsesRSSResults(t *testing.T) {
 	if got := normalizeWebSearchQuery("搜索最新港股消息并分析"); got != "搜索最新港股消息并分析" {
 		t.Fatalf("normalized query = %q", got)

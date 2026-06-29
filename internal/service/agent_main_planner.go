@@ -74,11 +74,18 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 	if s == nil || s.llmClient == nil {
 		return mainAgentPlanSpecResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "main_agent_planner_unavailable", "主 Agent 规划模型不可用，无法生成执行计划。", "service.agent.main_planner", true, nil)
 	}
+	contextProjection, err := s.mainAgentPlanningContextProjection(ctx, account, session, turn, input)
+	if err != nil {
+		return mainAgentPlanSpecResult{}, err
+	}
+	if len(contextProjection) > 0 {
+		s.recordMainAgentPlanSpecTrace(ctx, controllerRun, "main_agent_context_projection", contextProjection, controllerRun.ModelKey)
+	}
 	var lastErr error
 	var lastRaw string
 	for attempt := 1; attempt <= mainAgentPlanSpecMaxAttempts; attempt++ {
 		// 每次尝试都把上一次错误和原始返回带回模型，允许模型自行修正 JSON 结构。
-		request := s.mainAgentPlanSpecRequest(account, session, turn, input, attempt, lastErr, lastRaw)
+		request := s.mainAgentPlanSpecRequest(account, session, turn, input, contextProjection, attempt, lastErr, lastRaw)
 		s.recordMainAgentPlanSpecTrace(ctx, controllerRun, "main_agent_plan_spec_request", domain.AgentJSON{
 			"attempt":  attempt,
 			"messages": mainAgentPlannerMessagesMetadata(request.Messages),
@@ -142,6 +149,7 @@ func (s *AgentConversationService) mainAgentPlanSpecRequest(
 	session domain.AgentSession,
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
+	contextProjection domain.AgentJSON,
 	attempt int,
 	previousErr error,
 	previousRaw string,
@@ -158,6 +166,9 @@ func (s *AgentConversationService) mainAgentPlanSpecRequest(
 		"required_schema":   mainAgentPlanSpecSchemaHint(),
 		"output_language":   "zh-CN",
 		"reply_constraints": mainAgentPlanSpecReplyConstraints(),
+	}
+	if len(contextProjection) > 0 {
+		userPayload["context_projection"] = contextProjection
 	}
 	if attempt > 1 {
 		userPayload["repair_required"] = true
@@ -178,6 +189,109 @@ func (s *AgentConversationService) mainAgentPlanSpecRequest(
 		},
 		Temperature: 0.1,
 		MaxTokens:   3200,
+	}
+}
+
+func (s *AgentConversationService) mainAgentPlanningContextProjection(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+) (domain.AgentJSON, error) {
+	profile := agent.ContextBudgetProfileMainPlanning
+	spec := agent.ContextBudgetForProfile(profile)
+	projection := domain.AgentJSON{
+		"budget_profile":    string(profile),
+		"projection_policy": "recent transcript entries are selected by token budget as whole semantic units; omitted units keep metadata and original transcript rows remain queryable",
+		"current_message": domain.AgentJSON{
+			"role":    string(domain.AgentTranscriptRoleUser),
+			"content": strings.TrimSpace(input.TextContent),
+		},
+	}
+	if s == nil || s.repository == nil || account.UserID == 0 || session.ID == 0 {
+		report := agent.CompleteContextBudgetReport(agent.ContextBudgetReport{Profile: profile}, spec)
+		currentUnit := agent.NewCurrentMessageSemanticUnit(input.TextContent)
+		projection["context_budget_report"] = contextBudgetReportMetadata(report)
+		projection["recent_messages"] = []domain.AgentJSON{}
+		projection["semantic_units"] = []domain.AgentJSON{mainAgentSemanticUnitProjection(currentUnit)}
+		return projection, nil
+	}
+	queryLimit := agent.RecentConversationCandidateLimit(profile)
+	recent, err := s.repository.ListRecentTranscriptEntries(ctx, domain.AgentTranscriptListOptions{
+		SessionID:    session.ID,
+		UserID:       account.UserID,
+		BeforeTurnID: turn.ID,
+		Roles: []domain.AgentTranscriptRole{
+			domain.AgentTranscriptRoleUser,
+			domain.AgentTranscriptRoleAssistant,
+		},
+		Limit: queryLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	messages := transcriptEntriesToContextMessages(recent)
+	units := agent.BuildConversationSemanticUnits(messages)
+	selectedUnits, report := agent.SelectSemanticUnitsByTokenBudget(units, spec.RecentMessagesTokens, profile)
+	report = agent.CompleteContextBudgetReport(report, spec)
+	currentUnit := agent.NewCurrentMessageSemanticUnit(input.TextContent)
+	projectedUnits := make([]domain.AgentJSON, 0, len(selectedUnits)+1)
+	if currentUnit.TokenEstimate > 0 {
+		projectedUnits = append(projectedUnits, mainAgentSemanticUnitProjection(currentUnit))
+	}
+	for _, unit := range selectedUnits {
+		projectedUnits = append(projectedUnits, mainAgentSemanticUnitProjection(unit))
+	}
+	projection["candidate_message_count"] = len(messages)
+	projection["candidate_query_limit"] = queryLimit
+	projection["recent_messages"] = mainAgentContextMessageProjection(agent.SelectedMessagesFromSemanticUnits(selectedUnits))
+	projection["semantic_units"] = projectedUnits
+	projection["context_budget_report"] = contextBudgetReportMetadata(report)
+	return projection, nil
+}
+
+func mainAgentContextMessageProjection(messages []agent.ContextMessage) []domain.AgentJSON {
+	output := make([]domain.AgentJSON, 0, len(messages))
+	for _, message := range messages {
+		output = append(output, domain.AgentJSON{
+			"role":                string(message.Role),
+			"content":             strings.TrimSpace(message.Content),
+			"transcript_entry_id": message.TranscriptEntryID,
+			"turn_id":             message.TurnID,
+			"created_at":          formatOptionalTime(&message.CreatedAt),
+		})
+	}
+	return output
+}
+
+func mainAgentSemanticUnitProjection(unit agent.ContextSemanticUnit) domain.AgentJSON {
+	messageRefs := make([]domain.AgentJSON, 0, len(unit.Messages))
+	for _, message := range unit.Messages {
+		messageRefs = append(messageRefs, domain.AgentJSON{
+			"role":                string(message.Role),
+			"transcript_entry_id": message.TranscriptEntryID,
+			"turn_id":             message.TurnID,
+			"created_at":          formatOptionalTime(&message.CreatedAt),
+		})
+	}
+	content := ""
+	if unit.Selected {
+		content = strings.TrimSpace(unit.Content)
+	}
+	return domain.AgentJSON{
+		"id":               unit.ID,
+		"type":             string(unit.Type),
+		"source":           unit.Source,
+		"content":          content,
+		"message_refs":     messageRefs,
+		"token_estimate":   unit.TokenEstimate,
+		"protected":        unit.Protected,
+		"selected":         unit.Selected,
+		"projected":        unit.Projected,
+		"retention_reason": unit.RetentionReason,
+		"omitted_reason":   unit.OmittedReason,
+		"canonical_ref":    unit.CanonicalRef,
 	}
 }
 

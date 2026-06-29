@@ -211,6 +211,18 @@ func RecentConversationCandidateLimit(profile ContextBudgetProfile) int {
 	return recentConversationCandidateLimitForTokenBudget(spec.RecentMessagesTokens)
 }
 
+func CompleteContextBudgetReport(report ContextBudgetReport, spec ContextBudgetSpec) ContextBudgetReport {
+	report.Profile = spec.Profile
+	report.TotalBudgetTokens = spec.TotalTokens
+	report.RecentMessagesTokens = spec.RecentMessagesTokens
+	report.OutputReserveTokens = spec.OutputReserveTokens
+	report.SafetyMarginTokens = spec.SafetyMarginTokens
+	if report.AvailableInputTokens == 0 {
+		report.AvailableInputTokens = spec.TotalTokens - spec.OutputReserveTokens - spec.SafetyMarginTokens
+	}
+	return report
+}
+
 func recentConversationCandidateLimitForTokenBudget(tokenBudget int) int {
 	if tokenBudget <= 0 {
 		return 32

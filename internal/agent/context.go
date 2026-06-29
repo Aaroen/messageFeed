@@ -325,14 +325,7 @@ func finalizeContextSnapshot(snapshot ContextSnapshot, input ContextBuildInput, 
 			AvailableInputTokens: budgetSpec.TotalTokens - budgetSpec.OutputReserveTokens - budgetSpec.SafetyMarginTokens,
 		}
 	}
-	report.Profile = budgetSpec.Profile
-	report.TotalBudgetTokens = budgetSpec.TotalTokens
-	report.RecentMessagesTokens = budgetSpec.RecentMessagesTokens
-	report.OutputReserveTokens = budgetSpec.OutputReserveTokens
-	report.SafetyMarginTokens = budgetSpec.SafetyMarginTokens
-	if report.AvailableInputTokens == 0 {
-		report.AvailableInputTokens = budgetSpec.TotalTokens - budgetSpec.OutputReserveTokens - budgetSpec.SafetyMarginTokens
-	}
+	report = CompleteContextBudgetReport(report, budgetSpec)
 	for index := range snapshot.Blocks {
 		if snapshot.Blocks[index].TokenEstimate == 0 {
 			snapshot.Blocks[index].TokenEstimate = estimateContextTokenCount(snapshot.Blocks[index].Content)
