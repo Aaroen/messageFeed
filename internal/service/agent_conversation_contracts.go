@@ -48,6 +48,14 @@ type AgentConversationMemoryStore interface {
 	ListRecentTranscriptEntries(ctx context.Context, options domain.AgentTranscriptListOptions) ([]domain.AgentTranscriptEntry, error)
 	QueryTranscriptEntries(ctx context.Context, options domain.AgentTranscriptQueryOptions) ([]domain.AgentTranscriptEntry, error)
 	CreateRecallEvent(ctx context.Context, event domain.AgentRecallEvent) (domain.AgentRecallEvent, error)
+	UpsertAgentFactArchiveIndex(ctx context.Context, fact domain.AgentFactArchiveIndex) (domain.AgentFactArchiveIndex, error)
+	QueryAgentFactArchiveIndex(ctx context.Context, options domain.AgentFactArchiveQueryOptions) ([]domain.AgentFactArchiveIndex, error)
+	CreateAgentMemoryCandidate(ctx context.Context, candidate domain.AgentMemoryCandidate) (domain.AgentMemoryCandidate, error)
+	ListAgentMemoryCandidates(ctx context.Context, userID int64, status domain.AgentMemoryCandidateStatus, limit int) ([]domain.AgentMemoryCandidate, error)
+	UpdateAgentMemoryCandidateStatus(ctx context.Context, userID int64, candidateID int64, status domain.AgentMemoryCandidateStatus, reason string, now time.Time) (domain.AgentMemoryCandidate, error)
+	ApplyAgentMemoryCandidate(ctx context.Context, userID int64, candidateID int64, now time.Time) (domain.AgentMemoryBlock, error)
+	ListAgentMemoryBlocks(ctx context.Context, options domain.AgentMemoryBlockQueryOptions) ([]domain.AgentMemoryBlock, error)
+	CreateAgentMemoryEvent(ctx context.Context, event domain.AgentMemoryEvent) (domain.AgentMemoryEvent, error)
 }
 
 type AgentConversationAuditStore interface {

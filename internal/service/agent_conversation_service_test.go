@@ -2711,6 +2711,10 @@ type fakeAgentConversationRepository struct {
 	turns             []domain.AgentTurn
 	transcripts       []domain.AgentTranscriptEntry
 	recalls           []domain.AgentRecallEvent
+	factIndexes       []domain.AgentFactArchiveIndex
+	memoryCandidates  []domain.AgentMemoryCandidate
+	memoryBlocks      []domain.AgentMemoryBlock
+	memoryEvents      []domain.AgentMemoryEvent
 	audits            []domain.AgentAuditLog
 	runs              []domain.AgentRun
 	contextTraces     []domain.AgentRunContextTrace
@@ -2935,6 +2939,173 @@ func (s *fakeAgentNotificationJobStore) CreateJob(_ context.Context, job domain.
 func (r *fakeAgentConversationRepository) CreateRecallEvent(_ context.Context, event domain.AgentRecallEvent) (domain.AgentRecallEvent, error) {
 	event.ID = r.id()
 	r.recalls = append(r.recalls, event)
+	return event, nil
+}
+
+func (r *fakeAgentConversationRepository) UpsertAgentFactArchiveIndex(_ context.Context, fact domain.AgentFactArchiveIndex) (domain.AgentFactArchiveIndex, error) {
+	for index := range r.factIndexes {
+		if r.factIndexes[index].CanonicalRef == fact.CanonicalRef {
+			fact.ID = r.factIndexes[index].ID
+			r.factIndexes[index] = fact
+			return fact, nil
+		}
+	}
+	fact.ID = r.id()
+	r.factIndexes = append(r.factIndexes, fact)
+	return fact, nil
+}
+
+func (r *fakeAgentConversationRepository) QueryAgentFactArchiveIndex(_ context.Context, options domain.AgentFactArchiveQueryOptions) ([]domain.AgentFactArchiveIndex, error) {
+	query := strings.ToLower(strings.TrimSpace(options.Query))
+	canonicalRefs := map[string]struct{}{}
+	for _, ref := range options.CanonicalRefs {
+		ref = strings.TrimSpace(ref)
+		if ref != "" {
+			canonicalRefs[ref] = struct{}{}
+		}
+	}
+	facts := make([]domain.AgentFactArchiveIndex, 0, len(r.factIndexes))
+	for _, fact := range r.factIndexes {
+		if fact.UserID != options.UserID {
+			continue
+		}
+		if options.SessionID > 0 && fact.SessionID != 0 && fact.SessionID != options.SessionID {
+			continue
+		}
+		if len(canonicalRefs) > 0 {
+			if _, ok := canonicalRefs[fact.CanonicalRef]; !ok {
+				continue
+			}
+		}
+		if query != "" {
+			haystack := strings.ToLower(fact.SummaryForIndex + " " + fact.ContextualText + " " + strings.Join(fact.Keywords, " "))
+			if !strings.Contains(haystack, query) {
+				continue
+			}
+		}
+		facts = append(facts, fact)
+	}
+	sort.Slice(facts, func(i, j int) bool {
+		if facts[i].Importance == facts[j].Importance {
+			return facts[i].ID > facts[j].ID
+		}
+		return facts[i].Importance > facts[j].Importance
+	})
+	if options.Limit > 0 && len(facts) > options.Limit {
+		facts = facts[:options.Limit]
+	}
+	return facts, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentMemoryCandidate(_ context.Context, candidate domain.AgentMemoryCandidate) (domain.AgentMemoryCandidate, error) {
+	candidate.ID = r.id()
+	r.memoryCandidates = append(r.memoryCandidates, candidate)
+	return candidate, nil
+}
+
+func (r *fakeAgentConversationRepository) ListAgentMemoryCandidates(_ context.Context, userID int64, status domain.AgentMemoryCandidateStatus, limit int) ([]domain.AgentMemoryCandidate, error) {
+	candidates := make([]domain.AgentMemoryCandidate, 0, len(r.memoryCandidates))
+	for _, candidate := range r.memoryCandidates {
+		if candidate.UserID != userID {
+			continue
+		}
+		if status.Valid() && candidate.Status != status {
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates, nil
+}
+
+func (r *fakeAgentConversationRepository) UpdateAgentMemoryCandidateStatus(_ context.Context, userID int64, candidateID int64, status domain.AgentMemoryCandidateStatus, reason string, now time.Time) (domain.AgentMemoryCandidate, error) {
+	for index := range r.memoryCandidates {
+		if r.memoryCandidates[index].ID == candidateID && r.memoryCandidates[index].UserID == userID {
+			r.memoryCandidates[index].Status = status
+			r.memoryCandidates[index].ReviewedAt = &now
+			r.memoryEvents = append(r.memoryEvents, domain.AgentMemoryEvent{
+				ID:          r.id(),
+				UserID:      userID,
+				CandidateID: candidateID,
+				EventType:   domain.AgentMemoryEventCandidateRejected,
+				ActorType:   domain.AgentMemoryActorUser,
+				Reason:      reason,
+				CreatedAt:   now,
+			})
+			return r.memoryCandidates[index], nil
+		}
+	}
+	return domain.AgentMemoryCandidate{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) ApplyAgentMemoryCandidate(_ context.Context, userID int64, candidateID int64, now time.Time) (domain.AgentMemoryBlock, error) {
+	for index := range r.memoryCandidates {
+		candidate := r.memoryCandidates[index]
+		if candidate.ID != candidateID || candidate.UserID != userID {
+			continue
+		}
+		block := domain.AgentMemoryBlock{
+			ID:                r.id(),
+			UserID:            userID,
+			MemoryKind:        candidate.MemoryKind,
+			Title:             candidate.Summary,
+			Content:           candidate.CandidateText,
+			Summary:           candidate.Summary,
+			EvidenceRefs:      append([]string(nil), candidate.EvidenceRefs...),
+			SourceCandidateID: candidate.ID,
+			Confidence:        candidate.Confidence,
+			Importance:        candidate.Importance,
+			Status:            domain.AgentMemoryBlockActive,
+			Version:           1,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}
+		r.memoryBlocks = append(r.memoryBlocks, block)
+		r.memoryCandidates[index].Status = domain.AgentMemoryCandidateApplied
+		r.memoryCandidates[index].MemoryBlockID = block.ID
+		r.memoryEvents = append(r.memoryEvents, domain.AgentMemoryEvent{
+			ID:            r.id(),
+			UserID:        userID,
+			CandidateID:   candidateID,
+			MemoryBlockID: block.ID,
+			EventType:     domain.AgentMemoryEventMemoryCreated,
+			ActorType:     domain.AgentMemoryActorSystem,
+			CreatedAt:     now,
+		})
+		return block, nil
+	}
+	return domain.AgentMemoryBlock{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) ListAgentMemoryBlocks(_ context.Context, options domain.AgentMemoryBlockQueryOptions) ([]domain.AgentMemoryBlock, error) {
+	blocks := make([]domain.AgentMemoryBlock, 0, len(r.memoryBlocks))
+	query := strings.ToLower(strings.TrimSpace(options.Query))
+	for _, block := range r.memoryBlocks {
+		if block.UserID != options.UserID {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(block.Title+" "+block.Content+" "+block.Summary), query) {
+			continue
+		}
+		blocks = append(blocks, block)
+	}
+	sort.Slice(blocks, func(i, j int) bool {
+		if blocks[i].Importance == blocks[j].Importance {
+			return blocks[i].ID > blocks[j].ID
+		}
+		return blocks[i].Importance > blocks[j].Importance
+	})
+	if options.Limit > 0 && len(blocks) > options.Limit {
+		blocks = blocks[:options.Limit]
+	}
+	return blocks, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentMemoryEvent(_ context.Context, event domain.AgentMemoryEvent) (domain.AgentMemoryEvent, error) {
+	event.ID = r.id()
+	r.memoryEvents = append(r.memoryEvents, event)
 	return event, nil
 }
 
