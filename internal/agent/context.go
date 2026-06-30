@@ -26,6 +26,7 @@ type ConversationMemoryProvider interface {
 
 type ConversationMemory struct {
 	Messages             []ContextMessage
+	MemoryBlocks         []ContextBlock
 	HistoryNeedHint      HistoryNeedHint
 	HistoryQueried       bool
 	HistoryResults       []ContextMessage
@@ -160,6 +161,22 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 		snapshot.BudgetReport = budgetReport
 		snapshot.Messages = append(snapshot.Messages, SelectedMessagesFromSemanticUnits(selectedUnits)...)
 		snapshot.HistoryNeedHint = memory.HistoryNeedHint
+		for index, block := range memory.MemoryBlocks {
+			if strings.TrimSpace(block.Content) == "" {
+				continue
+			}
+			if block.GeneratedAt.IsZero() {
+				block.GeneratedAt = b.now().UTC()
+			}
+			if strings.TrimSpace(block.Source) == "" {
+				block.Source = "stable_memory"
+			}
+			if strings.TrimSpace(block.RetentionReason) == "" {
+				block.RetentionReason = "stable_memory"
+			}
+			snapshot.Blocks = append(snapshot.Blocks, block)
+			snapshot.SemanticUnits = append(snapshot.SemanticUnits, NewProtectedContextBlockSemanticUnit(fmt.Sprintf("memory_block_%d", index+1), ContextSemanticUnitContextBlock, block, block.RetentionReason))
+		}
 		snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
 			Capability: "conversation.query_recent",
 			Decision:   string(PolicyDecisionAllow),
@@ -500,7 +517,7 @@ func isUserConstraintContextBlock(block ContextBlock) bool {
 func isMemoryContextBlock(block ContextBlock) bool {
 	source := strings.TrimSpace(block.Source)
 	key := strings.TrimSpace(block.CapabilityKey)
-	return source == "user_profile" || source == "history_query_plan" || key == "conversation.query_history"
+	return source == "user_profile" || source == "history_query_plan" || source == "stable_memory" || source == "fact_recall" || key == "conversation.query_history" || key == "memory.stable"
 }
 
 func isArtifactContextBlock(block ContextBlock) bool {

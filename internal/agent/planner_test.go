@@ -143,6 +143,35 @@ func TestPlannerBuildFromSpecAllowsDirectAnswerWithoutToolSteps(t *testing.T) {
 	}
 }
 
+func TestPlannerBuildFromSpecAddsHistoryRecallCapability(t *testing.T) {
+	planner := NewPlanner(PlannerOptions{})
+
+	output := planner.BuildFromSpec(context.Background(), PlanInput{
+		UserID: 1,
+		Goal:   "我之前说过的回复偏好是什么",
+	}, PlanSpec{
+		Intent:              "查询用户此前表达的回复偏好",
+		TaskType:            "history_recall",
+		NeedsHistoryRecall:  true,
+		DirectAnswerAllowed: false,
+	})
+
+	if !testPlanHasStep(output.Steps, "conversation.query_history") {
+		t.Fatalf("steps = %#v, want conversation.query_history", output.Steps)
+	}
+	if !testStringSliceContains(output.Plan.AllowedScopes, "conversation.query_history") {
+		t.Fatalf("allowed scopes = %#v, want conversation.query_history", output.Plan.AllowedScopes)
+	}
+	mainPlan := testAgentJSONMap(output.Plan.Metadata["main_agent_plan"])
+	if mainPlan == nil || mainPlan["needs_history_recall"] != true {
+		t.Fatalf("main agent plan metadata = %#v", output.Plan.Metadata["main_agent_plan"])
+	}
+	historyPlan := testAgentJSONMap(mainPlan["history_query_plan"])
+	if historyPlan == nil || historyPlan["mode"] != "search" || historyPlan["query"] == "" {
+		t.Fatalf("history query plan = %#v", historyPlan)
+	}
+}
+
 func testPlanHasStep(steps []domain.AgentPlanStep, capabilityKey string) bool {
 	for _, step := range steps {
 		if step.CapabilityKey == capabilityKey {
@@ -159,6 +188,15 @@ func testPlanStep(steps []domain.AgentPlanStep, capabilityKey string) domain.Age
 		}
 	}
 	return domain.AgentPlanStep{}
+}
+
+func testStringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func testAgentJSONMap(value any) map[string]any {

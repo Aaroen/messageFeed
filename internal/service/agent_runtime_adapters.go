@@ -88,6 +88,7 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 		return memory, err
 	}
 	memory.Messages = transcriptEntriesToContextMessages(recent)
+	memory.MemoryBlocks = append(memory.MemoryBlocks, p.stableMemoryBlocks(ctx, input)...)
 	if conversationHistoryPlanHasContent(input.HistoryQueryPlan) {
 		historyResults, historyContent, err := p.queryPlannedConversationHistory(ctx, input)
 		if err != nil {
@@ -96,6 +97,7 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 		memory.HistoryQueried = true
 		memory.HistoryResults = historyResults
 		memory.HistoryResultContent = historyContent
+		memory.MemoryBlocks = append(memory.MemoryBlocks, p.factRecallBlocks(ctx, input)...)
 	}
 	return memory, nil
 }
@@ -158,7 +160,137 @@ func (p agentConversationMemoryProvider) queryPlannedConversationHistory(ctx con
 		MatchedCount: len(messages),
 		TimeRange:    timeRange,
 	})
+	_, _ = p.repository.CreateRecallEvent(ctx, domain.AgentRecallEvent{
+		SessionID: input.SessionID,
+		TurnID:    input.TurnID,
+		UserID:    input.UserID,
+		Query:     keyword,
+		QueryParams: domain.AgentJSON{
+			"mode":           mode,
+			"query":          plan.Query,
+			"keyword":        keyword,
+			"time_hint":      plan.TimeHint,
+			"reason":         reason,
+			"limit":          limit,
+			"trigger":        "main_agent_history_query_plan",
+			"memory_scope":   "long_term_conversation",
+			"before_turn_id": input.TurnID,
+		},
+		RecalledRefs: domain.AgentJSON{
+			"transcript_entry_ids": transcriptEntryIDs(entries),
+			"evidence_refs":        transcriptEvidenceRefs(entries),
+		},
+		Reason:      reason,
+		BudgetChars: transcriptEntriesContentLength(entries),
+		CreatedAt:   p.currentTime(),
+	})
 	return messages, content, nil
+}
+
+func (p agentConversationMemoryProvider) stableMemoryBlocks(ctx context.Context, input agent.ContextBuildInput) []agent.ContextBlock {
+	if p.repository == nil || input.UserID == 0 {
+		return nil
+	}
+	blocks, err := p.repository.ListAgentMemoryBlocks(ctx, domain.AgentMemoryBlockQueryOptions{
+		UserID: input.UserID,
+		Statuses: []domain.AgentMemoryBlockStatus{
+			domain.AgentMemoryBlockActive,
+		},
+		Limit: 8,
+	})
+	if err != nil {
+		return nil
+	}
+	output := make([]agent.ContextBlock, 0, len(blocks))
+	for _, block := range blocks {
+		content := strings.TrimSpace(block.Content)
+		if content == "" {
+			continue
+		}
+		output = append(output, agent.ContextBlock{
+			Name:            firstNonEmptyString(block.Title, "稳定记忆"),
+			CapabilityKey:   "memory.stable",
+			Content:         content,
+			ItemCount:       1,
+			GeneratedAt:     block.UpdatedAt,
+			TrustLevel:      "stable_memory",
+			Source:          "stable_memory",
+			EvidenceRefs:    agent.NormalizeCanonicalRefs(block.EvidenceRefs),
+			CanonicalRef:    fmt.Sprintf("memory_block:%d", block.ID),
+			RetentionReason: "stable_memory",
+		})
+	}
+	return output
+}
+
+func (p agentConversationMemoryProvider) factRecallBlocks(ctx context.Context, input agent.ContextBuildInput) []agent.ContextBlock {
+	if p.repository == nil || input.UserID == 0 {
+		return nil
+	}
+	query := strings.TrimSpace(input.HistoryQueryPlan.Query)
+	if query == "" {
+		query = strings.TrimSpace(input.MessageText)
+	}
+	facts, err := p.repository.QueryAgentFactArchiveIndex(ctx, domain.AgentFactArchiveQueryOptions{
+		UserID:    input.UserID,
+		SessionID: input.SessionID,
+		TurnID:    input.TurnID,
+		Query:     query,
+		Limit:     8,
+	})
+	if err != nil || len(facts) == 0 {
+		return nil
+	}
+	sources, err := p.repository.ResolveAgentFactSources(ctx, input.UserID, facts)
+	if err != nil || len(sources) == 0 {
+		return nil
+	}
+	output := make([]agent.ContextBlock, 0, len(sources))
+	refs := make([]string, 0, len(sources))
+	for _, source := range sources {
+		content := strings.TrimSpace(source.Content)
+		if content == "" {
+			content = strings.TrimSpace(source.Summary)
+		}
+		if content == "" {
+			continue
+		}
+		ref := agent.NormalizeCanonicalRef(source.CanonicalRef)
+		refs = append(refs, ref)
+		output = append(output, agent.ContextBlock{
+			Name:            "长期事实召回",
+			CapabilityKey:   "memory.fact_recall",
+			Content:         content,
+			ItemCount:       1,
+			GeneratedAt:     source.CreatedAt,
+			TrustLevel:      "source_fact",
+			Source:          "fact_recall",
+			EvidenceRefs:    agent.NormalizeCanonicalRefs(append([]string{ref}, source.SourceRefs...)),
+			CanonicalRef:    ref,
+			RetentionReason: "history_query_plan",
+		})
+	}
+	if len(refs) > 0 {
+		_, _ = p.repository.CreateRecallEvent(ctx, domain.AgentRecallEvent{
+			SessionID: input.SessionID,
+			TurnID:    input.TurnID,
+			UserID:    input.UserID,
+			Query:     query,
+			QueryParams: domain.AgentJSON{
+				"query":        query,
+				"trigger":      "main_agent_fact_recall",
+				"memory_scope": "long_term_fact_index",
+				"limit":        8,
+			},
+			RecalledRefs: domain.AgentJSON{
+				"canonical_refs": refs,
+			},
+			Reason:      "main_agent_history_query_plan",
+			BudgetChars: agentContextBlocksContentLength(output),
+			CreatedAt:   p.currentTime(),
+		})
+	}
+	return output
 }
 
 func conversationHistoryPlanHasContent(plan agent.PlanHistoryQueryPlan) bool {
@@ -2512,6 +2644,14 @@ func transcriptEntriesContentLength(entries []domain.AgentTranscriptEntry) int {
 	total := 0
 	for _, entry := range entries {
 		total += len([]rune(strings.TrimSpace(entry.Content)))
+	}
+	return total
+}
+
+func agentContextBlocksContentLength(blocks []agent.ContextBlock) int {
+	total := 0
+	for _, block := range blocks {
+		total += len([]rune(strings.TrimSpace(block.Content)))
 	}
 	return total
 }

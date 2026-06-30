@@ -335,6 +335,17 @@ func normalizePlanSpec(goal string, spec PlanSpec) PlanSpec {
 	if planHistoryQueryPlanHasContent(spec.HistoryQueryPlan) {
 		spec.NeedsHistoryRecall = true
 	}
+	if spec.NeedsHistoryRecall && !planHistoryQueryPlanHasContent(spec.HistoryQueryPlan) {
+		spec.HistoryQueryPlan = PlanHistoryQueryPlan{
+			Mode:   "search",
+			Query:  safePlanText(spec.Goal, 160),
+			Reason: "main_agent_requested_history_recall",
+			Limit:  8,
+		}
+	}
+	if spec.NeedsHistoryRecall {
+		spec.RequiredCapabilities = uniqueStrings(append(spec.RequiredCapabilities, "conversation.query_history"))
+	}
 	spec.RequiredMemoryTypes = normalizeTextList(spec.RequiredMemoryTypes, 80)
 	spec.ExpectedEvidenceScope = normalizeTextList(spec.ExpectedEvidenceScope, 120)
 	spec.FinalAnswerConstraints = normalizeTextList(spec.FinalAnswerConstraints, 300)
