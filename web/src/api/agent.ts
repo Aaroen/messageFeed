@@ -49,6 +49,45 @@ export interface AgentSessionListResult {
   sessions: AgentSession[]
 }
 
+export interface AgentMemoryCandidate {
+  id: number
+  session_id?: number
+  turn_id?: number
+  memory_kind: string
+  candidate_text: string
+  summary: string
+  evidence_refs: string[]
+  source_refs: string[]
+  confidence: number
+  importance: number
+  risk_level: string
+  status: string
+  proposed_by: string
+  memory_block_id?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentMemoryBlock {
+  id: number
+  memory_kind: string
+  title: string
+  content: string
+  summary: string
+  evidence_refs: string[]
+  confidence: number
+  importance: number
+  status: string
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentMemoryCandidateDecisionResult {
+  candidate?: AgentMemoryCandidate
+  memory?: AgentMemoryBlock
+}
+
 export interface AgentTranscriptEntry {
   id: number
   turn_id: number
@@ -2271,4 +2310,35 @@ export async function listAgentRunsByTurn(turnID: number) {
 export async function getAgentRun(id: number) {
   const response = await apiClient.get<APIEnvelope<{ run: AgentRun }>>(`/api/v1/agent/runs/${id}`)
   return response.data.data.run
+}
+
+export async function listAgentMemoryCandidates(params: { status?: string; limit?: number } = {}) {
+  const response = await apiClient.get<APIEnvelope<{ candidates: AgentMemoryCandidate[] }>>(
+    '/api/v1/agent/memory-candidates',
+    { params },
+  )
+  return response.data.data.candidates
+}
+
+export async function applyAgentMemoryCandidate(id: number) {
+  const response = await apiClient.post<APIEnvelope<AgentMemoryCandidateDecisionResult>>(
+    `/api/v1/agent/memory-candidates/${id}/apply`,
+  )
+  return response.data.data
+}
+
+export async function rejectAgentMemoryCandidate(id: number, input: { reason?: string } = {}) {
+  const response = await apiClient.post<APIEnvelope<AgentMemoryCandidateDecisionResult>>(
+    `/api/v1/agent/memory-candidates/${id}/reject`,
+    input,
+  )
+  return response.data.data
+}
+
+export async function revokeAgentMemoryCandidate(id: number, input: { reason?: string } = {}) {
+  const response = await apiClient.post<APIEnvelope<AgentMemoryCandidateDecisionResult>>(
+    `/api/v1/agent/memory-candidates/${id}/revoke`,
+    input,
+  )
+  return response.data.data
 }
