@@ -50,6 +50,7 @@ type AgentConversationMemoryStore interface {
 	CreateRecallEvent(ctx context.Context, event domain.AgentRecallEvent) (domain.AgentRecallEvent, error)
 	UpsertAgentFactArchiveIndex(ctx context.Context, fact domain.AgentFactArchiveIndex) (domain.AgentFactArchiveIndex, error)
 	QueryAgentFactArchiveIndex(ctx context.Context, options domain.AgentFactArchiveQueryOptions) ([]domain.AgentFactArchiveIndex, error)
+	SearchAgentFactEmbeddings(ctx context.Context, plan domain.AgentFactRecallPlan, queryVector []float32) ([]domain.AgentFactRecallHit, error)
 	ResolveAgentFactSources(ctx context.Context, userID int64, facts []domain.AgentFactArchiveIndex) ([]domain.AgentFactSource, error)
 	CreateAgentMemoryCandidate(ctx context.Context, candidate domain.AgentMemoryCandidate) (domain.AgentMemoryCandidate, error)
 	ListAgentMemoryCandidates(ctx context.Context, userID int64, status domain.AgentMemoryCandidateStatus, limit int) ([]domain.AgentMemoryCandidate, error)

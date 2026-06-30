@@ -66,6 +66,7 @@ type Config struct {
 	Auth          AuthConfig
 	WeChatWork    WeChatWorkConfig
 	LLM           LLMConfig
+	Embedding     EmbeddingConfig
 }
 
 // HTTPConfig 保存 HTTP 服务相关配置。
@@ -175,6 +176,19 @@ func (cfg LLMConfig) Enabled() bool {
 	return cfg.Provider != "" || cfg.APIKey != "" || cfg.BaseURL != "" || cfg.Model != ""
 }
 
+// EmbeddingConfig 保存事实索引语义召回所需的 embedding 配置。
+type EmbeddingConfig struct {
+	Provider  string
+	APIKey    string
+	BaseURL   string
+	Model     string
+	Dimension int
+}
+
+func (cfg EmbeddingConfig) Enabled() bool {
+	return cfg.Provider != "" || cfg.APIKey != "" || cfg.BaseURL != "" || cfg.Model != ""
+}
+
 // Load 从环境变量加载配置，并在返回前执行基础校验。
 // 当前不读取 YAML、TOML 或 JSON 配置文件，避免第一阶段引入路径、挂载和敏感信息落盘问题。
 // 后续如需配置文件，可在 Defaults 和环境变量覆盖之间增加文件配置合并层。
@@ -220,6 +234,12 @@ func Load() (Config, error) {
 	cfg.LLM.BaseURL = envString("LLM_BASE_URL", cfg.LLM.BaseURL)
 	cfg.LLM.Model = envString("LLM_MODEL", cfg.LLM.Model)
 	cfg.LLM.ConfigSecret = envString("LLM_CONFIG_SECRET", cfg.LLM.ConfigSecret)
+
+	cfg.Embedding.Provider = strings.ToLower(envString("EMBEDDING_PROVIDER", cfg.Embedding.Provider))
+	cfg.Embedding.APIKey = envString("EMBEDDING_API_KEY", cfg.Embedding.APIKey)
+	cfg.Embedding.BaseURL = envString("EMBEDDING_BASE_URL", cfg.Embedding.BaseURL)
+	cfg.Embedding.Model = envString("EMBEDDING_MODEL", cfg.Embedding.Model)
+	cfg.Embedding.Dimension = envInt("EMBEDDING_DIMENSION", cfg.Embedding.Dimension)
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -269,6 +289,7 @@ func Defaults() Config {
 		},
 		WeChatWork: WeChatWorkConfig{},
 		LLM:        LLMConfig{},
+		Embedding:  EmbeddingConfig{Dimension: 1536},
 	}
 }
 
@@ -344,6 +365,9 @@ func (cfg Config) Validate() error {
 		return err
 	}
 	if err := validateLLMConfig(cfg.LLM); err != nil {
+		return err
+	}
+	if err := validateEmbeddingConfig(cfg.Embedding); err != nil {
 		return err
 	}
 
@@ -430,6 +454,40 @@ func validateLLMConfig(cfg LLMConfig) error {
 		}
 		if parsed.Scheme == "" || parsed.Host == "" {
 			return fmt.Errorf("invalid LLM_BASE_URL %q: scheme and host are required", cfg.BaseURL)
+		}
+	}
+	return nil
+}
+
+func validateEmbeddingConfig(cfg EmbeddingConfig) error {
+	if !cfg.Enabled() {
+		return nil
+	}
+	if strings.TrimSpace(cfg.Provider) == "" {
+		return fmt.Errorf("EMBEDDING_PROVIDER must not be empty when embedding is configured")
+	}
+	if !isValidLLMProviderName(cfg.Provider) {
+		return fmt.Errorf("invalid EMBEDDING_PROVIDER %q", cfg.Provider)
+	}
+	if strings.TrimSpace(cfg.APIKey) == "" {
+		return fmt.Errorf("EMBEDDING_API_KEY must not be empty when embedding is configured")
+	}
+	if strings.TrimSpace(cfg.Model) == "" {
+		return fmt.Errorf("EMBEDDING_MODEL must not be empty when embedding is configured")
+	}
+	if cfg.Dimension <= 0 {
+		return fmt.Errorf("EMBEDDING_DIMENSION must be positive")
+	}
+	if cfg.Provider != "openai" && strings.TrimSpace(cfg.BaseURL) == "" {
+		return fmt.Errorf("EMBEDDING_BASE_URL must not be empty when EMBEDDING_PROVIDER is not openai")
+	}
+	if strings.TrimSpace(cfg.BaseURL) != "" {
+		parsed, err := url.Parse(cfg.BaseURL)
+		if err != nil {
+			return fmt.Errorf("invalid EMBEDDING_BASE_URL %q: %w", cfg.BaseURL, err)
+		}
+		if parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("invalid EMBEDDING_BASE_URL %q: scheme and host are required", cfg.BaseURL)
 		}
 	}
 	return nil

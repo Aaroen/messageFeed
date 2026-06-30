@@ -59,6 +59,7 @@ func main() {
 		"database_configured", cfg.Database.DSN != "",
 		"wechat_work_configured", cfg.WeChatWork.Enabled(),
 		"llm_configured", cfg.LLM.Enabled(),
+		"embedding_configured", cfg.Embedding.Enabled(),
 		"tracing_enabled", cfg.Observability.TraceEnabled,
 		"otel_endpoint", cfg.Observability.OTLPEndpoint,
 	)
@@ -75,6 +76,7 @@ func main() {
 	var weChatWorkAppCallback *wechatwork.AppCallbackCodec
 	var weChatWorkSender *notifier.WeChatWorkAppClient
 	var llmClient llm.Client
+	var embeddingClient llm.EmbeddingClient
 	var agentConversationService *service.AgentConversationService
 	var agentLLMConfigService *service.AgentLLMConfigService
 	var adminConfigService *service.AdminConfigService
@@ -124,6 +126,23 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Info("llm client configured", "provider", cfg.LLM.Provider, "model", cfg.LLM.Model)
+	}
+	if cfg.Embedding.Enabled() {
+		baseURL := cfg.Embedding.BaseURL
+		if cfg.Embedding.Provider == "openai" && baseURL == "" {
+			baseURL = "https://api.openai.com/v1"
+		}
+		embeddingClient, err = llm.NewOpenAICompatibleEmbeddingClient(llm.OpenAICompatibleEmbeddingConfig{
+			Provider: cfg.Embedding.Provider,
+			BaseURL:  baseURL,
+			APIKey:   cfg.Embedding.APIKey,
+			Model:    cfg.Embedding.Model,
+		})
+		if err != nil {
+			logger.Error("failed to initialize embedding client", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("embedding client configured", "provider", cfg.Embedding.Provider, "model", cfg.Embedding.Model, "dimension", cfg.Embedding.Dimension)
 	}
 	adminConfigService = service.NewAdminConfigService(
 		cfg,
@@ -238,6 +257,7 @@ func main() {
 			service.WithAgentConversationSourceProvider(sourceService),
 			service.WithAgentConversationNotificationJobStore(notificationRepository),
 			service.WithAgentConversationPublicBaseURL(cfg.Runtime.PublicBaseURL),
+			service.WithAgentConversationEmbeddingClient(embeddingClient, cfg.Embedding.Model),
 		)
 		agentScheduledTaskWorkerService = service.NewAgentScheduledTaskWorkerService(agentRepository)
 		agentScheduledTaskWorkerService.SetReportSender(weChatWorkSender)

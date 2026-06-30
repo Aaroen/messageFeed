@@ -3049,6 +3049,34 @@ func (r *fakeAgentConversationRepository) QueryAgentFactArchiveIndex(_ context.C
 	return facts, nil
 }
 
+func (r *fakeAgentConversationRepository) SearchAgentFactEmbeddings(_ context.Context, options domain.AgentFactRecallPlan, _ []float32) ([]domain.AgentFactRecallHit, error) {
+	facts, err := r.QueryAgentFactArchiveIndex(context.Background(), domain.AgentFactArchiveQueryOptions{
+		UserID:       options.UserID,
+		SessionID:    options.SessionID,
+		TurnID:       options.TurnID,
+		FactTypes:    options.FactTypes,
+		MemoryKinds:  options.MemoryKinds,
+		Query:        options.Query,
+		After:        options.After,
+		Before:       options.Before,
+		Limit:        options.Limit,
+		MaxRiskLevel: options.MaxRiskLevel,
+	})
+	if err != nil {
+		return nil, err
+	}
+	hits := make([]domain.AgentFactRecallHit, 0, len(facts))
+	for index, fact := range facts {
+		hits = append(hits, domain.AgentFactRecallHit{
+			Fact:         fact,
+			CanonicalRef: fact.CanonicalRef,
+			VectorScore:  1 - float64(index)/float64(len(facts)+1),
+			HitSources:   []string{"vector"},
+		})
+	}
+	return hits, nil
+}
+
 func (r *fakeAgentConversationRepository) ResolveAgentFactSources(_ context.Context, userID int64, facts []domain.AgentFactArchiveIndex) ([]domain.AgentFactSource, error) {
 	sources := make([]domain.AgentFactSource, 0, len(facts))
 	for _, fact := range facts {

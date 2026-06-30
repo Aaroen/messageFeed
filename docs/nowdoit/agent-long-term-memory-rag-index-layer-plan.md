@@ -631,15 +631,15 @@ projection:
 后续实现时逐项勾选：
 
 - [ ] 核实生产 PostgreSQL 是否已安装 pgvector extension，确认可用版本和向量维度上限。
-- [ ] 新增 migration：创建 `agent_fact_embeddings`，必要时创建 `agent_fact_index_jobs`。
-- [ ] 调整 `agent_fact_archive_index.embedding_json` 使用约定，只保存 embedding 元信息。
-- [ ] 新增 embedding provider 抽象，支持批量 embedding、维度校验、失败重试和速率限制。
-- [ ] 新增 `FactIndexBuilder`，统一从 transcript、observation、artifact、plan、step 生成索引行。
-- [ ] 新增 backfill service/job，仅初始化索引层，不复制原始事实，不直接写稳定记忆。
-- [ ] 新增 `HybridFactRetriever`，支持结构化过滤、全文检索、向量检索、关系扩展、合并去重和规则化 rerank。
-- [ ] 调整 `ResolveAgentFactSources`，确保 chunk ref 能回表到父级事实并定位片段。
-- [ ] 接入 ContextBundle 投影，显式区分 `index_hit`、`source_fact` 和 `projection`。
-- [ ] 将主 Agent recall plan 接入统一 retrieval service，子 Agent 只能通过受控工具请求补充上下文。
+- [x] 新增 migration：创建 `agent_fact_embeddings`，必要时创建 `agent_fact_index_jobs`。
+- [x] 调整 `agent_fact_archive_index.embedding_json` 使用约定，只保存 embedding 元信息。
+- [x] 新增 embedding provider 抽象，支持批量 embedding、维度校验、失败重试和速率限制。
+- [x] 新增 `FactIndexBuilder`，统一从 transcript、observation、artifact、plan、step 生成索引行。
+- [x] 新增 backfill service/job，仅初始化索引层，不复制原始事实，不直接写稳定记忆。
+- [x] 新增 `HybridFactRetriever`，支持结构化过滤、全文检索、向量检索、关系扩展、合并去重和规则化 rerank。
+- [x] 调整 `ResolveAgentFactSources`，确保 chunk ref 能回表到父级事实并定位片段。
+- [x] 接入 ContextBundle 投影，显式区分 `index_hit`、`source_fact` 和 `projection`。
+- [x] 将主 Agent recall plan 接入统一 retrieval service，子 Agent 只能通过受控工具请求补充上下文。
 - [ ] 增加 Web/API 观测能力，展示 recall query、命中来源、分数、回表事实和投影内容。
 - [ ] 完成初始化、精确查询、语义查询、超 token 场景、用户隔离和风险控制验收。
 - [ ] 每完成一个可独立验证阶段后提交并推送。

@@ -103,11 +103,14 @@ type AgentFactArchiveQueryOptions struct {
 	Query         string
 	Keywords      []string
 	CanonicalRefs []string
+	RelationRefs  []string
 	After         *time.Time
 	Before        *time.Time
 	Limit         int
 	Offset        int
 	MinImportance int
+	MaxRiskLevel  AgentMemoryRiskLevel
+	UseFullText   bool
 }
 
 type AgentFactSource struct {
@@ -123,6 +126,172 @@ type AgentFactSource struct {
 	SourceRefs   []string
 	Metadata     AgentJSON
 	CreatedAt    time.Time
+}
+
+type AgentFactEmbeddingStatus string
+
+const (
+	AgentFactEmbeddingStatusReady    AgentFactEmbeddingStatus = "ready"
+	AgentFactEmbeddingStatusPending  AgentFactEmbeddingStatus = "pending"
+	AgentFactEmbeddingStatusFailed   AgentFactEmbeddingStatus = "failed"
+	AgentFactEmbeddingStatusArchived AgentFactEmbeddingStatus = "archived"
+)
+
+func (s AgentFactEmbeddingStatus) Valid() bool {
+	switch s {
+	case AgentFactEmbeddingStatusReady, AgentFactEmbeddingStatusPending, AgentFactEmbeddingStatusFailed, AgentFactEmbeddingStatusArchived:
+		return true
+	default:
+		return false
+	}
+}
+
+type AgentFactEmbedding struct {
+	ID                 int64
+	CanonicalRef       string
+	UserID             int64
+	EmbeddingModel     string
+	EmbeddingDimension int
+	ContentHash        string
+	Vector             []float32
+	EmbeddingStatus    AgentFactEmbeddingStatus
+	ErrorMessage       string
+	Metadata           AgentJSON
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type AgentFactEmbeddingQueryOptions struct {
+	UserID         int64
+	EmbeddingModel string
+	ContentHash    string
+	Statuses       []AgentFactEmbeddingStatus
+	Limit          int
+}
+
+type AgentFactRecallMode string
+
+const (
+	AgentFactRecallModeSearch    AgentFactRecallMode = "search"
+	AgentFactRecallModeSemantic  AgentFactRecallMode = "semantic"
+	AgentFactRecallModeHybrid    AgentFactRecallMode = "hybrid"
+	AgentFactRecallModeTimeRange AgentFactRecallMode = "time_range"
+	AgentFactRecallModeEarliest  AgentFactRecallMode = "earliest"
+	AgentFactRecallModeLatest    AgentFactRecallMode = "latest"
+)
+
+func (m AgentFactRecallMode) Valid() bool {
+	switch m {
+	case AgentFactRecallModeSearch,
+		AgentFactRecallModeSemantic,
+		AgentFactRecallModeHybrid,
+		AgentFactRecallModeTimeRange,
+		AgentFactRecallModeEarliest,
+		AgentFactRecallModeLatest:
+		return true
+	default:
+		return false
+	}
+}
+
+type AgentFactRecallPlan struct {
+	Mode            AgentFactRecallMode
+	Query           string
+	UserID          int64
+	SessionID       int64
+	TurnID          int64
+	After           *time.Time
+	Before          *time.Time
+	FactTypes       []AgentFactType
+	MemoryKinds     []AgentMemoryKind
+	Limit           int
+	NeedsSourceFact bool
+	MaxRiskLevel    AgentMemoryRiskLevel
+	EmbeddingModel  string
+}
+
+type AgentFactRecallHit struct {
+	Fact            AgentFactArchiveIndex
+	CanonicalRef    string
+	StructuredScore float64
+	FullTextScore   float64
+	VectorScore     float64
+	ImportanceScore float64
+	RecencyScore    float64
+	RelationScore   float64
+	FinalScore      float64
+	HitSources      []string
+	Reason          string
+}
+
+type AgentFactProjection struct {
+	CanonicalRef  string
+	IndexHit      AgentFactRecallHit
+	SourceFact    AgentFactSource
+	Text          string
+	TokenEstimate int
+	TrustLevel    string
+	RiskLevel     AgentMemoryRiskLevel
+}
+
+type AgentFactRecallResult struct {
+	Plan        AgentFactRecallPlan
+	Hits        []AgentFactRecallHit
+	Sources     []AgentFactSource
+	Projections []AgentFactProjection
+	GeneratedAt time.Time
+}
+
+type AgentFactIndexJobType string
+
+const (
+	AgentFactIndexJobBackfill AgentFactIndexJobType = "backfill_fact_index"
+	AgentFactIndexJobEmbed    AgentFactIndexJobType = "embed_fact_index"
+	AgentFactIndexJobRebuild  AgentFactIndexJobType = "rebuild_fact_index"
+)
+
+func (t AgentFactIndexJobType) Valid() bool {
+	switch t {
+	case AgentFactIndexJobBackfill, AgentFactIndexJobEmbed, AgentFactIndexJobRebuild:
+		return true
+	default:
+		return false
+	}
+}
+
+type AgentFactIndexJobStatus string
+
+const (
+	AgentFactIndexJobPending   AgentFactIndexJobStatus = "pending"
+	AgentFactIndexJobRunning   AgentFactIndexJobStatus = "running"
+	AgentFactIndexJobSucceeded AgentFactIndexJobStatus = "succeeded"
+	AgentFactIndexJobFailed    AgentFactIndexJobStatus = "failed"
+	AgentFactIndexJobCancelled AgentFactIndexJobStatus = "cancelled"
+)
+
+func (s AgentFactIndexJobStatus) Valid() bool {
+	switch s {
+	case AgentFactIndexJobPending, AgentFactIndexJobRunning, AgentFactIndexJobSucceeded, AgentFactIndexJobFailed, AgentFactIndexJobCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
+type AgentFactIndexJob struct {
+	ID             int64
+	JobType        AgentFactIndexJobType
+	Scope          AgentJSON
+	Status         AgentFactIndexJobStatus
+	Cursor         AgentJSON
+	TotalCount     int
+	ProcessedCount int
+	FailedCount    int
+	ErrorMessage   string
+	StartedAt      *time.Time
+	FinishedAt     *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type AgentMemoryCandidateStatus string

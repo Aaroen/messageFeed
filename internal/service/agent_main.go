@@ -29,6 +29,8 @@ const (
 type AgentConversationService struct {
 	repository            AgentConversationRepository
 	llmClient             AgentConversationLLM
+	embeddingClient       llm.EmbeddingClient
+	embeddingModel        string
 	sender                AgentConversationSender
 	resolver              AgentExternalAccountResolver
 	userCtx               AgentUserContextProvider
@@ -61,6 +63,13 @@ type AgentConversationServiceOption func(*AgentConversationService)
 func WithAgentConversationLLM(client AgentConversationLLM) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		service.llmClient = client
+	}
+}
+
+func WithAgentConversationEmbeddingClient(client llm.EmbeddingClient, model string) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.embeddingClient = client
+		service.embeddingModel = strings.TrimSpace(model)
 	}
 }
 
@@ -196,8 +205,9 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 			now:      s.now,
 		},
 		ConversationMemory: agentConversationMemoryProvider{
-			repository: s.repository,
-			now:        s.now,
+			repository:    s.repository,
+			factRetriever: newAgentFactRetriever(s.repository, s.embeddingClient, s.embeddingModel, s.now),
+			now:           s.now,
 		},
 		Executor: s.agentCapabilityExecutor(),
 		Now:      s.now,

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"messagefeed/internal/domain"
 	"strings"
@@ -182,23 +183,36 @@ func (r *AgentRepository) QueryAgentFactArchiveIndex(ctx context.Context, option
 	if options.MinImportance > 0 {
 		query = query.Where("importance >= ?", options.MinImportance)
 	}
+	if options.MaxRiskLevel.Valid() {
+		query = query.Where("risk_level IN ?", allowedAgentMemoryRiskLevels(options.MaxRiskLevel))
+	}
 	if options.After != nil {
 		query = query.Where("created_at >= ?", options.After.UTC())
 	}
 	if options.Before != nil {
 		query = query.Where("created_at <= ?", options.Before.UTC())
 	}
+	for _, ref := range compactNonEmptyStrings(options.RelationRefs) {
+		encoded, _ := json.Marshal([]string{ref})
+		query = query.Where("(relation_refs_json @> ?::jsonb OR source_refs_json @> ?::jsonb)", string(encoded), string(encoded))
+	}
 	searchTerms := compactNonEmptyStrings(append([]string{options.Query}, options.Keywords...))
-	for _, term := range searchTerms {
-		like := "%" + escapeLike(term) + "%"
-		query = query.Where("(summary_for_index ILIKE ? ESCAPE '\\' OR contextual_text ILIKE ? ESCAPE '\\')", like, like)
+	searchText := strings.TrimSpace(strings.Join(searchTerms, " "))
+	orderExpr := any("importance DESC, confidence DESC, updated_at DESC, id DESC")
+	if searchText != "" {
+		like := "%" + escapeLike(searchText) + "%"
+		query = query.Where("(full_text_vector @@ plainto_tsquery('simple', ?) OR summary_for_index ILIKE ? ESCAPE '\\' OR contextual_text ILIKE ? ESCAPE '\\')", searchText, like, like)
+		orderExpr = clause.Expr{
+			SQL:  "ts_rank(full_text_vector, plainto_tsquery('simple', ?)) DESC, importance DESC, confidence DESC, updated_at DESC, id DESC",
+			Vars: []any{searchText},
+		}
 	}
 	if options.Offset > 0 {
 		query = query.Offset(options.Offset)
 	}
 	var models []agentFactArchiveIndexModel
 	if err := query.
-		Order("importance DESC, confidence DESC, updated_at DESC, id DESC").
+		Order(orderExpr).
 		Limit(limit).
 		Find(&models).Error; err != nil {
 		opErr = mapRepositoryError(err)
@@ -232,6 +246,7 @@ func (r *AgentRepository) ResolveAgentFactSources(ctx context.Context, userID in
 			opErr = err
 			return nil, err
 		}
+		source = applyFactChunkProjection(fact, source)
 		sources = append(sources, source)
 	}
 	return sources, nil
@@ -522,34 +537,9 @@ func (r *AgentRepository) indexTranscriptFact(ctx context.Context, entry domain.
 	if r == nil || r.db == nil || entry.ID == 0 || entry.UserID == 0 {
 		return
 	}
-	classification := classifyTranscriptMemory(entry.Content)
-	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
-		CanonicalRef:    fmt.Sprintf("transcript:%d", entry.ID),
-		FactType:        domain.AgentFactTypeTranscript,
-		FactID:          entry.ID,
-		UserID:          entry.UserID,
-		SessionID:       entry.SessionID,
-		TurnID:          entry.TurnID,
-		MemoryKind:      classification.Kind,
-		Topics:          []string{string(entry.Role), string(classification.Kind)},
-		Keywords:        transcriptIndexKeywords(entry.Content),
-		Entities:        transcriptIndexKeywords(entry.Content),
-		SummaryForIndex: safeTextPrefix(entry.Content, 320),
-		ContextualText:  entry.Content,
-		Importance:      transcriptImportanceForKind(classification.Kind),
-		Confidence:      confidenceForClassification(classification),
-		SourceRefs:      []string{fmt.Sprintf("transcript:%d", entry.ID), fmt.Sprintf("turn:%d", entry.TurnID), fmt.Sprintf("session:%d", entry.SessionID)},
-		RelationRefs:    []string{fmt.Sprintf("turn:%d", entry.TurnID), fmt.Sprintf("session:%d", entry.SessionID)},
-		IndexStatus:     domain.AgentFactIndexStatusReady,
-		RiskLevel:       inferMemoryRisk(entry.Content, classification.Kind),
-		Metadata: domain.AgentJSON{
-			"role":                    string(entry.Role),
-			"classification_strategy": "rule_fallback",
-			"memory_kind_reason":      classification.Reason,
-		},
-		CreatedAt: entry.CreatedAt,
-		UpdatedAt: time.Now().UTC(),
-	})
+	if fact, ok := newAgentFactIndexBuilder(time.Now).BuildTranscript(entry); ok {
+		_, _ = r.UpsertAgentFactArchiveIndex(ctx, fact)
+	}
 }
 
 func (r *AgentRepository) indexObservationFact(ctx context.Context, observation domain.AgentObservation) {
@@ -557,37 +547,9 @@ func (r *AgentRepository) indexObservationFact(ctx context.Context, observation 
 	if err != nil || scope.UserID == 0 {
 		return
 	}
-	content := strings.TrimSpace(strings.Join([]string{observation.InputSummary, observation.OutputSummary, observation.Error}, "\n"))
-	if content == "" {
-		content = observation.Status
+	if fact, ok := newAgentFactIndexBuilder(time.Now).BuildObservation(scope, observation); ok {
+		_, _ = r.UpsertAgentFactArchiveIndex(ctx, fact)
 	}
-	classification := classifyTranscriptMemory(content)
-	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
-		CanonicalRef:    fmt.Sprintf("observation:%d", observation.ID),
-		FactType:        domain.AgentFactTypeObservation,
-		FactID:          observation.ID,
-		UserID:          scope.UserID,
-		SessionID:       scope.SessionID,
-		TurnID:          scope.TurnID,
-		MemoryKind:      classification.Kind,
-		Topics:          compactNonEmptyStrings([]string{"observation", observation.CapabilityKey, observation.Status}),
-		Keywords:        transcriptIndexKeywords(content + " " + observation.CapabilityKey),
-		Entities:        transcriptIndexKeywords(content),
-		SummaryForIndex: safeTextPrefix(content, 320),
-		ContextualText:  content,
-		Importance:      factImportanceForKind(classification.Kind, 45),
-		Confidence:      confidenceForClassification(classification),
-		SourceRefs:      compactNonEmptyStrings(append([]string{fmt.Sprintf("observation:%d", observation.ID), fmt.Sprintf("run:%d", observation.RunID)}, observation.ArtifactRefs...)),
-		RelationRefs:    compactNonEmptyStrings(append([]string{fmt.Sprintf("run:%d", observation.RunID), fmt.Sprintf("turn:%d", scope.TurnID)}, observation.ArtifactRefs...)),
-		IndexStatus:     domain.AgentFactIndexStatusReady,
-		RiskLevel:       inferMemoryRisk(content, classification.Kind),
-		Metadata: domain.AgentJSON{
-			"capability_key": observation.CapabilityKey,
-			"status":         observation.Status,
-		},
-		CreatedAt: observation.CreatedAt,
-		UpdatedAt: time.Now().UTC(),
-	})
 }
 
 func (r *AgentRepository) indexArtifactFact(ctx context.Context, artifact domain.AgentArtifact) {
@@ -595,69 +557,18 @@ func (r *AgentRepository) indexArtifactFact(ctx context.Context, artifact domain
 	if err != nil || scope.UserID == 0 {
 		return
 	}
-	content := strings.TrimSpace(strings.Join([]string{artifact.Summary, artifact.ContentRef}, "\n"))
-	classification := classifyTranscriptMemory(content)
-	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
-		CanonicalRef:    fmt.Sprintf("artifact:%d", artifact.ID),
-		FactType:        domain.AgentFactTypeArtifact,
-		FactID:          artifact.ID,
-		UserID:          scope.UserID,
-		SessionID:       scope.SessionID,
-		TurnID:          scope.TurnID,
-		MemoryKind:      classification.Kind,
-		Topics:          compactNonEmptyStrings([]string{"artifact", artifact.ArtifactType}),
-		Keywords:        transcriptIndexKeywords(content),
-		Entities:        transcriptIndexKeywords(content),
-		SummaryForIndex: safeTextPrefix(content, 320),
-		ContextualText:  content,
-		Importance:      factImportanceForKind(classification.Kind, 50),
-		Confidence:      confidenceForClassification(classification),
-		SourceRefs:      compactNonEmptyStrings(append([]string{fmt.Sprintf("artifact:%d", artifact.ID), fmt.Sprintf("run:%d", artifact.RunID)}, artifact.SourceRefs...)),
-		RelationRefs:    compactNonEmptyStrings(append([]string{fmt.Sprintf("run:%d", artifact.RunID), fmt.Sprintf("turn:%d", scope.TurnID)}, artifact.SourceRefs...)),
-		IndexStatus:     domain.AgentFactIndexStatusReady,
-		RiskLevel:       inferMemoryRisk(content, classification.Kind),
-		Metadata: domain.AgentJSON{
-			"artifact_type": artifact.ArtifactType,
-			"content_hash":  artifact.ContentHash,
-		},
-		CreatedAt: artifact.CreatedAt,
-		UpdatedAt: time.Now().UTC(),
-	})
+	if fact, ok := newAgentFactIndexBuilder(time.Now).BuildArtifact(scope, artifact); ok {
+		_, _ = r.UpsertAgentFactArchiveIndex(ctx, fact)
+	}
 }
 
 func (r *AgentRepository) indexPlanFact(ctx context.Context, plan domain.AgentPlan) {
 	if plan.ID == 0 || plan.UserID == 0 {
 		return
 	}
-	content := strings.TrimSpace(strings.Join([]string{plan.Goal, plan.Summary, plan.ImpactSummary, plan.ErrorMessage}, "\n"))
-	classification := classifyTranscriptMemory(content)
-	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
-		CanonicalRef:    fmt.Sprintf("plan:%d", plan.ID),
-		FactType:        domain.AgentFactTypePlan,
-		FactID:          plan.ID,
-		UserID:          plan.UserID,
-		SessionID:       plan.SessionID,
-		TurnID:          plan.TurnID,
-		MemoryKind:      classification.Kind,
-		Topics:          compactNonEmptyStrings([]string{"plan", string(plan.Status), plan.RiskLevel}),
-		Keywords:        transcriptIndexKeywords(content),
-		Entities:        transcriptIndexKeywords(content),
-		SummaryForIndex: safeTextPrefix(content, 320),
-		ContextualText:  content,
-		Importance:      factImportanceForKind(classification.Kind, 60),
-		Confidence:      confidenceForClassification(classification),
-		SourceRefs:      []string{fmt.Sprintf("plan:%d", plan.ID), fmt.Sprintf("turn:%d", plan.TurnID)},
-		RelationRefs:    []string{fmt.Sprintf("turn:%d", plan.TurnID), fmt.Sprintf("run:%d", plan.ControllerRunID)},
-		IndexStatus:     domain.AgentFactIndexStatusReady,
-		RiskLevel:       domain.AgentMemoryRiskLevel(plan.RiskLevel),
-		Metadata: domain.AgentJSON{
-			"status":              string(plan.Status),
-			"confirmation_policy": plan.ConfirmationPolicy,
-			"allowed_scopes":      plan.AllowedScopes,
-		},
-		CreatedAt: plan.CreatedAt,
-		UpdatedAt: time.Now().UTC(),
-	})
+	if fact, ok := newAgentFactIndexBuilder(time.Now).BuildPlan(plan); ok {
+		_, _ = r.UpsertAgentFactArchiveIndex(ctx, fact)
+	}
 }
 
 func (r *AgentRepository) indexPlanStepFact(ctx context.Context, userID int64, step domain.AgentPlanStep) {
@@ -665,35 +576,182 @@ func (r *AgentRepository) indexPlanStepFact(ctx context.Context, userID int64, s
 	if err != nil || scope.UserID == 0 {
 		return
 	}
-	content := strings.TrimSpace(strings.Join([]string{step.Title, step.InputSummary, step.OutputSummary, step.ExpectedOutput, step.ErrorMessage}, "\n"))
-	classification := classifyTranscriptMemory(content)
-	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
-		CanonicalRef:    fmt.Sprintf("plan_step:%d", step.ID),
-		FactType:        domain.AgentFactTypePlanStep,
-		FactID:          step.ID,
-		UserID:          scope.UserID,
-		SessionID:       scope.SessionID,
-		TurnID:          scope.TurnID,
-		MemoryKind:      classification.Kind,
-		Topics:          compactNonEmptyStrings([]string{"plan_step", step.CapabilityKey, string(step.Status)}),
-		Keywords:        transcriptIndexKeywords(content + " " + step.CapabilityKey),
-		Entities:        transcriptIndexKeywords(content),
-		SummaryForIndex: safeTextPrefix(content, 320),
-		ContextualText:  content,
-		Importance:      factImportanceForKind(classification.Kind, 55),
-		Confidence:      confidenceForClassification(classification),
-		SourceRefs:      compactNonEmptyStrings(append([]string{fmt.Sprintf("plan_step:%d", step.ID), fmt.Sprintf("plan:%d", step.PlanID), step.ObservationRef}, step.ArtifactRefs...)),
-		RelationRefs:    compactNonEmptyStrings(append([]string{fmt.Sprintf("plan:%d", step.PlanID), fmt.Sprintf("turn:%d", scope.TurnID), step.ObservationRef}, step.ArtifactRefs...)),
-		IndexStatus:     domain.AgentFactIndexStatusReady,
-		RiskLevel:       inferMemoryRisk(content, classification.Kind),
-		Metadata: domain.AgentJSON{
-			"status":         string(step.Status),
-			"capability_key": step.CapabilityKey,
-			"step_order":     step.StepOrder,
-		},
-		CreatedAt: step.CreatedAt,
-		UpdatedAt: time.Now().UTC(),
+	if fact, ok := newAgentFactIndexBuilder(time.Now).BuildPlanStep(scope, step); ok {
+		_, _ = r.UpsertAgentFactArchiveIndex(ctx, fact)
+	}
+}
+
+func (r *AgentRepository) indexRunContextTraceFact(ctx context.Context, trace domain.AgentRunContextTrace) {
+	scope, err := r.agentRunScope(ctx, trace.RunID)
+	if err != nil || scope.UserID == 0 {
+		return
+	}
+	if fact, ok := newAgentFactIndexBuilder(time.Now).BuildRunContextTrace(scope, trace); ok {
+		_, _ = r.UpsertAgentFactArchiveIndex(ctx, fact)
+	}
+}
+
+type AgentFactBackfillResult struct {
+	ProcessedCount int
+	FailedCount    int
+}
+
+func (r *AgentRepository) BackfillAgentFactArchiveIndex(ctx context.Context, limit int) (AgentFactBackfillResult, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_fact_archive.backfill", "upsert", "agent_fact_archive_index")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	if limit <= 0 {
+		limit = 500
+	}
+	result := AgentFactBackfillResult{}
+	startedAt := time.Now().UTC()
+	job, _ := r.CreateAgentFactIndexJob(ctx, domain.AgentFactIndexJob{
+		JobType:   domain.AgentFactIndexJobBackfill,
+		Status:    domain.AgentFactIndexJobRunning,
+		Scope:     domain.AgentJSON{"limit": limit},
+		StartedAt: &startedAt,
+		CreatedAt: startedAt,
+		UpdatedAt: startedAt,
 	})
+	result.ProcessedCount += r.backfillTranscriptFacts(ctx, limit, &result)
+	result.ProcessedCount += r.backfillObservationFacts(ctx, limit, &result)
+	result.ProcessedCount += r.backfillArtifactFacts(ctx, limit, &result)
+	result.ProcessedCount += r.backfillPlanFacts(ctx, limit, &result)
+	result.ProcessedCount += r.backfillPlanStepFacts(ctx, limit, &result)
+	result.ProcessedCount += r.backfillRunContextTraceFacts(ctx, limit, &result)
+	if job.ID > 0 {
+		now := time.Now().UTC()
+		job.ProcessedCount = result.ProcessedCount
+		job.FailedCount = result.FailedCount
+		job.FinishedAt = &now
+		job.Status = domain.AgentFactIndexJobSucceeded
+		if result.FailedCount > 0 {
+			job.Status = domain.AgentFactIndexJobFailed
+		}
+		_, _ = r.UpdateAgentFactIndexJob(ctx, job)
+	}
+	return result, nil
+}
+
+func (r *AgentRepository) backfillTranscriptFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+	processed := 0
+	var lastID int64
+	for {
+		var models []agentTranscriptEntryModel
+		if err := r.db.WithContext(ctx).Where("id > ?", lastID).Order("id ASC").Limit(limit).Find(&models).Error; err != nil {
+			result.FailedCount++
+			return processed
+		}
+		if len(models) == 0 {
+			return processed
+		}
+		for _, model := range models {
+			r.indexTranscriptFact(ctx, agentTranscriptEntryModelToDomain(model))
+			lastID = model.ID
+			processed++
+		}
+	}
+}
+
+func (r *AgentRepository) backfillObservationFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+	processed := 0
+	var lastID int64
+	for {
+		var models []agentObservationModel
+		if err := r.db.WithContext(ctx).Where("id > ?", lastID).Order("id ASC").Limit(limit).Find(&models).Error; err != nil {
+			result.FailedCount++
+			return processed
+		}
+		if len(models) == 0 {
+			return processed
+		}
+		for _, model := range models {
+			r.indexObservationFact(ctx, agentObservationModelToDomain(model))
+			lastID = model.ID
+			processed++
+		}
+	}
+}
+
+func (r *AgentRepository) backfillArtifactFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+	processed := 0
+	var lastID int64
+	for {
+		var models []agentArtifactModel
+		if err := r.db.WithContext(ctx).Where("id > ?", lastID).Order("id ASC").Limit(limit).Find(&models).Error; err != nil {
+			result.FailedCount++
+			return processed
+		}
+		if len(models) == 0 {
+			return processed
+		}
+		for _, model := range models {
+			r.indexArtifactFact(ctx, agentArtifactModelToDomain(model))
+			lastID = model.ID
+			processed++
+		}
+	}
+}
+
+func (r *AgentRepository) backfillPlanFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+	processed := 0
+	var lastID int64
+	for {
+		var models []agentPlanModel
+		if err := r.db.WithContext(ctx).Where("id > ?", lastID).Order("id ASC").Limit(limit).Find(&models).Error; err != nil {
+			result.FailedCount++
+			return processed
+		}
+		if len(models) == 0 {
+			return processed
+		}
+		for _, model := range models {
+			r.indexPlanFact(ctx, agentPlanModelToDomain(model))
+			lastID = model.ID
+			processed++
+		}
+	}
+}
+
+func (r *AgentRepository) backfillPlanStepFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+	processed := 0
+	var lastID int64
+	for {
+		var models []agentPlanStepModel
+		if err := r.db.WithContext(ctx).Where("id > ?", lastID).Order("id ASC").Limit(limit).Find(&models).Error; err != nil {
+			result.FailedCount++
+			return processed
+		}
+		if len(models) == 0 {
+			return processed
+		}
+		for _, model := range models {
+			r.indexPlanStepFact(ctx, 0, agentPlanStepModelToDomain(model))
+			lastID = model.ID
+			processed++
+		}
+	}
+}
+
+func (r *AgentRepository) backfillRunContextTraceFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+	processed := 0
+	var lastID int64
+	for {
+		var models []agentRunContextTraceModel
+		if err := r.db.WithContext(ctx).Where("id > ?", lastID).Order("id ASC").Limit(limit).Find(&models).Error; err != nil {
+			result.FailedCount++
+			return processed
+		}
+		if len(models) == 0 {
+			return processed
+		}
+		for _, model := range models {
+			r.indexRunContextTraceFact(ctx, agentRunContextTraceModelToDomain(model))
+			lastID = model.ID
+			processed++
+		}
+	}
 }
 
 func (r *AgentRepository) agentRunScope(ctx context.Context, runID int64) (agentFactRunScope, error) {
@@ -719,12 +777,14 @@ func (r *AgentRepository) agentRunScope(ctx context.Context, runID int64) (agent
 
 func (r *AgentRepository) planStepScope(ctx context.Context, userID int64, planID int64) (agentFactRunScope, error) {
 	var scope agentFactRunScope
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Table("agent_plans").
 		Select("user_id, COALESCE(session_id, 0) AS session_id, COALESCE(turn_id, 0) AS turn_id").
-		Where("id = ?", planID).
-		Where("user_id = ?", userID).
-		Scan(&scope).Error
+		Where("id = ?", planID)
+	if userID > 0 {
+		query = query.Where("user_id = ?", userID)
+	}
+	err := query.Scan(&scope).Error
 	if err != nil {
 		return agentFactRunScope{}, mapRepositoryError(err)
 	}
@@ -835,6 +895,33 @@ func (r *AgentRepository) resolveAgentFactSource(ctx context.Context, userID int
 			Metadata:     domain.AgentJSON{"capability_key": step.CapabilityKey, "status": string(step.Status)},
 			CreatedAt:    step.CreatedAt,
 		}, nil
+	case domain.AgentFactTypeRunTrace:
+		var model agentRunContextTraceModel
+		if err := r.userScopedRunContextTraces(ctx, userID).Where("agent_run_context_traces.id = ?", fact.FactID).First(&model).Error; err != nil {
+			return domain.AgentFactSource{}, mapRepositoryError(err)
+		}
+		trace := agentRunContextTraceModelToDomain(model)
+		contentBytes, _ := json.Marshal(trace.Content)
+		content := strings.TrimSpace(string(contentBytes))
+		return domain.AgentFactSource{
+			CanonicalRef: fact.CanonicalRef,
+			FactType:     fact.FactType,
+			FactID:       fact.FactID,
+			UserID:       userID,
+			SessionID:    fact.SessionID,
+			TurnID:       fact.TurnID,
+			Title:        trace.TraceKind,
+			Content:      content,
+			Summary:      safeTextPrefix(content, 320),
+			SourceRefs:   []string{fmt.Sprintf("run:%d", trace.RunID)},
+			Metadata: domain.AgentJSON{
+				"prompt_version":   trace.PromptVersion,
+				"model_key":        trace.ModelKey,
+				"redaction_status": trace.RedactionStatus,
+				"content_hash":     trace.ContentHash,
+			},
+			CreatedAt: trace.CreatedAt,
+		}, nil
 	default:
 		return domain.AgentFactSource{}, domain.ErrNotFound
 	}
@@ -866,6 +953,54 @@ func (r *AgentRepository) userScopedPlanSteps(ctx context.Context, userID int64)
 		Joins("JOIN agent_plans ON agent_plans.id = agent_plan_steps.plan_id").
 		Where("agent_plans.user_id = ?", userID).
 		Select("agent_plan_steps.*")
+}
+
+func (r *AgentRepository) userScopedRunContextTraces(ctx context.Context, userID int64) *gorm.DB {
+	return r.db.WithContext(ctx).
+		Model(&agentRunContextTraceModel{}).
+		Joins("JOIN agent_runs ON agent_runs.id = agent_run_context_traces.run_id").
+		Joins("LEFT JOIN agent_turns ON agent_turns.id = agent_runs.turn_id").
+		Joins("LEFT JOIN agent_sessions ON agent_sessions.id = agent_runs.session_id").
+		Where("(agent_turns.user_id = ? OR agent_sessions.user_id = ?)", userID, userID).
+		Select("agent_run_context_traces.*")
+}
+
+func applyFactChunkProjection(fact domain.AgentFactArchiveIndex, source domain.AgentFactSource) domain.AgentFactSource {
+	if !strings.Contains(fact.CanonicalRef, "#chunk:") {
+		return source
+	}
+	parentRef := strings.TrimSpace(stringFromAgentJSON(fact.Metadata, "parent_ref"))
+	chunkText := strings.TrimSpace(stringFromAgentJSON(fact.Metadata, "chunk_text"))
+	if chunkText == "" {
+		chunkText = strings.TrimSpace(stringFromAgentJSON(fact.Metadata, "projection_text"))
+	}
+	if chunkText != "" {
+		source.Content = chunkText
+		source.Summary = safeTextPrefix(chunkText, 320)
+	}
+	if source.Metadata == nil {
+		source.Metadata = domain.AgentJSON{}
+	}
+	source.Metadata["chunk_ref"] = fact.CanonicalRef
+	if parentRef != "" {
+		source.Metadata["parent_ref"] = parentRef
+		source.SourceRefs = compactNonEmptyStrings(append([]string{parentRef, fact.CanonicalRef}, source.SourceRefs...))
+	} else {
+		source.SourceRefs = compactNonEmptyStrings(append([]string{fact.CanonicalRef}, source.SourceRefs...))
+	}
+	return source
+}
+
+func stringFromAgentJSON(values domain.AgentJSON, key string) string {
+	if values == nil {
+		return ""
+	}
+	switch value := values[key].(type) {
+	case string:
+		return value
+	default:
+		return ""
+	}
 }
 
 func normalizeAgentFactArchiveIndex(fact domain.AgentFactArchiveIndex) domain.AgentFactArchiveIndex {
@@ -903,6 +1038,19 @@ func normalizeAgentFactArchiveIndex(fact domain.AgentFactArchiveIndex) domain.Ag
 	}
 	fact.Confidence = clampConfidence(fact.Confidence)
 	return fact
+}
+
+func allowedAgentMemoryRiskLevels(maxRisk domain.AgentMemoryRiskLevel) []string {
+	switch maxRisk {
+	case domain.AgentMemoryRiskLow:
+		return []string{string(domain.AgentMemoryRiskLow)}
+	case domain.AgentMemoryRiskMedium:
+		return []string{string(domain.AgentMemoryRiskLow), string(domain.AgentMemoryRiskMedium)}
+	case domain.AgentMemoryRiskHigh:
+		return []string{string(domain.AgentMemoryRiskLow), string(domain.AgentMemoryRiskMedium), string(domain.AgentMemoryRiskHigh)}
+	default:
+		return []string{string(domain.AgentMemoryRiskLow)}
+	}
 }
 
 func normalizeAgentMemoryCandidate(candidate domain.AgentMemoryCandidate) domain.AgentMemoryCandidate {

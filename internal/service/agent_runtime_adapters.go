@@ -63,8 +63,9 @@ func (p agentUserContextBlockProvider) BuildUserContextBlock(ctx context.Context
 }
 
 type agentConversationMemoryProvider struct {
-	repository AgentConversationRepository
-	now        func() time.Time
+	repository    AgentConversationRepository
+	factRetriever *agentFactRetriever
+	now           func() time.Time
 }
 
 func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Context, input agent.ContextBuildInput) (agent.ConversationMemory, error) {
@@ -231,41 +232,41 @@ func (p agentConversationMemoryProvider) factRecallBlocks(ctx context.Context, i
 	if query == "" {
 		query = strings.TrimSpace(input.MessageText)
 	}
-	facts, err := p.repository.QueryAgentFactArchiveIndex(ctx, domain.AgentFactArchiveQueryOptions{
-		UserID:    input.UserID,
-		SessionID: input.SessionID,
-		TurnID:    input.TurnID,
-		Query:     query,
-		Limit:     8,
+	retriever := p.factRetriever
+	if retriever == nil {
+		retriever = newAgentFactRetriever(p.repository, nil, "", p.now)
+	}
+	result, err := retriever.Recall(ctx, domain.AgentFactRecallPlan{
+		Mode:            domain.AgentFactRecallModeHybrid,
+		Query:           query,
+		UserID:          input.UserID,
+		SessionID:       input.SessionID,
+		TurnID:          input.TurnID,
+		Limit:           8,
+		NeedsSourceFact: true,
+		MaxRiskLevel:    domain.AgentMemoryRiskMedium,
 	})
-	if err != nil || len(facts) == 0 {
+	if err != nil || len(result.Projections) == 0 {
 		return nil
 	}
-	sources, err := p.repository.ResolveAgentFactSources(ctx, input.UserID, facts)
-	if err != nil || len(sources) == 0 {
-		return nil
-	}
-	output := make([]agent.ContextBlock, 0, len(sources))
-	refs := make([]string, 0, len(sources))
-	for _, source := range sources {
-		content := strings.TrimSpace(source.Content)
-		if content == "" {
-			content = strings.TrimSpace(source.Summary)
-		}
+	output := make([]agent.ContextBlock, 0, len(result.Projections))
+	refs := make([]string, 0, len(result.Projections))
+	for _, projection := range result.Projections {
+		content := strings.TrimSpace(formatFactProjectionForContext(projection))
 		if content == "" {
 			continue
 		}
-		ref := agent.NormalizeCanonicalRef(source.CanonicalRef)
+		ref := agent.NormalizeCanonicalRef(projection.CanonicalRef)
 		refs = append(refs, ref)
 		output = append(output, agent.ContextBlock{
 			Name:            "长期事实召回",
 			CapabilityKey:   "memory.fact_recall",
 			Content:         content,
 			ItemCount:       1,
-			GeneratedAt:     source.CreatedAt,
+			GeneratedAt:     projection.SourceFact.CreatedAt,
 			TrustLevel:      "source_fact",
 			Source:          "fact_recall",
-			EvidenceRefs:    agent.NormalizeCanonicalRefs(append([]string{ref}, source.SourceRefs...)),
+			EvidenceRefs:    agent.NormalizeCanonicalRefs(append([]string{ref}, projection.SourceFact.SourceRefs...)),
 			CanonicalRef:    ref,
 			RetentionReason: "history_query_plan",
 		})
@@ -284,6 +285,8 @@ func (p agentConversationMemoryProvider) factRecallBlocks(ctx context.Context, i
 			},
 			RecalledRefs: domain.AgentJSON{
 				"canonical_refs": refs,
+				"hit_count":      len(result.Hits),
+				"sources":        recallHitSources(result.Hits),
 			},
 			Reason:      "main_agent_history_query_plan",
 			BudgetChars: agentContextBlocksContentLength(output),

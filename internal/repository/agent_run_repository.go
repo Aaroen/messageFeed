@@ -133,7 +133,9 @@ func (r *AgentRepository) CreateAgentRunContextTrace(ctx context.Context, trace 
 		opErr = mapRepositoryError(err)
 		return domain.AgentRunContextTrace{}, opErr
 	}
-	return agentRunContextTraceModelToDomain(model), nil
+	persisted := agentRunContextTraceModelToDomain(model)
+	r.indexRunContextTraceFact(ctx, persisted)
+	return persisted, nil
 }
 
 func (r *AgentRepository) CreateAgentObservation(ctx context.Context, observation domain.AgentObservation) (domain.AgentObservation, error) {
