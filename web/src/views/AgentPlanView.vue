@@ -362,6 +362,78 @@ const orderedRuns = computed(() => {
 
 const controllerRun = computed(() => orderedRuns.value.find((run) => run.role === 'controller') || null)
 const executorRuns = computed(() => orderedRuns.value.filter((run) => run.role === 'executor'))
+const controllerContextBundleTrace = computed(() => {
+  const traces = controllerRun.value?.context_traces || []
+  const tracePriority: Record<string, number> = {
+    controller_output: 1,
+    controller_error: 2,
+    main_agent_context_projection: 3,
+  }
+  return (
+    [...traces]
+      .filter((trace) => isRecord(trace.content?.context_bundle))
+      .sort((left, right) => {
+        const leftPriority = tracePriority[left.trace_kind] || 9
+        const rightPriority = tracePriority[right.trace_kind] || 9
+        if (leftPriority !== rightPriority) {
+          return leftPriority - rightPriority
+        }
+        return right.id - left.id
+      })[0] || null
+  )
+})
+const controllerContextBundle = computed(() => {
+  const bundle = controllerContextBundleTrace.value?.content?.context_bundle
+  return isRecord(bundle) ? bundle : null
+})
+const contextBundleBudgetReport = computed(() => {
+  const value = controllerContextBundle.value?.budget_report
+  return isRecord(value) ? value : null
+})
+const contextBundleActivePlan = computed(() => {
+  const value = controllerContextBundle.value?.active_plan
+  return isRecord(value) ? value : null
+})
+const contextBundleCurrentMessage = computed(() => {
+  const value = controllerContextBundle.value?.current_message
+  return isRecord(value) ? value : null
+})
+const contextBundleSystemBlocks = computed(() => metadataRecordList(controllerContextBundle.value?.system_blocks))
+const contextBundleUserConstraints = computed(() => metadataRecordList(controllerContextBundle.value?.user_constraints))
+const contextBundleMemoryBlocks = computed(() => metadataRecordList(controllerContextBundle.value?.memory_blocks))
+const contextBundleHistoryBlocks = computed(() =>
+  contextBundleMemoryBlocks.value.filter((block) => {
+    const key = detailText(block, 'capability_key')
+    const source = detailText(block, 'source')
+    return key === 'conversation.query_history' || source === 'history_query_plan'
+  }),
+)
+const contextBundleRecentMessages = computed(() => metadataRecordList(controllerContextBundle.value?.recent_messages))
+const contextBundleSemanticUnits = computed(() => metadataRecordList(controllerContextBundle.value?.semantic_units))
+const contextBundleTrimmedUnits = computed(() =>
+  contextBundleSemanticUnits.value.filter((unit) => detailBoolean(unit, 'projected') || Boolean(detailText(unit, 'omitted_reason'))),
+)
+const contextBundleKeyObservations = computed(() => metadataRecordList(controllerContextBundle.value?.key_observations))
+const contextBundleKeyArtifacts = computed(() => metadataRecordList(controllerContextBundle.value?.key_artifacts))
+const contextBundleSummary = computed(() => {
+  if (!controllerContextBundle.value) {
+    return ''
+  }
+  const profile = detailText(controllerContextBundle.value, 'budget_profile') || detailText(contextBundleBudgetReport.value, 'profile')
+  const used = detailNumber(contextBundleBudgetReport.value, 'used_tokens')
+  const recent = detailNumber(contextBundleBudgetReport.value, 'recent_messages_tokens')
+  const selected = detailNumber(contextBundleBudgetReport.value, 'selected_unit_count')
+  const skipped = detailNumber(contextBundleBudgetReport.value, 'skipped_unit_count')
+  const protectedCount = detailNumber(contextBundleBudgetReport.value, 'protected_unit_count')
+  const parts = [
+    profile ? `profile ${profile}` : '',
+    recent ? `近期预算 ${recent}` : '',
+    used ? `已用 ${used}` : '',
+    selected || skipped ? `语义单元 ${selected}/${selected + skipped}` : '',
+    protectedCount ? `保护 ${protectedCount}` : '',
+  ].filter(Boolean)
+  return parts.join(' / ')
+})
 const scheduledTasks = computed(() => progress.value?.scheduled_tasks || [])
 const progressPhases = computed(() => progress.value?.phases || [])
 const recentEvents = computed(() => progress.value?.recent_events || [])
@@ -1579,6 +1651,38 @@ function asText(value: unknown) {
 
 function asNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function detailText(record: Record<string, unknown> | null | undefined, key: string) {
+  if (!record) {
+    return ''
+  }
+  return asText(record[key])
+}
+
+function detailNumber(record: Record<string, unknown> | null | undefined, key: string) {
+  if (!record) {
+    return 0
+  }
+  return asNumber(record[key])
+}
+
+function detailBoolean(record: Record<string, unknown> | null | undefined, key: string) {
+  if (!record) {
+    return false
+  }
+  return record[key] === true
+}
+
+function detailStringList(record: Record<string, unknown> | null | undefined, key: string) {
+  if (!record) {
+    return []
+  }
+  return metadataStringList(record[key])
+}
+
+function contextBundleRecordKey(record: Record<string, unknown>, index: number, prefix: string) {
+  return detailText(record, 'id') || detailText(record, 'unit_id') || detailText(record, 'canonical_ref') || `${prefix}-${index}`
 }
 
 function metadataStringList(value: unknown) {
@@ -3573,6 +3677,112 @@ onBeforeUnmount(() => {
                 <div v-if="controllerRun && hasDetailValue(controllerRun.context_budget)" class="agent-subagent-card__section">
                   <strong>上下文预算</strong>
                   <pre class="agent-json-block">{{ formatDetailJSON(controllerRun.context_budget) }}</pre>
+                </div>
+                <div v-if="controllerContextBundle" class="agent-subagent-card__section">
+                  <strong>ContextBundle 投影视图</strong>
+                  <dl class="agent-pipeline-facts">
+                    <div>
+                      <dt>预算 profile</dt>
+                      <dd>{{ detailText(controllerContextBundle, 'budget_profile') || '无' }}</dd>
+                    </div>
+                    <div>
+                      <dt>预算概要</dt>
+                      <dd>{{ contextBundleSummary || '无' }}</dd>
+                    </div>
+                    <div v-if="controllerContextBundleTrace">
+                      <dt>trace</dt>
+                      <dd>{{ controllerContextBundleTrace.trace_kind }} #{{ controllerContextBundleTrace.id }}</dd>
+                    </div>
+                    <div>
+                      <dt>短期窗口</dt>
+                      <dd>{{ contextBundleRecentMessages.length }} 条消息 / {{ contextBundleSemanticUnits.length }} 个语义单元</dd>
+                    </div>
+                    <div>
+                      <dt>证据投影</dt>
+                      <dd>{{ contextBundleKeyObservations.length }} 条 observation / {{ contextBundleKeyArtifacts.length }} 个 artifact</dd>
+                    </div>
+                  </dl>
+
+                  <div v-if="contextBundleCurrentMessage || contextBundleActivePlan || contextBundleSystemBlocks.length || contextBundleUserConstraints.length" class="agent-subagent-card__section">
+                    <strong>短期保护区</strong>
+                    <div v-if="contextBundleCurrentMessage" class="agent-subagent-record">
+                      <span>当前用户消息</span>
+                      <span>{{ detailText(contextBundleCurrentMessage, 'role') || 'user' }}</span>
+                      <p>{{ detailText(contextBundleCurrentMessage, 'content') || '无' }}</p>
+                    </div>
+                    <div v-if="contextBundleActivePlan" class="agent-subagent-record">
+                      <span>{{ detailText(contextBundleActivePlan, 'name') || '当前活动计划' }}</span>
+                      <span>{{ detailText(contextBundleActivePlan, 'canonical_ref') || detailText(contextBundleActivePlan, 'source') || '无引用' }}</span>
+                      <p>{{ detailText(contextBundleActivePlan, 'content') || '无' }}</p>
+                      <p v-if="detailStringList(contextBundleActivePlan, 'evidence_refs').length">证据：{{ joined(detailStringList(contextBundleActivePlan, 'evidence_refs')) }}</p>
+                    </div>
+                    <div v-for="(block, index) in contextBundleSystemBlocks" :key="contextBundleRecordKey(block, index, 'system')" class="agent-subagent-record">
+                      <span>{{ detailText(block, 'name') || '系统边界' }}</span>
+                      <span>{{ detailText(block, 'retention_reason') || detailText(block, 'source') || 'system' }}</span>
+                      <p>{{ detailText(block, 'content') || '无' }}</p>
+                    </div>
+                    <div v-for="(block, index) in contextBundleUserConstraints" :key="contextBundleRecordKey(block, index, 'constraint')" class="agent-subagent-record">
+                      <span>{{ detailText(block, 'name') || '用户约束' }}</span>
+                      <span>{{ detailText(block, 'trust_level') || detailText(block, 'source') || 'user_profile' }}</span>
+                      <p>{{ detailText(block, 'content') || '无' }}</p>
+                    </div>
+                  </div>
+
+                  <div v-if="contextBundleRecentMessages.length" class="agent-subagent-card__section">
+                    <strong>近期对话窗口</strong>
+                    <div v-for="(message, index) in contextBundleRecentMessages" :key="contextBundleRecordKey(message, index, 'message')" class="agent-subagent-record">
+                      <span>{{ detailText(message, 'role') || 'message' }} / turn {{ detailNumber(message, 'turn_id') || '无' }}</span>
+                      <span>{{ detailText(message, 'created_at') || '无时间' }}</span>
+                      <p>{{ detailText(message, 'content') || '无' }}</p>
+                    </div>
+                  </div>
+
+                  <div v-if="contextBundleHistoryBlocks.length" class="agent-subagent-card__section">
+                    <strong>历史召回</strong>
+                    <div v-for="(block, index) in contextBundleHistoryBlocks" :key="contextBundleRecordKey(block, index, 'history')" class="agent-subagent-record">
+                      <span>{{ detailText(block, 'name') || '历史查询结果' }}</span>
+                      <span>{{ detailText(block, 'retention_reason') || detailText(block, 'source') || 'history_query_plan' }}</span>
+                      <p>{{ detailText(block, 'content') || '无' }}</p>
+                      <p v-if="detailStringList(block, 'evidence_refs').length">证据：{{ joined(detailStringList(block, 'evidence_refs')) }}</p>
+                    </div>
+                  </div>
+
+                  <div v-if="contextBundleSemanticUnits.length" class="agent-subagent-card__section">
+                    <strong>语义单元与裁剪记录</strong>
+                    <div v-for="(unit, index) in contextBundleSemanticUnits" :key="contextBundleRecordKey(unit, index, 'unit')" class="agent-subagent-record">
+                      <span>{{ detailText(unit, 'type') || 'unit' }} / token {{ detailNumber(unit, 'token_estimate') }}</span>
+                      <span>
+                        {{ detailBoolean(unit, 'selected') ? '保留' : '未纳入' }}
+                        {{ detailBoolean(unit, 'protected') ? ' / 保护' : '' }}
+                        {{ detailBoolean(unit, 'projected') ? ' / 投影' : '' }}
+                      </span>
+                      <p>{{ detailText(unit, 'id') || '无 ID' }}</p>
+                      <p v-if="detailText(unit, 'retention_reason')">保留原因：{{ detailText(unit, 'retention_reason') }}</p>
+                      <p v-if="detailText(unit, 'omitted_reason')">裁剪原因：{{ detailText(unit, 'omitted_reason') }}</p>
+                      <p v-if="detailText(unit, 'canonical_ref')">引用：{{ detailText(unit, 'canonical_ref') }}</p>
+                    </div>
+                    <p v-if="contextBundleTrimmedUnits.length">已记录裁剪或投影语义单元 {{ contextBundleTrimmedUnits.length }} 个。</p>
+                  </div>
+
+                  <div v-if="contextBundleKeyObservations.length" class="agent-subagent-card__section">
+                    <strong>关键 observation</strong>
+                    <div v-for="(observation, index) in contextBundleKeyObservations" :key="contextBundleRecordKey(observation, index, 'observation')" class="agent-subagent-record">
+                      <span>{{ detailText(observation, 'capability') || 'observation' }} / {{ detailText(observation, 'status') || 'unknown' }}</span>
+                      <span>{{ detailText(observation, 'observation_ref') || '无引用' }}</span>
+                      <p>{{ detailText(observation, 'summary') || '无摘要' }}</p>
+                      <p v-if="detailStringList(observation, 'artifact_refs').length">证据：{{ joined(detailStringList(observation, 'artifact_refs')) }}</p>
+                    </div>
+                  </div>
+
+                  <div v-if="contextBundleKeyArtifacts.length" class="agent-subagent-card__section">
+                    <strong>关键 artifact</strong>
+                    <div v-for="(artifact, index) in contextBundleKeyArtifacts" :key="contextBundleRecordKey(artifact, index, 'artifact')" class="agent-subagent-record">
+                      <span>{{ detailText(artifact, 'name') || 'artifact' }}</span>
+                      <span>{{ detailText(artifact, 'canonical_ref') || detailText(artifact, 'source') || '无引用' }}</span>
+                      <p>{{ detailText(artifact, 'content') || '无' }}</p>
+                      <p v-if="detailStringList(artifact, 'evidence_refs').length">证据：{{ joined(detailStringList(artifact, 'evidence_refs')) }}</p>
+                    </div>
+                  </div>
                 </div>
                 <div v-if="controllerRun?.context_traces?.length" class="agent-subagent-card__section">
                   <strong>上下文快照</strong>
