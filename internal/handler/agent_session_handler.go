@@ -32,6 +32,10 @@ type agentSessionService interface {
 	GetProgress(ctx context.Context, auth service.CurrentAuth, query service.AgentProgressQuery) (service.AgentProgressResult, error)
 	RequestCallbackReplayApproval(ctx context.Context, auth service.CurrentAuth, input service.AgentCallbackReplayInput) (service.AgentCallbackReplayAPIResult, error)
 	ExecuteCallbackReplay(ctx context.Context, auth service.CurrentAuth, input service.AgentCallbackReplayInput) (service.AgentCallbackReplayAPIResult, error)
+	ListMemoryCandidates(ctx context.Context, auth service.CurrentAuth, status string, limit int) (service.AgentMemoryCandidateListResult, error)
+	ApplyMemoryCandidate(ctx context.Context, auth service.CurrentAuth, candidateID int64) (service.AgentMemoryCandidateDecisionResult, error)
+	RejectMemoryCandidate(ctx context.Context, auth service.CurrentAuth, candidateID int64, input service.AgentMemoryCandidateDecisionInput) (service.AgentMemoryCandidateDecisionResult, error)
+	RevokeMemoryCandidate(ctx context.Context, auth service.CurrentAuth, candidateID int64, input service.AgentMemoryCandidateDecisionInput) (service.AgentMemoryCandidateDecisionResult, error)
 }
 
 type authPasswordVerifier interface {
@@ -60,6 +64,10 @@ type agentCallbackReplayRequest struct {
 	Approved    bool   `json:"approved"`
 }
 
+type agentMemoryCandidateDecisionRequest struct {
+	Reason string `json:"reason"`
+}
+
 func registerAgentSessionRoutes(router *gin.RouterGroup, sessionService agentSessionService, authVerifier authPasswordVerifier) {
 	handler := agentSessionHandler{service: sessionService, authVerifier: authVerifier}
 	agent := router.Group("/agent")
@@ -74,6 +82,10 @@ func registerAgentSessionRoutes(router *gin.RouterGroup, sessionService agentSes
 	agent.GET("/plans/:plan_id", handler.planDetail)
 	agent.GET("/progress", handler.progress)
 	agent.GET("/progress/stream", handler.progressStream)
+	agent.GET("/memory-candidates", handler.memoryCandidates)
+	agent.POST("/memory-candidates/:candidate_id/apply", handler.applyMemoryCandidate)
+	agent.POST("/memory-candidates/:candidate_id/reject", handler.rejectMemoryCandidate)
+	agent.POST("/memory-candidates/:candidate_id/revoke", handler.revokeMemoryCandidate)
 	agent.POST("/callback-replay/requests", handler.requestCallbackReplay)
 	agent.POST("/callback-replay/execute", handler.executeCallbackReplay)
 	agent.POST("/sessions/:id/select", handler.selectSession)
@@ -427,6 +439,71 @@ func (h agentSessionHandler) transcripts(c *gin.Context) {
 	Success(c, result)
 }
 
+func (h agentSessionHandler) memoryCandidates(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	result, err := h.service.ListMemoryCandidates(c.Request.Context(), currentAuth(c), c.Query("status"), limit)
+	if err != nil {
+		RenderError(c, err, "load memory candidates failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) applyMemoryCandidate(c *gin.Context) {
+	candidateID, ok := parseAgentMemoryCandidateID(c)
+	if !ok {
+		return
+	}
+	result, err := h.service.ApplyMemoryCandidate(c.Request.Context(), currentAuth(c), candidateID)
+	if err != nil {
+		RenderError(c, err, "apply memory candidate failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) rejectMemoryCandidate(c *gin.Context) {
+	h.decideMemoryCandidate(c, "reject")
+}
+
+func (h agentSessionHandler) revokeMemoryCandidate(c *gin.Context) {
+	h.decideMemoryCandidate(c, "revoke")
+}
+
+func (h agentSessionHandler) decideMemoryCandidate(c *gin.Context, decision string) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	candidateID, ok := parseAgentMemoryCandidateID(c)
+	if !ok {
+		return
+	}
+	var request agentMemoryCandidateDecisionRequest
+	if c.Request.Body != nil {
+		_ = c.ShouldBindJSON(&request)
+	}
+	input := service.AgentMemoryCandidateDecisionInput{Reason: request.Reason}
+	var (
+		result service.AgentMemoryCandidateDecisionResult
+		err    error
+	)
+	if decision == "revoke" {
+		result, err = h.service.RevokeMemoryCandidate(c.Request.Context(), currentAuth(c), candidateID, input)
+	} else {
+		result, err = h.service.RejectMemoryCandidate(c.Request.Context(), currentAuth(c), candidateID, input)
+	}
+	if err != nil {
+		RenderError(c, err, "update memory candidate failed")
+		return
+	}
+	Success(c, result)
+}
+
 func parseInt64Query(c *gin.Context, key string) int64 {
 	value := c.Query(key)
 	if value == "" {
@@ -487,4 +564,13 @@ func parseAgentSessionID(c *gin.Context) (int64, bool) {
 		return 0, false
 	}
 	return sessionID, true
+}
+
+func parseAgentMemoryCandidateID(c *gin.Context) (int64, bool) {
+	candidateID, err := strconv.ParseInt(c.Param("candidate_id"), 10, 64)
+	if err != nil || candidateID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid memory candidate id")
+		return 0, false
+	}
+	return candidateID, true
 }

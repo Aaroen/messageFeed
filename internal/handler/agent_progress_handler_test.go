@@ -271,3 +271,19 @@ func (f *fakeAgentProgressService) ExecuteCallbackReplay(_ context.Context, _ se
 	f.callbackReplayInput = input
 	return f.callbackReplayResult, nil
 }
+
+func (f *fakeAgentProgressService) ListMemoryCandidates(context.Context, service.CurrentAuth, string, int) (service.AgentMemoryCandidateListResult, error) {
+	return service.AgentMemoryCandidateListResult{}, nil
+}
+
+func (f *fakeAgentProgressService) ApplyMemoryCandidate(context.Context, service.CurrentAuth, int64) (service.AgentMemoryCandidateDecisionResult, error) {
+	return service.AgentMemoryCandidateDecisionResult{}, nil
+}
+
+func (f *fakeAgentProgressService) RejectMemoryCandidate(context.Context, service.CurrentAuth, int64, service.AgentMemoryCandidateDecisionInput) (service.AgentMemoryCandidateDecisionResult, error) {
+	return service.AgentMemoryCandidateDecisionResult{}, nil
+}
+
+func (f *fakeAgentProgressService) RevokeMemoryCandidate(context.Context, service.CurrentAuth, int64, service.AgentMemoryCandidateDecisionInput) (service.AgentMemoryCandidateDecisionResult, error) {
+	return service.AgentMemoryCandidateDecisionResult{}, nil
+}

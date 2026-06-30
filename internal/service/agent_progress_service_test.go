@@ -967,3 +967,15 @@ func (r *fakeAgentProgressRepository) ListAuditLogsByRefs(_ context.Context, opt
 	}
 	return logs, nil
 }
+
+func (r *fakeAgentProgressRepository) ListAgentMemoryCandidates(context.Context, int64, domain.AgentMemoryCandidateStatus, int) ([]domain.AgentMemoryCandidate, error) {
+	return nil, nil
+}
+
+func (r *fakeAgentProgressRepository) UpdateAgentMemoryCandidateStatus(context.Context, int64, int64, domain.AgentMemoryCandidateStatus, string, time.Time) (domain.AgentMemoryCandidate, error) {
+	return domain.AgentMemoryCandidate{}, nil
+}
+
+func (r *fakeAgentProgressRepository) ApplyAgentMemoryCandidate(context.Context, int64, int64, time.Time) (domain.AgentMemoryBlock, error) {
+	return domain.AgentMemoryBlock{}, nil
+}

@@ -33,11 +33,61 @@ type AgentSessionRepository interface {
 	CreateAuditLog(ctx context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error)
 	ListAgentScheduledTasksByRefs(ctx context.Context, userID int64, planID int64, turnID int64, runID int64, limit int) ([]domain.AgentScheduledTask, error)
 	ListAuditLogsByRefs(ctx context.Context, options domain.AgentAuditLogListOptions) ([]domain.AgentAuditLog, error)
+	ListAgentMemoryCandidates(ctx context.Context, userID int64, status domain.AgentMemoryCandidateStatus, limit int) ([]domain.AgentMemoryCandidate, error)
+	UpdateAgentMemoryCandidateStatus(ctx context.Context, userID int64, candidateID int64, status domain.AgentMemoryCandidateStatus, reason string, now time.Time) (domain.AgentMemoryCandidate, error)
+	ApplyAgentMemoryCandidate(ctx context.Context, userID int64, candidateID int64, now time.Time) (domain.AgentMemoryBlock, error)
 }
 
 type AgentSessionService struct {
 	repository AgentSessionRepository
 	now        func() time.Time
+}
+
+type AgentMemoryCandidateResponse struct {
+	ID            int64    `json:"id"`
+	SessionID     int64    `json:"session_id,omitempty"`
+	TurnID        int64    `json:"turn_id,omitempty"`
+	MemoryKind    string   `json:"memory_kind"`
+	CandidateText string   `json:"candidate_text"`
+	Summary       string   `json:"summary"`
+	EvidenceRefs  []string `json:"evidence_refs"`
+	SourceRefs    []string `json:"source_refs"`
+	Confidence    float64  `json:"confidence"`
+	Importance    int      `json:"importance"`
+	RiskLevel     string   `json:"risk_level"`
+	Status        string   `json:"status"`
+	ProposedBy    string   `json:"proposed_by"`
+	MemoryBlockID int64    `json:"memory_block_id,omitempty"`
+	CreatedAt     string   `json:"created_at"`
+	UpdatedAt     string   `json:"updated_at"`
+}
+
+type AgentMemoryCandidateListResult struct {
+	Candidates []AgentMemoryCandidateResponse `json:"candidates"`
+}
+
+type AgentMemoryCandidateDecisionInput struct {
+	Reason string
+}
+
+type AgentMemoryCandidateDecisionResult struct {
+	Candidate *AgentMemoryCandidateResponse `json:"candidate,omitempty"`
+	Memory    *AgentMemoryBlockResponse     `json:"memory,omitempty"`
+}
+
+type AgentMemoryBlockResponse struct {
+	ID           int64    `json:"id"`
+	MemoryKind   string   `json:"memory_kind"`
+	Title        string   `json:"title"`
+	Content      string   `json:"content"`
+	Summary      string   `json:"summary"`
+	EvidenceRefs []string `json:"evidence_refs"`
+	Confidence   float64  `json:"confidence"`
+	Importance   int      `json:"importance"`
+	Status       string   `json:"status"`
+	Version      int      `json:"version"`
+	CreatedAt    string   `json:"created_at"`
+	UpdatedAt    string   `json:"updated_at"`
 }
 
 type AgentSessionServiceOption func(*AgentSessionService)
@@ -1845,6 +1895,65 @@ func (s *AgentSessionService) ClearContext(ctx context.Context, auth CurrentAuth
 		return AgentSessionStats{}, err
 	}
 	return agentSessionStats(stats), nil
+}
+
+func (s *AgentSessionService) ListMemoryCandidates(ctx context.Context, auth CurrentAuth, status string, limit int) (AgentMemoryCandidateListResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentMemoryCandidateListResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_memory_unavailable", "agent memory service is unavailable", "service.agent_session.memory_candidates", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return AgentMemoryCandidateListResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	candidates, err := s.repository.ListAgentMemoryCandidates(ctx, auth.User.ID, domain.AgentMemoryCandidateStatus(strings.TrimSpace(status)), limit)
+	if err != nil {
+		return AgentMemoryCandidateListResult{}, err
+	}
+	result := AgentMemoryCandidateListResult{Candidates: make([]AgentMemoryCandidateResponse, 0, len(candidates))}
+	for _, candidate := range candidates {
+		result.Candidates = append(result.Candidates, agentMemoryCandidateResponse(candidate))
+	}
+	return result, nil
+}
+
+func (s *AgentSessionService) ApplyMemoryCandidate(ctx context.Context, auth CurrentAuth, candidateID int64) (AgentMemoryCandidateDecisionResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentMemoryCandidateDecisionResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_memory_unavailable", "agent memory service is unavailable", "service.agent_session.memory_apply", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 || candidateID < 1 {
+		return AgentMemoryCandidateDecisionResult{}, fmt.Errorf("%w: authenticated user and candidate id are required", domain.ErrInvalidInput)
+	}
+	block, err := s.repository.ApplyAgentMemoryCandidate(ctx, auth.User.ID, candidateID, s.now().UTC())
+	if err != nil {
+		return AgentMemoryCandidateDecisionResult{}, err
+	}
+	response := agentMemoryBlockResponse(block)
+	return AgentMemoryCandidateDecisionResult{Memory: &response}, nil
+}
+
+func (s *AgentSessionService) RejectMemoryCandidate(ctx context.Context, auth CurrentAuth, candidateID int64, input AgentMemoryCandidateDecisionInput) (AgentMemoryCandidateDecisionResult, error) {
+	return s.updateMemoryCandidateStatus(ctx, auth, candidateID, domain.AgentMemoryCandidateRejected, input.Reason)
+}
+
+func (s *AgentSessionService) RevokeMemoryCandidate(ctx context.Context, auth CurrentAuth, candidateID int64, input AgentMemoryCandidateDecisionInput) (AgentMemoryCandidateDecisionResult, error) {
+	return s.updateMemoryCandidateStatus(ctx, auth, candidateID, domain.AgentMemoryCandidateRevoked, input.Reason)
+}
+
+func (s *AgentSessionService) updateMemoryCandidateStatus(ctx context.Context, auth CurrentAuth, candidateID int64, status domain.AgentMemoryCandidateStatus, reason string) (AgentMemoryCandidateDecisionResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentMemoryCandidateDecisionResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_memory_unavailable", "agent memory service is unavailable", "service.agent_session.memory_status", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 || candidateID < 1 {
+		return AgentMemoryCandidateDecisionResult{}, fmt.Errorf("%w: authenticated user and candidate id are required", domain.ErrInvalidInput)
+	}
+	candidate, err := s.repository.UpdateAgentMemoryCandidateStatus(ctx, auth.User.ID, candidateID, status, reason, s.now().UTC())
+	if err != nil {
+		return AgentMemoryCandidateDecisionResult{}, err
+	}
+	response := agentMemoryCandidateResponse(candidate)
+	return AgentMemoryCandidateDecisionResult{Candidate: &response}, nil
 }
 
 func (s *AgentSessionService) DeleteSession(ctx context.Context, auth CurrentAuth, sessionID int64) error {
@@ -4443,4 +4552,42 @@ func formatOptionalTime(value *time.Time) string {
 		return ""
 	}
 	return value.UTC().Format(time.RFC3339)
+}
+
+func agentMemoryCandidateResponse(candidate domain.AgentMemoryCandidate) AgentMemoryCandidateResponse {
+	return AgentMemoryCandidateResponse{
+		ID:            candidate.ID,
+		SessionID:     candidate.SessionID,
+		TurnID:        candidate.TurnID,
+		MemoryKind:    string(candidate.MemoryKind),
+		CandidateText: candidate.CandidateText,
+		Summary:       candidate.Summary,
+		EvidenceRefs:  append([]string(nil), candidate.EvidenceRefs...),
+		SourceRefs:    append([]string(nil), candidate.SourceRefs...),
+		Confidence:    candidate.Confidence,
+		Importance:    candidate.Importance,
+		RiskLevel:     string(candidate.RiskLevel),
+		Status:        string(candidate.Status),
+		ProposedBy:    candidate.ProposedBy,
+		MemoryBlockID: candidate.MemoryBlockID,
+		CreatedAt:     candidate.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:     candidate.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
+func agentMemoryBlockResponse(block domain.AgentMemoryBlock) AgentMemoryBlockResponse {
+	return AgentMemoryBlockResponse{
+		ID:           block.ID,
+		MemoryKind:   string(block.MemoryKind),
+		Title:        block.Title,
+		Content:      block.Content,
+		Summary:      block.Summary,
+		EvidenceRefs: append([]string(nil), block.EvidenceRefs...),
+		Confidence:   block.Confidence,
+		Importance:   block.Importance,
+		Status:       string(block.Status),
+		Version:      block.Version,
+		CreatedAt:    block.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:    block.UpdatedAt.UTC().Format(time.RFC3339),
+	}
 }
