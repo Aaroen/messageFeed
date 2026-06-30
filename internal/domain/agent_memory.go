@@ -110,6 +110,21 @@ type AgentFactArchiveQueryOptions struct {
 	MinImportance int
 }
 
+type AgentFactSource struct {
+	CanonicalRef string
+	FactType     AgentFactType
+	FactID       int64
+	UserID       int64
+	SessionID    int64
+	TurnID       int64
+	Title        string
+	Content      string
+	Summary      string
+	SourceRefs   []string
+	Metadata     AgentJSON
+	CreatedAt    time.Time
+}
+
 type AgentMemoryCandidateStatus string
 
 const (

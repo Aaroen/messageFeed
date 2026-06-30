@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"messagefeed/internal/domain"
 	"strings"
 	"time"
@@ -211,6 +212,29 @@ func (r *AgentRepository) QueryAgentFactArchiveIndex(ctx context.Context, option
 	}
 	r.touchAgentFactArchiveIndexes(ctx, ids)
 	return facts, nil
+}
+
+func (r *AgentRepository) ResolveAgentFactSources(ctx context.Context, userID int64, facts []domain.AgentFactArchiveIndex) ([]domain.AgentFactSource, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_memory.fact.resolve", "select", "agent_fact_sources")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	sources := make([]domain.AgentFactSource, 0, len(facts))
+	for _, fact := range facts {
+		if fact.UserID != userID || fact.FactID == 0 {
+			continue
+		}
+		source, err := r.resolveAgentFactSource(ctx, userID, fact)
+		if err != nil {
+			if err == domain.ErrNotFound {
+				continue
+			}
+			opErr = err
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, nil
 }
 
 func (r *AgentRepository) CreateAgentMemoryCandidate(ctx context.Context, candidate domain.AgentMemoryCandidate) (domain.AgentMemoryCandidate, error) {
@@ -486,6 +510,362 @@ func (r *AgentRepository) touchAgentMemoryBlocks(ctx context.Context, userID int
 			"use_count":    gorm.Expr("use_count + ?", 1),
 			"updated_at":   now,
 		}).Error
+}
+
+type agentFactRunScope struct {
+	UserID    int64
+	SessionID int64
+	TurnID    int64
+}
+
+func (r *AgentRepository) indexTranscriptFact(ctx context.Context, entry domain.AgentTranscriptEntry) {
+	if r == nil || r.db == nil || entry.ID == 0 || entry.UserID == 0 {
+		return
+	}
+	classification := classifyTranscriptMemory(entry.Content)
+	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
+		CanonicalRef:    fmt.Sprintf("transcript:%d", entry.ID),
+		FactType:        domain.AgentFactTypeTranscript,
+		FactID:          entry.ID,
+		UserID:          entry.UserID,
+		SessionID:       entry.SessionID,
+		TurnID:          entry.TurnID,
+		MemoryKind:      classification.Kind,
+		Topics:          []string{string(entry.Role), string(classification.Kind)},
+		Keywords:        transcriptIndexKeywords(entry.Content),
+		Entities:        transcriptIndexKeywords(entry.Content),
+		SummaryForIndex: safeTextPrefix(entry.Content, 320),
+		ContextualText:  entry.Content,
+		Importance:      transcriptImportanceForKind(classification.Kind),
+		Confidence:      confidenceForClassification(classification),
+		SourceRefs:      []string{fmt.Sprintf("transcript:%d", entry.ID), fmt.Sprintf("turn:%d", entry.TurnID), fmt.Sprintf("session:%d", entry.SessionID)},
+		RelationRefs:    []string{fmt.Sprintf("turn:%d", entry.TurnID), fmt.Sprintf("session:%d", entry.SessionID)},
+		IndexStatus:     domain.AgentFactIndexStatusReady,
+		RiskLevel:       inferMemoryRisk(entry.Content, classification.Kind),
+		Metadata: domain.AgentJSON{
+			"role":                    string(entry.Role),
+			"classification_strategy": "rule_fallback",
+			"memory_kind_reason":      classification.Reason,
+		},
+		CreatedAt: entry.CreatedAt,
+		UpdatedAt: time.Now().UTC(),
+	})
+}
+
+func (r *AgentRepository) indexObservationFact(ctx context.Context, observation domain.AgentObservation) {
+	scope, err := r.agentRunScope(ctx, observation.RunID)
+	if err != nil || scope.UserID == 0 {
+		return
+	}
+	content := strings.TrimSpace(strings.Join([]string{observation.InputSummary, observation.OutputSummary, observation.Error}, "\n"))
+	if content == "" {
+		content = observation.Status
+	}
+	classification := classifyTranscriptMemory(content)
+	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
+		CanonicalRef:    fmt.Sprintf("observation:%d", observation.ID),
+		FactType:        domain.AgentFactTypeObservation,
+		FactID:          observation.ID,
+		UserID:          scope.UserID,
+		SessionID:       scope.SessionID,
+		TurnID:          scope.TurnID,
+		MemoryKind:      classification.Kind,
+		Topics:          compactNonEmptyStrings([]string{"observation", observation.CapabilityKey, observation.Status}),
+		Keywords:        transcriptIndexKeywords(content + " " + observation.CapabilityKey),
+		Entities:        transcriptIndexKeywords(content),
+		SummaryForIndex: safeTextPrefix(content, 320),
+		ContextualText:  content,
+		Importance:      factImportanceForKind(classification.Kind, 45),
+		Confidence:      confidenceForClassification(classification),
+		SourceRefs:      compactNonEmptyStrings(append([]string{fmt.Sprintf("observation:%d", observation.ID), fmt.Sprintf("run:%d", observation.RunID)}, observation.ArtifactRefs...)),
+		RelationRefs:    compactNonEmptyStrings(append([]string{fmt.Sprintf("run:%d", observation.RunID), fmt.Sprintf("turn:%d", scope.TurnID)}, observation.ArtifactRefs...)),
+		IndexStatus:     domain.AgentFactIndexStatusReady,
+		RiskLevel:       inferMemoryRisk(content, classification.Kind),
+		Metadata: domain.AgentJSON{
+			"capability_key": observation.CapabilityKey,
+			"status":         observation.Status,
+		},
+		CreatedAt: observation.CreatedAt,
+		UpdatedAt: time.Now().UTC(),
+	})
+}
+
+func (r *AgentRepository) indexArtifactFact(ctx context.Context, artifact domain.AgentArtifact) {
+	scope, err := r.agentRunScope(ctx, artifact.RunID)
+	if err != nil || scope.UserID == 0 {
+		return
+	}
+	content := strings.TrimSpace(strings.Join([]string{artifact.Summary, artifact.ContentRef}, "\n"))
+	classification := classifyTranscriptMemory(content)
+	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
+		CanonicalRef:    fmt.Sprintf("artifact:%d", artifact.ID),
+		FactType:        domain.AgentFactTypeArtifact,
+		FactID:          artifact.ID,
+		UserID:          scope.UserID,
+		SessionID:       scope.SessionID,
+		TurnID:          scope.TurnID,
+		MemoryKind:      classification.Kind,
+		Topics:          compactNonEmptyStrings([]string{"artifact", artifact.ArtifactType}),
+		Keywords:        transcriptIndexKeywords(content),
+		Entities:        transcriptIndexKeywords(content),
+		SummaryForIndex: safeTextPrefix(content, 320),
+		ContextualText:  content,
+		Importance:      factImportanceForKind(classification.Kind, 50),
+		Confidence:      confidenceForClassification(classification),
+		SourceRefs:      compactNonEmptyStrings(append([]string{fmt.Sprintf("artifact:%d", artifact.ID), fmt.Sprintf("run:%d", artifact.RunID)}, artifact.SourceRefs...)),
+		RelationRefs:    compactNonEmptyStrings(append([]string{fmt.Sprintf("run:%d", artifact.RunID), fmt.Sprintf("turn:%d", scope.TurnID)}, artifact.SourceRefs...)),
+		IndexStatus:     domain.AgentFactIndexStatusReady,
+		RiskLevel:       inferMemoryRisk(content, classification.Kind),
+		Metadata: domain.AgentJSON{
+			"artifact_type": artifact.ArtifactType,
+			"content_hash":  artifact.ContentHash,
+		},
+		CreatedAt: artifact.CreatedAt,
+		UpdatedAt: time.Now().UTC(),
+	})
+}
+
+func (r *AgentRepository) indexPlanFact(ctx context.Context, plan domain.AgentPlan) {
+	if plan.ID == 0 || plan.UserID == 0 {
+		return
+	}
+	content := strings.TrimSpace(strings.Join([]string{plan.Goal, plan.Summary, plan.ImpactSummary, plan.ErrorMessage}, "\n"))
+	classification := classifyTranscriptMemory(content)
+	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
+		CanonicalRef:    fmt.Sprintf("plan:%d", plan.ID),
+		FactType:        domain.AgentFactTypePlan,
+		FactID:          plan.ID,
+		UserID:          plan.UserID,
+		SessionID:       plan.SessionID,
+		TurnID:          plan.TurnID,
+		MemoryKind:      classification.Kind,
+		Topics:          compactNonEmptyStrings([]string{"plan", string(plan.Status), plan.RiskLevel}),
+		Keywords:        transcriptIndexKeywords(content),
+		Entities:        transcriptIndexKeywords(content),
+		SummaryForIndex: safeTextPrefix(content, 320),
+		ContextualText:  content,
+		Importance:      factImportanceForKind(classification.Kind, 60),
+		Confidence:      confidenceForClassification(classification),
+		SourceRefs:      []string{fmt.Sprintf("plan:%d", plan.ID), fmt.Sprintf("turn:%d", plan.TurnID)},
+		RelationRefs:    []string{fmt.Sprintf("turn:%d", plan.TurnID), fmt.Sprintf("run:%d", plan.ControllerRunID)},
+		IndexStatus:     domain.AgentFactIndexStatusReady,
+		RiskLevel:       domain.AgentMemoryRiskLevel(plan.RiskLevel),
+		Metadata: domain.AgentJSON{
+			"status":              string(plan.Status),
+			"confirmation_policy": plan.ConfirmationPolicy,
+			"allowed_scopes":      plan.AllowedScopes,
+		},
+		CreatedAt: plan.CreatedAt,
+		UpdatedAt: time.Now().UTC(),
+	})
+}
+
+func (r *AgentRepository) indexPlanStepFact(ctx context.Context, userID int64, step domain.AgentPlanStep) {
+	scope, err := r.planStepScope(ctx, userID, step.PlanID)
+	if err != nil || scope.UserID == 0 {
+		return
+	}
+	content := strings.TrimSpace(strings.Join([]string{step.Title, step.InputSummary, step.OutputSummary, step.ExpectedOutput, step.ErrorMessage}, "\n"))
+	classification := classifyTranscriptMemory(content)
+	_, _ = r.UpsertAgentFactArchiveIndex(ctx, domain.AgentFactArchiveIndex{
+		CanonicalRef:    fmt.Sprintf("plan_step:%d", step.ID),
+		FactType:        domain.AgentFactTypePlanStep,
+		FactID:          step.ID,
+		UserID:          scope.UserID,
+		SessionID:       scope.SessionID,
+		TurnID:          scope.TurnID,
+		MemoryKind:      classification.Kind,
+		Topics:          compactNonEmptyStrings([]string{"plan_step", step.CapabilityKey, string(step.Status)}),
+		Keywords:        transcriptIndexKeywords(content + " " + step.CapabilityKey),
+		Entities:        transcriptIndexKeywords(content),
+		SummaryForIndex: safeTextPrefix(content, 320),
+		ContextualText:  content,
+		Importance:      factImportanceForKind(classification.Kind, 55),
+		Confidence:      confidenceForClassification(classification),
+		SourceRefs:      compactNonEmptyStrings(append([]string{fmt.Sprintf("plan_step:%d", step.ID), fmt.Sprintf("plan:%d", step.PlanID), step.ObservationRef}, step.ArtifactRefs...)),
+		RelationRefs:    compactNonEmptyStrings(append([]string{fmt.Sprintf("plan:%d", step.PlanID), fmt.Sprintf("turn:%d", scope.TurnID), step.ObservationRef}, step.ArtifactRefs...)),
+		IndexStatus:     domain.AgentFactIndexStatusReady,
+		RiskLevel:       inferMemoryRisk(content, classification.Kind),
+		Metadata: domain.AgentJSON{
+			"status":         string(step.Status),
+			"capability_key": step.CapabilityKey,
+			"step_order":     step.StepOrder,
+		},
+		CreatedAt: step.CreatedAt,
+		UpdatedAt: time.Now().UTC(),
+	})
+}
+
+func (r *AgentRepository) agentRunScope(ctx context.Context, runID int64) (agentFactRunScope, error) {
+	if runID == 0 {
+		return agentFactRunScope{}, domain.ErrNotFound
+	}
+	var scope agentFactRunScope
+	err := r.db.WithContext(ctx).
+		Table("agent_runs").
+		Select("COALESCE(agent_turns.user_id, agent_sessions.user_id, 0) AS user_id, COALESCE(agent_runs.session_id, agent_turns.session_id, agent_sessions.id, 0) AS session_id, COALESCE(agent_runs.turn_id, 0) AS turn_id").
+		Joins("LEFT JOIN agent_turns ON agent_turns.id = agent_runs.turn_id").
+		Joins("LEFT JOIN agent_sessions ON agent_sessions.id = agent_runs.session_id").
+		Where("agent_runs.id = ?", runID).
+		Scan(&scope).Error
+	if err != nil {
+		return agentFactRunScope{}, mapRepositoryError(err)
+	}
+	if scope.UserID == 0 {
+		return agentFactRunScope{}, domain.ErrNotFound
+	}
+	return scope, nil
+}
+
+func (r *AgentRepository) planStepScope(ctx context.Context, userID int64, planID int64) (agentFactRunScope, error) {
+	var scope agentFactRunScope
+	err := r.db.WithContext(ctx).
+		Table("agent_plans").
+		Select("user_id, COALESCE(session_id, 0) AS session_id, COALESCE(turn_id, 0) AS turn_id").
+		Where("id = ?", planID).
+		Where("user_id = ?", userID).
+		Scan(&scope).Error
+	if err != nil {
+		return agentFactRunScope{}, mapRepositoryError(err)
+	}
+	if scope.UserID == 0 {
+		return agentFactRunScope{}, domain.ErrNotFound
+	}
+	return scope, nil
+}
+
+func (r *AgentRepository) resolveAgentFactSource(ctx context.Context, userID int64, fact domain.AgentFactArchiveIndex) (domain.AgentFactSource, error) {
+	switch fact.FactType {
+	case domain.AgentFactTypeTranscript:
+		var model agentTranscriptEntryModel
+		if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", fact.FactID, userID).First(&model).Error; err != nil {
+			return domain.AgentFactSource{}, mapRepositoryError(err)
+		}
+		entry := agentTranscriptEntryModelToDomain(model)
+		return domain.AgentFactSource{
+			CanonicalRef: fact.CanonicalRef,
+			FactType:     fact.FactType,
+			FactID:       fact.FactID,
+			UserID:       entry.UserID,
+			SessionID:    entry.SessionID,
+			TurnID:       entry.TurnID,
+			Title:        string(entry.Role),
+			Content:      entry.Content,
+			Summary:      safeTextPrefix(entry.Content, 320),
+			SourceRefs:   []string{fact.CanonicalRef},
+			Metadata:     cloneAgentJSON(entry.Metadata),
+			CreatedAt:    entry.CreatedAt,
+		}, nil
+	case domain.AgentFactTypeObservation:
+		var model agentObservationModel
+		if err := r.userScopedObservations(ctx, userID).Where("agent_observations.id = ?", fact.FactID).First(&model).Error; err != nil {
+			return domain.AgentFactSource{}, mapRepositoryError(err)
+		}
+		observation := agentObservationModelToDomain(model)
+		return domain.AgentFactSource{
+			CanonicalRef: fact.CanonicalRef,
+			FactType:     fact.FactType,
+			FactID:       fact.FactID,
+			UserID:       userID,
+			SessionID:    fact.SessionID,
+			TurnID:       fact.TurnID,
+			Title:        observation.CapabilityKey,
+			Content:      strings.TrimSpace(strings.Join([]string{observation.InputSummary, observation.OutputSummary, observation.Error}, "\n")),
+			Summary:      observation.OutputSummary,
+			SourceRefs:   observation.ArtifactRefs,
+			Metadata:     domain.AgentJSON{"status": observation.Status},
+			CreatedAt:    observation.CreatedAt,
+		}, nil
+	case domain.AgentFactTypeArtifact:
+		var model agentArtifactModel
+		if err := r.userScopedArtifacts(ctx, userID).Where("agent_artifacts.id = ?", fact.FactID).First(&model).Error; err != nil {
+			return domain.AgentFactSource{}, mapRepositoryError(err)
+		}
+		artifact := agentArtifactModelToDomain(model)
+		return domain.AgentFactSource{
+			CanonicalRef: fact.CanonicalRef,
+			FactType:     fact.FactType,
+			FactID:       fact.FactID,
+			UserID:       userID,
+			SessionID:    fact.SessionID,
+			TurnID:       fact.TurnID,
+			Title:        artifact.ArtifactType,
+			Content:      strings.TrimSpace(strings.Join([]string{artifact.Summary, artifact.ContentRef}, "\n")),
+			Summary:      artifact.Summary,
+			SourceRefs:   artifact.SourceRefs,
+			Metadata:     domain.AgentJSON{"content_hash": artifact.ContentHash},
+			CreatedAt:    artifact.CreatedAt,
+		}, nil
+	case domain.AgentFactTypePlan:
+		plan, err := r.GetAgentPlan(ctx, userID, fact.FactID)
+		if err != nil {
+			return domain.AgentFactSource{}, err
+		}
+		return domain.AgentFactSource{
+			CanonicalRef: fact.CanonicalRef,
+			FactType:     fact.FactType,
+			FactID:       fact.FactID,
+			UserID:       plan.UserID,
+			SessionID:    plan.SessionID,
+			TurnID:       plan.TurnID,
+			Title:        plan.Goal,
+			Content:      strings.TrimSpace(strings.Join([]string{plan.Goal, plan.Summary, plan.ImpactSummary, plan.ErrorMessage}, "\n")),
+			Summary:      plan.Summary,
+			SourceRefs:   []string{fact.CanonicalRef},
+			Metadata:     cloneAgentJSON(plan.Metadata),
+			CreatedAt:    plan.CreatedAt,
+		}, nil
+	case domain.AgentFactTypePlanStep:
+		var model agentPlanStepModel
+		if err := r.userScopedPlanSteps(ctx, userID).Where("agent_plan_steps.id = ?", fact.FactID).First(&model).Error; err != nil {
+			return domain.AgentFactSource{}, mapRepositoryError(err)
+		}
+		step := agentPlanStepModelToDomain(model)
+		return domain.AgentFactSource{
+			CanonicalRef: fact.CanonicalRef,
+			FactType:     fact.FactType,
+			FactID:       fact.FactID,
+			UserID:       userID,
+			SessionID:    fact.SessionID,
+			TurnID:       fact.TurnID,
+			Title:        step.Title,
+			Content:      strings.TrimSpace(strings.Join([]string{step.Title, step.InputSummary, step.OutputSummary, step.ExpectedOutput, step.ErrorMessage}, "\n")),
+			Summary:      step.OutputSummary,
+			SourceRefs:   compactNonEmptyStrings(append([]string{step.ObservationRef}, step.ArtifactRefs...)),
+			Metadata:     domain.AgentJSON{"capability_key": step.CapabilityKey, "status": string(step.Status)},
+			CreatedAt:    step.CreatedAt,
+		}, nil
+	default:
+		return domain.AgentFactSource{}, domain.ErrNotFound
+	}
+}
+
+func (r *AgentRepository) userScopedObservations(ctx context.Context, userID int64) *gorm.DB {
+	return r.db.WithContext(ctx).
+		Model(&agentObservationModel{}).
+		Joins("JOIN agent_runs ON agent_runs.id = agent_observations.run_id").
+		Joins("LEFT JOIN agent_turns ON agent_turns.id = agent_runs.turn_id").
+		Joins("LEFT JOIN agent_sessions ON agent_sessions.id = agent_runs.session_id").
+		Where("(agent_turns.user_id = ? OR agent_sessions.user_id = ?)", userID, userID).
+		Select("agent_observations.*")
+}
+
+func (r *AgentRepository) userScopedArtifacts(ctx context.Context, userID int64) *gorm.DB {
+	return r.db.WithContext(ctx).
+		Model(&agentArtifactModel{}).
+		Joins("JOIN agent_runs ON agent_runs.id = agent_artifacts.run_id").
+		Joins("LEFT JOIN agent_turns ON agent_turns.id = agent_runs.turn_id").
+		Joins("LEFT JOIN agent_sessions ON agent_sessions.id = agent_runs.session_id").
+		Where("(agent_turns.user_id = ? OR agent_sessions.user_id = ?)", userID, userID).
+		Select("agent_artifacts.*")
+}
+
+func (r *AgentRepository) userScopedPlanSteps(ctx context.Context, userID int64) *gorm.DB {
+	return r.db.WithContext(ctx).
+		Model(&agentPlanStepModel{}).
+		Joins("JOIN agent_plans ON agent_plans.id = agent_plan_steps.plan_id").
+		Where("agent_plans.user_id = ?", userID).
+		Select("agent_plan_steps.*")
 }
 
 func normalizeAgentFactArchiveIndex(fact domain.AgentFactArchiveIndex) domain.AgentFactArchiveIndex {
@@ -866,4 +1246,42 @@ func safeTextPrefix(value string, limit int) string {
 		return value
 	}
 	return strings.TrimSpace(value[:limit])
+}
+
+func confidenceForClassification(classification transcriptMemoryClassification) float64 {
+	switch {
+	case classification.Kind == domain.AgentMemoryKindUnknown:
+		return 0.2
+	case len(classification.Terms) >= 2:
+		return 0.82
+	case len(classification.Terms) == 1:
+		return 0.72
+	default:
+		return 0.45
+	}
+}
+
+func factImportanceForKind(kind domain.AgentMemoryKind, fallback int) int {
+	importance := transcriptImportanceForKind(kind)
+	if importance == 0 {
+		importance = fallback
+	}
+	if importance < fallback && kind != domain.AgentMemoryKindCasual {
+		importance = fallback
+	}
+	return importance
+}
+
+func inferMemoryRisk(content string, kind domain.AgentMemoryKind) domain.AgentMemoryRiskLevel {
+	content = strings.ToLower(strings.TrimSpace(content))
+	highRiskTerms := []string{"密码", "口令", "secret", "token", "api key", "apikey", "密钥", "身份证", "银行卡"}
+	for _, term := range highRiskTerms {
+		if strings.Contains(content, term) {
+			return domain.AgentMemoryRiskHigh
+		}
+	}
+	if kind == domain.AgentMemoryKindPreference || kind == domain.AgentMemoryKindFact {
+		return domain.AgentMemoryRiskLow
+	}
+	return domain.AgentMemoryRiskLow
 }

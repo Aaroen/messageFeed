@@ -478,6 +478,7 @@ func (r *AgentRepository) AppendTranscriptEntry(ctx context.Context, entry domai
 	}
 	persisted := agentTranscriptEntryModelToDomain(model)
 	_ = r.ensureTranscriptArchiveIndex(ctx, persisted)
+	r.indexTranscriptFact(ctx, persisted)
 	return persisted, nil
 }
 

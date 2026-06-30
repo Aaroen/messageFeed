@@ -118,7 +118,16 @@ func (r *AgentRepository) CreateAgentPlan(ctx context.Context, plan domain.Agent
 		opErr = err
 		return domain.AgentPlan{}, err
 	}
-	return r.GetAgentPlan(ctx, model.UserID, model.ID)
+	created, err := r.GetAgentPlan(ctx, model.UserID, model.ID)
+	if err != nil {
+		opErr = err
+		return domain.AgentPlan{}, err
+	}
+	r.indexPlanFact(ctx, created)
+	for _, step := range created.Steps {
+		r.indexPlanStepFact(ctx, created.UserID, step)
+	}
+	return created, nil
 }
 
 func (r *AgentRepository) ListAgentPlans(ctx context.Context, userID int64, sessionID int64, turnID int64, limit int) ([]domain.AgentPlan, error) {
@@ -213,7 +222,13 @@ func (r *AgentRepository) UpdateAgentPlanStatus(ctx context.Context, userID int6
 		opErr = domain.ErrNotFound
 		return domain.AgentPlan{}, opErr
 	}
-	return r.GetAgentPlan(ctx, userID, planID)
+	plan, err := r.GetAgentPlan(ctx, userID, planID)
+	if err != nil {
+		opErr = err
+		return domain.AgentPlan{}, err
+	}
+	r.indexPlanFact(ctx, plan)
+	return plan, nil
 }
 
 func (r *AgentRepository) UpdateAgentPlanMetadata(ctx context.Context, userID int64, planID int64, metadata domain.AgentJSON, now time.Time) (domain.AgentPlan, error) {
@@ -241,7 +256,13 @@ func (r *AgentRepository) UpdateAgentPlanMetadata(ctx context.Context, userID in
 		opErr = domain.ErrNotFound
 		return domain.AgentPlan{}, opErr
 	}
-	return r.GetAgentPlan(ctx, userID, planID)
+	plan, err := r.GetAgentPlan(ctx, userID, planID)
+	if err != nil {
+		opErr = err
+		return domain.AgentPlan{}, err
+	}
+	r.indexPlanFact(ctx, plan)
+	return plan, nil
 }
 
 func (r *AgentRepository) UpdateAgentPlanStepStatus(ctx context.Context, userID int64, step domain.AgentPlanStep) (domain.AgentPlanStep, error) {
@@ -292,7 +313,9 @@ func (r *AgentRepository) UpdateAgentPlanStepStatus(ctx context.Context, userID 
 		opErr = mapRepositoryError(err)
 		return domain.AgentPlanStep{}, opErr
 	}
-	return agentPlanStepModelToDomain(model), nil
+	updated := agentPlanStepModelToDomain(model)
+	r.indexPlanStepFact(ctx, userID, updated)
+	return updated, nil
 }
 
 func repositoryJSONBExpr(value any) (clause.Expr, error) {

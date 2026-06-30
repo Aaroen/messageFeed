@@ -146,7 +146,9 @@ func (r *AgentRepository) CreateAgentObservation(ctx context.Context, observatio
 		opErr = mapRepositoryError(err)
 		return domain.AgentObservation{}, opErr
 	}
-	return agentObservationModelToDomain(model), nil
+	persisted := agentObservationModelToDomain(model)
+	r.indexObservationFact(ctx, persisted)
+	return persisted, nil
 }
 
 func (r *AgentRepository) CreateAgentArtifact(ctx context.Context, artifact domain.AgentArtifact) (domain.AgentArtifact, error) {
@@ -159,7 +161,9 @@ func (r *AgentRepository) CreateAgentArtifact(ctx context.Context, artifact doma
 		opErr = mapRepositoryError(err)
 		return domain.AgentArtifact{}, opErr
 	}
-	return agentArtifactModelToDomain(model), nil
+	persisted := agentArtifactModelToDomain(model)
+	r.indexArtifactFact(ctx, persisted)
+	return persisted, nil
 }
 
 func (r *AgentRepository) ListAgentRunsByTurn(ctx context.Context, userID int64, turnID int64) ([]domain.AgentRun, error) {

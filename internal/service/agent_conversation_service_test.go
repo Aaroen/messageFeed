@@ -2997,6 +2997,30 @@ func (r *fakeAgentConversationRepository) QueryAgentFactArchiveIndex(_ context.C
 	return facts, nil
 }
 
+func (r *fakeAgentConversationRepository) ResolveAgentFactSources(_ context.Context, userID int64, facts []domain.AgentFactArchiveIndex) ([]domain.AgentFactSource, error) {
+	sources := make([]domain.AgentFactSource, 0, len(facts))
+	for _, fact := range facts {
+		if fact.UserID != userID {
+			continue
+		}
+		source := domain.AgentFactSource{
+			CanonicalRef: fact.CanonicalRef,
+			FactType:     fact.FactType,
+			FactID:       fact.FactID,
+			UserID:       fact.UserID,
+			SessionID:    fact.SessionID,
+			TurnID:       fact.TurnID,
+			Summary:      fact.SummaryForIndex,
+			Content:      fact.ContextualText,
+			SourceRefs:   append([]string(nil), fact.SourceRefs...),
+			Metadata:     domain.AgentJSON{"resolved_from": "fake_fact_index"},
+			CreatedAt:    fact.CreatedAt,
+		}
+		sources = append(sources, source)
+	}
+	return sources, nil
+}
+
 func (r *fakeAgentConversationRepository) CreateAgentMemoryCandidate(_ context.Context, candidate domain.AgentMemoryCandidate) (domain.AgentMemoryCandidate, error) {
 	candidate.ID = r.id()
 	r.memoryCandidates = append(r.memoryCandidates, candidate)
