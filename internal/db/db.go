@@ -202,6 +202,18 @@ type MigrationStatus struct {
 	Dirty   bool
 }
 
+type PgvectorStatus struct {
+	Installed bool
+	Version   string
+}
+
+type AgentFactIndexStatus struct {
+	ArchiveRows    int64
+	EmbeddingRows  int64
+	LastIndexedAt  *time.Time
+	LastEmbeddedAt *time.Time
+}
+
 // GetStats 获取数据库连接池统计信息。
 func GetStats(db *gorm.DB) (Stats, error) {
 	sqlDB, err := db.DB()
@@ -260,6 +272,39 @@ func CheckMigrationStatus(ctx context.Context, db *gorm.DB) (MigrationStatus, er
 	}
 	if status.Dirty {
 		return status, fmt.Errorf("schema_migrations is dirty at version %d", status.Version)
+	}
+	return status, nil
+}
+
+func CheckPgvectorStatus(ctx context.Context, db *gorm.DB) (PgvectorStatus, error) {
+	var version string
+	row := db.WithContext(ctx).Raw("SELECT extversion FROM pg_extension WHERE extname = 'vector' LIMIT 1").Row()
+	if err := row.Scan(&version); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return PgvectorStatus{}, fmt.Errorf("pgvector extension is not installed")
+		}
+		return PgvectorStatus{}, fmt.Errorf("query pgvector extension: %w", err)
+	}
+	return PgvectorStatus{Installed: true, Version: version}, nil
+}
+
+func CheckAgentFactIndexStatus(ctx context.Context, db *gorm.DB) (AgentFactIndexStatus, error) {
+	var status AgentFactIndexStatus
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_fact_archive_index").Row().Scan(&status.ArchiveRows); err != nil {
+		return AgentFactIndexStatus{}, fmt.Errorf("query agent fact archive index: %w", err)
+	}
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_fact_embeddings").Row().Scan(&status.EmbeddingRows); err != nil {
+		return AgentFactIndexStatus{}, fmt.Errorf("query agent fact embeddings: %w", err)
+	}
+	var lastIndexed sql.NullTime
+	if err := db.WithContext(ctx).Raw("SELECT MAX(updated_at) FROM agent_fact_archive_index").Row().Scan(&lastIndexed); err == nil && lastIndexed.Valid {
+		value := lastIndexed.Time
+		status.LastIndexedAt = &value
+	}
+	var lastEmbedded sql.NullTime
+	if err := db.WithContext(ctx).Raw("SELECT MAX(updated_at) FROM agent_fact_embeddings").Row().Scan(&lastEmbedded); err == nil && lastEmbedded.Valid {
+		value := lastEmbedded.Time
+		status.LastEmbeddedAt = &value
 	}
 	return status, nil
 }

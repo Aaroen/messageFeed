@@ -149,6 +149,36 @@ func readyzHandler(database *gorm.DB, logger *slog.Logger, now func() time.Time)
 						Status:  appRuntime.ReadinessReady,
 						Message: fmt.Sprintf("database migrations at version %d", migrationStatus.Version),
 					})
+					if pgvectorStatus, err := db.CheckPgvectorStatus(ctx, database); err != nil {
+						checks = append(checks, appRuntime.ReadinessCheck{
+							Name:    "pgvector",
+							Status:  appRuntime.ReadinessNotReady,
+							Message: "pgvector extension is not ready",
+						})
+					} else {
+						checks = append(checks, appRuntime.ReadinessCheck{
+							Name:    "pgvector",
+							Status:  appRuntime.ReadinessReady,
+							Message: fmt.Sprintf("pgvector extension version %s", pgvectorStatus.Version),
+						})
+					}
+					if factIndexStatus, err := db.CheckAgentFactIndexStatus(ctx, database); err != nil {
+						checks = append(checks, appRuntime.ReadinessCheck{
+							Name:    "agent_fact_index",
+							Status:  appRuntime.ReadinessNotReady,
+							Message: "agent fact index tables are not ready",
+						})
+					} else {
+						checks = append(checks, appRuntime.ReadinessCheck{
+							Name:   "agent_fact_index",
+							Status: appRuntime.ReadinessReady,
+							Message: fmt.Sprintf(
+								"agent fact index rows=%d embeddings=%d",
+								factIndexStatus.ArchiveRows,
+								factIndexStatus.EmbeddingRows,
+							),
+						})
+					}
 				}
 			}
 		}
