@@ -201,7 +201,17 @@ func (r *AgentRepository) QueryAgentFactArchiveIndex(ctx context.Context, option
 	orderExpr := any("importance DESC, confidence DESC, updated_at DESC, id DESC")
 	if searchText != "" {
 		like := "%" + escapeLike(searchText) + "%"
-		query = query.Where("(full_text_vector @@ plainto_tsquery('simple', ?) OR summary_for_index ILIKE ? ESCAPE '\\' OR contextual_text ILIKE ? ESCAPE '\\')", searchText, like, like)
+		conditions := []string{"full_text_vector @@ plainto_tsquery('simple', ?)", "summary_for_index ILIKE ? ESCAPE '\\'", "contextual_text ILIKE ? ESCAPE '\\'"}
+		args := []any{searchText, like, like}
+		for _, fragment := range agentFactSearchFragments(searchTerms) {
+			if strings.EqualFold(fragment, searchText) {
+				continue
+			}
+			fragmentLike := "%" + escapeLike(fragment) + "%"
+			conditions = append(conditions, "summary_for_index ILIKE ? ESCAPE '\\'", "contextual_text ILIKE ? ESCAPE '\\'")
+			args = append(args, fragmentLike, fragmentLike)
+		}
+		query = query.Where("("+strings.Join(conditions, " OR ")+")", args...)
 		orderExpr = clause.Expr{
 			SQL:  "ts_rank(full_text_vector, plainto_tsquery('simple', ?)) DESC, importance DESC, confidence DESC, updated_at DESC, id DESC",
 			Vars: []any{searchText},
@@ -1371,6 +1381,30 @@ func compactNonEmptyStrings(values []string) []string {
 		output = append(output, value)
 	}
 	return output
+}
+
+func agentFactSearchFragments(values []string) []string {
+	const maxFragments = 12
+	seen := map[string]struct{}{}
+	fragments := make([]string, 0, maxFragments)
+	for _, value := range values {
+		for _, token := range strings.Fields(value) {
+			token = strings.Trim(token, " \t\r\n\"'`.,;:!?()[]{}<>，。；：！？（）【】《》、")
+			if len([]rune(token)) < 2 {
+				continue
+			}
+			key := strings.ToLower(token)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			fragments = append(fragments, token)
+			if len(fragments) >= maxFragments {
+				return fragments
+			}
+		}
+	}
+	return fragments
 }
 
 func clampConfidence(value float64) float64 {

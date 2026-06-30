@@ -142,6 +142,21 @@ func TestTranscriptClassificationMetadataIncludesReclassifyFields(t *testing.T) 
 	}
 }
 
+func TestAgentFactSearchFragmentsExtractsRecallTokens(t *testing.T) {
+	fragments := agentFactSearchFragments([]string{
+		"RAG-E2E-4096-20260630 internal/service/agent_fact_retrieval.go 先给结论再说明依据",
+	})
+	for _, want := range []string{
+		"RAG-E2E-4096-20260630",
+		"internal/service/agent_fact_retrieval.go",
+		"先给结论再说明依据",
+	} {
+		if !agentRepositoryStringSliceContains(fragments, want) {
+			t.Fatalf("fragments = %#v, want %q", fragments, want)
+		}
+	}
+}
+
 func agentRepositoryStringSliceContains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
