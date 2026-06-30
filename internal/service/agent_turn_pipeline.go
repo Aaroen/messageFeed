@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
@@ -121,6 +122,8 @@ func (s *AgentConversationService) processTurn(
 		RequestID:        input.RequestID,
 		TraceID:          input.TraceID,
 		HistoryQueryPlan: historyQueryPlan,
+		ActiveGoal:       plan.Goal,
+		ActivePlan:       activePlanContextBlock(plan),
 	})
 	if err != nil {
 		if isAgentProcessStopError(ctx, err, activeProcess) {
@@ -734,6 +737,76 @@ func historyQueryPlanForTurn(plan domain.AgentPlan) agent.PlanHistoryQueryPlan {
 		TimeHint: metadataString(historyPlan, "time_hint"),
 		Reason:   metadataString(historyPlan, "reason"),
 		Limit:    metadataNumber(historyPlan, "limit"),
+	}
+}
+
+func activePlanContextBlock(plan domain.AgentPlan) *agent.ContextBlock {
+	if plan.ID == 0 {
+		return nil
+	}
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "plan_id: %d\n", plan.ID)
+	fmt.Fprintf(&builder, "status: %s\n", plan.Status)
+	if strings.TrimSpace(plan.Goal) != "" {
+		builder.WriteString("goal: ")
+		builder.WriteString(strings.TrimSpace(plan.Goal))
+		builder.WriteString("\n")
+	}
+	if strings.TrimSpace(plan.Summary) != "" {
+		builder.WriteString("summary: ")
+		builder.WriteString(strings.TrimSpace(plan.Summary))
+		builder.WriteString("\n")
+	}
+	if len(plan.AllowedScopes) > 0 {
+		builder.WriteString("allowed_scopes: ")
+		builder.WriteString(strings.Join(plan.AllowedScopes, ", "))
+		builder.WriteString("\n")
+	}
+	mainPlan := metadataMap(plan.Metadata, "main_agent_plan")
+	if len(mainPlan) > 0 {
+		if needsRecent, ok := mainPlan["needs_recent_context"]; ok {
+			fmt.Fprintf(&builder, "needs_recent_context: %v\n", needsRecent)
+		}
+		if needsHistory, ok := mainPlan["needs_history_recall"]; ok {
+			fmt.Fprintf(&builder, "needs_history_recall: %v\n", needsHistory)
+		}
+	}
+	if len(plan.Steps) > 0 {
+		builder.WriteString("steps:\n")
+		for _, step := range plan.Steps {
+			fmt.Fprintf(&builder, "- #%d %s [%s] capability=%s", step.StepOrder, strings.TrimSpace(step.Title), step.Status, step.CapabilityKey)
+			if strings.TrimSpace(step.OutputSummary) != "" {
+				builder.WriteString(" output=")
+				builder.WriteString(strings.TrimSpace(step.OutputSummary))
+			}
+			if strings.TrimSpace(step.ObservationRef) != "" {
+				builder.WriteString(" observation_ref=")
+				builder.WriteString(agent.NormalizeCanonicalRef(step.ObservationRef))
+			}
+			if len(step.ArtifactRefs) > 0 {
+				builder.WriteString(" artifact_refs=")
+				builder.WriteString(strings.Join(agent.NormalizeCanonicalRefs(step.ArtifactRefs), ","))
+			}
+			builder.WriteString("\n")
+		}
+	}
+	evidenceRefs := []string{fmt.Sprintf("plan:%d", plan.ID)}
+	for _, step := range plan.Steps {
+		if step.ID > 0 {
+			evidenceRefs = append(evidenceRefs, fmt.Sprintf("plan_step:%d", step.ID))
+		}
+	}
+	return &agent.ContextBlock{
+		Name:            "当前活动计划",
+		CapabilityKey:   "agent.plan",
+		Content:         strings.TrimSpace(builder.String()),
+		ItemCount:       len(plan.Steps),
+		GeneratedAt:     plan.UpdatedAt,
+		TrustLevel:      "planner",
+		Source:          "active_plan",
+		EvidenceRefs:    agent.NormalizeCanonicalRefs(evidenceRefs),
+		CanonicalRef:    fmt.Sprintf("plan:%d", plan.ID),
+		RetentionReason: "active_plan",
 	}
 }
 

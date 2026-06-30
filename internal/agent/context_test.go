@@ -136,6 +136,94 @@ func TestDefaultContextBuilderBuildsContextBundleBudgetProfile(t *testing.T) {
 	}
 }
 
+func TestDefaultContextBuilderBuildsShortTermProtectionBundle(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	activePlan := &ContextBlock{
+		Name:          "当前活动计划",
+		Content:       "goal: 汇总上下文管理实现\nsteps:\n- #1 补齐保护区 [pending] capability=content.summarize_text",
+		CanonicalRef:  "agent_plan:7",
+		EvidenceRefs:  []string{"agent_plan:7", "agent_plan_step:8"},
+		GeneratedAt:   now,
+		TrustLevel:    "planner",
+		Source:        "active_plan",
+		CapabilityKey: "agent.plan",
+	}
+	builder := NewDefaultContextBuilder(DefaultContextBuilderOptions{
+		UserContextProvider: fakeUserContextProvider{now: now},
+		ConversationMemory: fakeConversationMemoryProvider{
+			memory: ConversationMemory{
+				Messages: []ContextMessage{
+					{Role: domain.AgentTranscriptRoleUser, Content: "上一轮问题", TranscriptEntryID: 1, TurnID: 1, CreatedAt: now.Add(-2 * time.Minute)},
+					{Role: domain.AgentTranscriptRoleAssistant, Content: "上一轮完整回答", TranscriptEntryID: 2, TurnID: 1, CreatedAt: now.Add(-time.Minute)},
+				},
+			},
+		},
+		Now: func() time.Time { return now },
+	})
+
+	snapshot, err := builder.Build(context.Background(), ContextBuildInput{
+		UserID:        1,
+		SessionID:     2,
+		TurnID:        3,
+		MessageText:   "继续实现",
+		BudgetProfile: ContextBudgetProfileMainPlanning,
+		ActiveGoal:    "汇总上下文管理实现",
+		ActivePlan:    activePlan,
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if snapshot.Bundle.CurrentMessage == nil || snapshot.Bundle.CurrentMessage.Content != "继续实现" {
+		t.Fatalf("current message = %#v", snapshot.Bundle.CurrentMessage)
+	}
+	if snapshot.Bundle.ActivePlan == nil || snapshot.Bundle.ActivePlan.CanonicalRef != "plan:7" {
+		t.Fatalf("active plan = %#v", snapshot.Bundle.ActivePlan)
+	}
+	if len(snapshot.Bundle.SystemBlocks) == 0 || snapshot.Bundle.SystemBlocks[0].CapabilityKey != "capability.list_available" {
+		t.Fatalf("system blocks = %#v", snapshot.Bundle.SystemBlocks)
+	}
+	if len(snapshot.Bundle.UserConstraints) == 0 || snapshot.Bundle.UserConstraints[0].Source != "user_profile" {
+		t.Fatalf("user constraints = %#v", snapshot.Bundle.UserConstraints)
+	}
+	if !contextTestHasProtectedUnit(snapshot.SemanticUnits, "active_plan", "active_plan") {
+		t.Fatalf("semantic units missing protected active plan: %#v", snapshot.SemanticUnits)
+	}
+	if !contextTestHasProtectedReason(snapshot.SemanticUnits, "previous_assistant_answer") {
+		t.Fatalf("semantic units missing previous assistant protection: %#v", snapshot.SemanticUnits)
+	}
+}
+
+func TestRefreshContextBundleAddsRuntimeObservationArtifactRefs(t *testing.T) {
+	snapshot := ContextSnapshot{
+		BudgetProfile: ContextBudgetProfileSubagentSearch,
+		Bundle:        ContextBundle{BudgetProfile: ContextBudgetProfileSubagentSearch},
+		Observations: []CapabilityObservation{
+			{
+				Capability:     "web.search",
+				Status:         "succeeded",
+				Summary:        "loaded web evidence",
+				ObservationRef: "agent_observations/31",
+				ArtifactRefs:   []string{"agent_artifact:41", "agent_run:9"},
+			},
+		},
+	}
+
+	snapshot = refreshContextSnapshotBundle(snapshot)
+
+	if len(snapshot.Bundle.KeyObservations) != 1 {
+		t.Fatalf("key observations = %#v", snapshot.Bundle.KeyObservations)
+	}
+	if snapshot.Bundle.KeyObservations[0].ObservationRef != "observation:31" {
+		t.Fatalf("observation ref = %q", snapshot.Bundle.KeyObservations[0].ObservationRef)
+	}
+	if len(snapshot.Bundle.KeyArtifacts) != 1 {
+		t.Fatalf("key artifacts = %#v", snapshot.Bundle.KeyArtifacts)
+	}
+	if strings.Join(snapshot.Bundle.KeyArtifacts[0].EvidenceRefs, ",") != "artifact:41" {
+		t.Fatalf("artifact refs = %#v", snapshot.Bundle.KeyArtifacts[0].EvidenceRefs)
+	}
+}
+
 func TestDefaultContextBuilderAddsCanonicalRefsToHistoryBlock(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	builder := NewDefaultContextBuilder(DefaultContextBuilderOptions{
@@ -210,6 +298,24 @@ func TestSelectSemanticUnitsByTokenBudgetKeepsWholeUnits(t *testing.T) {
 			t.Fatalf("skipped unit lost original projection content: %#v", unit)
 		}
 	}
+}
+
+func contextTestHasProtectedUnit(units []ContextSemanticUnit, id string, reason string) bool {
+	for _, unit := range units {
+		if unit.ID == id && unit.Protected && unit.Selected && unit.RetentionReason == reason {
+			return true
+		}
+	}
+	return false
+}
+
+func contextTestHasProtectedReason(units []ContextSemanticUnit, reason string) bool {
+	for _, unit := range units {
+		if unit.Protected && unit.Selected && unit.RetentionReason == reason {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSelectSemanticUnitsByTokenBudgetProjectsOversizedUnitWithoutHardTruncation(t *testing.T) {

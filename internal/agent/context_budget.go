@@ -30,18 +30,18 @@ type ContextBudgetSpec struct {
 }
 
 type ContextBundle struct {
-	BudgetProfile   ContextBudgetProfile `json:"budget_profile"`
-	SystemBlocks    []ContextBlock       `json:"system_blocks,omitempty"`
-	RecentMessages  []ContextMessage     `json:"recent_messages,omitempty"`
-	CurrentMessage  *ContextMessage      `json:"current_message,omitempty"`
-	ActiveGoal      string               `json:"active_goal,omitempty"`
-	ActivePlan      *ContextBlock        `json:"active_plan,omitempty"`
-	KeyObservations []CapabilityObservation
-	KeyArtifacts    []ContextBlock        `json:"key_artifacts,omitempty"`
-	UserConstraints []ContextBlock        `json:"user_constraints,omitempty"`
-	MemoryBlocks    []ContextBlock        `json:"memory_blocks,omitempty"`
-	SemanticUnits   []ContextSemanticUnit `json:"semantic_units,omitempty"`
-	BudgetReport    ContextBudgetReport   `json:"budget_report"`
+	BudgetProfile   ContextBudgetProfile    `json:"budget_profile"`
+	SystemBlocks    []ContextBlock          `json:"system_blocks,omitempty"`
+	RecentMessages  []ContextMessage        `json:"recent_messages,omitempty"`
+	CurrentMessage  *ContextMessage         `json:"current_message,omitempty"`
+	ActiveGoal      string                  `json:"active_goal,omitempty"`
+	ActivePlan      *ContextBlock           `json:"active_plan,omitempty"`
+	KeyObservations []CapabilityObservation `json:"key_observations,omitempty"`
+	KeyArtifacts    []ContextBlock          `json:"key_artifacts,omitempty"`
+	UserConstraints []ContextBlock          `json:"user_constraints,omitempty"`
+	MemoryBlocks    []ContextBlock          `json:"memory_blocks,omitempty"`
+	SemanticUnits   []ContextSemanticUnit   `json:"semantic_units,omitempty"`
+	BudgetReport    ContextBudgetReport     `json:"budget_report"`
 }
 
 type ContextSemanticUnitType string
@@ -305,7 +305,9 @@ func SelectSemanticUnitsByTokenBudget(units []ContextSemanticUnit, budgetTokens 
 			report.ProtectedUnitCount++
 			if used+output[index].TokenEstimate <= budgetTokens {
 				output[index].Selected = true
-				output[index].RetentionReason = "protected_unit"
+				if strings.TrimSpace(output[index].RetentionReason) == "" {
+					output[index].RetentionReason = "protected_unit"
+				}
 				selected[index] = struct{}{}
 				used += output[index].TokenEstimate
 				continue
@@ -396,6 +398,27 @@ func NewCurrentMessageSemanticUnit(content string) ContextSemanticUnit {
 	return unit
 }
 
+func NewProtectedContextBlockSemanticUnit(id string, unitType ContextSemanticUnitType, block ContextBlock, reason string) ContextSemanticUnit {
+	content := strings.TrimSpace(block.Content)
+	unit := ContextSemanticUnit{
+		ID:              strings.TrimSpace(id),
+		Type:            unitType,
+		Source:          firstNonEmptyContextString(block.Source, block.CapabilityKey, "context_block"),
+		Content:         content,
+		BlockRefs:       []ContextBlockRef{contextBlockRef(block)},
+		EvidenceRefs:    contextEvidenceRefs(block.EvidenceRefs, block.Source),
+		CanonicalRef:    NormalizeCanonicalRef(block.CanonicalRef),
+		Protected:       true,
+		Selected:        true,
+		RetentionReason: firstNonEmptyContextString(reason, block.RetentionReason, "protected_context_block"),
+	}
+	if unit.ID == "" {
+		unit.ID = semanticContextBlockUnitID(unitType, block)
+	}
+	ensureSemanticUnitTokenEstimate(&unit)
+	return unit
+}
+
 func estimateContextTokenCount(value string) int {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -474,4 +497,51 @@ func markLatestAssistantUnitProtected(units []ContextSemanticUnit) []ContextSema
 		}
 	}
 	return output
+}
+
+func contextBlockRef(block ContextBlock) ContextBlockRef {
+	return ContextBlockRef{
+		Name:          strings.TrimSpace(block.Name),
+		CapabilityKey: strings.TrimSpace(block.CapabilityKey),
+		CanonicalRef:  NormalizeCanonicalRef(block.CanonicalRef),
+	}
+}
+
+func contextEvidenceRefs(refs []string, source string) []ContextEvidenceRef {
+	normalized := NormalizeCanonicalRefs(refs)
+	output := make([]ContextEvidenceRef, 0, len(normalized))
+	for _, ref := range normalized {
+		output = append(output, ContextEvidenceRef{
+			Ref:          ref,
+			CanonicalRef: ref,
+			Source:       strings.TrimSpace(source),
+		})
+	}
+	return output
+}
+
+func semanticContextBlockUnitID(unitType ContextSemanticUnitType, block ContextBlock) string {
+	ref := NormalizeCanonicalRef(block.CanonicalRef)
+	if ref != "" {
+		return fmt.Sprintf("%s:%s", unitType, ref)
+	}
+	name := strings.TrimSpace(block.Name)
+	if name != "" {
+		hash := textHash(name + "\n" + block.Content)
+		if len(hash) > 12 {
+			hash = hash[:12]
+		}
+		return fmt.Sprintf("%s:%s", unitType, hash)
+	}
+	return string(unitType)
+}
+
+func firstNonEmptyContextString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

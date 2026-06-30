@@ -69,6 +69,7 @@ func (s *AgentConversationService) recordControllerTrace(ctx context.Context, ru
 		"context_blocks":         contextBlockMetadata(result.Context.Blocks),
 		"context_messages":       contextMessageMetadata(result.Context.Messages),
 		"context_semantic_units": contextSemanticUnitMetadata(result.Context.SemanticUnits),
+		"context_bundle":         contextBundleMetadata(result.Context.Bundle),
 		"context_budget_profile": string(result.Context.BudgetProfile),
 		"context_budget_report":  contextBudgetReportMetadata(result.Context.BudgetReport),
 		"observations":           observations,
@@ -119,6 +120,47 @@ func contextMessageMetadata(messages []agent.ContextMessage) []domain.AgentJSON 
 		})
 	}
 	return output
+}
+
+func contextMessagePointerMetadata(message *agent.ContextMessage) domain.AgentJSON {
+	if message == nil {
+		return nil
+	}
+	return domain.AgentJSON{
+		"role":                string(message.Role),
+		"content":             safeSummary(message.Content, 1000),
+		"transcript_entry_id": message.TranscriptEntryID,
+		"turn_id":             message.TurnID,
+		"created_at":          formatOptionalTime(&message.CreatedAt),
+	}
+}
+
+func contextBlockPointerMetadata(block *agent.ContextBlock) domain.AgentJSON {
+	if block == nil {
+		return nil
+	}
+	items := contextBlockMetadata([]agent.ContextBlock{*block})
+	if len(items) == 0 {
+		return nil
+	}
+	return items[0]
+}
+
+func contextBundleMetadata(bundle agent.ContextBundle) domain.AgentJSON {
+	return domain.AgentJSON{
+		"budget_profile":   string(bundle.BudgetProfile),
+		"system_blocks":    contextBlockMetadata(bundle.SystemBlocks),
+		"recent_messages":  contextMessageMetadata(bundle.RecentMessages),
+		"current_message":  contextMessagePointerMetadata(bundle.CurrentMessage),
+		"active_goal":      safeSummary(bundle.ActiveGoal, 1000),
+		"active_plan":      contextBlockPointerMetadata(bundle.ActivePlan),
+		"key_observations": agent.ObservationMetadata(bundle.KeyObservations),
+		"key_artifacts":    contextBlockMetadata(bundle.KeyArtifacts),
+		"user_constraints": contextBlockMetadata(bundle.UserConstraints),
+		"memory_blocks":    contextBlockMetadata(bundle.MemoryBlocks),
+		"semantic_units":   contextSemanticUnitMetadata(bundle.SemanticUnits),
+		"budget_report":    contextBudgetReportMetadata(bundle.BudgetReport),
+	}
 }
 
 func contextSemanticUnitMetadata(units []agent.ContextSemanticUnit) []domain.AgentJSON {

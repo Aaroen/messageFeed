@@ -49,6 +49,8 @@ type ContextBuildInput struct {
 	TraceID          string
 	BudgetProfile    ContextBudgetProfile
 	HistoryQueryPlan PlanHistoryQueryPlan
+	ActiveGoal       string
+	ActivePlan       *ContextBlock
 }
 
 type ContextSnapshot struct {
@@ -177,6 +179,8 @@ type TurnRunInput struct {
 	RequestID        string
 	TraceID          string
 	HistoryQueryPlan PlanHistoryQueryPlan
+	ActiveGoal       string
+	ActivePlan       *ContextBlock
 }
 
 type TurnRunResult struct {
@@ -287,6 +291,8 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 			TraceID:          input.TraceID,
 			BudgetProfile:    ContextBudgetProfileForCapabilityScope(input.AllowedToolKeys),
 			HistoryQueryPlan: input.HistoryQueryPlan,
+			ActiveGoal:       input.ActiveGoal,
+			ActivePlan:       input.ActivePlan,
 		})
 		if err != nil {
 			return "", "", "", snapshot, err
@@ -302,6 +308,7 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 	if err != nil {
 		return "", "", "", snapshot, err
 	}
+	snapshot = refreshContextSnapshotBundle(snapshot)
 	response, err = r.ensurePlainTextReply(ctx, input, finalMessages, response)
 	if err != nil {
 		return "", response.Provider, response.Model, snapshot, err

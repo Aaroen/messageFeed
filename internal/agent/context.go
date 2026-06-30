@@ -116,6 +116,10 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 	if currentUnit.TokenEstimate > 0 {
 		snapshot.SemanticUnits = append(snapshot.SemanticUnits, currentUnit)
 	}
+	if activePlanBlock, ok := protectedActivePlanBlock(input.ActivePlan, input.ActiveGoal, b.now().UTC()); ok {
+		snapshot.Blocks = append(snapshot.Blocks, activePlanBlock)
+		snapshot.SemanticUnits = append(snapshot.SemanticUnits, NewProtectedContextBlockSemanticUnit("active_plan", ContextSemanticUnitPlan, activePlanBlock, "active_plan"))
+	}
 
 	if b.userContextProvider != nil {
 		block, err := b.userContextProvider.BuildUserContextBlock(ctx, input.UserID)
@@ -128,6 +132,12 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 			}
 			if block.GeneratedAt.IsZero() {
 				block.GeneratedAt = b.now().UTC()
+			}
+			if strings.TrimSpace(block.Source) == "" {
+				block.Source = "user_profile"
+			}
+			if strings.TrimSpace(block.RetentionReason) == "" {
+				block.RetentionReason = "user_explicit_context"
 			}
 			snapshot.Blocks = append(snapshot.Blocks, block)
 			snapshot.Observations = append(snapshot.Observations, CapabilityObservation{
@@ -258,12 +268,14 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 	}
 
 	snapshot.Blocks = append(snapshot.Blocks, ContextBlock{
-		Name:          "可用能力边界",
-		CapabilityKey: "capability.list_available",
-		Content:       b.capabilityBoundaryText(capabilityKeys),
-		ItemCount:     len(capabilityKeys),
-		GeneratedAt:   b.now().UTC(),
-		TrustLevel:    "system",
+		Name:            "可用能力边界",
+		CapabilityKey:   "capability.list_available",
+		Content:         b.capabilityBoundaryText(capabilityKeys),
+		ItemCount:       len(capabilityKeys),
+		GeneratedAt:     b.now().UTC(),
+		TrustLevel:      "system",
+		Source:          "system_boundary",
+		RetentionReason: "system_capability_boundary",
 	})
 	return finalizeContextSnapshot(snapshot, input, budgetSpec), nil
 }
@@ -333,6 +345,8 @@ func finalizeContextSnapshot(snapshot ContextSnapshot, input ContextBuildInput, 
 		if snapshot.Blocks[index].TokenEstimate == 0 {
 			snapshot.Blocks[index].TokenEstimate = estimateContextTokenCount(snapshot.Blocks[index].Content)
 		}
+		snapshot.Blocks[index].EvidenceRefs = NormalizeCanonicalRefs(snapshot.Blocks[index].EvidenceRefs)
+		snapshot.Blocks[index].CanonicalRef = NormalizeCanonicalRef(snapshot.Blocks[index].CanonicalRef)
 		if strings.TrimSpace(snapshot.Blocks[index].Source) == "" {
 			snapshot.Blocks[index].Source = "context_block"
 		}
@@ -368,16 +382,233 @@ func finalizeContextSnapshot(snapshot ContextSnapshot, input ContextBuildInput, 
 		})
 	}
 	snapshot.BudgetReport = report
-	snapshot.Bundle = ContextBundle{
+	snapshot.Bundle = buildContextBundle(snapshot, input, budgetSpec)
+	return refreshContextSnapshotBundle(snapshot)
+}
+
+func protectedActivePlanBlock(block *ContextBlock, activeGoal string, generatedAt time.Time) (ContextBlock, bool) {
+	if block == nil && strings.TrimSpace(activeGoal) == "" {
+		return ContextBlock{}, false
+	}
+	output := ContextBlock{}
+	if block != nil {
+		output = *block
+	}
+	if strings.TrimSpace(output.Content) == "" && strings.TrimSpace(activeGoal) != "" {
+		output.Content = "当前目标：" + strings.TrimSpace(activeGoal)
+	}
+	if strings.TrimSpace(output.Content) == "" {
+		return ContextBlock{}, false
+	}
+	if strings.TrimSpace(output.Name) == "" {
+		output.Name = "当前活动计划"
+	}
+	if strings.TrimSpace(output.Source) == "" {
+		output.Source = "active_plan"
+	}
+	if strings.TrimSpace(output.RetentionReason) == "" {
+		output.RetentionReason = "active_plan"
+	}
+	if strings.TrimSpace(output.TrustLevel) == "" {
+		output.TrustLevel = "planner"
+	}
+	if output.GeneratedAt.IsZero() {
+		output.GeneratedAt = generatedAt
+	}
+	output.EvidenceRefs = NormalizeCanonicalRefs(output.EvidenceRefs)
+	output.CanonicalRef = NormalizeCanonicalRef(output.CanonicalRef)
+	output.TokenEstimate = estimateContextTokenCount(output.Content)
+	return output, true
+}
+
+func buildContextBundle(snapshot ContextSnapshot, input ContextBuildInput, budgetSpec ContextBudgetSpec) ContextBundle {
+	var activePlan *ContextBlock
+	systemBlocks := []ContextBlock{}
+	userConstraints := []ContextBlock{}
+	memoryBlocks := []ContextBlock{}
+	keyArtifacts := []ContextBlock{}
+	for _, block := range snapshot.Blocks {
+		current := block
+		switch {
+		case isActivePlanContextBlock(current):
+			activePlan = contextBlockPointer(current)
+		case isSystemContextBlock(current):
+			systemBlocks = append(systemBlocks, current)
+		}
+		if isUserConstraintContextBlock(current) {
+			userConstraints = append(userConstraints, current)
+		}
+		if isMemoryContextBlock(current) {
+			memoryBlocks = append(memoryBlocks, current)
+		}
+		if isArtifactContextBlock(current) {
+			keyArtifacts = append(keyArtifacts, current)
+		}
+	}
+	activeGoal := strings.TrimSpace(input.ActiveGoal)
+	if activeGoal == "" && activePlan != nil {
+		activeGoal = activePlan.Content
+	}
+	bundle := ContextBundle{
 		BudgetProfile:   budgetSpec.Profile,
-		SystemBlocks:    append([]ContextBlock(nil), snapshot.Blocks...),
+		SystemBlocks:    systemBlocks,
 		RecentMessages:  append([]ContextMessage(nil), snapshot.Messages...),
 		CurrentMessage:  currentContextMessage(input.MessageText),
-		KeyObservations: append([]CapabilityObservation(nil), snapshot.Observations...),
+		ActiveGoal:      activeGoal,
+		ActivePlan:      activePlan,
+		KeyObservations: keyContextObservations(snapshot.Observations),
+		KeyArtifacts:    keyArtifacts,
+		UserConstraints: userConstraints,
+		MemoryBlocks:    memoryBlocks,
 		SemanticUnits:   append([]ContextSemanticUnit(nil), snapshot.SemanticUnits...),
 		BudgetReport:    snapshot.BudgetReport,
 	}
+	return bundle
+}
+
+func refreshContextSnapshotBundle(snapshot ContextSnapshot) ContextSnapshot {
+	if snapshot.Bundle.BudgetProfile == "" {
+		snapshot.Bundle.BudgetProfile = snapshot.BudgetProfile
+	}
+	snapshot.Bundle.KeyObservations = keyContextObservations(snapshot.Observations)
+	existing := append([]ContextBlock(nil), snapshot.Bundle.KeyArtifacts...)
+	generatedAt := latestContextBlockTime(snapshot.Blocks)
+	snapshot.Bundle.KeyArtifacts = dedupeContextBlocksByCanonicalRef(append(existing, contextArtifactBlocksFromObservations(snapshot.Bundle.KeyObservations, generatedAt)...))
+	snapshot.Bundle.BudgetReport = snapshot.BudgetReport
+	snapshot.Bundle.SemanticUnits = append([]ContextSemanticUnit(nil), snapshot.SemanticUnits...)
 	return snapshot
+}
+
+func isActivePlanContextBlock(block ContextBlock) bool {
+	return strings.TrimSpace(block.Source) == "active_plan" || strings.TrimSpace(block.RetentionReason) == "active_plan"
+}
+
+func isSystemContextBlock(block ContextBlock) bool {
+	if strings.TrimSpace(block.TrustLevel) == "system" || strings.TrimSpace(block.Source) == "system_boundary" {
+		return true
+	}
+	return strings.TrimSpace(block.CapabilityKey) == "capability.list_available"
+}
+
+func isUserConstraintContextBlock(block ContextBlock) bool {
+	if strings.TrimSpace(block.Source) == "user_profile" || strings.TrimSpace(block.TrustLevel) == "user_profile" {
+		return true
+	}
+	return strings.TrimSpace(block.CapabilityKey) == "user.profile.read"
+}
+
+func isMemoryContextBlock(block ContextBlock) bool {
+	source := strings.TrimSpace(block.Source)
+	key := strings.TrimSpace(block.CapabilityKey)
+	return source == "user_profile" || source == "history_query_plan" || key == "conversation.query_history"
+}
+
+func isArtifactContextBlock(block ContextBlock) bool {
+	ref := NormalizeCanonicalRef(block.CanonicalRef)
+	if strings.HasPrefix(ref, "artifact:") {
+		return true
+	}
+	source := strings.ToLower(strings.TrimSpace(block.Source))
+	name := strings.ToLower(strings.TrimSpace(block.Name))
+	return strings.Contains(source, "artifact") || strings.Contains(name, "artifact")
+}
+
+func keyContextObservations(observations []CapabilityObservation) []CapabilityObservation {
+	output := make([]CapabilityObservation, 0, len(observations))
+	for _, observation := range observations {
+		if strings.TrimSpace(observation.Capability) == "" && strings.TrimSpace(observation.Summary) == "" && strings.TrimSpace(observation.ObservationRef) == "" {
+			continue
+		}
+		if !isKeyContextObservation(observation) {
+			continue
+		}
+		observation.ObservationRef = NormalizeCanonicalRef(observation.ObservationRef)
+		observation.ArtifactRefs = NormalizeCanonicalRefs(observation.ArtifactRefs)
+		output = append(output, observation)
+	}
+	return output
+}
+
+func isKeyContextObservation(observation CapabilityObservation) bool {
+	capability := strings.TrimSpace(observation.Capability)
+	if strings.TrimSpace(observation.ObservationRef) != "" || len(observation.ArtifactRefs) > 0 {
+		return true
+	}
+	switch capability {
+	case "conversation.query_recent", "user.context", "capability.list_available":
+		return false
+	default:
+		return capability != ""
+	}
+}
+
+func contextArtifactBlocksFromObservations(observations []CapabilityObservation, generatedAt time.Time) []ContextBlock {
+	seen := map[string]struct{}{}
+	refs := []string{}
+	for _, observation := range observations {
+		for _, ref := range NormalizeCanonicalRefs(observation.ArtifactRefs) {
+			if !strings.HasPrefix(ref, "artifact:") {
+				continue
+			}
+			if _, ok := seen[ref]; ok {
+				continue
+			}
+			seen[ref] = struct{}{}
+			refs = append(refs, ref)
+		}
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return []ContextBlock{{
+		Name:            "关键 artifact 引用",
+		CapabilityKey:   "artifact.refs",
+		Content:         strings.Join(refs, "\n"),
+		ItemCount:       len(refs),
+		GeneratedAt:     generatedAt,
+		TrustLevel:      "artifact_ref",
+		Source:          "observation_artifact_refs",
+		EvidenceRefs:    append([]string(nil), refs...),
+		CanonicalRef:    refs[0],
+		TokenEstimate:   estimateContextTokenCount(strings.Join(refs, "\n")),
+		RetentionReason: "key_artifact_refs",
+	}}
+}
+
+func contextBlockPointer(block ContextBlock) *ContextBlock {
+	return &block
+}
+
+func latestContextBlockTime(blocks []ContextBlock) time.Time {
+	var latest time.Time
+	for _, block := range blocks {
+		if block.GeneratedAt.After(latest) {
+			latest = block.GeneratedAt
+		}
+	}
+	if latest.IsZero() {
+		return time.Now().UTC()
+	}
+	return latest
+}
+
+func dedupeContextBlocksByCanonicalRef(blocks []ContextBlock) []ContextBlock {
+	output := make([]ContextBlock, 0, len(blocks))
+	seen := map[string]struct{}{}
+	for _, block := range blocks {
+		key := NormalizeCanonicalRef(block.CanonicalRef)
+		if key == "" {
+			key = strings.TrimSpace(block.Name) + "\n" + strings.TrimSpace(block.Content)
+		}
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		output = append(output, block)
+	}
+	return output
 }
 
 func currentContextMessage(message string) *ContextMessage {
