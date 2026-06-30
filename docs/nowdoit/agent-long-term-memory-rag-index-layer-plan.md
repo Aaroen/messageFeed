@@ -640,7 +640,7 @@ projection:
 - [x] 调整 `ResolveAgentFactSources`，确保 chunk ref 能回表到父级事实并定位片段。
 - [x] 接入 ContextBundle 投影，显式区分 `index_hit`、`source_fact` 和 `projection`。
 - [x] 将主 Agent recall plan 接入统一 retrieval service，子 Agent 只能通过受控工具请求补充上下文。
-- [ ] 增加 Web/API 观测能力，展示 recall query、命中来源、分数、回表事实和投影内容。
+- [x] 增加 Web/API 观测能力，展示 recall query、命中来源、分数、回表事实和投影内容。
 - [ ] 完成初始化、精确查询、语义查询、超 token 场景、用户隔离和风险控制验收。
 - [ ] 每完成一个可独立验证阶段后提交并推送。
 - [ ] 全部实现完成后重新部署上线，并核实 readyz、migration version、索引行数和召回链路。

@@ -194,6 +194,76 @@ func TestAgentCallbackReplayExecuteRoute(t *testing.T) {
 	}
 }
 
+func TestAgentFactIndexStatsRoute(t *testing.T) {
+	fakeService := &fakeAgentProgressService{
+		factStats: service.AgentFactIndexStatsResult{UserID: 1, FactIndexCount: 3, ReadyCount: 2},
+	}
+	router := gin.New()
+	api := router.Group("/api/v1")
+	registerAgentSessionRoutes(api, fakeService, nil)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/agent/fact-index/stats", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	var response struct {
+		Data service.AgentFactIndexStatsResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.FactIndexCount != 3 || response.Data.ReadyCount != 2 {
+		t.Fatalf("stats = %#v", response.Data)
+	}
+}
+
+func TestAgentFactIndexBackfillRoute(t *testing.T) {
+	fakeService := &fakeAgentProgressService{
+		backfillResult: service.AgentFactIndexBackfillResult{ProcessedCount: 5, FailedCount: 1},
+	}
+	router := gin.New()
+	api := router.Group("/api/v1")
+	registerAgentSessionRoutes(api, fakeService, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/agent/fact-index/backfill", strings.NewReader(`{"limit":50}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if fakeService.backfillInput.Limit != 50 {
+		t.Fatalf("backfill input = %#v", fakeService.backfillInput)
+	}
+}
+
+func TestAgentFactRecallPreviewRoute(t *testing.T) {
+	fakeService := &fakeAgentProgressService{
+		recallResult: service.AgentFactRecallPreviewResult{
+			Hits: []service.AgentFactRecallHitResponse{{CanonicalRef: "transcript:1", FinalScore: 0.9}},
+		},
+	}
+	router := gin.New()
+	api := router.Group("/api/v1")
+	registerAgentSessionRoutes(api, fakeService, nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/agent/fact-recall/preview", strings.NewReader(`{"query":"历史偏好","mode":"hybrid","limit":8}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if fakeService.recallInput.Query != "历史偏好" || fakeService.recallInput.Mode != "hybrid" {
+		t.Fatalf("recall input = %#v", fakeService.recallInput)
+	}
+}
+
 type fakeAgentProgressService struct {
 	query                service.AgentProgressQuery
 	progress             service.AgentProgressResult
@@ -202,6 +272,11 @@ type fakeAgentProgressService struct {
 	cancelResult         service.CancelAgentScheduledTaskResult
 	callbackReplayInput  service.AgentCallbackReplayInput
 	callbackReplayResult service.AgentCallbackReplayAPIResult
+	factStats            service.AgentFactIndexStatsResult
+	backfillInput        service.AgentFactIndexBackfillInput
+	backfillResult       service.AgentFactIndexBackfillResult
+	recallInput          service.AgentFactRecallPreviewInput
+	recallResult         service.AgentFactRecallPreviewResult
 }
 
 func (f *fakeAgentProgressService) ListSessions(context.Context, service.CurrentAuth) (service.AgentSessionListResult, error) {
@@ -286,4 +361,18 @@ func (f *fakeAgentProgressService) RejectMemoryCandidate(context.Context, servic
 
 func (f *fakeAgentProgressService) RevokeMemoryCandidate(context.Context, service.CurrentAuth, int64, service.AgentMemoryCandidateDecisionInput) (service.AgentMemoryCandidateDecisionResult, error) {
 	return service.AgentMemoryCandidateDecisionResult{}, nil
+}
+
+func (f *fakeAgentProgressService) RunFactIndexBackfill(_ context.Context, _ service.CurrentAuth, input service.AgentFactIndexBackfillInput) (service.AgentFactIndexBackfillResult, error) {
+	f.backfillInput = input
+	return f.backfillResult, nil
+}
+
+func (f *fakeAgentProgressService) GetFactIndexStats(context.Context, service.CurrentAuth) (service.AgentFactIndexStatsResult, error) {
+	return f.factStats, nil
+}
+
+func (f *fakeAgentProgressService) PreviewFactRecall(_ context.Context, _ service.CurrentAuth, input service.AgentFactRecallPreviewInput) (service.AgentFactRecallPreviewResult, error) {
+	f.recallInput = input
+	return f.recallResult, nil
 }

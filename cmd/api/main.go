@@ -231,7 +231,10 @@ func main() {
 			service.WithAuthWeChatWorkOAuth(weChatWorkOAuth),
 		)
 		agentApprovalService = service.NewAgentApprovalService(agentApprovalRepository)
-		agentSessionService = service.NewAgentSessionService(agentRepository)
+		agentSessionService = service.NewAgentSessionService(
+			agentRepository,
+			service.WithAgentSessionEmbeddingClient(embeddingClient, cfg.Embedding.Model),
+		)
 		agentScheduleEvalService = service.NewAgentScheduleEvalService(agentRepository)
 		agentLLMConfigSecret := service.AgentLLMConfigSecretFromConfig(cfg)
 		agentLLMConfigService = service.NewAgentLLMConfigService(

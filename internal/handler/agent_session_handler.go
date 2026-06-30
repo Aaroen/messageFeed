@@ -36,6 +36,9 @@ type agentSessionService interface {
 	ApplyMemoryCandidate(ctx context.Context, auth service.CurrentAuth, candidateID int64) (service.AgentMemoryCandidateDecisionResult, error)
 	RejectMemoryCandidate(ctx context.Context, auth service.CurrentAuth, candidateID int64, input service.AgentMemoryCandidateDecisionInput) (service.AgentMemoryCandidateDecisionResult, error)
 	RevokeMemoryCandidate(ctx context.Context, auth service.CurrentAuth, candidateID int64, input service.AgentMemoryCandidateDecisionInput) (service.AgentMemoryCandidateDecisionResult, error)
+	RunFactIndexBackfill(ctx context.Context, auth service.CurrentAuth, input service.AgentFactIndexBackfillInput) (service.AgentFactIndexBackfillResult, error)
+	GetFactIndexStats(ctx context.Context, auth service.CurrentAuth) (service.AgentFactIndexStatsResult, error)
+	PreviewFactRecall(ctx context.Context, auth service.CurrentAuth, input service.AgentFactRecallPreviewInput) (service.AgentFactRecallPreviewResult, error)
 }
 
 type authPasswordVerifier interface {
@@ -68,6 +71,21 @@ type agentMemoryCandidateDecisionRequest struct {
 	Reason string `json:"reason"`
 }
 
+type agentFactIndexBackfillRequest struct {
+	Limit int `json:"limit"`
+}
+
+type agentFactRecallPreviewRequest struct {
+	Mode         string   `json:"mode"`
+	Query        string   `json:"query"`
+	SessionID    int64    `json:"session_id"`
+	TurnID       int64    `json:"turn_id"`
+	FactTypes    []string `json:"fact_types"`
+	MemoryKinds  []string `json:"memory_kinds"`
+	Limit        int      `json:"limit"`
+	MaxRiskLevel string   `json:"max_risk_level"`
+}
+
 func registerAgentSessionRoutes(router *gin.RouterGroup, sessionService agentSessionService, authVerifier authPasswordVerifier) {
 	handler := agentSessionHandler{service: sessionService, authVerifier: authVerifier}
 	agent := router.Group("/agent")
@@ -86,12 +104,75 @@ func registerAgentSessionRoutes(router *gin.RouterGroup, sessionService agentSes
 	agent.POST("/memory-candidates/:candidate_id/apply", handler.applyMemoryCandidate)
 	agent.POST("/memory-candidates/:candidate_id/reject", handler.rejectMemoryCandidate)
 	agent.POST("/memory-candidates/:candidate_id/revoke", handler.revokeMemoryCandidate)
+	agent.GET("/fact-index/stats", handler.factIndexStats)
+	agent.POST("/fact-index/backfill", handler.factIndexBackfill)
+	agent.POST("/fact-recall/preview", handler.factRecallPreview)
 	agent.POST("/callback-replay/requests", handler.requestCallbackReplay)
 	agent.POST("/callback-replay/execute", handler.executeCallbackReplay)
 	agent.POST("/sessions/:id/select", handler.selectSession)
 	agent.POST("/sessions/:id/rebuild-context", handler.rebuildContext)
 	agent.DELETE("/sessions/:id/context", handler.clearContext)
 	agent.DELETE("/sessions/:id", handler.deleteSession)
+}
+
+func (h agentSessionHandler) factIndexStats(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	result, err := h.service.GetFactIndexStats(c.Request.Context(), currentAuth(c))
+	if err != nil {
+		RenderError(c, err, "load fact index stats failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) factIndexBackfill(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	var request agentFactIndexBackfillRequest
+	if err := c.ShouldBindJSON(&request); err != nil && err != io.EOF {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	result, err := h.service.RunFactIndexBackfill(c.Request.Context(), currentAuth(c), service.AgentFactIndexBackfillInput{
+		Limit: request.Limit,
+	})
+	if err != nil {
+		RenderError(c, err, "run fact index backfill failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) factRecallPreview(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	var request agentFactRecallPreviewRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	result, err := h.service.PreviewFactRecall(c.Request.Context(), currentAuth(c), service.AgentFactRecallPreviewInput{
+		Mode:         request.Mode,
+		Query:        request.Query,
+		SessionID:    request.SessionID,
+		TurnID:       request.TurnID,
+		FactTypes:    request.FactTypes,
+		MemoryKinds:  request.MemoryKinds,
+		Limit:        request.Limit,
+		MaxRiskLevel: request.MaxRiskLevel,
+	})
+	if err != nil {
+		RenderError(c, err, "preview fact recall failed")
+		return
+	}
+	Success(c, result)
 }
 
 func (h agentSessionHandler) requestCallbackReplay(c *gin.Context) {

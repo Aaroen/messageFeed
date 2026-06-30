@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/llm"
 	"sort"
 	"strings"
 	"time"
@@ -39,8 +40,10 @@ type AgentSessionRepository interface {
 }
 
 type AgentSessionService struct {
-	repository AgentSessionRepository
-	now        func() time.Time
+	repository     AgentSessionRepository
+	embedding      llm.EmbeddingClient
+	embeddingModel string
+	now            func() time.Time
 }
 
 type AgentMemoryCandidateResponse struct {
@@ -90,6 +93,95 @@ type AgentMemoryBlockResponse struct {
 	UpdatedAt    string   `json:"updated_at"`
 }
 
+type AgentFactIndexBackfillInput struct {
+	Limit int `json:"limit"`
+}
+
+type AgentFactIndexBackfillResult struct {
+	ProcessedCount int    `json:"processed_count"`
+	FailedCount    int    `json:"failed_count"`
+	StartedAt      string `json:"started_at"`
+	FinishedAt     string `json:"finished_at"`
+}
+
+type AgentFactIndexStatsResult struct {
+	UserID               int64            `json:"user_id"`
+	FactIndexCount       int64            `json:"fact_index_count"`
+	ReadyCount           int64            `json:"ready_count"`
+	PendingCount         int64            `json:"pending_count"`
+	FailedCount          int64            `json:"failed_count"`
+	ArchivedCount        int64            `json:"archived_count"`
+	EmbeddingCount       int64            `json:"embedding_count"`
+	ReadyEmbeddingCount  int64            `json:"ready_embedding_count"`
+	FailedEmbeddingCount int64            `json:"failed_embedding_count"`
+	LastIndexedAt        string           `json:"last_indexed_at,omitempty"`
+	LastEmbeddedAt       string           `json:"last_embedded_at,omitempty"`
+	ByFactType           map[string]int64 `json:"by_fact_type"`
+	ByMemoryKind         map[string]int64 `json:"by_memory_kind"`
+}
+
+type AgentFactRecallPreviewInput struct {
+	Mode         string   `json:"mode"`
+	Query        string   `json:"query"`
+	SessionID    int64    `json:"session_id"`
+	TurnID       int64    `json:"turn_id"`
+	FactTypes    []string `json:"fact_types"`
+	MemoryKinds  []string `json:"memory_kinds"`
+	Limit        int      `json:"limit"`
+	MaxRiskLevel string   `json:"max_risk_level"`
+}
+
+type AgentFactRecallPreviewResult struct {
+	Plan        AgentFactRecallPlanResponse   `json:"plan"`
+	Hits        []AgentFactRecallHitResponse  `json:"hits"`
+	Projections []AgentFactProjectionResponse `json:"projections"`
+	GeneratedAt string                        `json:"generated_at"`
+}
+
+type AgentFactRecallPlanResponse struct {
+	Mode         string   `json:"mode"`
+	Query        string   `json:"query"`
+	UserID       int64    `json:"user_id"`
+	SessionID    int64    `json:"session_id,omitempty"`
+	TurnID       int64    `json:"turn_id,omitempty"`
+	FactTypes    []string `json:"fact_types"`
+	MemoryKinds  []string `json:"memory_kinds"`
+	Limit        int      `json:"limit"`
+	MaxRiskLevel string   `json:"max_risk_level"`
+}
+
+type AgentFactRecallHitResponse struct {
+	CanonicalRef    string   `json:"canonical_ref"`
+	FactType        string   `json:"fact_type"`
+	FactID          int64    `json:"fact_id"`
+	MemoryKind      string   `json:"memory_kind"`
+	StructuredScore float64  `json:"structured_score"`
+	FullTextScore   float64  `json:"fulltext_score"`
+	VectorScore     float64  `json:"vector_score"`
+	ImportanceScore float64  `json:"importance_score"`
+	RecencyScore    float64  `json:"recency_score"`
+	RelationScore   float64  `json:"relation_score"`
+	FinalScore      float64  `json:"final_score"`
+	HitSources      []string `json:"hit_sources"`
+	Reason          string   `json:"reason"`
+	Summary         string   `json:"summary"`
+	RiskLevel       string   `json:"risk_level"`
+	UpdatedAt       string   `json:"updated_at"`
+}
+
+type AgentFactProjectionResponse struct {
+	CanonicalRef  string           `json:"canonical_ref"`
+	FactType      string           `json:"fact_type"`
+	FactID        int64            `json:"fact_id"`
+	Title         string           `json:"title"`
+	Text          string           `json:"text"`
+	TokenEstimate int              `json:"token_estimate"`
+	TrustLevel    string           `json:"trust_level"`
+	SourceRefs    []string         `json:"source_refs"`
+	Metadata      domain.AgentJSON `json:"metadata"`
+	CreatedAt     string           `json:"created_at"`
+}
+
 type AgentSessionServiceOption func(*AgentSessionService)
 
 func WithAgentSessionNow(now func() time.Time) AgentSessionServiceOption {
@@ -97,6 +189,13 @@ func WithAgentSessionNow(now func() time.Time) AgentSessionServiceOption {
 		if now != nil {
 			service.now = now
 		}
+	}
+}
+
+func WithAgentSessionEmbeddingClient(client llm.EmbeddingClient, model string) AgentSessionServiceOption {
+	return func(service *AgentSessionService) {
+		service.embedding = client
+		service.embeddingModel = strings.TrimSpace(model)
 	}
 }
 
@@ -1916,6 +2015,119 @@ func (s *AgentSessionService) ListMemoryCandidates(ctx context.Context, auth Cur
 		result.Candidates = append(result.Candidates, agentMemoryCandidateResponse(candidate))
 	}
 	return result, nil
+}
+
+type agentFactIndexOperationsRepository interface {
+	BackfillAgentFactArchiveIndex(ctx context.Context, limit int) (domain.AgentFactBackfillResult, error)
+	GetAgentFactIndexStats(ctx context.Context, userID int64) (domain.AgentFactIndexStats, error)
+}
+
+func (s *AgentSessionService) RunFactIndexBackfill(ctx context.Context, auth CurrentAuth, input AgentFactIndexBackfillInput) (AgentFactIndexBackfillResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentFactIndexBackfillResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_index_unavailable", "agent fact index service is unavailable", "service.agent_session.fact_index_backfill", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return AgentFactIndexBackfillResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	store, ok := any(s.repository).(agentFactIndexOperationsRepository)
+	if !ok {
+		return AgentFactIndexBackfillResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_index_store_unavailable", "agent fact index store is unavailable", "service.agent_session.fact_index_backfill", false, nil)
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	startedAt := s.now().UTC()
+	result, err := store.BackfillAgentFactArchiveIndex(ctx, limit)
+	if err != nil {
+		return AgentFactIndexBackfillResult{}, err
+	}
+	finishedAt := s.now().UTC()
+	return AgentFactIndexBackfillResult{
+		ProcessedCount: result.ProcessedCount,
+		FailedCount:    result.FailedCount,
+		StartedAt:      formatOptionalTime(&startedAt),
+		FinishedAt:     formatOptionalTime(&finishedAt),
+	}, nil
+}
+
+func (s *AgentSessionService) GetFactIndexStats(ctx context.Context, auth CurrentAuth) (AgentFactIndexStatsResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentFactIndexStatsResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_index_unavailable", "agent fact index service is unavailable", "service.agent_session.fact_index_stats", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return AgentFactIndexStatsResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	store, ok := any(s.repository).(agentFactIndexOperationsRepository)
+	if !ok {
+		return AgentFactIndexStatsResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_index_store_unavailable", "agent fact index store is unavailable", "service.agent_session.fact_index_stats", false, nil)
+	}
+	stats, err := store.GetAgentFactIndexStats(ctx, auth.User.ID)
+	if err != nil {
+		return AgentFactIndexStatsResult{}, err
+	}
+	return agentFactIndexStatsResult(stats), nil
+}
+
+func (s *AgentSessionService) PreviewFactRecall(ctx context.Context, auth CurrentAuth, input AgentFactRecallPreviewInput) (AgentFactRecallPreviewResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentFactRecallPreviewResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_recall_unavailable", "agent fact recall service is unavailable", "service.agent_session.fact_recall_preview", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return AgentFactRecallPreviewResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	query := strings.TrimSpace(input.Query)
+	if query == "" {
+		return AgentFactRecallPreviewResult{}, fmt.Errorf("%w: query is required", domain.ErrInvalidInput)
+	}
+	store, ok := any(s.repository).(AgentConversationRepository)
+	if !ok {
+		return AgentFactRecallPreviewResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_recall_store_unavailable", "agent fact recall store is unavailable", "service.agent_session.fact_recall_preview", false, nil)
+	}
+	mode := domain.AgentFactRecallMode(strings.TrimSpace(input.Mode))
+	if !mode.Valid() {
+		mode = domain.AgentFactRecallModeHybrid
+	}
+	factTypes, err := parseAgentFactTypeStrings(input.FactTypes)
+	if err != nil {
+		return AgentFactRecallPreviewResult{}, err
+	}
+	memoryKinds, err := parseAgentMemoryKindStrings(input.MemoryKinds)
+	if err != nil {
+		return AgentFactRecallPreviewResult{}, err
+	}
+	riskLevel := domain.AgentMemoryRiskLevel(strings.TrimSpace(input.MaxRiskLevel))
+	if !riskLevel.Valid() {
+		riskLevel = domain.AgentMemoryRiskMedium
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 30 {
+		limit = 30
+	}
+	retriever := newAgentFactRetriever(store, s.embedding, s.embeddingModel, s.now)
+	result, err := retriever.Recall(ctx, domain.AgentFactRecallPlan{
+		Mode:            mode,
+		Query:           query,
+		UserID:          auth.User.ID,
+		SessionID:       input.SessionID,
+		TurnID:          input.TurnID,
+		FactTypes:       factTypes,
+		MemoryKinds:     memoryKinds,
+		Limit:           limit,
+		NeedsSourceFact: true,
+		MaxRiskLevel:    riskLevel,
+		EmbeddingModel:  s.embeddingModel,
+	})
+	if err != nil {
+		return AgentFactRecallPreviewResult{}, err
+	}
+	return agentFactRecallPreviewResult(result), nil
 }
 
 func (s *AgentSessionService) ApplyMemoryCandidate(ctx context.Context, auth CurrentAuth, candidateID int64) (AgentMemoryCandidateDecisionResult, error) {
@@ -4590,4 +4802,152 @@ func agentMemoryBlockResponse(block domain.AgentMemoryBlock) AgentMemoryBlockRes
 		CreatedAt:    block.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:    block.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+}
+
+func agentFactIndexStatsResult(stats domain.AgentFactIndexStats) AgentFactIndexStatsResult {
+	return AgentFactIndexStatsResult{
+		UserID:               stats.UserID,
+		FactIndexCount:       stats.FactIndexCount,
+		ReadyCount:           stats.ReadyCount,
+		PendingCount:         stats.PendingCount,
+		FailedCount:          stats.FailedCount,
+		ArchivedCount:        stats.ArchivedCount,
+		EmbeddingCount:       stats.EmbeddingCount,
+		ReadyEmbeddingCount:  stats.ReadyEmbeddingCount,
+		FailedEmbeddingCount: stats.FailedEmbeddingCount,
+		LastIndexedAt:        formatOptionalTime(stats.LastIndexedAt),
+		LastEmbeddedAt:       formatOptionalTime(stats.LastEmbeddedAt),
+		ByFactType:           cloneInt64Map(stats.ByFactType),
+		ByMemoryKind:         cloneInt64Map(stats.ByMemoryKind),
+	}
+}
+
+func agentFactRecallPreviewResult(result domain.AgentFactRecallResult) AgentFactRecallPreviewResult {
+	output := AgentFactRecallPreviewResult{
+		Plan:        agentFactRecallPlanResponse(result.Plan),
+		Hits:        make([]AgentFactRecallHitResponse, 0, len(result.Hits)),
+		Projections: make([]AgentFactProjectionResponse, 0, len(result.Projections)),
+		GeneratedAt: formatOptionalTime(&result.GeneratedAt),
+	}
+	for _, hit := range result.Hits {
+		output.Hits = append(output.Hits, agentFactRecallHitResponse(hit))
+	}
+	for _, projection := range result.Projections {
+		output.Projections = append(output.Projections, agentFactProjectionResponse(projection))
+	}
+	return output
+}
+
+func agentFactRecallPlanResponse(plan domain.AgentFactRecallPlan) AgentFactRecallPlanResponse {
+	return AgentFactRecallPlanResponse{
+		Mode:         string(plan.Mode),
+		Query:        plan.Query,
+		UserID:       plan.UserID,
+		SessionID:    plan.SessionID,
+		TurnID:       plan.TurnID,
+		FactTypes:    agentFactTypeStringSlice(plan.FactTypes),
+		MemoryKinds:  agentMemoryKindStringSlice(plan.MemoryKinds),
+		Limit:        plan.Limit,
+		MaxRiskLevel: string(plan.MaxRiskLevel),
+	}
+}
+
+func agentFactRecallHitResponse(hit domain.AgentFactRecallHit) AgentFactRecallHitResponse {
+	return AgentFactRecallHitResponse{
+		CanonicalRef:    hit.CanonicalRef,
+		FactType:        string(hit.Fact.FactType),
+		FactID:          hit.Fact.FactID,
+		MemoryKind:      string(hit.Fact.MemoryKind),
+		StructuredScore: hit.StructuredScore,
+		FullTextScore:   hit.FullTextScore,
+		VectorScore:     hit.VectorScore,
+		ImportanceScore: hit.ImportanceScore,
+		RecencyScore:    hit.RecencyScore,
+		RelationScore:   hit.RelationScore,
+		FinalScore:      hit.FinalScore,
+		HitSources:      append([]string(nil), hit.HitSources...),
+		Reason:          hit.Reason,
+		Summary:         hit.Fact.SummaryForIndex,
+		RiskLevel:       string(hit.Fact.RiskLevel),
+		UpdatedAt:       formatOptionalTime(&hit.Fact.UpdatedAt),
+	}
+}
+
+func agentFactProjectionResponse(projection domain.AgentFactProjection) AgentFactProjectionResponse {
+	return AgentFactProjectionResponse{
+		CanonicalRef:  projection.CanonicalRef,
+		FactType:      string(projection.SourceFact.FactType),
+		FactID:        projection.SourceFact.FactID,
+		Title:         projection.SourceFact.Title,
+		Text:          projection.Text,
+		TokenEstimate: projection.TokenEstimate,
+		TrustLevel:    projection.TrustLevel,
+		SourceRefs:    append([]string(nil), projection.SourceFact.SourceRefs...),
+		Metadata:      cloneAgentJSON(projection.SourceFact.Metadata),
+		CreatedAt:     formatOptionalTime(&projection.SourceFact.CreatedAt),
+	}
+}
+
+func parseAgentFactTypeStrings(values []string) ([]domain.AgentFactType, error) {
+	output := make([]domain.AgentFactType, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		factType := domain.AgentFactType(value)
+		if !factType.Valid() {
+			return nil, fmt.Errorf("%w: invalid fact type %q", domain.ErrInvalidInput, value)
+		}
+		output = append(output, factType)
+	}
+	return output, nil
+}
+
+func parseAgentMemoryKindStrings(values []string) ([]domain.AgentMemoryKind, error) {
+	output := make([]domain.AgentMemoryKind, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		kind := domain.AgentMemoryKind(value)
+		if !kind.Valid() {
+			return nil, fmt.Errorf("%w: invalid memory kind %q", domain.ErrInvalidInput, value)
+		}
+		output = append(output, kind)
+	}
+	return output, nil
+}
+
+func agentFactTypeStringSlice(values []domain.AgentFactType) []string {
+	output := make([]string, 0, len(values))
+	for _, value := range values {
+		output = append(output, string(value))
+	}
+	return output
+}
+
+func agentMemoryKindStringSlice(values []domain.AgentMemoryKind) []string {
+	output := make([]string, 0, len(values))
+	for _, value := range values {
+		output = append(output, string(value))
+	}
+	return output
+}
+
+func cloneInt64Map(values map[string]int64) map[string]int64 {
+	output := map[string]int64{}
+	for key, value := range values {
+		output[key] = value
+	}
+	return output
+}
+
+func cloneAgentJSON(values domain.AgentJSON) domain.AgentJSON {
+	output := domain.AgentJSON{}
+	for key, value := range values {
+		output[key] = value
+	}
+	return output
 }

@@ -591,12 +591,7 @@ func (r *AgentRepository) indexRunContextTraceFact(ctx context.Context, trace do
 	}
 }
 
-type AgentFactBackfillResult struct {
-	ProcessedCount int
-	FailedCount    int
-}
-
-func (r *AgentRepository) BackfillAgentFactArchiveIndex(ctx context.Context, limit int) (AgentFactBackfillResult, error) {
+func (r *AgentRepository) BackfillAgentFactArchiveIndex(ctx context.Context, limit int) (domain.AgentFactBackfillResult, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_fact_archive.backfill", "upsert", "agent_fact_archive_index")
 	var opErr error
 	defer func() { finish(opErr) }()
@@ -604,7 +599,7 @@ func (r *AgentRepository) BackfillAgentFactArchiveIndex(ctx context.Context, lim
 	if limit <= 0 {
 		limit = 500
 	}
-	result := AgentFactBackfillResult{}
+	result := domain.AgentFactBackfillResult{}
 	startedAt := time.Now().UTC()
 	job, _ := r.CreateAgentFactIndexJob(ctx, domain.AgentFactIndexJob{
 		JobType:   domain.AgentFactIndexJobBackfill,
@@ -634,7 +629,7 @@ func (r *AgentRepository) BackfillAgentFactArchiveIndex(ctx context.Context, lim
 	return result, nil
 }
 
-func (r *AgentRepository) backfillTranscriptFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+func (r *AgentRepository) backfillTranscriptFacts(ctx context.Context, limit int, result *domain.AgentFactBackfillResult) int {
 	processed := 0
 	var lastID int64
 	for {
@@ -654,7 +649,7 @@ func (r *AgentRepository) backfillTranscriptFacts(ctx context.Context, limit int
 	}
 }
 
-func (r *AgentRepository) backfillObservationFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+func (r *AgentRepository) backfillObservationFacts(ctx context.Context, limit int, result *domain.AgentFactBackfillResult) int {
 	processed := 0
 	var lastID int64
 	for {
@@ -674,7 +669,7 @@ func (r *AgentRepository) backfillObservationFacts(ctx context.Context, limit in
 	}
 }
 
-func (r *AgentRepository) backfillArtifactFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+func (r *AgentRepository) backfillArtifactFacts(ctx context.Context, limit int, result *domain.AgentFactBackfillResult) int {
 	processed := 0
 	var lastID int64
 	for {
@@ -694,7 +689,7 @@ func (r *AgentRepository) backfillArtifactFacts(ctx context.Context, limit int, 
 	}
 }
 
-func (r *AgentRepository) backfillPlanFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+func (r *AgentRepository) backfillPlanFacts(ctx context.Context, limit int, result *domain.AgentFactBackfillResult) int {
 	processed := 0
 	var lastID int64
 	for {
@@ -714,7 +709,7 @@ func (r *AgentRepository) backfillPlanFacts(ctx context.Context, limit int, resu
 	}
 }
 
-func (r *AgentRepository) backfillPlanStepFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+func (r *AgentRepository) backfillPlanStepFacts(ctx context.Context, limit int, result *domain.AgentFactBackfillResult) int {
 	processed := 0
 	var lastID int64
 	for {
@@ -734,7 +729,7 @@ func (r *AgentRepository) backfillPlanStepFacts(ctx context.Context, limit int, 
 	}
 }
 
-func (r *AgentRepository) backfillRunContextTraceFacts(ctx context.Context, limit int, result *AgentFactBackfillResult) int {
+func (r *AgentRepository) backfillRunContextTraceFacts(ctx context.Context, limit int, result *domain.AgentFactBackfillResult) int {
 	processed := 0
 	var lastID int64
 	for {

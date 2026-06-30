@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"messagefeed/internal/domain"
 	"strconv"
@@ -230,6 +231,83 @@ func (r *AgentRepository) UpdateAgentFactIndexJob(ctx context.Context, job domai
 		return domain.AgentFactIndexJob{}, opErr
 	}
 	return agentFactIndexJobModelToDomain(stored), nil
+}
+
+func (r *AgentRepository) GetAgentFactIndexStats(ctx context.Context, userID int64) (domain.AgentFactIndexStats, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_fact_index.stats", "select", "agent_fact_archive_index")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	if userID == 0 {
+		opErr = domain.ErrInvalidInput
+		return domain.AgentFactIndexStats{}, opErr
+	}
+	stats := domain.AgentFactIndexStats{
+		UserID:       userID,
+		ByFactType:   map[string]int64{},
+		ByMemoryKind: map[string]int64{},
+	}
+	base := r.db.WithContext(ctx).Model(&agentFactArchiveIndexModel{}).Where("user_id = ?", userID)
+	if err := base.Count(&stats.FactIndexCount).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentFactIndexStats{}, opErr
+	}
+	_ = base.Where("index_status = ?", string(domain.AgentFactIndexStatusReady)).Count(&stats.ReadyCount).Error
+	_ = base.Where("index_status = ?", string(domain.AgentFactIndexStatusPending)).Count(&stats.PendingCount).Error
+	_ = base.Where("index_status = ?", string(domain.AgentFactIndexStatusFailed)).Count(&stats.FailedCount).Error
+	_ = base.Where("index_status = ?", string(domain.AgentFactIndexStatusArchived)).Count(&stats.ArchivedCount).Error
+
+	var lastIndexed sql.NullTime
+	if err := r.db.WithContext(ctx).
+		Table("agent_fact_archive_index").
+		Select("MAX(updated_at)").
+		Where("user_id = ?", userID).
+		Row().
+		Scan(&lastIndexed); err == nil && lastIndexed.Valid {
+		value := lastIndexed.Time
+		stats.LastIndexedAt = &value
+	}
+	var groups []struct {
+		Key   string `gorm:"column:key"`
+		Count int64  `gorm:"column:count"`
+	}
+	if err := r.db.WithContext(ctx).
+		Table("agent_fact_archive_index").
+		Select("fact_type AS key, COUNT(*) AS count").
+		Where("user_id = ?", userID).
+		Group("fact_type").
+		Scan(&groups).Error; err == nil {
+		for _, group := range groups {
+			stats.ByFactType[group.Key] = group.Count
+		}
+	}
+	groups = nil
+	if err := r.db.WithContext(ctx).
+		Table("agent_fact_archive_index").
+		Select("memory_kind AS key, COUNT(*) AS count").
+		Where("user_id = ?", userID).
+		Group("memory_kind").
+		Scan(&groups).Error; err == nil {
+		for _, group := range groups {
+			stats.ByMemoryKind[group.Key] = group.Count
+		}
+	}
+
+	embeddingBase := r.db.WithContext(ctx).Model(&agentFactEmbeddingModel{}).Where("user_id = ?", userID)
+	_ = embeddingBase.Count(&stats.EmbeddingCount).Error
+	_ = embeddingBase.Where("embedding_status = ?", string(domain.AgentFactEmbeddingStatusReady)).Count(&stats.ReadyEmbeddingCount).Error
+	_ = embeddingBase.Where("embedding_status = ?", string(domain.AgentFactEmbeddingStatusFailed)).Count(&stats.FailedEmbeddingCount).Error
+	var lastEmbedded sql.NullTime
+	if err := r.db.WithContext(ctx).
+		Table("agent_fact_embeddings").
+		Select("MAX(updated_at)").
+		Where("user_id = ?", userID).
+		Row().
+		Scan(&lastEmbedded); err == nil && lastEmbedded.Valid {
+		value := lastEmbedded.Time
+		stats.LastEmbeddedAt = &value
+	}
+	return stats, nil
 }
 
 func normalizeAgentFactEmbedding(embedding domain.AgentFactEmbedding) domain.AgentFactEmbedding {

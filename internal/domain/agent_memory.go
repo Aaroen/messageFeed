@@ -294,6 +294,27 @@ type AgentFactIndexJob struct {
 	UpdatedAt      time.Time
 }
 
+type AgentFactBackfillResult struct {
+	ProcessedCount int
+	FailedCount    int
+}
+
+type AgentFactIndexStats struct {
+	UserID               int64
+	FactIndexCount       int64
+	ReadyCount           int64
+	PendingCount         int64
+	FailedCount          int64
+	ArchivedCount        int64
+	EmbeddingCount       int64
+	ReadyEmbeddingCount  int64
+	FailedEmbeddingCount int64
+	LastIndexedAt        *time.Time
+	LastEmbeddedAt       *time.Time
+	ByFactType           map[string]int64
+	ByMemoryKind         map[string]int64
+}
+
 type AgentMemoryCandidateStatus string
 
 const (
