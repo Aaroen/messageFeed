@@ -165,6 +165,58 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	}
 }
 
+func TestAgentConversationServiceCapturesLowRiskMemoryCandidate(t *testing.T) {
+	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	service.captureMemoryCandidateFromTranscript(context.Background(), domain.AgentTranscriptEntry{
+		ID:        10,
+		SessionID: 20,
+		TurnID:    30,
+		UserID:    40,
+		Role:      domain.AgentTranscriptRoleUser,
+		Content:   "以后默认使用中文并保持客观分析风格",
+		CreatedAt: now,
+	})
+
+	if len(repository.memoryCandidates) != 1 {
+		t.Fatalf("memory candidates = %d, want 1", len(repository.memoryCandidates))
+	}
+	if repository.memoryCandidates[0].Status != domain.AgentMemoryCandidateApplied {
+		t.Fatalf("candidate status = %q, want applied", repository.memoryCandidates[0].Status)
+	}
+	if len(repository.memoryBlocks) != 1 || repository.memoryBlocks[0].MemoryKind != domain.AgentMemoryKindPreference {
+		t.Fatalf("memory blocks = %#v, want preference block", repository.memoryBlocks)
+	}
+}
+
+func TestAgentConversationServiceKeepsHighRiskMemoryCandidatePending(t *testing.T) {
+	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+
+	service.captureMemoryCandidateFromTranscript(context.Background(), domain.AgentTranscriptEntry{
+		ID:        11,
+		SessionID: 21,
+		TurnID:    31,
+		UserID:    41,
+		Role:      domain.AgentTranscriptRoleUser,
+		Content:   "我的密码是 secret-token-123，以后记住",
+		CreatedAt: now,
+	})
+
+	if len(repository.memoryCandidates) != 1 {
+		t.Fatalf("memory candidates = %d, want 1", len(repository.memoryCandidates))
+	}
+	if repository.memoryCandidates[0].Status != domain.AgentMemoryCandidateRequiresConfirmation {
+		t.Fatalf("candidate status = %q, want requires_confirmation", repository.memoryCandidates[0].Status)
+	}
+	if len(repository.memoryBlocks) != 0 {
+		t.Fatalf("memory blocks = %#v, want none", repository.memoryBlocks)
+	}
+}
+
 func TestMainAgentPlanSpecRequestIncludesPlanningContextProjection(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()

@@ -163,7 +163,7 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	}
 	span.SetAttributes(attribute.Int64("agent.turn_id", turn.ID))
 
-	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
+	userTranscript, _ := s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
 		SessionID: session.ID,
 		TurnID:    turn.ID,
 		UserID:    account.UserID,
@@ -172,6 +172,7 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		Metadata:  domain.AgentJSON{"provider_message_id": input.ProviderMessageID},
 		CreatedAt: now,
 	})
+	s.captureMemoryCandidateFromTranscript(ctx, userTranscript)
 
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
@@ -333,7 +334,7 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 	if err != nil {
 		return ReceiveWebAgentTaskResult{}, err
 	}
-	_, _ = s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
+	userTranscript, _ := s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
 		SessionID: session.ID,
 		TurnID:    turn.ID,
 		UserID:    account.UserID,
@@ -346,6 +347,7 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 		},
 		CreatedAt: now,
 	})
+	s.captureMemoryCandidateFromTranscript(ctx, userTranscript)
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
 		TurnID:    turn.ID,
