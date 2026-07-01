@@ -2570,8 +2570,8 @@ func TestAgentConversationServiceExecutesConversationHistoryToolCall(t *testing.
 	if result.Reply != "你之前说过偏好关注 Go 和 AI 基础设施。" {
 		t.Fatalf("Reply = %q", result.Reply)
 	}
-	if llmClient.calls != 3 {
-		t.Fatalf("llm calls = %d, want 3", llmClient.calls)
+	if llmClient.calls != 4 {
+		t.Fatalf("llm calls = %d, want 4", llmClient.calls)
 	}
 	if len(llmClient.lastRequest.Messages) < 3 {
 		t.Fatalf("final llm messages = %#v", llmClient.lastRequest.Messages)
