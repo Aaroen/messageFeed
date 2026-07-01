@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
+	"messagefeed/internal/observability"
 	"strings"
 	"time"
 )
@@ -16,10 +18,12 @@ type agentRunRecordingExecutor struct {
 }
 
 func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.CapabilityExecuteInput) (agent.CapabilityExecuteResult, error) {
-	run, _ := e.createExecutorRun(ctx, input.ControllerRunID, input.SessionID, input.TurnID, input.Capability, domain.AgentJSON{
+	startedAt := e.nowUTC()
+	run, runErr := e.createExecutorRun(ctx, input.ControllerRunID, input.SessionID, input.TurnID, input.Capability, domain.AgentJSON{
 		"message":        safeSummary(input.Message, 500),
 		"capability_key": input.Capability.Key,
 	})
+	e.recordSubagentDispatchTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
 	if run.ID > 0 {
 		_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 			RunID:     run.ID,
@@ -34,6 +38,19 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 	}
 
 	result, err := e.base.Execute(ctx, input)
+	e.recordToolTraceEvent(ctx, agentToolTraceEventInput{
+		UserID:          input.UserID,
+		SessionID:       input.SessionID,
+		TurnID:          input.TurnID,
+		ControllerRunID: input.ControllerRunID,
+		Run:             run,
+		CapabilityKey:   input.Capability.Key,
+		ToolName:        input.Capability.Key,
+		InputSummary:    input.Message,
+		OutputSummary:   result.Observation.Summary,
+		StartedAt:       startedAt,
+		Err:             err,
+	})
 	if err != nil {
 		result.Observation = e.recordExecutorFailure(ctx, run, input.Capability.Key, input.Message, err)
 		return result, err
@@ -43,12 +60,14 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 }
 
 func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
-	run, _ := e.createExecutorRun(ctx, input.ControllerRunID, input.SessionID, input.TurnID, input.Capability, domain.AgentJSON{
+	startedAt := e.nowUTC()
+	run, runErr := e.createExecutorRun(ctx, input.ControllerRunID, input.SessionID, input.TurnID, input.Capability, domain.AgentJSON{
 		"message":        safeSummary(input.Message, 500),
 		"capability_key": input.Capability.Key,
 		"tool_call_id":   input.CallID,
 		"tool_arguments": safeSummary(input.RawArguments, 1000),
 	})
+	e.recordSubagentDispatchTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
 	if run.ID > 0 {
 		_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 			RunID:     run.ID,
@@ -63,12 +82,149 @@ func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCP
 	}
 
 	result, err := e.base.CallTool(ctx, input)
+	e.recordToolTraceEvent(ctx, agentToolTraceEventInput{
+		UserID:          input.UserID,
+		SessionID:       input.SessionID,
+		TurnID:          input.TurnID,
+		ControllerRunID: input.ControllerRunID,
+		Run:             run,
+		CapabilityKey:   input.Capability.Key,
+		ToolName:        firstNonEmptyString(input.Name, input.Tool.Name, input.Capability.Key),
+		InputSummary:    input.RawArguments,
+		OutputSummary:   result.TextContent(),
+		StartedAt:       startedAt,
+		RequestID:       input.RequestID,
+		TraceID:         input.TraceID,
+		Err:             err,
+	})
 	if err != nil {
 		result.Observation = e.recordExecutorFailure(ctx, run, input.Capability.Key, input.RawArguments, err)
 		return result, err
 	}
 	result.Observation = e.recordExecutorSuccess(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.TextContent(), 1)
 	return result, nil
+}
+
+type agentToolTraceEventInput struct {
+	UserID          int64
+	SessionID       int64
+	TurnID          int64
+	ControllerRunID int64
+	Run             domain.AgentRun
+	CapabilityKey   string
+	ToolName        string
+	InputSummary    string
+	OutputSummary   string
+	StartedAt       time.Time
+	RequestID       string
+	TraceID         string
+	Err             error
+}
+
+func (e agentRunRecordingExecutor) recordSubagentDispatchTraceEvent(ctx context.Context, userID int64, sessionID int64, turnID int64, parentRunID int64, run domain.AgentRun, capabilityKey string, err error) {
+	store, ok := any(e.base.repository).(agentTraceEventStore)
+	if !ok {
+		return
+	}
+	status := domain.AgentTraceEventSucceeded
+	if err != nil {
+		status = domain.AgentTraceEventFailed
+	} else if run.ID == 0 {
+		status = domain.AgentTraceEventSkipped
+	}
+	metrics.AgentSubagentDispatchesTotal.WithLabelValues(agentTraceLabelValue(capabilityKey), string(status)).Inc()
+	now := e.nowUTC()
+	event := domain.AgentTraceEvent{
+		RequestID:     observability.RequestID(ctx),
+		TraceID:       observability.TraceID(ctx),
+		SpanID:        observability.SpanID(ctx),
+		UserID:        userID,
+		SessionID:     sessionID,
+		TurnID:        turnID,
+		RunID:         run.ID,
+		ParentRunID:   parentRunID,
+		EventKind:     domain.AgentTraceEventSubagentDispatch,
+		EventName:     "executor_run_create",
+		Status:        status,
+		StartedAt:     now,
+		FinishedAt:    &now,
+		ModelKey:      run.ModelKey,
+		CapabilityKey: capabilityKey,
+		Metadata: domain.AgentJSON{
+			"capability_scope": run.CapabilityScope,
+		},
+		CreatedAt: now,
+	}
+	if err != nil {
+		event.ErrorCode = "executor_run_create_failed"
+		event.ErrorMessage = err.Error()
+	}
+	metrics.AgentTraceEventsTotal.WithLabelValues(string(event.EventKind), string(event.Status)).Inc()
+	_, _ = store.CreateAgentTraceEvent(ctx, event)
+}
+
+func (e agentRunRecordingExecutor) recordToolTraceEvent(ctx context.Context, input agentToolTraceEventInput) {
+	store, ok := any(e.base.repository).(agentTraceEventStore)
+	if !ok {
+		return
+	}
+	finishedAt := e.nowUTC()
+	durationMS := finishedAt.Sub(input.StartedAt).Milliseconds()
+	if durationMS < 0 {
+		durationMS = 0
+	}
+	status := agentTraceStatusFromError(input.Err)
+	capability := agentTraceLabelValue(input.CapabilityKey)
+	tool := agentTraceLabelValue(input.ToolName)
+	metrics.AgentToolExecutionsTotal.WithLabelValues(capability, tool, string(status)).Inc()
+	metrics.AgentToolExecutionDuration.WithLabelValues(capability, tool, string(status)).Observe(float64(durationMS) / 1000)
+	metrics.AgentTraceEventsTotal.WithLabelValues(string(domain.AgentTraceEventToolExecution), string(status)).Inc()
+	if durationMS > 0 {
+		metrics.AgentTraceEventDuration.WithLabelValues(string(domain.AgentTraceEventToolExecution), string(status)).Observe(float64(durationMS) / 1000)
+	}
+	event := domain.AgentTraceEvent{
+		RequestID:     firstNonEmptyString(input.RequestID, observability.RequestID(ctx)),
+		TraceID:       firstNonEmptyString(input.TraceID, observability.TraceID(ctx)),
+		SpanID:        observability.SpanID(ctx),
+		UserID:        input.UserID,
+		SessionID:     input.SessionID,
+		TurnID:        input.TurnID,
+		RunID:         input.Run.ID,
+		ParentRunID:   input.ControllerRunID,
+		EventKind:     domain.AgentTraceEventToolExecution,
+		EventName:     "capability_execute",
+		Status:        status,
+		StartedAt:     input.StartedAt,
+		FinishedAt:    &finishedAt,
+		DurationMS:    durationMS,
+		ModelKey:      input.Run.ModelKey,
+		CapabilityKey: input.CapabilityKey,
+		ToolName:      input.ToolName,
+		InputSummary:  safeSummary(input.InputSummary, 1000),
+		OutputSummary: safeSummary(input.OutputSummary, 1000),
+		CreatedAt:     finishedAt,
+	}
+	if input.Err != nil {
+		event.ErrorCode = "capability_execution_failed"
+		event.ErrorMessage = input.Err.Error()
+	}
+	_, _ = store.CreateAgentTraceEvent(ctx, event)
+}
+
+func (e agentRunRecordingExecutor) nowUTC() time.Time {
+	now := e.now
+	if now == nil {
+		now = time.Now
+	}
+	return now().UTC()
+}
+
+func agentTraceLabelValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }
 
 func (e agentRunRecordingExecutor) createExecutorRun(ctx context.Context, parentRunID int64, sessionID int64, turnID int64, capability agent.Capability, task domain.AgentJSON) (domain.AgentRun, error) {

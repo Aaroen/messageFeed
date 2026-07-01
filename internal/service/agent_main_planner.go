@@ -7,7 +7,11 @@ import (
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
+	"messagefeed/internal/metrics"
+	"messagefeed/internal/observability"
 	"strings"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const mainAgentPlanSpecMaxAttempts = 2
@@ -84,11 +88,90 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 	controllerRun domain.AgentRun,
 	input ReceiveWeChatWorkAppMessageInput,
 ) (mainAgentPlanSpecResult, error) {
+	startedAt := s.now().UTC()
+	ctx, span := observability.StartSpan(ctx, "service.agent.planner",
+		attribute.Int64("auth.user_id", account.UserID),
+		attribute.Int64("agent.session_id", session.ID),
+		attribute.Int64("agent.turn_id", turn.ID),
+		attribute.Int64("agent.run_id", controllerRun.ID),
+	)
+	plannerStatus := domain.AgentTraceEventFailed
+	needsHistoryRecall := false
+	needsApproval := false
+	needsSubAgent := false
+	attempts := 0
+	var plannerErr error
+	defer func() {
+		finishedAt, durationMS := agentTraceFinish(startedAt, s.now)
+		span.SetAttributes(
+			attribute.String("agent.planner.status", string(plannerStatus)),
+			attribute.Bool("agent.needs_history_recall", needsHistoryRecall),
+			attribute.Bool("agent.needs_approval", needsApproval),
+			attribute.Bool("agent.needs_subagent", needsSubAgent),
+			attribute.Int("agent.planner.attempts", attempts),
+		)
+		observability.EndSpan(span, plannerErr)
+		metrics.AgentPlannerRequestsTotal.WithLabelValues(string(plannerStatus), boolTraceLabel(needsHistoryRecall), boolTraceLabel(needsApproval)).Inc()
+		event := domain.AgentTraceEvent{
+			RequestID:    input.RequestID,
+			TraceID:      input.TraceID,
+			UserID:       account.UserID,
+			SessionID:    session.ID,
+			TurnID:       turn.ID,
+			RunID:        controllerRun.ID,
+			EventKind:    domain.AgentTraceEventPlanner,
+			EventName:    "main_agent_plan_spec",
+			Status:       plannerStatus,
+			StartedAt:    startedAt,
+			FinishedAt:   finishedAt,
+			DurationMS:   durationMS,
+			ModelKey:     controllerRun.ModelKey,
+			InputSummary: safeSummary(input.TextContent, 500),
+			Metadata: domain.AgentJSON{
+				"attempts":             attempts,
+				"needs_history_recall": needsHistoryRecall,
+				"needs_approval":       needsApproval,
+				"needs_sub_agent":      needsSubAgent,
+			},
+		}
+		if plannerErr != nil {
+			event.ErrorCode = "main_agent_planner_failed"
+			event.ErrorMessage = plannerErr.Error()
+		}
+		s.recordAgentTraceEvent(ctx, event)
+	}()
 	if s == nil || s.llmClient == nil {
-		return mainAgentPlanSpecResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "main_agent_planner_unavailable", "主 Agent 规划模型不可用，无法生成执行计划。", "service.agent.main_planner", true, nil)
+		plannerErr = domain.NewAppError(domain.ErrorKindUnavailable, "main_agent_planner_unavailable", "主 Agent 规划模型不可用，无法生成执行计划。", "service.agent.main_planner", true, nil)
+		return mainAgentPlanSpecResult{}, plannerErr
 	}
+	contextStartedAt := s.now().UTC()
 	contextProjection, err := s.mainAgentPlanningContextProjection(ctx, account, session, turn, input)
+	contextFinishedAt, contextDurationMS := agentTraceFinish(contextStartedAt, s.now)
+	contextStatus := agentTraceStatusFromError(err)
+	s.recordAgentTraceEvent(ctx, domain.AgentTraceEvent{
+		RequestID:    input.RequestID,
+		TraceID:      input.TraceID,
+		UserID:       account.UserID,
+		SessionID:    session.ID,
+		TurnID:       turn.ID,
+		RunID:        controllerRun.ID,
+		EventKind:    domain.AgentTraceEventContextProjection,
+		EventName:    "main_agent_context_projection",
+		Status:       contextStatus,
+		StartedAt:    contextStartedAt,
+		FinishedAt:   contextFinishedAt,
+		DurationMS:   contextDurationMS,
+		ModelKey:     controllerRun.ModelKey,
+		InputSummary: safeSummary(input.TextContent, 500),
+		Metadata: domain.AgentJSON{
+			"budget_profile":          contextProjection["budget_profile"],
+			"candidate_message_count": contextProjection["candidate_message_count"],
+			"candidate_query_limit":   contextProjection["candidate_query_limit"],
+			"context_budget_report":   contextProjection["context_budget_report"],
+		},
+	})
 	if err != nil {
+		plannerErr = err
 		return mainAgentPlanSpecResult{}, err
 	}
 	if len(contextProjection) > 0 {
@@ -97,6 +180,7 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 	var lastErr error
 	var lastRaw string
 	for attempt := 1; attempt <= mainAgentPlanSpecMaxAttempts; attempt++ {
+		attempts = attempt
 		// 每次尝试都把上一次错误和原始返回带回模型，允许模型自行修正 JSON 结构。
 		request := s.mainAgentPlanSpecRequest(account, session, turn, input, contextProjection, attempt, lastErr, lastRaw)
 		s.recordMainAgentPlanSpecTrace(ctx, controllerRun, "main_agent_plan_spec_request", domain.AgentJSON{
@@ -139,6 +223,9 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 			Attempts:  attempt,
 			Validated: true,
 		}
+		plannerStatus = domain.AgentTraceEventSucceeded
+		needsHistoryRecall = spec.NeedsHistoryRecall
+		needsSubAgent = spec.RequiresSubAgent
 		// 有效计划同时保存摘要和截断后的原始返回，便于后续核对模型实际规划过程。
 		s.recordMainAgentPlanSpecTrace(ctx, controllerRun, "main_agent_plan_spec_valid", domain.AgentJSON{
 			"attempt":      attempt,
@@ -152,7 +239,8 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 	if lastErr == nil {
 		lastErr = fmt.Errorf("主 Agent 未返回可用计划。")
 	}
-	return mainAgentPlanSpecResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "main_agent_plan_spec_invalid", lastErr.Error(), "service.agent.main_planner", true, nil)
+	plannerErr = domain.NewAppError(domain.ErrorKindUnavailable, "main_agent_plan_spec_invalid", lastErr.Error(), "service.agent.main_planner", true, nil)
+	return mainAgentPlanSpecResult{}, plannerErr
 }
 
 // mainAgentPlanSpecRequest 构造主 Agent 规划请求。

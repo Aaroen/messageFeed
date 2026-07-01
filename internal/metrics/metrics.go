@@ -233,6 +233,71 @@ var AgentReplyBytes = promauto.NewHistogramVec(
 	[]string{"provider", "status"},
 )
 
+// AgentTraceEventsTotal 记录 Agent 内部 waterfall 事件数。
+var AgentTraceEventsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_trace_events_total",
+		Help: "Agent 内部 waterfall 事件总数，按事件类型和状态分类",
+	},
+	[]string{"event_kind", "status"},
+)
+
+// AgentTraceEventDuration 记录 Agent 内部 waterfall 事件耗时。
+var AgentTraceEventDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_trace_event_duration_seconds",
+		Help:    "Agent 内部 waterfall 事件耗时分布（秒），按事件类型和状态分类",
+		Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0},
+	},
+	[]string{"event_kind", "status"},
+)
+
+// AgentPlannerRequestsTotal 记录主 Agent planner 结果。
+var AgentPlannerRequestsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_planner_requests_total",
+		Help: "主 Agent planner 请求总数，按状态、历史召回需求和审批需求分类",
+	},
+	[]string{"status", "needs_history_recall", "needs_approval"},
+)
+
+// AgentSubagentDispatchesTotal 记录子 Agent 下发结果。
+var AgentSubagentDispatchesTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_subagent_dispatches_total",
+		Help: "子 Agent 下发总数，按 capability 和状态分类",
+	},
+	[]string{"capability", "status"},
+)
+
+// AgentToolExecutionsTotal 记录 Agent 工具执行结果。
+var AgentToolExecutionsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_tool_executions_total",
+		Help: "Agent 工具执行总数，按 capability、工具和状态分类",
+	},
+	[]string{"capability", "tool", "status"},
+)
+
+// AgentToolExecutionDuration 记录 Agent 工具执行耗时。
+var AgentToolExecutionDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_tool_execution_duration_seconds",
+		Help:    "Agent 工具执行耗时分布（秒），按 capability、工具和状态分类",
+		Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0},
+	},
+	[]string{"capability", "tool", "status"},
+)
+
+// AgentApprovalsTotal 记录审批与治理决策结果。
+var AgentApprovalsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_approvals_total",
+		Help: "Agent 审批与治理决策总数，按决策和风险级别分类",
+	},
+	[]string{"decision", "risk_level"},
+)
+
 // LLMRequestsTotal 记录大模型请求总数，按模型、操作和状态分类。
 var LLMRequestsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
