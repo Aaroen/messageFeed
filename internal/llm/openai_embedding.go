@@ -7,20 +7,28 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"messagefeed/internal/metrics"
+	"messagefeed/internal/observability"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"messagefeed/internal/domain"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const defaultEmbeddingModel = "text-embedding-3-small"
+const embeddingDefaultOperation = "batch_embed"
 
 type EmbeddingRequest struct {
-	Input []string
+	Input     []string
+	Operation string
 }
 
 type EmbeddingResponse struct {
@@ -102,7 +110,7 @@ func NewOpenAICompatibleEmbeddingClient(config OpenAICompatibleEmbeddingConfig) 
 		if timeout <= 0 {
 			timeout = 60 * time.Second
 		}
-		client = &http.Client{Timeout: timeout}
+		client = &http.Client{Timeout: timeout, Transport: otelhttp.NewTransport(http.DefaultTransport)}
 	}
 	maxAttempts := config.MaxAttempts
 	if maxAttempts <= 0 {
@@ -119,23 +127,57 @@ func NewOpenAICompatibleEmbeddingClient(config OpenAICompatibleEmbeddingConfig) 
 	}, nil
 }
 
-func (c *OpenAICompatibleEmbeddingClient) Embed(ctx context.Context, request EmbeddingRequest) (EmbeddingResponse, error) {
+func (c *OpenAICompatibleEmbeddingClient) Embed(ctx context.Context, request EmbeddingRequest) (response EmbeddingResponse, err error) {
 	if c == nil {
 		return EmbeddingResponse{}, domain.NewAppError(domain.ErrorKindInvalidInput, "embedding_client_nil", "embedding client is nil", "llm.openai_embedding.embed", false, nil)
 	}
+	operation := strings.TrimSpace(request.Operation)
+	if operation == "" {
+		operation = embeddingDefaultOperation
+	}
 	input := make([]string, 0, len(request.Input))
+	inputChars := 0
 	for _, text := range request.Input {
 		text = strings.TrimSpace(text)
 		if text != "" {
 			input = append(input, text)
+			inputChars += len([]rune(text))
 		}
 	}
 	if len(input) == 0 {
 		return EmbeddingResponse{Provider: c.provider, Model: c.model}, nil
 	}
+	startedAt := time.Now()
+	ctx, span := observability.StartSpan(ctx, "llm.openai_embedding.embed",
+		attribute.String("llm.provider", c.provider),
+		attribute.String("llm.model", c.model),
+		attribute.String("embedding.operation", operation),
+		attribute.Int("embedding.input_count", len(input)),
+		attribute.Int("embedding.input_chars", inputChars),
+	)
+	defer func() {
+		status := "succeeded"
+		if err != nil {
+			status = "failed"
+		}
+		dimension := 0
+		if len(response.Embeddings) > 0 {
+			dimension = len(response.Embeddings[0])
+		}
+		span.SetAttributes(
+			attribute.String("embedding.status", status),
+			attribute.Int("embedding.dimension", dimension),
+			attribute.Int("embedding.output_count", len(response.Embeddings)),
+		)
+		metrics.AgentEmbeddingRequestsTotal.WithLabelValues(c.provider, c.model, operation, status).Inc()
+		metrics.AgentEmbeddingDuration.WithLabelValues(c.provider, c.model, operation, status).Observe(time.Since(startedAt).Seconds())
+		metrics.AgentEmbeddingBatchSize.WithLabelValues(c.provider, c.model, operation).Observe(float64(len(input)))
+		metrics.AgentEmbeddingInputChars.WithLabelValues(c.provider, c.model, operation).Observe(float64(inputChars))
+		observability.EndSpan(span, err)
+	}()
 	var lastErr error
 	for attempt := 1; attempt <= c.maxAttempts; attempt++ {
-		response, err := c.embedOnce(ctx, input)
+		response, err = c.embedOnce(ctx, input, operation)
 		if err == nil {
 			return response, nil
 		}
@@ -155,7 +197,7 @@ func (c *OpenAICompatibleEmbeddingClient) Embed(ctx context.Context, request Emb
 	return EmbeddingResponse{}, lastErr
 }
 
-func (c *OpenAICompatibleEmbeddingClient) embedOnce(ctx context.Context, input []string) (EmbeddingResponse, error) {
+func (c *OpenAICompatibleEmbeddingClient) embedOnce(ctx context.Context, input []string, operation string) (EmbeddingResponse, error) {
 	if err := c.waitRateLimit(ctx); err != nil {
 		return EmbeddingResponse{}, err
 	}
@@ -169,11 +211,14 @@ func (c *OpenAICompatibleEmbeddingClient) embedOnce(ctx context.Context, input [
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpStartedAt := time.Now()
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {
+		recordEmbeddingExternalHTTPRequest(operation, c.baseURL, "error", time.Since(httpStartedAt))
 		return EmbeddingResponse{}, err
 	}
 	defer httpResp.Body.Close()
+	recordEmbeddingExternalHTTPRequest(operation, c.baseURL, strconv.Itoa(httpResp.StatusCode), time.Since(httpStartedAt))
 	body, err := io.ReadAll(io.LimitReader(httpResp.Body, 8<<20))
 	if err != nil {
 		return EmbeddingResponse{}, err
@@ -251,4 +296,12 @@ func embeddingErrorRetryable(err error) bool {
 		return false
 	}
 	return appErr.Retryable
+}
+
+func recordEmbeddingExternalHTTPRequest(operation string, baseURL string, status string, duration time.Duration) {
+	if status == "" {
+		status = "unknown"
+	}
+	metrics.ExternalHTTPRequestsTotal.WithLabelValues("embedding_"+operation, llmHTTPHost(baseURL), status).Inc()
+	metrics.ExternalHTTPRequestDuration.WithLabelValues("embedding_"+operation, llmHTTPHost(baseURL)).Observe(duration.Seconds())
 }

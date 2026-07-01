@@ -6,6 +6,8 @@ import (
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
+	"messagefeed/internal/metrics"
+	"messagefeed/internal/observability"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +19,10 @@ type agentFactRetriever struct {
 	embedder       *agentFactEmbeddingService
 	embeddingModel string
 	now            func() time.Time
+}
+
+type agentRecallTraceStore interface {
+	CreateAgentRecallTrace(ctx context.Context, trace domain.AgentRecallTrace) (domain.AgentRecallTrace, error)
 }
 
 func newAgentFactRetriever(repository AgentConversationRepository, embedding llm.EmbeddingClient, embeddingModel string, now func() time.Time) *agentFactRetriever {
@@ -39,14 +45,52 @@ func newAgentFactRetriever(repository AgentConversationRepository, embedding llm
 	}
 }
 
-func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRecallPlan) (domain.AgentFactRecallResult, error) {
+func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRecallPlan) (result domain.AgentFactRecallResult, err error) {
 	if r == nil || r.repository == nil {
 		return domain.AgentFactRecallResult{}, nil
 	}
 	plan = normalizeAgentFactRecallPlan(plan, r.embeddingModel)
+	totalStartedAt := time.Now()
+	trace := domain.AgentRecallTrace{
+		RequestID:          observability.RequestID(ctx),
+		TraceID:            observability.TraceID(ctx),
+		UserID:             plan.UserID,
+		SessionID:          plan.SessionID,
+		TurnID:             plan.TurnID,
+		Mode:               plan.Mode,
+		QueryText:          plan.Query,
+		NeedsHistoryRecall: true,
+		HistoryQueryPlan: domain.AgentJSON{
+			"mode":            string(plan.Mode),
+			"query":           plan.Query,
+			"limit":           plan.Limit,
+			"fact_types":      agentFactTypesTraceValues(plan.FactTypes),
+			"memory_kinds":    agentMemoryKindsTraceValues(plan.MemoryKinds),
+			"needs_source":    plan.NeedsSourceFact,
+			"max_risk_level":  string(plan.MaxRiskLevel),
+			"embedding_model": plan.EmbeddingModel,
+		},
+		Status:    domain.AgentRecallTraceSucceeded,
+		CreatedAt: r.now().UTC(),
+	}
+	defer func() {
+		trace.TotalMS = time.Since(totalStartedAt).Milliseconds()
+		trace.FinalHitCount = len(result.Hits)
+		trace.FinalSources = recallHitSources(result.Hits)
+		if err != nil {
+			trace.Status = domain.AgentRecallTraceFailed
+			trace.ErrorMessage = err.Error()
+		} else if strings.TrimSpace(trace.FallbackReason) != "" {
+			trace.Status = domain.AgentRecallTraceDegraded
+		}
+		r.recordRecallTrace(ctx, trace)
+		r.recordRecallMetrics(trace)
+	}()
 	hitsByRef := map[string]domain.AgentFactRecallHit{}
 	diagnostics := domain.AgentFactRecallDiagnostics{}
 	if shouldRunFullTextRecall(plan) {
+		stageStartedAt := time.Now()
+		trace.FullTextAttempted = true
 		facts, err := r.repository.QueryAgentFactArchiveIndex(ctx, domain.AgentFactArchiveQueryOptions{
 			UserID:        plan.UserID,
 			SessionID:     plan.SessionID,
@@ -64,6 +108,8 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 		if err != nil {
 			return domain.AgentFactRecallResult{}, err
 		}
+		trace.FullTextMS = time.Since(stageStartedAt).Milliseconds()
+		trace.FullTextCount = len(facts)
 		_ = r.embedFactsForFutureRecall(ctx, facts)
 		for index, fact := range facts {
 			hit := recallHitFromFact(fact)
@@ -77,17 +123,27 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 	}
 	if shouldRunVectorRecall(plan) {
 		diagnostics.VectorAttempted = true
+		trace.VectorAttempted = true
 		if r.embedding == nil {
 			diagnostics.QueryEmbeddingStatus = "unavailable"
 			diagnostics.VectorError = "embedding client is not configured"
+			trace.EmbeddingStatus = diagnostics.QueryEmbeddingStatus
+			trace.EmbeddingError = diagnostics.VectorError
+			trace.FallbackReason = "embedding_unavailable"
 			if plan.Mode == domain.AgentFactRecallModeSemantic {
 				return domain.AgentFactRecallResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_embedding_unavailable", diagnostics.VectorError, "service.agent_fact_retrieval.recall", false, nil)
 			}
 		} else {
-			response, err := r.embedding.Embed(ctx, llm.EmbeddingRequest{Input: []string{plan.Query}})
+			embeddingStartedAt := time.Now()
+			trace.EmbeddingAttempted = true
+			response, err := r.embedding.Embed(ctx, llm.EmbeddingRequest{Input: []string{plan.Query}, Operation: "query_embedding"})
+			trace.EmbeddingMS = time.Since(embeddingStartedAt).Milliseconds()
 			if err != nil {
 				diagnostics.QueryEmbeddingStatus = "failed"
 				diagnostics.VectorError = err.Error()
+				trace.EmbeddingStatus = diagnostics.QueryEmbeddingStatus
+				trace.EmbeddingError = diagnostics.VectorError
+				trace.FallbackReason = "query_embedding_failed"
 				if plan.Mode == domain.AgentFactRecallModeSemantic {
 					return domain.AgentFactRecallResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_query_embedding_failed", "query embedding failed", "service.agent_fact_retrieval.recall", true, err)
 				}
@@ -95,6 +151,10 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 				diagnostics.QueryEmbeddingStatus = "empty"
 				diagnostics.QueryEmbeddingModel = strings.TrimSpace(response.Model)
 				diagnostics.VectorError = "embedding response contains no vectors"
+				trace.EmbeddingStatus = diagnostics.QueryEmbeddingStatus
+				trace.EmbeddingModel = diagnostics.QueryEmbeddingModel
+				trace.EmbeddingError = diagnostics.VectorError
+				trace.FallbackReason = "query_embedding_empty"
 				if plan.Mode == domain.AgentFactRecallModeSemantic {
 					return domain.AgentFactRecallResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_query_embedding_empty", diagnostics.VectorError, "service.agent_fact_retrieval.recall", true, nil)
 				}
@@ -104,16 +164,23 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 				diagnostics.QueryEmbeddingModel = strings.TrimSpace(response.Model)
 				diagnostics.QueryEmbeddingDimension = len(queryVector)
 				diagnostics.QueryEmbeddingCount = len(response.Embeddings)
+				trace.EmbeddingStatus = diagnostics.QueryEmbeddingStatus
+				trace.EmbeddingModel = diagnostics.QueryEmbeddingModel
+				trace.EmbeddingDimension = diagnostics.QueryEmbeddingDimension
 				vectorPlan := plan
 				if strings.TrimSpace(vectorPlan.EmbeddingModel) == "" {
 					vectorPlan.EmbeddingModel = response.Model
 				}
+				vectorStartedAt := time.Now()
 				vectorHits, err := r.repository.SearchAgentFactEmbeddings(ctx, vectorPlan, queryVector)
+				trace.VectorMS = time.Since(vectorStartedAt).Milliseconds()
 				if err != nil {
 					diagnostics.VectorError = err.Error()
+					trace.FallbackReason = "vector_search_failed"
 					return domain.AgentFactRecallResult{}, err
 				}
 				diagnostics.VectorCandidateCount = len(vectorHits)
+				trace.VectorCandidateCount = len(vectorHits)
 				for index, hit := range vectorHits {
 					hit.StructuredScore = structuredScore(plan, hit.Fact)
 					hit.ImportanceScore = float64(hit.Fact.Importance) / 100
@@ -128,6 +195,8 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 	}
 	relationRefs := relationExpansionRefs(hitsByRef)
 	if len(relationRefs) > 0 {
+		relationStartedAt := time.Now()
+		trace.RelationAttempted = true
 		facts, err := r.repository.QueryAgentFactArchiveIndex(ctx, domain.AgentFactArchiveQueryOptions{
 			UserID:       plan.UserID,
 			SessionID:    plan.SessionID,
@@ -143,6 +212,8 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 		if err != nil {
 			return domain.AgentFactRecallResult{}, err
 		}
+		trace.RelationMS = time.Since(relationStartedAt).Milliseconds()
+		trace.RelationCount = len(facts)
 		_ = r.embedFactsForFutureRecall(ctx, facts)
 		for _, fact := range facts {
 			hit := recallHitFromFact(fact)
@@ -195,6 +266,106 @@ func (r *agentFactRetriever) embedFactsForFutureRecall(ctx context.Context, fact
 		facts = facts[:8]
 	}
 	return r.embedder.EmbedFacts(ctx, facts)
+}
+
+func (r *agentFactRetriever) recordRecallTrace(ctx context.Context, trace domain.AgentRecallTrace) {
+	store, ok := any(r.repository).(agentRecallTraceStore)
+	if !ok {
+		return
+	}
+	_, _ = store.CreateAgentRecallTrace(ctx, trace)
+	if trace.UserID == 0 {
+		return
+	}
+	eventStore, ok := any(r.repository).(agentTraceEventStore)
+	if !ok {
+		return
+	}
+	status := domain.AgentTraceEventSucceeded
+	if trace.Status == domain.AgentRecallTraceDegraded {
+		status = domain.AgentTraceEventDegraded
+	} else if trace.Status == domain.AgentRecallTraceFailed {
+		status = domain.AgentTraceEventFailed
+	}
+	now := r.now().UTC()
+	event := domain.AgentTraceEvent{
+		RequestID:     trace.RequestID,
+		TraceID:       trace.TraceID,
+		UserID:        trace.UserID,
+		SessionID:     trace.SessionID,
+		TurnID:        trace.TurnID,
+		EventKind:     domain.AgentTraceEventRecall,
+		EventName:     "agent_fact_recall",
+		Status:        status,
+		StartedAt:     now.Add(-time.Duration(trace.TotalMS) * time.Millisecond),
+		FinishedAt:    &now,
+		DurationMS:    trace.TotalMS,
+		InputSummary:  safeSummary(trace.QueryText, 500),
+		OutputSummary: fmt.Sprintf("%d hits", trace.FinalHitCount),
+		Metadata: domain.AgentJSON{
+			"mode":                   string(trace.Mode),
+			"fallback_reason":        trace.FallbackReason,
+			"fulltext_count":         trace.FullTextCount,
+			"vector_candidate_count": trace.VectorCandidateCount,
+			"relation_count":         trace.RelationCount,
+			"embedding_status":       trace.EmbeddingStatus,
+		},
+		CreatedAt: now,
+	}
+	if trace.ErrorMessage != "" {
+		event.ErrorCode = "agent_fact_recall_failed"
+		event.ErrorMessage = trace.ErrorMessage
+	}
+	_, _ = eventStore.CreateAgentTraceEvent(ctx, event)
+}
+
+func (r *agentFactRetriever) recordRecallMetrics(trace domain.AgentRecallTrace) {
+	mode := string(trace.Mode)
+	status := string(trace.Status)
+	fallback := strings.TrimSpace(trace.FallbackReason)
+	if fallback == "" {
+		fallback = "none"
+	}
+	metrics.AgentRecallRequestsTotal.WithLabelValues(mode, status, fallback).Inc()
+	if trace.TotalMS > 0 {
+		metrics.AgentRecallDuration.WithLabelValues(mode, "total", status).Observe(float64(trace.TotalMS) / 1000)
+	}
+	if trace.FullTextAttempted {
+		metrics.AgentRecallDuration.WithLabelValues(mode, "fulltext", status).Observe(float64(trace.FullTextMS) / 1000)
+		metrics.AgentRecallHits.WithLabelValues(mode, "fulltext").Observe(float64(trace.FullTextCount))
+	}
+	if trace.EmbeddingAttempted {
+		metrics.AgentRecallDuration.WithLabelValues(mode, "query_embedding", status).Observe(float64(trace.EmbeddingMS) / 1000)
+	}
+	if trace.VectorAttempted {
+		metrics.AgentRecallDuration.WithLabelValues(mode, "vector", status).Observe(float64(trace.VectorMS) / 1000)
+		metrics.AgentRecallHits.WithLabelValues(mode, "vector").Observe(float64(trace.VectorCandidateCount))
+	}
+	if trace.RelationAttempted {
+		metrics.AgentRecallDuration.WithLabelValues(mode, "relation", status).Observe(float64(trace.RelationMS) / 1000)
+		metrics.AgentRecallHits.WithLabelValues(mode, "relation").Observe(float64(trace.RelationCount))
+	}
+	metrics.AgentRecallHits.WithLabelValues(mode, "final").Observe(float64(trace.FinalHitCount))
+}
+
+func agentFactTypesTraceValues(types []domain.AgentFactType) []string {
+	values := make([]string, 0, len(types))
+	for _, value := range types {
+		if strings.TrimSpace(string(value)) != "" {
+			values = append(values, string(value))
+		}
+	}
+	return values
+}
+
+func agentMemoryKindsTraceValues(kinds []domain.AgentMemoryKind) []string {
+	values := make([]string, 0, len(kinds))
+	for _, value := range kinds {
+		if strings.TrimSpace(string(value)) != "" {
+			values = append(values, string(value))
+		}
+	}
+	return values
 }
 
 func normalizeAgentFactRecallPlan(plan domain.AgentFactRecallPlan, defaultEmbeddingModel string) domain.AgentFactRecallPlan {

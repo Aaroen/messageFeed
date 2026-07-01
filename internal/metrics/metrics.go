@@ -298,6 +298,74 @@ var AgentApprovalsTotal = promauto.NewCounterVec(
 	[]string{"decision", "risk_level"},
 )
 
+// AgentRecallRequestsTotal 记录 Agent 历史召回请求结果。
+var AgentRecallRequestsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_recall_requests_total",
+		Help: "Agent 历史召回请求总数，按模式、状态和降级原因分类",
+	},
+	[]string{"mode", "status", "fallback_reason"},
+)
+
+// AgentRecallDuration 记录 Agent 历史召回分段耗时。
+var AgentRecallDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_recall_duration_seconds",
+		Help:    "Agent 历史召回分段耗时分布（秒），按模式、阶段和状态分类",
+		Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0},
+	},
+	[]string{"mode", "stage", "status"},
+)
+
+// AgentRecallHits 记录 Agent 历史召回命中数。
+var AgentRecallHits = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_recall_hits",
+		Help:    "Agent 历史召回命中数分布，按模式和来源分类",
+		Buckets: []float64{0, 1, 2, 3, 5, 8, 13, 21, 34},
+	},
+	[]string{"mode", "source"},
+)
+
+// AgentEmbeddingRequestsTotal 记录 Agent embedding 请求结果。
+var AgentEmbeddingRequestsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_embedding_requests_total",
+		Help: "Agent embedding 请求总数，按 provider、模型、操作和状态分类",
+	},
+	[]string{"provider", "model", "operation", "status"},
+)
+
+// AgentEmbeddingDuration 记录 Agent embedding 请求耗时。
+var AgentEmbeddingDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_embedding_duration_seconds",
+		Help:    "Agent embedding 请求耗时分布（秒），按 provider、模型、操作和状态分类",
+		Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0},
+	},
+	[]string{"provider", "model", "operation", "status"},
+)
+
+// AgentEmbeddingBatchSize 记录 Agent embedding 批大小。
+var AgentEmbeddingBatchSize = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_embedding_batch_size",
+		Help:    "Agent embedding 批大小分布，按 provider、模型和操作分类",
+		Buckets: []float64{1, 2, 4, 8, 16, 32, 64, 128},
+	},
+	[]string{"provider", "model", "operation"},
+)
+
+// AgentEmbeddingInputChars 记录 Agent embedding 输入字符数。
+var AgentEmbeddingInputChars = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_embedding_input_chars",
+		Help:    "Agent embedding 输入字符数分布，按 provider、模型和操作分类",
+		Buckets: []float64{32, 128, 512, 1024, 2048, 4096, 8192, 16384, 32768},
+	},
+	[]string{"provider", "model", "operation"},
+)
+
 // LLMRequestsTotal 记录大模型请求总数，按模型、操作和状态分类。
 var LLMRequestsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{

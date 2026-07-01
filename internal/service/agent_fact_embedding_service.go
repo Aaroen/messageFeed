@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
+	"messagefeed/internal/observability"
 	"strings"
 	"time"
 )
@@ -13,6 +14,10 @@ import (
 type agentFactEmbeddingStore interface {
 	UpsertAgentFactEmbedding(ctx context.Context, embedding domain.AgentFactEmbedding) (domain.AgentFactEmbedding, error)
 	UpsertAgentFactArchiveIndex(ctx context.Context, fact domain.AgentFactArchiveIndex) (domain.AgentFactArchiveIndex, error)
+}
+
+type agentEmbeddingTraceStore interface {
+	CreateAgentEmbeddingTrace(ctx context.Context, trace domain.AgentEmbeddingTrace) (domain.AgentEmbeddingTrace, error)
 }
 
 type agentFactEmbeddingService struct {
@@ -66,18 +71,23 @@ func (s *agentFactEmbeddingService) EmbedFacts(ctx context.Context, facts []doma
 }
 
 func (s *agentFactEmbeddingService) embedBatch(ctx context.Context, facts []domain.AgentFactArchiveIndex) error {
+	startedAt := s.now().UTC()
 	inputs := make([]string, 0, len(facts))
 	hashes := make([]string, 0, len(facts))
+	inputChars := make([]int, 0, len(facts))
 	for _, fact := range facts {
 		text := normalizeEmbeddingInput(fact.ContextualText)
 		inputs = append(inputs, text)
 		hashes = append(hashes, embeddingContentHash(text))
+		inputChars = append(inputChars, len([]rune(text)))
 	}
-	response, err := s.provider.Embed(ctx, llm.EmbeddingRequest{Input: inputs})
+	response, err := s.provider.Embed(ctx, llm.EmbeddingRequest{Input: inputs, Operation: "batch_embed"})
 	if err != nil {
+		s.recordEmbeddingTraceBatch(ctx, facts, hashes, inputChars, "", 0, domain.AgentEmbeddingTraceFailed, time.Since(startedAt), err)
 		return err
 	}
 	if len(response.Embeddings) != len(facts) {
+		s.recordEmbeddingTraceBatch(ctx, facts, hashes, inputChars, response.Model, 0, domain.AgentEmbeddingTraceFailed, time.Since(startedAt), domain.ErrInvalidInput)
 		return domain.ErrInvalidInput
 	}
 	model := strings.TrimSpace(response.Model)
@@ -89,6 +99,7 @@ func (s *agentFactEmbeddingService) embedBatch(ctx context.Context, facts []doma
 		fact := facts[index]
 		hash := hashes[index]
 		if len(vector) == 0 {
+			s.recordEmbeddingTrace(ctx, fact, hash, inputChars[index], model, 0, domain.AgentEmbeddingTraceSkipped, time.Since(startedAt), nil)
 			continue
 		}
 		if _, err := s.store.UpsertAgentFactEmbedding(ctx, domain.AgentFactEmbedding{
@@ -106,6 +117,7 @@ func (s *agentFactEmbeddingService) embedBatch(ctx context.Context, facts []doma
 			CreatedAt: now,
 			UpdatedAt: now,
 		}); err != nil {
+			s.recordEmbeddingTrace(ctx, fact, hash, inputChars[index], model, len(vector), domain.AgentEmbeddingTraceFailed, time.Since(startedAt), err)
 			return err
 		}
 		fact.Embedding = domain.AgentJSON{
@@ -118,10 +130,57 @@ func (s *agentFactEmbeddingService) embedBatch(ctx context.Context, facts []doma
 		}
 		fact.UpdatedAt = now
 		if _, err := s.store.UpsertAgentFactArchiveIndex(ctx, fact); err != nil {
+			s.recordEmbeddingTrace(ctx, fact, hash, inputChars[index], model, len(vector), domain.AgentEmbeddingTraceFailed, time.Since(startedAt), err)
 			return err
 		}
+		s.recordEmbeddingTrace(ctx, fact, hash, inputChars[index], model, len(vector), domain.AgentEmbeddingTraceSucceeded, time.Since(startedAt), nil)
 	}
 	return nil
+}
+
+func (s *agentFactEmbeddingService) recordEmbeddingTraceBatch(ctx context.Context, facts []domain.AgentFactArchiveIndex, hashes []string, inputChars []int, model string, dimension int, status domain.AgentEmbeddingTraceStatus, duration time.Duration, err error) {
+	for index, fact := range facts {
+		hash := ""
+		if index < len(hashes) {
+			hash = hashes[index]
+		}
+		chars := 0
+		if index < len(inputChars) {
+			chars = inputChars[index]
+		}
+		s.recordEmbeddingTrace(ctx, fact, hash, chars, model, dimension, status, duration, err)
+	}
+}
+
+func (s *agentFactEmbeddingService) recordEmbeddingTrace(ctx context.Context, fact domain.AgentFactArchiveIndex, hash string, inputChars int, model string, dimension int, status domain.AgentEmbeddingTraceStatus, duration time.Duration, err error) {
+	store, ok := any(s.store).(agentEmbeddingTraceStore)
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(model) == "" {
+		model = s.model
+	}
+	trace := domain.AgentEmbeddingTrace{
+		RequestID:          observability.RequestID(ctx),
+		TraceID:            observability.TraceID(ctx),
+		UserID:             fact.UserID,
+		CanonicalRef:       fact.CanonicalRef,
+		EmbeddingModel:     model,
+		EmbeddingDimension: dimension,
+		InputChars:         inputChars,
+		ContentHash:        hash,
+		Status:             status,
+		DurationMS:         duration.Milliseconds(),
+		Metadata: domain.AgentJSON{
+			"source":    "agent_fact_archive_index",
+			"fact_type": string(fact.FactType),
+		},
+		CreatedAt: s.now().UTC(),
+	}
+	if err != nil {
+		trace.ErrorMessage = err.Error()
+	}
+	_, _ = store.CreateAgentEmbeddingTrace(ctx, trace)
 }
 
 func embeddingStatusReadyForCurrentHash(fact domain.AgentFactArchiveIndex) bool {

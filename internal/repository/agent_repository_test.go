@@ -120,6 +120,29 @@ func TestAgentTraceEventsMigrationDefinesWaterfallTable(t *testing.T) {
 	}
 }
 
+func TestAgentRecallEmbeddingTraceMigrationDefinesDiagnosticsTables(t *testing.T) {
+	content, err := os.ReadFile("../../migrations/000036_add_agent_recall_embedding_traces.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"CREATE TABLE IF NOT EXISTS agent_recall_traces",
+		"fulltext_ms BIGINT NOT NULL DEFAULT 0",
+		"embedding_status VARCHAR(32) NOT NULL DEFAULT ''",
+		"vector_candidate_count INTEGER NOT NULL DEFAULT 0",
+		"fallback_reason TEXT NOT NULL DEFAULT ''",
+		"CREATE TABLE IF NOT EXISTS agent_embedding_traces",
+		"canonical_ref VARCHAR(128) NOT NULL DEFAULT ''",
+		"idx_agent_recall_traces_turn",
+		"idx_agent_embedding_traces_ref",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("migration missing %q", required)
+		}
+	}
+}
+
 func TestTranscriptMemoryClassificationRuleV2(t *testing.T) {
 	cases := []struct {
 		name       string
