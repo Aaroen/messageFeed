@@ -20,9 +20,9 @@ type agentRecallTraceModel struct {
 	QueryText            string `gorm:"column:query_text"`
 	NeedsHistoryRecall   bool
 	HistoryQueryPlan     domain.AgentJSON `gorm:"column:history_query_plan_json;serializer:json;type:jsonb;not null"`
-	FullTextAttempted    bool
-	FullTextCount        int
-	FullTextMS           int64
+	FullTextAttempted    bool             `gorm:"column:fulltext_attempted"`
+	FullTextCount        int              `gorm:"column:fulltext_count"`
+	FullTextMS           int64            `gorm:"column:fulltext_ms"`
 	EmbeddingAttempted   bool
 	EmbeddingModel       string
 	EmbeddingDimension   int

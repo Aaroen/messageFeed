@@ -19,6 +19,26 @@ func TestAgentRecallEventModelMapsQueryTextColumn(t *testing.T) {
 	}
 }
 
+func TestAgentRecallTraceModelMapsFullTextColumns(t *testing.T) {
+	modelType := reflect.TypeOf(agentRecallTraceModel{})
+	for _, tt := range []struct {
+		field string
+		tag   string
+	}{
+		{field: "FullTextAttempted", tag: "column:fulltext_attempted"},
+		{field: "FullTextCount", tag: "column:fulltext_count"},
+		{field: "FullTextMS", tag: "column:fulltext_ms"},
+	} {
+		field, ok := modelType.FieldByName(tt.field)
+		if !ok {
+			t.Fatalf("%s field is missing", tt.field)
+		}
+		if !strings.Contains(string(field.Tag), tt.tag) {
+			t.Fatalf("%s gorm tag = %q, want %s", tt.field, field.Tag, tt.tag)
+		}
+	}
+}
+
 func TestAgentJSONSliceClonesKeepEmptyArray(t *testing.T) {
 	if got := cloneStringSlice(nil); got == nil || len(got) != 0 {
 		t.Fatalf("cloneStringSlice(nil) = %#v, want non-nil empty slice", got)
