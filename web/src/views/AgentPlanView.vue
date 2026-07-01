@@ -24,6 +24,7 @@ import {
   cancelAgentScheduledTask,
   createAgentTask,
   getAgentProgress,
+  getAgentTraceBundle,
   listAgentTasks,
   recoverAgentScheduledTask,
   retryAgentPlan,
@@ -99,6 +100,7 @@ import {
   type AgentSLASummary,
   type AgentTaskReport,
   type AgentTaskSummary,
+  type AgentTraceBundle,
   type AgentTrendSnapshot,
   type AgentUnifiedProgressComponent,
   type AgentWeChatCallbackReadiness,
@@ -165,6 +167,9 @@ const router = useRouter()
 const progress = ref<AgentProgressSnapshot | null>(null)
 const plan = ref<AgentPlan | null>(null)
 const runs = ref<AgentRun[]>([])
+const traceBundle = ref<AgentTraceBundle | null>(null)
+const traceLoading = ref(false)
+const traceError = ref('')
 const loading = ref(false)
 const refreshing = ref(false)
 const taskMessage = ref('')
@@ -437,6 +442,26 @@ const contextBundleSummary = computed(() => {
 const scheduledTasks = computed(() => progress.value?.scheduled_tasks || [])
 const progressPhases = computed(() => progress.value?.phases || [])
 const recentEvents = computed(() => progress.value?.recent_events || [])
+const traceEvents = computed(() => traceBundle.value?.events || [])
+const recallTraces = computed(() => traceBundle.value?.recall_traces || [])
+const embeddingTraces = computed(() => traceBundle.value?.embedding_traces || [])
+const traceBundleSummary = computed(() => {
+  if (traceLoading.value) {
+    return '加载中'
+  }
+  if (traceError.value) {
+    return traceError.value
+  }
+  if (!traceBundle.value) {
+    return '暂无 trace'
+  }
+  const parts = [
+    traceEvents.value.length ? `事件 ${traceEvents.value.length}` : '',
+    recallTraces.value.length ? `召回 ${recallTraces.value.length}` : '',
+    embeddingTraces.value.length ? `Embedding ${embeddingTraces.value.length}` : '',
+  ].filter(Boolean)
+  return parts.length ? parts.join(' / ') : '无 trace 记录'
+})
 
 const isTerminalPlan = computed(() => {
   const status = progress.value?.status || plan.value?.status
@@ -1764,6 +1789,7 @@ async function loadPlan(options: { silent?: boolean } = {}) {
       return
     }
     applyProgressSnapshot(nextProgress)
+    void loadTraceForProgress(nextProgress)
     syncProgressTransport()
   } catch (error) {
     if (token === requestSeq) {
@@ -2087,6 +2113,44 @@ function applyProgressSnapshot(nextProgress: AgentProgressSnapshot) {
   lastLoadedAt.value = new Date().toLocaleString('zh-CN', { hour12: false })
 }
 
+async function loadTraceForProgress(nextProgress: AgentProgressSnapshot) {
+  const input = traceInputForProgress(nextProgress)
+  if (!input) {
+    traceBundle.value = null
+    traceError.value = ''
+    return
+  }
+  traceLoading.value = true
+  traceError.value = ''
+  try {
+    traceBundle.value = await getAgentTraceBundle({ ...input, limit: 300 })
+  } catch (error) {
+    traceError.value = formatAPIError(error)
+  } finally {
+    traceLoading.value = false
+  }
+}
+
+function traceInputForProgress(nextProgress: AgentProgressSnapshot) {
+  if (nextProgress.plan?.id) {
+    return { plan_id: nextProgress.plan.id }
+  }
+  if (nextProgress.subject_type === 'plan' && nextProgress.subject_id > 0) {
+    return { plan_id: nextProgress.subject_id }
+  }
+  if (nextProgress.subject_type === 'turn' && nextProgress.subject_id > 0) {
+    return { turn_id: nextProgress.subject_id }
+  }
+  if (nextProgress.subject_type === 'run' && nextProgress.subject_id > 0) {
+    return { run_id: nextProgress.subject_id }
+  }
+  const firstRun = nextProgress.runs?.[0]
+  if (firstRun?.turn_id) {
+    return { turn_id: firstRun.turn_id }
+  }
+  return null
+}
+
 function progressStreamInput() {
   if (planID.value > 0) {
     return { plan_id: planID.value }
@@ -2361,6 +2425,83 @@ function eventKindLabel(kind: string) {
   return labels[kind] || kind || '事件'
 }
 
+function traceEventKindLabel(kind: string) {
+  const labels: Record<string, string> = {
+    inbound: '入口',
+    transcript: '转录',
+    context_projection: '上下文',
+    planner: '规划',
+    subagent_dispatch: '子 Agent',
+    tool_execution: '工具',
+    approval: '审批',
+    recall: '召回',
+    memory: '记忆',
+    embedding: 'Embedding',
+    llm: '模型',
+    notification: '通知',
+    worker: 'Worker',
+    recovery: '恢复',
+  }
+  return labels[kind] || kind || '事件'
+}
+
+function traceDuration(value: number | undefined) {
+  if (!value || value < 1) {
+    return '0ms'
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(2)}s`
+  }
+  return `${value}ms`
+}
+
+function traceEventSummary(event: { input_summary?: string; output_summary?: string; error_message?: string; model_key?: string; capability_key?: string; tool_name?: string; job_id?: string }) {
+  return (
+    event.error_message ||
+    event.output_summary ||
+    event.input_summary ||
+    event.tool_name ||
+    event.capability_key ||
+    event.model_key ||
+    event.job_id ||
+    '无摘要'
+  )
+}
+
+function recallTraceSummary(trace: { mode: string; status: string; final_hit_count: number; fallback_reason?: string; total_ms: number }) {
+  const fallback = trace.fallback_reason ? ` / 降级 ${trace.fallback_reason}` : ''
+  return `${trace.mode} / ${statusLabel(trace.status)} / 命中 ${trace.final_hit_count} / ${traceDuration(trace.total_ms)}${fallback}`
+}
+
+function recallStageSummary(trace: {
+  fulltext_attempted: boolean
+  fulltext_count: number
+  fulltext_ms: number
+  embedding_attempted: boolean
+  embedding_status?: string
+  embedding_dimension?: number
+  embedding_ms: number
+  vector_attempted: boolean
+  vector_candidate_count: number
+  vector_ms: number
+  relation_attempted: boolean
+  relation_count: number
+  relation_ms: number
+}) {
+  return [
+    trace.fulltext_attempted ? `fulltext ${trace.fulltext_count}/${traceDuration(trace.fulltext_ms)}` : '',
+    trace.embedding_attempted ? `query embedding ${trace.embedding_status || 'unknown'} ${trace.embedding_dimension || 0}d/${traceDuration(trace.embedding_ms)}` : '',
+    trace.vector_attempted ? `vector ${trace.vector_candidate_count}/${traceDuration(trace.vector_ms)}` : '',
+    trace.relation_attempted ? `relation ${trace.relation_count}/${traceDuration(trace.relation_ms)}` : '',
+  ].filter(Boolean).join(' / ') || '无分段记录'
+}
+
+function embeddingTraceSummary(trace: { status: string; embedding_dimension?: number; input_chars: number; duration_ms: number; retry_count: number; error_message?: string }) {
+  const retry = trace.retry_count ? ` / retry ${trace.retry_count}` : ''
+  const error = trace.error_message ? ` / ${trace.error_message}` : ''
+  return `${statusLabel(trace.status)} / ${trace.embedding_dimension || 0}d / chars ${trace.input_chars} / ${traceDuration(trace.duration_ms)}${retry}${error}`
+}
+
 function eventSourceLabel(source?: string) {
   const labels: Record<string, string> = {
     user_action: '用户操作',
@@ -2380,6 +2521,8 @@ watch([planID, scheduledTaskID], () => {
   progress.value = null
   plan.value = null
   runs.value = []
+  traceBundle.value = null
+  traceError.value = ''
   if (planID.value > 0 || scheduledTaskID.value > 0) {
     void loadPlan()
   } else if (shouldShowAgentDashboard.value) {
@@ -3812,6 +3955,71 @@ onBeforeUnmount(() => {
                     <p v-if="artifact.source_refs?.length">来源：{{ joined(artifact.source_refs) }}</p>
                   </div>
                 </div>
+              </div>
+            </details>
+          </div>
+        </article>
+
+        <article class="agent-pipeline-item">
+          <div class="agent-pipeline-item__marker">
+            <IconInfoCircle />
+          </div>
+          <div class="agent-pipeline-item__body">
+            <div class="agent-pipeline-item__top">
+              <strong>运行 Waterfall 与 RAG Trace</strong>
+              <span class="agent-plan-status" :class="`agent-plan-status--${traceError ? 'bad' : traceLoading ? 'active' : 'ok'}`">
+                {{ traceBundleSummary }}
+              </span>
+            </div>
+            <p>按当前计划或运行对象聚合主 Agent、子 Agent、工具、召回、记忆和异步 embedding 事件。</p>
+            <details class="agent-subagent-card agent-pipeline-detail" :open="Boolean(traceEvents.length || recallTraces.length || embeddingTraces.length)">
+              <summary>
+                <span>Trace 明细</span>
+                <span>{{ traceEvents.length }} 个事件</span>
+                <span>{{ recallTraces.length }} 次召回</span>
+                <span>{{ embeddingTraces.length }} 条 embedding</span>
+              </summary>
+              <div class="agent-subagent-card__body">
+                <div v-if="traceError" class="settings-inline-alert settings-inline-alert--warning">
+                  {{ traceError }}
+                </div>
+                <div v-if="traceEvents.length" class="agent-subagent-card__section">
+                  <strong>Agent 事件</strong>
+                  <div v-for="event in traceEvents" :key="`trace-event-${event.id}`" class="agent-subagent-record">
+                    <span>{{ traceEventKindLabel(event.event_kind) }} / {{ event.event_name || 'unnamed' }} #{{ event.id }}</span>
+                    <span>{{ statusLabel(event.status) }} / {{ traceDuration(event.duration_ms) }} / {{ formatTime(event.started_at) }}</span>
+                    <p>{{ traceEventSummary(event) }}</p>
+                    <p v-if="event.run_id || event.plan_id || event.turn_id">
+                      plan {{ event.plan_id || '无' }} / run {{ event.run_id || '无' }} / turn {{ event.turn_id || '无' }}
+                    </p>
+                    <p v-if="event.source_refs?.length">来源：{{ joined(event.source_refs) }}</p>
+                    <p v-if="event.artifact_refs?.length">产物：{{ joined(event.artifact_refs) }}</p>
+                    <p v-if="event.error_message" class="agent-plan-step__error">{{ event.error_message }}</p>
+                  </div>
+                </div>
+                <div v-if="recallTraces.length" class="agent-subagent-card__section">
+                  <strong>RAG 召回</strong>
+                  <div v-for="trace in recallTraces" :key="`recall-trace-${trace.id}`" class="agent-subagent-record">
+                    <span>{{ recallTraceSummary(trace) }}</span>
+                    <span>{{ formatTime(trace.created_at) }}</span>
+                    <p>{{ recallStageSummary(trace) }}</p>
+                    <p v-if="trace.query_text">查询：{{ trace.query_text }}</p>
+                    <p v-if="trace.embedding_error" class="agent-plan-step__error">{{ trace.embedding_error }}</p>
+                    <pre v-if="hasDetailValue(trace.final_sources)" class="agent-json-block">{{ formatDetailJSON(trace.final_sources) }}</pre>
+                  </div>
+                </div>
+                <div v-if="embeddingTraces.length" class="agent-subagent-card__section">
+                  <strong>Embedding</strong>
+                  <div v-for="trace in embeddingTraces" :key="`embedding-trace-${trace.id}`" class="agent-subagent-record">
+                    <span>{{ trace.canonical_ref || trace.job_id || `embedding #${trace.id}` }}</span>
+                    <span>{{ embeddingTraceSummary(trace) }}</span>
+                    <p v-if="trace.embedding_model">模型：{{ trace.embedding_model }}</p>
+                    <p v-if="trace.content_hash">hash：{{ trace.content_hash }}</p>
+                  </div>
+                </div>
+                <p v-if="!traceLoading && !traceError && !traceEvents.length && !recallTraces.length && !embeddingTraces.length">
+                  当前对象暂无 trace 记录。
+                </p>
               </div>
             </details>
           </div>

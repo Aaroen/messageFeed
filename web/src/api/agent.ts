@@ -303,6 +303,112 @@ export interface AgentProgressSnapshot {
   recent_events: AgentProgressEvent[]
 }
 
+export interface AgentTraceQuery {
+  request_id?: string
+  trace_id?: string
+  turn_id?: number
+  run_id?: number
+  plan_id?: number
+  job_id?: string
+  limit: number
+}
+
+export interface AgentTraceEvent {
+  id: number
+  request_id?: string
+  trace_id?: string
+  span_id?: string
+  user_id?: number
+  session_id?: number
+  turn_id?: number
+  plan_id?: number
+  run_id?: number
+  parent_run_id?: number
+  step_id?: number
+  event_kind: string
+  event_name: string
+  status: string
+  started_at: string
+  finished_at?: string
+  duration_ms: number
+  model_key?: string
+  capability_key?: string
+  tool_name?: string
+  job_id?: string
+  artifact_refs?: string[]
+  source_refs?: string[]
+  input_summary?: string
+  output_summary?: string
+  error_code?: string
+  error_message?: string
+  metadata?: Record<string, unknown>
+  created_at: string
+}
+
+export interface AgentRecallTrace {
+  id: number
+  request_id?: string
+  trace_id?: string
+  user_id?: number
+  session_id?: number
+  turn_id?: number
+  run_id?: number
+  plan_id?: number
+  mode: string
+  query_text?: string
+  needs_history_recall: boolean
+  history_query_plan?: Record<string, unknown>
+  fulltext_attempted: boolean
+  fulltext_count: number
+  fulltext_ms: number
+  embedding_attempted: boolean
+  embedding_model?: string
+  embedding_dimension?: number
+  embedding_ms: number
+  embedding_status?: string
+  embedding_error?: string
+  vector_attempted: boolean
+  vector_candidate_count: number
+  vector_ms: number
+  relation_attempted: boolean
+  relation_count: number
+  relation_ms: number
+  final_hit_count: number
+  final_sources?: Record<string, unknown>
+  fallback_reason?: string
+  total_ms: number
+  status: string
+  error_message?: string
+  created_at: string
+}
+
+export interface AgentEmbeddingTrace {
+  id: number
+  job_id?: string
+  request_id?: string
+  trace_id?: string
+  user_id?: number
+  canonical_ref: string
+  embedding_model?: string
+  embedding_dimension?: number
+  input_chars: number
+  content_hash?: string
+  status: string
+  duration_ms: number
+  error_message?: string
+  retry_count: number
+  metadata?: Record<string, unknown>
+  created_at: string
+}
+
+export interface AgentTraceBundle {
+  query: AgentTraceQuery
+  events: AgentTraceEvent[]
+  recall_traces: AgentRecallTrace[]
+  embedding_traces: AgentEmbeddingTrace[]
+  generated_at: string
+}
+
 export interface AgentPlanRetryResult {
   plan_id: number
   queued: number
@@ -2150,6 +2256,39 @@ export async function getAgentProgress(input: {
     params: input,
   })
   return response.data.data.progress
+}
+
+export async function getAgentTraceBundle(input: {
+  request_id?: string
+  turn_id?: number
+  run_id?: number
+  plan_id?: number
+  job_id?: string
+  limit?: number
+}) {
+  const params = input.limit && input.limit > 0 ? { limit: input.limit } : undefined
+  let path = ''
+  if (input.request_id) {
+    path = `/api/v1/agent/traces/requests/${encodeURIComponent(input.request_id)}`
+  } else if (input.plan_id && input.plan_id > 0) {
+    path = `/api/v1/agent/traces/plans/${input.plan_id}`
+  } else if (input.turn_id && input.turn_id > 0) {
+    path = `/api/v1/agent/traces/turns/${input.turn_id}`
+  } else if (input.run_id && input.run_id > 0) {
+    path = `/api/v1/agent/traces/runs/${input.run_id}`
+  } else if (input.job_id) {
+    path = `/api/v1/agent/traces/embedding-jobs/${encodeURIComponent(input.job_id)}`
+  } else {
+    return {
+      query: { limit: input.limit || 0 },
+      events: [],
+      recall_traces: [],
+      embedding_traces: [],
+      generated_at: '',
+    } satisfies AgentTraceBundle
+  }
+  const response = await apiClient.get<APIEnvelope<AgentTraceBundle>>(path, { params })
+  return response.data.data
 }
 
 export function agentProgressStreamURL(input: {

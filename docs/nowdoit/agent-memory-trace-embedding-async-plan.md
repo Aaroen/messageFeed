@@ -762,7 +762,7 @@ async_jobs_enqueued_count
 | [x] | 新增 `agent_embedding_traces` | 记录 job_id、request_id、canonical_ref、model、dimension、duration、status、error；失败时截断 error_message 并保留 retry_count |
 | [x] | 将 recall diagnostics 持久化到 recall trace | `agentFactRetriever.Recall` 分段计时；hybrid 降级时记录 fallback_reason；semantic 失败时记录明确 error code |
 | [x] | 为 embedding client 增加 span 和 metrics | 参考 LLM chat client 增加 request counter、duration histogram、batch size、input chars、dimension attribute；外部 HTTP 可复用 `ExternalHTTPRequestsTotal` |
-| [ ] | 在 progress detail 中展示 recall waterfall | Web 增加 request/turn trace 聚合视图；展示 stage、status、duration、hit_count、fallback_reason、source refs |
+| [x] | 在 progress detail 中展示 recall waterfall | Web 增加 request/turn trace 聚合视图；展示 stage、status、duration、hit_count、fallback_reason、source refs |
 | [ ] | 扩展 fact index stats 覆盖率指标 | 管理接口与设置页展示 coverage、pending、failed、stale、last_error、last_success_at；Grafana 增加覆盖率与积压面板 |
 | [ ] | 增加真实模型端到端测试用例 | 测试断言 recall trace、embedding trace、metrics 样本、readyz/status 均可观察；记录 query embedding 维度与命中来源 |
 | [ ] | 增加延迟基线和回归检查 | 采集 p50/p95、planner、recall、query embedding、vector search、final LLM、async enqueue；形成回归阈值 |
