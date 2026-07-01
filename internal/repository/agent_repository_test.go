@@ -143,6 +143,26 @@ func TestAgentRecallEmbeddingTraceMigrationDefinesDiagnosticsTables(t *testing.T
 	}
 }
 
+func TestAgentMemoryTopicsChunksMigrationDefinesChunkFactType(t *testing.T) {
+	content, err := os.ReadFile("../../migrations/000037_add_agent_memory_topics_chunks.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"CREATE TABLE IF NOT EXISTS agent_memory_topics",
+		"CREATE TABLE IF NOT EXISTS agent_memory_chunks",
+		"'memory_chunk'",
+		"embedding_status VARCHAR(16) NOT NULL DEFAULT 'pending'",
+		"consolidation_reason VARCHAR(32) NOT NULL DEFAULT 'unknown'",
+		"uq_agent_memory_chunks_content_hash",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("migration missing %q", required)
+		}
+	}
+}
+
 func TestTranscriptMemoryClassificationRuleV2(t *testing.T) {
 	cases := []struct {
 		name       string

@@ -13,6 +13,7 @@ const (
 	AgentFactTypeRunTrace    AgentFactType = "run_trace"
 	AgentFactTypeItem        AgentFactType = "item"
 	AgentFactTypeWebSnapshot AgentFactType = "web_snapshot"
+	AgentFactTypeMemoryChunk AgentFactType = "memory_chunk"
 )
 
 func (t AgentFactType) Valid() bool {
@@ -24,11 +25,69 @@ func (t AgentFactType) Valid() bool {
 		AgentFactTypePlanStep,
 		AgentFactTypeRunTrace,
 		AgentFactTypeItem,
-		AgentFactTypeWebSnapshot:
+		AgentFactTypeWebSnapshot,
+		AgentFactTypeMemoryChunk:
 		return true
 	default:
 		return false
 	}
+}
+
+type AgentMemoryTopicStatus string
+
+const (
+	AgentMemoryTopicActive AgentMemoryTopicStatus = "active"
+	AgentMemoryTopicClosed AgentMemoryTopicStatus = "closed"
+)
+
+func (s AgentMemoryTopicStatus) Valid() bool {
+	switch s {
+	case AgentMemoryTopicActive, AgentMemoryTopicClosed:
+		return true
+	default:
+		return false
+	}
+}
+
+type AgentMemoryTopic struct {
+	ID            int64
+	UserID        int64
+	SessionID     int64
+	TopicKey      string
+	Title         string
+	Summary       string
+	Keywords      []string
+	Intent        string
+	Status        AgentMemoryTopicStatus
+	MessageCount  int
+	TokenEstimate int
+	StartTurnID   int64
+	EndTurnID     int64
+	LastMessageAt *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type AgentMemoryChunk struct {
+	ID                  int64
+	UserID              int64
+	SessionID           int64
+	TopicID             int64
+	Title               string
+	Summary             string
+	Content             string
+	MemoryKind          AgentMemoryKind
+	Importance          int
+	SourceRefs          []string
+	RelationRefs        []string
+	StartTurnID         int64
+	EndTurnID           int64
+	ContentHash         string
+	EmbeddingStatus     AgentFactEmbeddingStatus
+	ConsolidationReason string
+	Metadata            AgentJSON
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type AgentFactIndexStatus string
