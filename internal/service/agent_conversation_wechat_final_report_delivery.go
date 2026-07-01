@@ -10,6 +10,9 @@ import (
 type agentWeChatFinalReportDeliveryResult struct {
 	SendResult     notifier.WeChatWorkSendResult
 	SendCount      int
+	ReplyBytes     int
+	TextChunkCount int
+	TextChunkBytes []int
 	DeliveryMode   string
 	TemplateStatus string
 	TextStatus     string
@@ -30,7 +33,11 @@ func (s *AgentConversationService) sendWeChatWorkFinalReportDelivery(ctx context
 		TemplateStatus: "not_attempted",
 		TextStatus:     "not_attempted",
 		ProgressURL:    progressURL,
+		ReplyBytes:     len([]byte(reply)),
 	}
+	textChunks := splitUTF8Bytes(reply, notifier.WeChatWorkTextByteLimit)
+	result.TextChunkCount = len(textChunks)
+	result.TextChunkBytes = utf8ByteLengths(textChunks)
 	if progressURL != "" {
 		templateData := agentWeChatFeedbackRequest{
 			Stage:       "final",
@@ -87,11 +94,14 @@ func (s *AgentConversationService) sendWeChatWorkFinalReportDelivery(ctx context
 
 func agentWeChatFinalReportMetadata(delivery agentWeChatFinalReportDeliveryResult) domain.AgentJSON {
 	return domain.AgentJSON{
-		"message_type":    delivery.DeliveryMode,
-		"template_status": delivery.TemplateStatus,
-		"text_status":     delivery.TextStatus,
-		"template_error":  delivery.TemplateError,
-		"text_error":      delivery.TextError,
-		"progress_url":    delivery.ProgressURL,
+		"message_type":     delivery.DeliveryMode,
+		"template_status":  delivery.TemplateStatus,
+		"text_status":      delivery.TextStatus,
+		"template_error":   delivery.TemplateError,
+		"text_error":       delivery.TextError,
+		"progress_url":     delivery.ProgressURL,
+		"reply_bytes":      delivery.ReplyBytes,
+		"text_chunks":      delivery.TextChunkCount,
+		"text_chunk_bytes": delivery.TextChunkBytes,
 	}
 }

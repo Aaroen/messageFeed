@@ -110,6 +110,14 @@ func splitUTF8Bytes(value string, limit int) []string {
 	return chunks
 }
 
+func utf8ByteLengths(values []string) []int {
+	lengths := make([]int, 0, len(values))
+	for _, value := range values {
+		lengths = append(lengths, len([]byte(value)))
+	}
+	return lengths
+}
+
 func normalizeReceiveWeChatWorkInput(input ReceiveWeChatWorkAppMessageInput) ReceiveWeChatWorkAppMessageInput {
 	input.Provider = strings.TrimSpace(input.Provider)
 	if input.Provider == "" {

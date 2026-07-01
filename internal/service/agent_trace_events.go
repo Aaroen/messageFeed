@@ -135,8 +135,18 @@ func (s *AgentConversationService) recordAgentApprovalTraceEvent(ctx context.Con
 	})
 }
 
-func (s *AgentConversationService) recordAgentNotificationTraceEvent(ctx context.Context, input ReceiveWeChatWorkAppMessageInput, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, plan domain.AgentPlan, eventName string, status domain.AgentTraceEventStatus, sendCount int, err error) {
+func (s *AgentConversationService) recordAgentNotificationTraceEvent(ctx context.Context, input ReceiveWeChatWorkAppMessageInput, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, plan domain.AgentPlan, eventName string, status domain.AgentTraceEventStatus, sendCount int, err error, extraMetadata ...domain.AgentJSON) {
 	now := s.now().UTC()
+	metadata := domain.AgentJSON{
+		"provider":   input.Provider,
+		"msg_type":   input.MsgType,
+		"send_count": sendCount,
+	}
+	for _, extra := range extraMetadata {
+		for key, value := range extra {
+			metadata[key] = value
+		}
+	}
 	event := domain.AgentTraceEvent{
 		RequestID:  input.RequestID,
 		TraceID:    input.TraceID,
@@ -149,11 +159,7 @@ func (s *AgentConversationService) recordAgentNotificationTraceEvent(ctx context
 		Status:     status,
 		StartedAt:  now,
 		FinishedAt: &now,
-		Metadata: domain.AgentJSON{
-			"provider":   input.Provider,
-			"msg_type":   input.MsgType,
-			"send_count": sendCount,
-		},
+		Metadata:   metadata,
 	}
 	if err != nil {
 		event.ErrorCode = "agent_notification_failed"

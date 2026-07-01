@@ -237,7 +237,7 @@ func (s *AgentConversationService) processTurn(
 		sendCount = finalDelivery.SendCount
 		if err != nil {
 			opErr = err
-			s.recordAgentNotificationTraceEvent(ctx, input, account, session, turn, plan, "final_report_delivery", domain.AgentTraceEventFailed, sendCount, err)
+			s.recordAgentNotificationTraceEvent(ctx, input, account, session, turn, plan, "final_report_delivery", domain.AgentTraceEventFailed, sendCount, err, agentWeChatFinalReportMetadata(finalDelivery))
 			metrics.AgentReplyBytes.WithLabelValues(input.Provider, "failed").Observe(float64(len([]byte(reply))))
 			metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "failed").Add(float64(sendCount))
 			_, _ = s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusFailed, s.now().UTC())
@@ -264,7 +264,7 @@ func (s *AgentConversationService) processTurn(
 			})
 			return ReceiveWeChatWorkAppMessageResult{Turn: turn, Plan: plan}, err
 		}
-		s.recordAgentNotificationTraceEvent(ctx, input, account, session, turn, plan, "final_report_delivery", domain.AgentTraceEventSucceeded, sendCount, nil)
+		s.recordAgentNotificationTraceEvent(ctx, input, account, session, turn, plan, "final_report_delivery", domain.AgentTraceEventSucceeded, sendCount, nil, agentWeChatFinalReportMetadata(finalDelivery))
 	}
 	metrics.AgentReplyBytes.WithLabelValues(input.Provider, "succeeded").Observe(float64(len([]byte(reply))))
 	metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "succeeded").Add(float64(sendCount))

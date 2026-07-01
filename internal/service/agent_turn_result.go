@@ -46,6 +46,7 @@ func (s *AgentConversationService) finishTurnWithReply(
 
 	sendResult := notifier.WeChatWorkSendResult{}
 	sendCount := 0
+	replyChunks := splitUTF8Bytes(reply, notifier.WeChatWorkTextByteLimit)
 	if s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "final") {
 		var err error
 		sendResult, sendCount, err = s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
@@ -68,6 +69,9 @@ func (s *AgentConversationService) finishTurnWithReply(
 		Metadata: domain.AgentJSON{
 			"provider_message_id": input.ProviderMessageID,
 			"send_count":          sendCount,
+			"reply_bytes":         len([]byte(reply)),
+			"text_chunks":         len(replyChunks),
+			"text_chunk_bytes":    utf8ByteLengths(replyChunks),
 			"observations":        agent.ObservationMetadata(observations),
 		},
 		RequestID: input.RequestID,

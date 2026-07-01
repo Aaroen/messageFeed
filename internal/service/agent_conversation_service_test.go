@@ -108,8 +108,17 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	if replyAudit.Metadata["message_type"] != "template_card_with_text" ||
 		replyAudit.Metadata["template_status"] != "succeeded" ||
 		replyAudit.Metadata["text_status"] != "succeeded" ||
-		replyAudit.Metadata["progress_url"] == "" {
+		replyAudit.Metadata["progress_url"] == "" ||
+		replyAudit.Metadata["reply_bytes"] == 0 ||
+		replyAudit.Metadata["text_chunks"] != 1 {
 		t.Fatalf("reply audit metadata = %#v", replyAudit.Metadata)
+	}
+	traceEvent := fakeTraceEventByName(repository.traceEvents, "final_report_delivery", domain.AgentTraceEventSucceeded)
+	if traceEvent.ID == 0 ||
+		traceEvent.Metadata["reply_bytes"] == 0 ||
+		traceEvent.Metadata["text_chunks"] != 1 ||
+		traceEvent.Metadata["text_chunk_bytes"] == nil {
+		t.Fatalf("final report trace metadata = %#v", traceEvent.Metadata)
 	}
 	if len(llmClient.lastRequest.Messages) != 4 {
 		t.Fatalf("llm messages = %#v", llmClient.lastRequest.Messages)
@@ -3624,6 +3633,15 @@ func fakeTraceEventExists(events []domain.AgentTraceEvent, name string, status d
 		}
 	}
 	return false
+}
+
+func fakeTraceEventByName(events []domain.AgentTraceEvent, name string, status domain.AgentTraceEventStatus) domain.AgentTraceEvent {
+	for _, event := range events {
+		if event.EventName == name && event.Status == status {
+			return event
+		}
+	}
+	return domain.AgentTraceEvent{}
 }
 
 func (r *fakeAgentConversationRepository) CreateAuditLog(_ context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error) {
