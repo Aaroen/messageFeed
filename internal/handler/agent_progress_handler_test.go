@@ -264,6 +264,37 @@ func TestAgentFactRecallPreviewRoute(t *testing.T) {
 	}
 }
 
+func TestAgentTracePlanRoute(t *testing.T) {
+	fakeService := &fakeAgentProgressService{
+		traceResult: service.AgentTraceBundleResult{
+			Events: []service.AgentTraceEventResponse{{ID: 1, EventKind: "planner", Status: "succeeded"}},
+		},
+	}
+	router := gin.New()
+	api := router.Group("/api/v1")
+	registerAgentSessionRoutes(api, fakeService, nil)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/agent/traces/plans/9?limit=25", nil)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if fakeService.traceQuery.PlanID != 9 || fakeService.traceQuery.Limit != 25 {
+		t.Fatalf("trace query = %#v", fakeService.traceQuery)
+	}
+	var response struct {
+		Data service.AgentTraceBundleResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(response.Data.Events) != 1 || response.Data.Events[0].EventKind != "planner" {
+		t.Fatalf("trace response = %#v", response.Data)
+	}
+}
+
 type fakeAgentProgressService struct {
 	query                service.AgentProgressQuery
 	progress             service.AgentProgressResult
@@ -277,6 +308,8 @@ type fakeAgentProgressService struct {
 	backfillResult       service.AgentFactIndexBackfillResult
 	recallInput          service.AgentFactRecallPreviewInput
 	recallResult         service.AgentFactRecallPreviewResult
+	traceQuery           service.AgentTraceQuery
+	traceResult          service.AgentTraceBundleResult
 }
 
 func (f *fakeAgentProgressService) ListSessions(context.Context, service.CurrentAuth) (service.AgentSessionListResult, error) {
@@ -375,4 +408,9 @@ func (f *fakeAgentProgressService) GetFactIndexStats(context.Context, service.Cu
 func (f *fakeAgentProgressService) PreviewFactRecall(_ context.Context, _ service.CurrentAuth, input service.AgentFactRecallPreviewInput) (service.AgentFactRecallPreviewResult, error) {
 	f.recallInput = input
 	return f.recallResult, nil
+}
+
+func (f *fakeAgentProgressService) GetTraceBundle(_ context.Context, _ service.CurrentAuth, query service.AgentTraceQuery) (service.AgentTraceBundleResult, error) {
+	f.traceQuery = query
+	return f.traceResult, nil
 }

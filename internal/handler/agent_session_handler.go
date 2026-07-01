@@ -39,6 +39,7 @@ type agentSessionService interface {
 	RunFactIndexBackfill(ctx context.Context, auth service.CurrentAuth, input service.AgentFactIndexBackfillInput) (service.AgentFactIndexBackfillResult, error)
 	GetFactIndexStats(ctx context.Context, auth service.CurrentAuth) (service.AgentFactIndexStatsResult, error)
 	PreviewFactRecall(ctx context.Context, auth service.CurrentAuth, input service.AgentFactRecallPreviewInput) (service.AgentFactRecallPreviewResult, error)
+	GetTraceBundle(ctx context.Context, auth service.CurrentAuth, query service.AgentTraceQuery) (service.AgentTraceBundleResult, error)
 }
 
 type authPasswordVerifier interface {
@@ -107,12 +108,124 @@ func registerAgentSessionRoutes(router *gin.RouterGroup, sessionService agentSes
 	agent.GET("/fact-index/stats", handler.factIndexStats)
 	agent.POST("/fact-index/backfill", handler.factIndexBackfill)
 	agent.POST("/fact-recall/preview", handler.factRecallPreview)
+	agent.GET("/traces/requests/:request_id", handler.traceByRequest)
+	agent.GET("/traces/turns/:turn_id", handler.traceByTurn)
+	agent.GET("/traces/runs/:run_id", handler.traceByRun)
+	agent.GET("/traces/plans/:plan_id", handler.traceByPlan)
+	agent.GET("/traces/embedding-jobs/:job_id", handler.traceByEmbeddingJob)
 	agent.POST("/callback-replay/requests", handler.requestCallbackReplay)
 	agent.POST("/callback-replay/execute", handler.executeCallbackReplay)
 	agent.POST("/sessions/:id/select", handler.selectSession)
 	agent.POST("/sessions/:id/rebuild-context", handler.rebuildContext)
 	agent.DELETE("/sessions/:id/context", handler.clearContext)
 	agent.DELETE("/sessions/:id", handler.deleteSession)
+}
+
+func (h agentSessionHandler) traceByRequest(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	result, err := h.service.GetTraceBundle(c.Request.Context(), currentAuth(c), service.AgentTraceQuery{
+		RequestID: c.Param("request_id"),
+		Limit:     parsePositiveQueryInt(c, "limit"),
+	})
+	if err != nil {
+		RenderError(c, err, "load agent request trace failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) traceByTurn(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	turnID, err := strconv.ParseInt(c.Param("turn_id"), 10, 64)
+	if err != nil || turnID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid turn id")
+		return
+	}
+	result, err := h.service.GetTraceBundle(c.Request.Context(), currentAuth(c), service.AgentTraceQuery{
+		TurnID: turnID,
+		Limit:  parsePositiveQueryInt(c, "limit"),
+	})
+	if err != nil {
+		RenderError(c, err, "load agent turn trace failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) traceByRun(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	runID, err := strconv.ParseInt(c.Param("run_id"), 10, 64)
+	if err != nil || runID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid run id")
+		return
+	}
+	result, err := h.service.GetTraceBundle(c.Request.Context(), currentAuth(c), service.AgentTraceQuery{
+		RunID: runID,
+		Limit: parsePositiveQueryInt(c, "limit"),
+	})
+	if err != nil {
+		RenderError(c, err, "load agent run trace failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) traceByPlan(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	planID, err := strconv.ParseInt(c.Param("plan_id"), 10, 64)
+	if err != nil || planID < 1 {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid plan id")
+		return
+	}
+	result, err := h.service.GetTraceBundle(c.Request.Context(), currentAuth(c), service.AgentTraceQuery{
+		PlanID: planID,
+		Limit:  parsePositiveQueryInt(c, "limit"),
+	})
+	if err != nil {
+		RenderError(c, err, "load agent plan trace failed")
+		return
+	}
+	Success(c, result)
+}
+
+func (h agentSessionHandler) traceByEmbeddingJob(c *gin.Context) {
+	if h.service == nil {
+		Error(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "agent session service unavailable")
+		return
+	}
+	result, err := h.service.GetTraceBundle(c.Request.Context(), currentAuth(c), service.AgentTraceQuery{
+		JobID: c.Param("job_id"),
+		Limit: parsePositiveQueryInt(c, "limit"),
+	})
+	if err != nil {
+		RenderError(c, err, "load agent embedding job trace failed")
+		return
+	}
+	Success(c, result)
+}
+
+func parsePositiveQueryInt(c *gin.Context, key string) int {
+	value := strings.TrimSpace(c.Query(key))
+	if value == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
+		return 0
+	}
+	return parsed
 }
 
 func (h agentSessionHandler) factIndexStats(c *gin.Context) {

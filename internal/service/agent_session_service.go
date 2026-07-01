@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
+	"messagefeed/internal/observability"
 	"sort"
 	"strings"
 	"time"
@@ -37,6 +38,9 @@ type AgentSessionRepository interface {
 	ListAgentMemoryCandidates(ctx context.Context, userID int64, status domain.AgentMemoryCandidateStatus, limit int) ([]domain.AgentMemoryCandidate, error)
 	UpdateAgentMemoryCandidateStatus(ctx context.Context, userID int64, candidateID int64, status domain.AgentMemoryCandidateStatus, reason string, now time.Time) (domain.AgentMemoryCandidate, error)
 	ApplyAgentMemoryCandidate(ctx context.Context, userID int64, candidateID int64, now time.Time) (domain.AgentMemoryBlock, error)
+	ListAgentTraceEvents(ctx context.Context, options domain.AgentTraceEventListOptions) ([]domain.AgentTraceEvent, error)
+	ListAgentRecallTraces(ctx context.Context, options domain.AgentRecallTraceListOptions) ([]domain.AgentRecallTrace, error)
+	ListAgentEmbeddingTraces(ctx context.Context, options domain.AgentEmbeddingTraceListOptions) ([]domain.AgentEmbeddingTrace, error)
 }
 
 type AgentSessionService struct {
@@ -137,6 +141,122 @@ type AgentFactRecallPreviewResult struct {
 	Projections []AgentFactProjectionResponse `json:"projections"`
 	Diagnostics AgentFactRecallDiagnostics    `json:"diagnostics"`
 	GeneratedAt string                        `json:"generated_at"`
+}
+
+type AgentTraceQuery struct {
+	RequestID string
+	TraceID   string
+	TurnID    int64
+	RunID     int64
+	PlanID    int64
+	JobID     string
+	Limit     int
+}
+
+type AgentTraceBundleResult struct {
+	Query           AgentTraceQueryResponse       `json:"query"`
+	Events          []AgentTraceEventResponse     `json:"events"`
+	RecallTraces    []AgentRecallTraceResponse    `json:"recall_traces"`
+	EmbeddingTraces []AgentEmbeddingTraceResponse `json:"embedding_traces"`
+	GeneratedAt     string                        `json:"generated_at"`
+}
+
+type AgentTraceQueryResponse struct {
+	RequestID string `json:"request_id,omitempty"`
+	TraceID   string `json:"trace_id,omitempty"`
+	TurnID    int64  `json:"turn_id,omitempty"`
+	RunID     int64  `json:"run_id,omitempty"`
+	PlanID    int64  `json:"plan_id,omitempty"`
+	JobID     string `json:"job_id,omitempty"`
+	Limit     int    `json:"limit"`
+}
+
+type AgentTraceEventResponse struct {
+	ID            int64            `json:"id"`
+	RequestID     string           `json:"request_id,omitempty"`
+	TraceID       string           `json:"trace_id,omitempty"`
+	SpanID        string           `json:"span_id,omitempty"`
+	UserID        int64            `json:"user_id,omitempty"`
+	SessionID     int64            `json:"session_id,omitempty"`
+	TurnID        int64            `json:"turn_id,omitempty"`
+	PlanID        int64            `json:"plan_id,omitempty"`
+	RunID         int64            `json:"run_id,omitempty"`
+	ParentRunID   int64            `json:"parent_run_id,omitempty"`
+	StepID        int64            `json:"step_id,omitempty"`
+	EventKind     string           `json:"event_kind"`
+	EventName     string           `json:"event_name"`
+	Status        string           `json:"status"`
+	StartedAt     string           `json:"started_at"`
+	FinishedAt    string           `json:"finished_at,omitempty"`
+	DurationMS    int64            `json:"duration_ms"`
+	ModelKey      string           `json:"model_key,omitempty"`
+	CapabilityKey string           `json:"capability_key,omitempty"`
+	ToolName      string           `json:"tool_name,omitempty"`
+	JobID         string           `json:"job_id,omitempty"`
+	ArtifactRefs  []string         `json:"artifact_refs,omitempty"`
+	SourceRefs    []string         `json:"source_refs,omitempty"`
+	InputSummary  string           `json:"input_summary,omitempty"`
+	OutputSummary string           `json:"output_summary,omitempty"`
+	ErrorCode     string           `json:"error_code,omitempty"`
+	ErrorMessage  string           `json:"error_message,omitempty"`
+	Metadata      domain.AgentJSON `json:"metadata,omitempty"`
+	CreatedAt     string           `json:"created_at"`
+}
+
+type AgentRecallTraceResponse struct {
+	ID                   int64            `json:"id"`
+	RequestID            string           `json:"request_id,omitempty"`
+	TraceID              string           `json:"trace_id,omitempty"`
+	UserID               int64            `json:"user_id,omitempty"`
+	SessionID            int64            `json:"session_id,omitempty"`
+	TurnID               int64            `json:"turn_id,omitempty"`
+	RunID                int64            `json:"run_id,omitempty"`
+	PlanID               int64            `json:"plan_id,omitempty"`
+	Mode                 string           `json:"mode"`
+	QueryText            string           `json:"query_text,omitempty"`
+	NeedsHistoryRecall   bool             `json:"needs_history_recall"`
+	HistoryQueryPlan     domain.AgentJSON `json:"history_query_plan,omitempty"`
+	FullTextAttempted    bool             `json:"fulltext_attempted"`
+	FullTextCount        int              `json:"fulltext_count"`
+	FullTextMS           int64            `json:"fulltext_ms"`
+	EmbeddingAttempted   bool             `json:"embedding_attempted"`
+	EmbeddingModel       string           `json:"embedding_model,omitempty"`
+	EmbeddingDimension   int              `json:"embedding_dimension,omitempty"`
+	EmbeddingMS          int64            `json:"embedding_ms"`
+	EmbeddingStatus      string           `json:"embedding_status,omitempty"`
+	EmbeddingError       string           `json:"embedding_error,omitempty"`
+	VectorAttempted      bool             `json:"vector_attempted"`
+	VectorCandidateCount int              `json:"vector_candidate_count"`
+	VectorMS             int64            `json:"vector_ms"`
+	RelationAttempted    bool             `json:"relation_attempted"`
+	RelationCount        int              `json:"relation_count"`
+	RelationMS           int64            `json:"relation_ms"`
+	FinalHitCount        int              `json:"final_hit_count"`
+	FinalSources         domain.AgentJSON `json:"final_sources,omitempty"`
+	FallbackReason       string           `json:"fallback_reason,omitempty"`
+	TotalMS              int64            `json:"total_ms"`
+	Status               string           `json:"status"`
+	ErrorMessage         string           `json:"error_message,omitempty"`
+	CreatedAt            string           `json:"created_at"`
+}
+
+type AgentEmbeddingTraceResponse struct {
+	ID                 int64            `json:"id"`
+	JobID              string           `json:"job_id,omitempty"`
+	RequestID          string           `json:"request_id,omitempty"`
+	TraceID            string           `json:"trace_id,omitempty"`
+	UserID             int64            `json:"user_id,omitempty"`
+	CanonicalRef       string           `json:"canonical_ref"`
+	EmbeddingModel     string           `json:"embedding_model,omitempty"`
+	EmbeddingDimension int              `json:"embedding_dimension,omitempty"`
+	InputChars         int              `json:"input_chars"`
+	ContentHash        string           `json:"content_hash,omitempty"`
+	Status             string           `json:"status"`
+	DurationMS         int64            `json:"duration_ms"`
+	ErrorMessage       string           `json:"error_message,omitempty"`
+	RetryCount         int              `json:"retry_count"`
+	Metadata           domain.AgentJSON `json:"metadata,omitempty"`
+	CreatedAt          string           `json:"created_at"`
 }
 
 type AgentFactRecallDiagnostics struct {
@@ -3841,6 +3961,84 @@ func (s *AgentSessionService) GetProgress(ctx context.Context, auth CurrentAuth,
 	return AgentProgressResult{Progress: progress}, nil
 }
 
+func (s *AgentSessionService) GetTraceBundle(ctx context.Context, auth CurrentAuth, query AgentTraceQuery) (AgentTraceBundleResult, error) {
+	if s == nil || s.repository == nil {
+		return AgentTraceBundleResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_trace_unavailable", "agent trace service is unavailable", "service.agent_session.trace_bundle", false, nil)
+	}
+	if !auth.Authenticated || auth.User.ID < 1 {
+		return AgentTraceBundleResult{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
+	}
+	query.RequestID = strings.TrimSpace(query.RequestID)
+	query.TraceID = strings.TrimSpace(query.TraceID)
+	query.JobID = strings.TrimSpace(query.JobID)
+	if query.RequestID == "" && query.TraceID == "" && query.TurnID < 1 && query.RunID < 1 && query.PlanID < 1 && query.JobID == "" {
+		return AgentTraceBundleResult{}, fmt.Errorf("%w: trace query id is required", domain.ErrInvalidInput)
+	}
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 300
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	query.Limit = limit
+
+	ctx, span := observability.StartSpan(ctx, "service.agent.trace_bundle")
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
+
+	eventOptions := domain.AgentTraceEventListOptions{
+		UserID:    auth.User.ID,
+		RequestID: query.RequestID,
+		TraceID:   query.TraceID,
+		TurnID:    query.TurnID,
+		RunID:     query.RunID,
+		PlanID:    query.PlanID,
+		Limit:     limit,
+	}
+	recallOptions := domain.AgentRecallTraceListOptions{
+		UserID:    auth.User.ID,
+		RequestID: query.RequestID,
+		TraceID:   query.TraceID,
+		TurnID:    query.TurnID,
+		RunID:     query.RunID,
+		PlanID:    query.PlanID,
+		Limit:     limit,
+	}
+	embeddingOptions := domain.AgentEmbeddingTraceListOptions{
+		UserID:    auth.User.ID,
+		RequestID: query.RequestID,
+		TraceID:   query.TraceID,
+		JobID:     query.JobID,
+		Limit:     limit,
+	}
+
+	events, err := s.repository.ListAgentTraceEvents(ctx, eventOptions)
+	if err != nil {
+		opErr = err
+		return AgentTraceBundleResult{}, err
+	}
+	recallTraces, err := s.repository.ListAgentRecallTraces(ctx, recallOptions)
+	if err != nil {
+		opErr = err
+		return AgentTraceBundleResult{}, err
+	}
+	embeddingTraces, err := s.repository.ListAgentEmbeddingTraces(ctx, embeddingOptions)
+	if err != nil {
+		opErr = err
+		return AgentTraceBundleResult{}, err
+	}
+
+	now := s.now().UTC()
+	return AgentTraceBundleResult{
+		Query:           agentTraceQueryResponse(query),
+		Events:          agentTraceEventResponses(events),
+		RecallTraces:    agentRecallTraceResponses(recallTraces),
+		EmbeddingTraces: agentEmbeddingTraceResponses(embeddingTraces),
+		GeneratedAt:     formatOptionalTime(&now),
+	}, nil
+}
+
 func manualAgentSessionKey(account domain.ExternalAccount) string {
 	var random [8]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -4848,6 +5046,136 @@ func agentFactRecallPreviewResult(result domain.AgentFactRecallResult) AgentFact
 		output.Projections = append(output.Projections, agentFactProjectionResponse(projection))
 	}
 	return output
+}
+
+func agentTraceQueryResponse(query AgentTraceQuery) AgentTraceQueryResponse {
+	return AgentTraceQueryResponse{
+		RequestID: query.RequestID,
+		TraceID:   query.TraceID,
+		TurnID:    query.TurnID,
+		RunID:     query.RunID,
+		PlanID:    query.PlanID,
+		JobID:     query.JobID,
+		Limit:     query.Limit,
+	}
+}
+
+func agentTraceEventResponses(events []domain.AgentTraceEvent) []AgentTraceEventResponse {
+	output := make([]AgentTraceEventResponse, 0, len(events))
+	for _, event := range events {
+		output = append(output, agentTraceEventResponse(event))
+	}
+	return output
+}
+
+func agentTraceEventResponse(event domain.AgentTraceEvent) AgentTraceEventResponse {
+	return AgentTraceEventResponse{
+		ID:            event.ID,
+		RequestID:     event.RequestID,
+		TraceID:       event.TraceID,
+		SpanID:        event.SpanID,
+		UserID:        event.UserID,
+		SessionID:     event.SessionID,
+		TurnID:        event.TurnID,
+		PlanID:        event.PlanID,
+		RunID:         event.RunID,
+		ParentRunID:   event.ParentRunID,
+		StepID:        event.StepID,
+		EventKind:     string(event.EventKind),
+		EventName:     event.EventName,
+		Status:        string(event.Status),
+		StartedAt:     formatOptionalTime(&event.StartedAt),
+		FinishedAt:    formatOptionalTime(event.FinishedAt),
+		DurationMS:    event.DurationMS,
+		ModelKey:      event.ModelKey,
+		CapabilityKey: event.CapabilityKey,
+		ToolName:      event.ToolName,
+		JobID:         event.JobID,
+		ArtifactRefs:  append([]string(nil), event.ArtifactRefs...),
+		SourceRefs:    append([]string(nil), event.SourceRefs...),
+		InputSummary:  event.InputSummary,
+		OutputSummary: event.OutputSummary,
+		ErrorCode:     event.ErrorCode,
+		ErrorMessage:  event.ErrorMessage,
+		Metadata:      cloneAgentJSON(event.Metadata),
+		CreatedAt:     formatOptionalTime(&event.CreatedAt),
+	}
+}
+
+func agentRecallTraceResponses(traces []domain.AgentRecallTrace) []AgentRecallTraceResponse {
+	output := make([]AgentRecallTraceResponse, 0, len(traces))
+	for _, trace := range traces {
+		output = append(output, agentRecallTraceResponse(trace))
+	}
+	return output
+}
+
+func agentRecallTraceResponse(trace domain.AgentRecallTrace) AgentRecallTraceResponse {
+	return AgentRecallTraceResponse{
+		ID:                   trace.ID,
+		RequestID:            trace.RequestID,
+		TraceID:              trace.TraceID,
+		UserID:               trace.UserID,
+		SessionID:            trace.SessionID,
+		TurnID:               trace.TurnID,
+		RunID:                trace.RunID,
+		PlanID:               trace.PlanID,
+		Mode:                 string(trace.Mode),
+		QueryText:            trace.QueryText,
+		NeedsHistoryRecall:   trace.NeedsHistoryRecall,
+		HistoryQueryPlan:     cloneAgentJSON(trace.HistoryQueryPlan),
+		FullTextAttempted:    trace.FullTextAttempted,
+		FullTextCount:        trace.FullTextCount,
+		FullTextMS:           trace.FullTextMS,
+		EmbeddingAttempted:   trace.EmbeddingAttempted,
+		EmbeddingModel:       trace.EmbeddingModel,
+		EmbeddingDimension:   trace.EmbeddingDimension,
+		EmbeddingMS:          trace.EmbeddingMS,
+		EmbeddingStatus:      trace.EmbeddingStatus,
+		EmbeddingError:       trace.EmbeddingError,
+		VectorAttempted:      trace.VectorAttempted,
+		VectorCandidateCount: trace.VectorCandidateCount,
+		VectorMS:             trace.VectorMS,
+		RelationAttempted:    trace.RelationAttempted,
+		RelationCount:        trace.RelationCount,
+		RelationMS:           trace.RelationMS,
+		FinalHitCount:        trace.FinalHitCount,
+		FinalSources:         cloneAgentJSON(trace.FinalSources),
+		FallbackReason:       trace.FallbackReason,
+		TotalMS:              trace.TotalMS,
+		Status:               string(trace.Status),
+		ErrorMessage:         trace.ErrorMessage,
+		CreatedAt:            formatOptionalTime(&trace.CreatedAt),
+	}
+}
+
+func agentEmbeddingTraceResponses(traces []domain.AgentEmbeddingTrace) []AgentEmbeddingTraceResponse {
+	output := make([]AgentEmbeddingTraceResponse, 0, len(traces))
+	for _, trace := range traces {
+		output = append(output, agentEmbeddingTraceResponse(trace))
+	}
+	return output
+}
+
+func agentEmbeddingTraceResponse(trace domain.AgentEmbeddingTrace) AgentEmbeddingTraceResponse {
+	return AgentEmbeddingTraceResponse{
+		ID:                 trace.ID,
+		JobID:              trace.JobID,
+		RequestID:          trace.RequestID,
+		TraceID:            trace.TraceID,
+		UserID:             trace.UserID,
+		CanonicalRef:       trace.CanonicalRef,
+		EmbeddingModel:     trace.EmbeddingModel,
+		EmbeddingDimension: trace.EmbeddingDimension,
+		InputChars:         trace.InputChars,
+		ContentHash:        trace.ContentHash,
+		Status:             string(trace.Status),
+		DurationMS:         trace.DurationMS,
+		ErrorMessage:       trace.ErrorMessage,
+		RetryCount:         trace.RetryCount,
+		Metadata:           cloneAgentJSON(trace.Metadata),
+		CreatedAt:          formatOptionalTime(&trace.CreatedAt),
+	}
 }
 
 func agentFactRecallDiagnostics(diagnostics domain.AgentFactRecallDiagnostics) AgentFactRecallDiagnostics {

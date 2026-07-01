@@ -638,6 +638,42 @@ func TestAgentSessionServiceProgressRejectsUnauthenticatedUser(t *testing.T) {
 	}
 }
 
+func TestAgentSessionServiceGetTraceBundleFiltersByUserAndPlan(t *testing.T) {
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	repository := &fakeAgentProgressRepository{
+		traceEvents: []domain.AgentTraceEvent{
+			{ID: 1, RequestID: "req-a", UserID: 1, PlanID: 10, EventKind: domain.AgentTraceEventPlanner, EventName: "planner", Status: domain.AgentTraceEventSucceeded, StartedAt: now, CreatedAt: now},
+			{ID: 2, UserID: 2, PlanID: 10, EventKind: domain.AgentTraceEventPlanner, EventName: "cross-user", Status: domain.AgentTraceEventSucceeded, StartedAt: now, CreatedAt: now},
+		},
+		recallTraces: []domain.AgentRecallTrace{
+			{ID: 3, RequestID: "req-a", UserID: 1, PlanID: 10, Mode: domain.AgentFactRecallModeHybrid, Status: domain.AgentRecallTraceSucceeded, FinalHitCount: 2, CreatedAt: now},
+			{ID: 4, UserID: 2, PlanID: 10, Mode: domain.AgentFactRecallModeHybrid, Status: domain.AgentRecallTraceSucceeded, CreatedAt: now},
+		},
+		embeddingTraces: []domain.AgentEmbeddingTrace{
+			{ID: 5, UserID: 1, RequestID: "req-a", CanonicalRef: "memory_chunk:1", Status: domain.AgentEmbeddingTraceSucceeded, CreatedAt: now},
+			{ID: 6, UserID: 2, RequestID: "req-a", CanonicalRef: "memory_chunk:2", Status: domain.AgentEmbeddingTraceSucceeded, CreatedAt: now},
+		},
+	}
+	service := NewAgentSessionService(repository, WithAgentSessionNow(func() time.Time { return now }))
+
+	result, err := service.GetTraceBundle(context.Background(), CurrentAuth{Authenticated: true, User: domain.User{ID: 1}}, AgentTraceQuery{PlanID: 10, RequestID: "req-a", Limit: 50})
+	if err != nil {
+		t.Fatalf("GetTraceBundle() error = %v", err)
+	}
+	if result.Query.PlanID != 10 || result.Query.RequestID != "req-a" || result.Query.Limit != 50 {
+		t.Fatalf("query = %#v", result.Query)
+	}
+	if len(result.Events) != 1 || result.Events[0].ID != 1 {
+		t.Fatalf("events = %#v", result.Events)
+	}
+	if len(result.RecallTraces) != 1 || result.RecallTraces[0].ID != 3 {
+		t.Fatalf("recall traces = %#v", result.RecallTraces)
+	}
+	if len(result.EmbeddingTraces) != 1 || result.EmbeddingTraces[0].ID != 5 {
+		t.Fatalf("embedding traces = %#v", result.EmbeddingTraces)
+	}
+}
+
 func TestAgentSessionServiceProgressRejectsCrossUserPlan(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	repository := &fakeAgentProgressRepository{
@@ -808,6 +844,9 @@ type fakeAgentProgressRepository struct {
 	runs             []domain.AgentRun
 	tasks            []domain.AgentScheduledTask
 	audits           []domain.AgentAuditLog
+	traceEvents      []domain.AgentTraceEvent
+	recallTraces     []domain.AgentRecallTrace
+	embeddingTraces  []domain.AgentEmbeddingTrace
 	enforceUserScope bool
 }
 
@@ -978,4 +1017,67 @@ func (r *fakeAgentProgressRepository) UpdateAgentMemoryCandidateStatus(context.C
 
 func (r *fakeAgentProgressRepository) ApplyAgentMemoryCandidate(context.Context, int64, int64, time.Time) (domain.AgentMemoryBlock, error) {
 	return domain.AgentMemoryBlock{}, nil
+}
+
+func (r *fakeAgentProgressRepository) ListAgentTraceEvents(_ context.Context, options domain.AgentTraceEventListOptions) ([]domain.AgentTraceEvent, error) {
+	events := make([]domain.AgentTraceEvent, 0, len(r.traceEvents))
+	for _, event := range r.traceEvents {
+		if options.UserID > 0 && event.UserID != options.UserID {
+			continue
+		}
+		if strings.TrimSpace(options.RequestID) != "" && event.RequestID != strings.TrimSpace(options.RequestID) {
+			continue
+		}
+		if options.TurnID > 0 && event.TurnID != options.TurnID {
+			continue
+		}
+		if options.RunID > 0 && event.RunID != options.RunID && event.ParentRunID != options.RunID {
+			continue
+		}
+		if options.PlanID > 0 && event.PlanID != options.PlanID {
+			continue
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
+func (r *fakeAgentProgressRepository) ListAgentRecallTraces(_ context.Context, options domain.AgentRecallTraceListOptions) ([]domain.AgentRecallTrace, error) {
+	traces := make([]domain.AgentRecallTrace, 0, len(r.recallTraces))
+	for _, trace := range r.recallTraces {
+		if options.UserID > 0 && trace.UserID != options.UserID {
+			continue
+		}
+		if strings.TrimSpace(options.RequestID) != "" && trace.RequestID != strings.TrimSpace(options.RequestID) {
+			continue
+		}
+		if options.TurnID > 0 && trace.TurnID != options.TurnID {
+			continue
+		}
+		if options.RunID > 0 && trace.RunID != options.RunID {
+			continue
+		}
+		if options.PlanID > 0 && trace.PlanID != options.PlanID {
+			continue
+		}
+		traces = append(traces, trace)
+	}
+	return traces, nil
+}
+
+func (r *fakeAgentProgressRepository) ListAgentEmbeddingTraces(_ context.Context, options domain.AgentEmbeddingTraceListOptions) ([]domain.AgentEmbeddingTrace, error) {
+	traces := make([]domain.AgentEmbeddingTrace, 0, len(r.embeddingTraces))
+	for _, trace := range r.embeddingTraces {
+		if options.UserID > 0 && trace.UserID != options.UserID {
+			continue
+		}
+		if strings.TrimSpace(options.RequestID) != "" && trace.RequestID != strings.TrimSpace(options.RequestID) {
+			continue
+		}
+		if strings.TrimSpace(options.JobID) != "" && trace.JobID != strings.TrimSpace(options.JobID) {
+			continue
+		}
+		traces = append(traces, trace)
+	}
+	return traces, nil
 }

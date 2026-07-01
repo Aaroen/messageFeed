@@ -56,6 +56,17 @@ type AgentRecallTrace struct {
 	CreatedAt            time.Time
 }
 
+type AgentRecallTraceListOptions struct {
+	UserID    int64
+	RequestID string
+	TraceID   string
+	SessionID int64
+	TurnID    int64
+	PlanID    int64
+	RunID     int64
+	Limit     int
+}
+
 type AgentEmbeddingTraceStatus string
 
 const (
@@ -90,4 +101,12 @@ type AgentEmbeddingTrace struct {
 	RetryCount         int
 	Metadata           AgentJSON
 	CreatedAt          time.Time
+}
+
+type AgentEmbeddingTraceListOptions struct {
+	UserID    int64
+	RequestID string
+	TraceID   string
+	JobID     string
+	Limit     int
 }

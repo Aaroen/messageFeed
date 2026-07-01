@@ -102,6 +102,87 @@ func (r *AgentRepository) CreateAgentEmbeddingTrace(ctx context.Context, trace d
 	return agentEmbeddingTraceModelToDomain(model), nil
 }
 
+func (r *AgentRepository) ListAgentRecallTraces(ctx context.Context, options domain.AgentRecallTraceListOptions) ([]domain.AgentRecallTrace, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_recall_trace.list", "select", "agent_recall_traces")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	query := r.db.WithContext(ctx).Model(&agentRecallTraceModel{})
+	if options.UserID > 0 {
+		query = query.Where("user_id = ?", options.UserID)
+	}
+	if strings.TrimSpace(options.RequestID) != "" {
+		query = query.Where("request_id = ?", strings.TrimSpace(options.RequestID))
+	}
+	if strings.TrimSpace(options.TraceID) != "" {
+		query = query.Where("trace_id = ?", strings.TrimSpace(options.TraceID))
+	}
+	if options.SessionID > 0 {
+		query = query.Where("session_id = ?", options.SessionID)
+	}
+	if options.TurnID > 0 {
+		query = query.Where("turn_id = ?", options.TurnID)
+	}
+	if options.PlanID > 0 {
+		query = query.Where("plan_id = ?", options.PlanID)
+	}
+	if options.RunID > 0 {
+		query = query.Where("run_id = ?", options.RunID)
+	}
+	limit := boundedAgentTraceLimit(options.Limit)
+	var models []agentRecallTraceModel
+	if err := query.Order("created_at ASC, id ASC").Limit(limit).Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	traces := make([]domain.AgentRecallTrace, 0, len(models))
+	for _, model := range models {
+		traces = append(traces, agentRecallTraceModelToDomain(model))
+	}
+	return traces, nil
+}
+
+func (r *AgentRepository) ListAgentEmbeddingTraces(ctx context.Context, options domain.AgentEmbeddingTraceListOptions) ([]domain.AgentEmbeddingTrace, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_embedding_trace.list", "select", "agent_embedding_traces")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	query := r.db.WithContext(ctx).Model(&agentEmbeddingTraceModel{})
+	if options.UserID > 0 {
+		query = query.Where("user_id = ?", options.UserID)
+	}
+	if strings.TrimSpace(options.RequestID) != "" {
+		query = query.Where("request_id = ?", strings.TrimSpace(options.RequestID))
+	}
+	if strings.TrimSpace(options.TraceID) != "" {
+		query = query.Where("trace_id = ?", strings.TrimSpace(options.TraceID))
+	}
+	if strings.TrimSpace(options.JobID) != "" {
+		query = query.Where("job_id = ?", strings.TrimSpace(options.JobID))
+	}
+	limit := boundedAgentTraceLimit(options.Limit)
+	var models []agentEmbeddingTraceModel
+	if err := query.Order("created_at ASC, id ASC").Limit(limit).Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	traces := make([]domain.AgentEmbeddingTrace, 0, len(models))
+	for _, model := range models {
+		traces = append(traces, agentEmbeddingTraceModelToDomain(model))
+	}
+	return traces, nil
+}
+
+func boundedAgentTraceLimit(limit int) int {
+	if limit <= 0 {
+		return 200
+	}
+	if limit > 1000 {
+		return 1000
+	}
+	return limit
+}
+
 func normalizeAgentRecallTrace(trace domain.AgentRecallTrace) domain.AgentRecallTrace {
 	trace.RequestID = strings.TrimSpace(trace.RequestID)
 	trace.TraceID = strings.TrimSpace(trace.TraceID)
