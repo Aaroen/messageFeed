@@ -68,6 +68,13 @@ type AgentMemoryTopic struct {
 	UpdatedAt     time.Time
 }
 
+type AgentMemoryTopicListOptions struct {
+	UserID    int64
+	SessionID int64
+	Statuses  []AgentMemoryTopicStatus
+	Limit     int
+}
+
 type AgentMemoryChunk struct {
 	ID                  int64
 	UserID              int64

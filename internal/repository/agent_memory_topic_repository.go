@@ -71,6 +71,48 @@ func (r *AgentRepository) CreateAgentMemoryTopic(ctx context.Context, topic doma
 	return agentMemoryTopicModelToDomain(model), nil
 }
 
+func (r *AgentRepository) ListAgentMemoryTopics(ctx context.Context, options domain.AgentMemoryTopicListOptions) ([]domain.AgentMemoryTopic, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_memory_topic.list", "select", "agent_memory_topics")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	query := r.db.WithContext(ctx).Model(&agentMemoryTopicModel{})
+	if options.UserID > 0 {
+		query = query.Where("user_id = ?", options.UserID)
+	}
+	if options.SessionID > 0 {
+		query = query.Where("session_id = ?", options.SessionID)
+	}
+	if len(options.Statuses) > 0 {
+		statuses := make([]string, 0, len(options.Statuses))
+		for _, status := range options.Statuses {
+			if status.Valid() {
+				statuses = append(statuses, string(status))
+			}
+		}
+		if len(statuses) > 0 {
+			query = query.Where("status IN ?", statuses)
+		}
+	}
+	limit := options.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	var models []agentMemoryTopicModel
+	if err := query.Order("updated_at DESC, id DESC").Limit(limit).Find(&models).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	topics := make([]domain.AgentMemoryTopic, 0, len(models))
+	for _, model := range models {
+		topics = append(topics, agentMemoryTopicModelToDomain(model))
+	}
+	return topics, nil
+}
+
 func (r *AgentRepository) UpdateAgentMemoryTopic(ctx context.Context, topic domain.AgentMemoryTopic) (domain.AgentMemoryTopic, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_memory_topic.update", "update", "agent_memory_topics")
 	var opErr error

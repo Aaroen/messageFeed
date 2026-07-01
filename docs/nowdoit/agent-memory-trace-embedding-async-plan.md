@@ -203,7 +203,7 @@ fact_id = agent_memory_chunks.id
 
 ### 4.3 后端判断策略
 
-第一阶段采用规则优先、模型辅助的策略，避免每条消息都调用模型判断主题。
+当前实现采用模型主导、后端校验与保守降级的策略。模型负责判断记忆类型、主题延续、主题切换、巩固原因、重要性与风险等级；后端负责构造固定 prompt、解析 JSON、校验枚举和阈值、执行落库、异步 embedding 入队、trace 与 metrics。模型不可用时不回退为关键词语义分类，而是记录 degraded trace 并保守跳过自动沉淀。
 
 #### 4.3.1 主题延续判断
 
@@ -752,9 +752,9 @@ async_jobs_enqueued_count
 | [x] | 补齐通知与回调 trace | notification enqueue/send/callback replay 事件统一关联 request_id、turn_id、job_id；Grafana 展示通知成功率、重试和 provider 错误 |
 | [x] | 新增 `agent_memory_topics`、`agent_memory_chunks` migration | `/readyz` 增加 memory 表结构检查；repository 新查询统一使用 `traceRepositoryOperation`；管理统计预留 topic/chunk count |
 | [x] | 新增 `memory_chunk` fact type | fact index stats 按 `fact_type` 输出 chunk 数量与覆盖率；日志字段增加 `fact_type`、`canonical_ref_hash` |
-| [ ] | 实现规则版 `TopicTracker` | 新增 `service.agent.memory.topic.classify` span；新增 topic created/closed counter；trace 内容记录 decision、reason、message_count |
-| [ ] | 实现 `MemoryConsolidationPolicy` | 新增 `service.agent.memory.consolidation.evaluate` span；新增 consolidation counter 与 duration；记录 trigger_reason、token_estimate、omitted_units_count |
-| [ ] | 实现 `MemoryChunkBuilder` | 新增 chunk build span 与 chunk counter；写入 `agent_run_context_traces` 或新增 memory trace 记录 source refs、risk level、redaction status |
+| [x] | 实现模型主导 `TopicTracker` | 新增 `service.agent.memory.topic.classify` span；新增 topic created/closed counter；trace 内容记录 decision、reason、message_count |
+| [x] | 实现模型主导 `MemoryConsolidationPolicy` | 新增 `service.agent.memory.consolidation.evaluate` span；分类 trace 记录 trigger_reason、risk_level、importance、confidence、是否降级 |
+| [x] | 实现 `MemoryChunkBuilder` | 新增 `service.agent.memory.chunk.build` span 与 chunk counter；memory trace 记录 source refs、risk level、consolidation_reason、embedding_status |
 | [x] | 将 memory chunk 写入 `agent_fact_archive_index` | 新增 fact index upsert span；DB 指标自动覆盖新增表操作；记录 indexer_version、content_hash、embedding_status |
 | [x] | 将惰性 embedding 改为投递 `embed_fact_index` job | recall trace 记录 `async_embedding_enqueued` 与 enqueued count；新增 job enqueue counter；召回日志记录降级与投递原因 |
 | [x] | 实现 embedding worker claim、执行、重试和状态更新 | 新增 job claim/batch/upsert span；新增 jobs total、duration、queue depth、batch size、input chars、coverage、stale gauges；worker 日志携带 `worker_id`、`job_id`、`attempt`、`status` |

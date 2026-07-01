@@ -230,7 +230,27 @@ func TestAgentFactRetrieverSemanticRecallReturnsEmbeddingError(t *testing.T) {
 func TestAgentConversationServiceCapturesLowRiskMemoryCandidate(t *testing.T) {
 	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
-	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+	llmClient := &fakeAgentConversationLLM{memoryResponses: []llm.ChatResponse{fakeAgentMemoryClassificationResponse(domain.AgentJSON{
+		"should_capture":        true,
+		"memory_kind":           "preference",
+		"confidence":            0.91,
+		"importance":            82,
+		"risk_level":            "low",
+		"summary":               "用户偏好默认使用中文并保持客观分析风格。",
+		"keywords":              []string{"中文", "客观分析"},
+		"topic_decision":        "new_topic",
+		"topic_title":           "回复风格偏好",
+		"topic_summary":         "用户要求后续回复默认使用中文并保持客观分析风格。",
+		"topic_intent":          "preference",
+		"consolidation_reason":  "high_value",
+		"should_create_chunk":   true,
+		"chunk_title":           "回复风格偏好",
+		"chunk_summary":         "用户偏好中文、客观分析风格。",
+		"chunk_content":         "用户要求以后默认使用中文并保持客观分析风格。",
+		"requires_confirmation": false,
+		"reason":                "模型判断为可复用的长期偏好。",
+	})}}
+	service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
 
 	service.captureMemoryCandidateFromTranscript(context.Background(), domain.AgentTranscriptEntry{
 		ID:        10,
@@ -251,12 +271,35 @@ func TestAgentConversationServiceCapturesLowRiskMemoryCandidate(t *testing.T) {
 	if len(repository.memoryBlocks) != 1 || repository.memoryBlocks[0].MemoryKind != domain.AgentMemoryKindPreference {
 		t.Fatalf("memory blocks = %#v, want preference block", repository.memoryBlocks)
 	}
+	if len(repository.memoryChunks) != 1 || repository.memoryChunks[0].EmbeddingStatus != domain.AgentFactEmbeddingStatusPending {
+		t.Fatalf("memory chunks = %#v, want one pending chunk", repository.memoryChunks)
+	}
+	if !fakeTraceEventExists(repository.traceEvents, "memory_classification", domain.AgentTraceEventSucceeded) {
+		t.Fatalf("trace events = %#v, want succeeded memory classification", repository.traceEvents)
+	}
 }
 
 func TestAgentConversationServiceKeepsHighRiskMemoryCandidatePending(t *testing.T) {
 	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
-	service := NewAgentConversationService(repository, WithAgentConversationNow(func() time.Time { return now }))
+	llmClient := &fakeAgentConversationLLM{memoryResponses: []llm.ChatResponse{fakeAgentMemoryClassificationResponse(domain.AgentJSON{
+		"should_capture":        true,
+		"memory_kind":           "fact",
+		"confidence":            0.88,
+		"importance":            70,
+		"risk_level":            "high",
+		"summary":               "用户提供了敏感凭据类信息。",
+		"keywords":              []string{"敏感信息"},
+		"topic_decision":        "new_topic",
+		"topic_title":           "敏感信息处理",
+		"topic_summary":         "用户消息中包含敏感凭据，需要确认后再沉淀。",
+		"topic_intent":          "security",
+		"consolidation_reason":  "high_value",
+		"should_create_chunk":   false,
+		"requires_confirmation": true,
+		"reason":                "模型判断为高风险记忆。",
+	})}}
+	service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
 
 	service.captureMemoryCandidateFromTranscript(context.Background(), domain.AgentTranscriptEntry{
 		ID:        11,
@@ -2829,6 +2872,9 @@ type fakeAgentConversationRepository struct {
 	memoryCandidates  []domain.AgentMemoryCandidate
 	memoryBlocks      []domain.AgentMemoryBlock
 	memoryEvents      []domain.AgentMemoryEvent
+	memoryTopics      []domain.AgentMemoryTopic
+	memoryChunks      []domain.AgentMemoryChunk
+	traceEvents       []domain.AgentTraceEvent
 	audits            []domain.AgentAuditLog
 	runs              []domain.AgentRun
 	contextTraces     []domain.AgentRunContextTrace
@@ -3289,6 +3335,90 @@ func (r *fakeAgentConversationRepository) CreateAgentMemoryEvent(_ context.Conte
 	return event, nil
 }
 
+func (r *fakeAgentConversationRepository) ListAgentMemoryTopics(_ context.Context, options domain.AgentMemoryTopicListOptions) ([]domain.AgentMemoryTopic, error) {
+	topics := make([]domain.AgentMemoryTopic, 0, len(r.memoryTopics))
+	for _, topic := range r.memoryTopics {
+		if options.UserID > 0 && topic.UserID != options.UserID {
+			continue
+		}
+		if options.SessionID > 0 && topic.SessionID != options.SessionID {
+			continue
+		}
+		if len(options.Statuses) > 0 && !fakeMemoryTopicStatusAllowed(topic.Status, options.Statuses) {
+			continue
+		}
+		topics = append(topics, topic)
+	}
+	sort.Slice(topics, func(i, j int) bool {
+		if topics[i].UpdatedAt.Equal(topics[j].UpdatedAt) {
+			return topics[i].ID > topics[j].ID
+		}
+		return topics[i].UpdatedAt.After(topics[j].UpdatedAt)
+	})
+	if options.Limit > 0 && len(topics) > options.Limit {
+		topics = topics[:options.Limit]
+	}
+	return topics, nil
+}
+
+func fakeMemoryTopicStatusAllowed(status domain.AgentMemoryTopicStatus, allowed []domain.AgentMemoryTopicStatus) bool {
+	for _, candidate := range allowed {
+		if status == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentMemoryTopic(_ context.Context, topic domain.AgentMemoryTopic) (domain.AgentMemoryTopic, error) {
+	topic.ID = r.id()
+	if topic.CreatedAt.IsZero() {
+		topic.CreatedAt = time.Now().UTC()
+	}
+	if topic.UpdatedAt.IsZero() {
+		topic.UpdatedAt = topic.CreatedAt
+	}
+	r.memoryTopics = append(r.memoryTopics, topic)
+	return topic, nil
+}
+
+func (r *fakeAgentConversationRepository) UpdateAgentMemoryTopic(_ context.Context, topic domain.AgentMemoryTopic) (domain.AgentMemoryTopic, error) {
+	for index := range r.memoryTopics {
+		if r.memoryTopics[index].ID == topic.ID && r.memoryTopics[index].UserID == topic.UserID {
+			r.memoryTopics[index] = topic
+			return topic, nil
+		}
+	}
+	return domain.AgentMemoryTopic{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentMemoryChunk(_ context.Context, chunk domain.AgentMemoryChunk) (domain.AgentMemoryChunk, error) {
+	chunk.ID = r.id()
+	if chunk.CreatedAt.IsZero() {
+		chunk.CreatedAt = time.Now().UTC()
+	}
+	if chunk.UpdatedAt.IsZero() {
+		chunk.UpdatedAt = chunk.CreatedAt
+	}
+	r.memoryChunks = append(r.memoryChunks, chunk)
+	return chunk, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentTraceEvent(_ context.Context, event domain.AgentTraceEvent) (domain.AgentTraceEvent, error) {
+	event.ID = r.id()
+	r.traceEvents = append(r.traceEvents, event)
+	return event, nil
+}
+
+func fakeTraceEventExists(events []domain.AgentTraceEvent, name string, status domain.AgentTraceEventStatus) bool {
+	for _, event := range events {
+		if event.EventName == name && event.Status == status {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *fakeAgentConversationRepository) CreateAuditLog(_ context.Context, log domain.AgentAuditLog) (domain.AgentAuditLog, error) {
 	log.ID = r.id()
 	r.audits = append(r.audits, log)
@@ -3602,6 +3732,7 @@ type fakeAgentConversationLLM struct {
 	response          llm.ChatResponse
 	responses         []llm.ChatResponse
 	feedbackResponses []llm.ChatResponse
+	memoryResponses   []llm.ChatResponse
 	err               error
 	planErr           error
 	started           chan struct{}
@@ -3609,6 +3740,7 @@ type fakeAgentConversationLLM struct {
 	startOnce         sync.Once
 	responseIdx       int
 	feedbackIdx       int
+	memoryIdx         int
 	planKeys          []string
 	followupIntent    agentFollowupIntent
 	followupAnswer    string
@@ -3617,6 +3749,33 @@ type fakeAgentConversationLLM struct {
 // Chat 同时模拟主 Agent 规划调用和执行 Agent 调用。
 // 规划调用返回结构化 PlanSpec，执行调用仍沿用各测试显式声明的 response。
 func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
+	if fakeIsAgentMemoryClassificationRequest(request) {
+		if len(f.memoryResponses) > 0 {
+			index := f.memoryIdx
+			if index >= len(f.memoryResponses) {
+				index = len(f.memoryResponses) - 1
+			}
+			f.memoryIdx++
+			return f.memoryResponses[index], nil
+		}
+		return fakeAgentMemoryClassificationResponse(domain.AgentJSON{
+			"should_capture":        false,
+			"memory_kind":           "casual",
+			"confidence":            0.6,
+			"importance":            10,
+			"risk_level":            "low",
+			"summary":               "",
+			"keywords":              []string{},
+			"topic_decision":        "ignore",
+			"topic_title":           "",
+			"topic_summary":         "",
+			"topic_intent":          "",
+			"consolidation_reason":  "none",
+			"should_create_chunk":   false,
+			"requires_confirmation": false,
+			"reason":                "unit_test_default_ignore",
+		}), nil
+	}
 	f.calls++
 	f.lastRequest = request
 	if fakeIsAgentFollowupIntentRequest(request) {
@@ -3800,6 +3959,18 @@ func fakeIsAgentFollowupAnswerRequest(request llm.ChatRequest) bool {
 		return false
 	}
 	return strings.Contains(request.Messages[0].Content, "多轮追问答疑器")
+}
+
+func fakeIsAgentMemoryClassificationRequest(request llm.ChatRequest) bool {
+	if len(request.Messages) == 0 {
+		return false
+	}
+	return strings.Contains(request.Messages[0].Content, "长期记忆判定器")
+}
+
+func fakeAgentMemoryClassificationResponse(payload domain.AgentJSON) llm.ChatResponse {
+	body, _ := json.Marshal(payload)
+	return llm.ChatResponse{Provider: "openai_compatible", Model: "memory-classifier-model", Content: string(body)}
 }
 
 func fakeAgentWeChatFeedbackResponse(request llm.ChatRequest) llm.ChatResponse {
