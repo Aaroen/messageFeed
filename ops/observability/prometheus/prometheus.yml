@@ -11,11 +11,6 @@ scrape_configs:
         labels:
           service: messagefeed-api
           environment: development
-      - targets:
-          - api-dev:60001
-        labels:
-          service: messagefeed-api-dev
-          environment: development
 
   - job_name: prometheus
     static_configs:
