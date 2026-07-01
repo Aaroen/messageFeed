@@ -441,6 +441,91 @@ func TestParseMainAgentPlanSpecJSONIncludesContextNeeds(t *testing.T) {
 	}
 }
 
+func TestAgentTaskRouterBuildsQuickAnswerLightPlan(t *testing.T) {
+	now := time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	llmClient := &fakeAgentConversationLLM{routeResponses: []llm.ChatResponse{fakeAgentTaskRouteResponse(domain.AgentJSON{
+		"task_type":               "quick_answer",
+		"confidence":              0.92,
+		"needs_history_recall":    false,
+		"needs_tools":             false,
+		"requires_sub_agent":      false,
+		"estimated_latency_class": "fast",
+		"history_query":           "",
+		"reason":                  "这是普通问答，可以快速回复。",
+	})}}
+	service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
+
+	plan, _, err := service.createPlanForTurn(context.Background(), testAgentExternalAccount(now), domain.AgentSession{ID: 2, UserID: 1}, domain.AgentTurn{ID: 3, UserID: 1, SessionID: 2}, domain.AgentRun{ID: 4, SessionID: 2, TurnID: 3, ModelKey: "test-model"}, ReceiveWeChatWorkAppMessageInput{
+		Provider:          domain.AgentProviderWeb,
+		ProviderMessageID: "msg-route-quick",
+		MsgType:           "text",
+		TextContent:       "解释一下什么是市盈率",
+		RequestID:         "req-route-quick",
+	})
+	if err != nil {
+		t.Fatalf("createPlanForTurn() error = %v", err)
+	}
+	route := metadataMap(plan.Metadata, "task_route")
+	if route["task_type"] != agentTaskRouteQuickAnswer || route["light_plan"] != true {
+		t.Fatalf("task route metadata = %#v", route)
+	}
+	mainPlan := metadataMap(plan.Metadata, "main_agent_plan")
+	if mainPlan["direct_answer_allowed"] != true || mainPlan["requires_sub_agent"] != false {
+		t.Fatalf("main agent plan = %#v", mainPlan)
+	}
+	if len(plan.AllowedScopes) != 0 {
+		t.Fatalf("allowed scopes = %#v, want empty quick answer scope", plan.AllowedScopes)
+	}
+	if fakeContextTraceContains(repository.contextTraces, "main_agent_plan_spec_valid") {
+		t.Fatalf("quick route should not call full planner traces: %#v", repository.contextTraces)
+	}
+	if !fakeTraceEventExists(repository.traceEvents, "main_agent_task_route", domain.AgentTraceEventSucceeded) {
+		t.Fatalf("trace events = %#v, want task route trace", repository.traceEvents)
+	}
+}
+
+func TestAgentTaskRouterBuildsRAGAnswerLightPlan(t *testing.T) {
+	now := time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	llmClient := &fakeAgentConversationLLM{routeResponses: []llm.ChatResponse{fakeAgentTaskRouteResponse(domain.AgentJSON{
+		"task_type":               "rag_answer",
+		"confidence":              0.88,
+		"needs_history_recall":    true,
+		"needs_tools":             false,
+		"requires_sub_agent":      true,
+		"estimated_latency_class": "normal",
+		"history_query":           "用户之前的回复偏好",
+		"reason":                  "用户要求结合历史上下文回答。",
+	})}}
+	service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
+
+	plan, _, err := service.createPlanForTurn(context.Background(), testAgentExternalAccount(now), domain.AgentSession{ID: 2, UserID: 1}, domain.AgentTurn{ID: 3, UserID: 1, SessionID: 2}, domain.AgentRun{ID: 4, SessionID: 2, TurnID: 3, ModelKey: "test-model"}, ReceiveWeChatWorkAppMessageInput{
+		Provider:          domain.AgentProviderWeb,
+		ProviderMessageID: "msg-route-rag",
+		MsgType:           "text",
+		TextContent:       "我之前说过什么回复偏好吗",
+		RequestID:         "req-route-rag",
+	})
+	if err != nil {
+		t.Fatalf("createPlanForTurn() error = %v", err)
+	}
+	route := metadataMap(plan.Metadata, "task_route")
+	if route["task_type"] != agentTaskRouteRAGAnswer || route["light_plan"] != true {
+		t.Fatalf("task route metadata = %#v", route)
+	}
+	if !containsAgentString(plan.AllowedScopes, "conversation.query_history") {
+		t.Fatalf("allowed scopes = %#v, want conversation.query_history", plan.AllowedScopes)
+	}
+	historyPlan := historyQueryPlanForTurn(plan)
+	if historyPlan.Mode != string(domain.AgentFactRecallModeHybrid) || historyPlan.Query != "用户之前的回复偏好" {
+		t.Fatalf("history query plan = %#v", historyPlan)
+	}
+	if fakeContextTraceContains(repository.contextTraces, "main_agent_plan_spec_valid") {
+		t.Fatalf("rag route should not call full planner traces: %#v", repository.contextTraces)
+	}
+}
+
 func TestConversationMemoryProviderExecutesPlannedHistoryQuery(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -3958,6 +4043,7 @@ type fakeAgentConversationLLM struct {
 	responses         []llm.ChatResponse
 	feedbackResponses []llm.ChatResponse
 	memoryResponses   []llm.ChatResponse
+	routeResponses    []llm.ChatResponse
 	memoryDelay       time.Duration
 	err               error
 	planErr           error
@@ -3967,6 +4053,7 @@ type fakeAgentConversationLLM struct {
 	responseIdx       int
 	feedbackIdx       int
 	memoryIdx         int
+	routeIdx          int
 	planKeys          []string
 	followupIntent    agentFollowupIntent
 	followupAnswer    string
@@ -4029,6 +4116,26 @@ func (f *fakeAgentConversationLLM) Chat(ctx context.Context, request llm.ChatReq
 			answer = "这是基于已有任务结果生成的追问答复。"
 		}
 		return llm.ChatResponse{Provider: "openai_compatible", Model: "followup-answer-model", Content: answer}, nil
+	}
+	if fakeIsAgentTaskRouteRequest(request) {
+		if len(f.routeResponses) > 0 {
+			index := f.routeIdx
+			if index >= len(f.routeResponses) {
+				index = len(f.routeResponses) - 1
+			}
+			f.routeIdx++
+			return f.routeResponses[index], nil
+		}
+		return fakeAgentTaskRouteResponse(domain.AgentJSON{
+			"task_type":               "deep_task",
+			"confidence":              0.9,
+			"needs_history_recall":    true,
+			"needs_tools":             true,
+			"requires_sub_agent":      true,
+			"estimated_latency_class": "slow",
+			"history_query":           "",
+			"reason":                  "unit_test_default_deep_route",
+		}), nil
 	}
 	if fakeIsMainAgentPlanSpecRequest(request) {
 		if f.planErr != nil {
@@ -4199,6 +4306,18 @@ func fakeIsAgentMemoryClassificationRequest(request llm.ChatRequest) bool {
 		return false
 	}
 	return strings.Contains(request.Messages[0].Content, "长期记忆判定器")
+}
+
+func fakeIsAgentTaskRouteRequest(request llm.ChatRequest) bool {
+	if len(request.Messages) == 0 {
+		return false
+	}
+	return strings.Contains(request.Messages[0].Content, "任务分级器")
+}
+
+func fakeAgentTaskRouteResponse(payload domain.AgentJSON) llm.ChatResponse {
+	body, _ := json.Marshal(payload)
+	return llm.ChatResponse{Provider: "openai_compatible", Model: "task-router-model", Content: string(body)}
 }
 
 func fakeAgentMemoryClassificationResponse(payload domain.AgentJSON) llm.ChatResponse {

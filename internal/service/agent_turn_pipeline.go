@@ -650,14 +650,31 @@ func (s *AgentConversationService) createPlanForTurn(
 		ControllerRunID: controllerRun.ID,
 		Goal:            input.TextContent,
 	}
-	// 主 Agent 先由模型生成 PlanSpec，避免 service 层继续通过关键词硬编码推断用户意图。
-	mainPlan, err := s.buildMainAgentPlanSpec(ctx, account, session, turn, controllerRun, input)
-	if err != nil {
-		failedPlan, createErr := s.createPlanningFailedPlan(ctx, account, session, turn, controllerRun, input, err)
-		if createErr != nil {
-			return domain.AgentPlan{}, "", createErr
+	route, routeErr := s.classifyAgentTaskRoute(ctx, account, session, turn, controllerRun, input)
+	if routeErr != nil {
+		return domain.AgentPlan{}, "", routeErr
+	}
+	mainPlan := mainAgentPlanSpecResult{}
+	if agentTaskRouteShouldUseLightPlan(route) {
+		spec := agentTaskRoutePlanSpec(route, input.TextContent)
+		mainPlan = mainAgentPlanSpecResult{
+			Spec:      spec,
+			Provider:  route.Provider,
+			Model:     route.Model,
+			Raw:       route.Raw,
+			Attempts:  1,
+			Validated: true,
 		}
-		return failedPlan, "", err
+	} else {
+		// 主 Agent 先由模型生成 PlanSpec，避免 service 层继续通过关键词硬编码推断用户意图。
+		mainPlan, err = s.buildMainAgentPlanSpec(ctx, account, session, turn, controllerRun, input)
+		if err != nil {
+			failedPlan, createErr := s.createPlanningFailedPlan(ctx, account, session, turn, controllerRun, input, err)
+			if createErr != nil {
+				return domain.AgentPlan{}, "", createErr
+			}
+			return failedPlan, "", err
+		}
 	}
 	// planner 只把模型计划转换为持久化计划和步骤，权限、预算、确认策略仍走后续治理链路。
 	output := s.planner.BuildFromSpec(ctx, planInput, mainPlan.Spec)
@@ -669,6 +686,17 @@ func (s *AgentConversationService) createPlanForTurn(
 		"attempts":   mainPlan.Attempts,
 		"validated":  mainPlan.Validated,
 		"raw_length": len(mainPlan.Raw),
+	}
+	output.Plan.Metadata["task_route"] = domain.AgentJSON{
+		"task_type":               route.TaskType,
+		"confidence":              route.Confidence,
+		"needs_history_recall":    route.NeedsHistoryRecall,
+		"needs_tools":             route.NeedsTools,
+		"requires_sub_agent":      route.RequiresSubAgent,
+		"estimated_latency_class": route.EstimatedLatencyClass,
+		"history_query":           route.HistoryQuery,
+		"reason":                  route.Reason,
+		"light_plan":              agentTaskRouteShouldUseLightPlan(route),
 	}
 	plan, err := s.repository.CreateAgentPlan(ctx, output.Plan, output.Steps)
 	if err != nil {
