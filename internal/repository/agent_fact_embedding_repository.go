@@ -287,6 +287,45 @@ func (r *AgentRepository) UpdateAgentFactIndexJob(ctx context.Context, job domai
 	return agentFactIndexJobModelToDomain(stored), nil
 }
 
+func (r *AgentRepository) ClaimPendingAgentFactIndexJobs(ctx context.Context, input domain.AgentFactIndexJobClaimInput) ([]domain.AgentFactIndexJob, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_fact_index_job.claim_pending", "update", "agent_fact_index_jobs")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	input = normalizeAgentFactIndexJobClaimInput(input)
+	var models []agentFactIndexJobModel
+	err := r.db.WithContext(ctx).Raw(`
+		UPDATE agent_fact_index_jobs
+		SET
+			status = ?,
+			started_at = COALESCE(started_at, ?),
+			updated_at = ?
+		WHERE id IN (
+			SELECT id
+			FROM agent_fact_index_jobs
+			WHERE job_type = ? AND status = ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING *
+	`, string(domain.AgentFactIndexJobRunning), input.Now, input.Now, string(input.JobType), string(domain.AgentFactIndexJobPending), input.Limit).Scan(&models).Error
+	if err != nil {
+		opErr = mapRepositoryError(err)
+		return nil, opErr
+	}
+	jobs := make([]domain.AgentFactIndexJob, 0, len(models))
+	for _, model := range models {
+		job := agentFactIndexJobModelToDomain(model)
+		if job.Cursor == nil {
+			job.Cursor = domain.AgentJSON{}
+		}
+		job.Cursor["worker_id"] = input.WorkerID
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
+}
+
 func (r *AgentRepository) GetAgentFactIndexStats(ctx context.Context, userID int64) (domain.AgentFactIndexStats, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_fact_index.stats", "select", "agent_fact_archive_index")
 	var opErr error
@@ -411,6 +450,28 @@ func normalizeAgentFactIndexJob(job domain.AgentFactIndexJob) domain.AgentFactIn
 	}
 	job.ErrorMessage = strings.TrimSpace(job.ErrorMessage)
 	return job
+}
+
+func normalizeAgentFactIndexJobClaimInput(input domain.AgentFactIndexJobClaimInput) domain.AgentFactIndexJobClaimInput {
+	if !input.JobType.Valid() {
+		input.JobType = domain.AgentFactIndexJobEmbed
+	}
+	input.WorkerID = strings.TrimSpace(input.WorkerID)
+	if input.WorkerID == "" {
+		input.WorkerID = "agent-fact-index-worker"
+	}
+	if input.Limit <= 0 {
+		input.Limit = 10
+	}
+	if input.Limit > 100 {
+		input.Limit = 100
+	}
+	if input.Now.IsZero() {
+		input.Now = time.Now().UTC()
+	} else {
+		input.Now = input.Now.UTC()
+	}
+	return input
 }
 
 func agentFactIndexJobModelFromDomain(job domain.AgentFactIndexJob) agentFactIndexJobModel {

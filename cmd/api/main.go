@@ -86,6 +86,7 @@ func main() {
 	var agentScheduleEvalService *service.AgentScheduleEvalService
 	var notificationWorkerService *service.NotificationWorkerService
 	var agentScheduledTaskWorkerService *service.AgentScheduledTaskWorkerService
+	var agentEmbeddingWorkerService *service.AgentEmbeddingWorkerService
 	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
 	defer cancelBackground()
 	if cfg.WeChatWork.Enabled() {
@@ -264,12 +265,16 @@ func main() {
 		)
 		agentScheduledTaskWorkerService = service.NewAgentScheduledTaskWorkerService(agentRepository)
 		agentScheduledTaskWorkerService.SetReportSender(weChatWorkSender)
+		if embeddingClient != nil {
+			agentEmbeddingWorkerService = service.NewAgentEmbeddingWorkerService(agentRepository, embeddingClient, cfg.Embedding.Model, time.Now)
+		}
 
 		// 启动数据库连接池指标采集器
 		go collectDatabaseMetrics(database, logger)
 		go runSourceSyncWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, sourceSyncService)
 		go runNotificationWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, notificationWorkerService)
 		go runAgentScheduledTaskWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, agentScheduledTaskWorkerService)
+		go runAgentEmbeddingWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, agentEmbeddingWorkerService)
 	} else {
 		logger.Warn("database not configured, running in database-less mode")
 	}
@@ -459,6 +464,44 @@ func runAgentScheduledTaskWorker(ctx context.Context, logger *slog.Logger, worke
 				"report_sent", result.ReportSent,
 				"report_failed", result.ReportFailed,
 				"report_skipped", result.ReportSkipped,
+			)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func runAgentEmbeddingWorker(ctx context.Context, logger *slog.Logger, workerID string, workerService *service.AgentEmbeddingWorkerService) {
+	if workerService == nil {
+		return
+	}
+	if workerID == "" {
+		workerID = "api"
+	}
+	workerID = workerID + ":agent-embedding"
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		runCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+		result, err := workerService.RunOnce(runCtx, service.RunAgentEmbeddingWorkerOnceInput{
+			WorkerID: workerID,
+			Limit:    10,
+		})
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			logger.Warn("agent embedding worker run failed", "error", err)
+		} else if result.ClaimedCount > 0 {
+			logger.Info(
+				"agent embedding worker run completed",
+				"claimed", result.ClaimedCount,
+				"succeeded", result.SucceededCount,
+				"failed", result.FailedCount,
+				"skipped", result.SkippedCount,
 			)
 		}
 

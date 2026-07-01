@@ -366,6 +366,25 @@ var AgentEmbeddingInputChars = promauto.NewHistogramVec(
 	[]string{"provider", "model", "operation"},
 )
 
+// AgentEmbeddingJobsTotal 记录 embedding job 处理结果。
+var AgentEmbeddingJobsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_embedding_jobs_total",
+		Help: "Agent embedding job 处理总数，按状态和原因分类",
+	},
+	[]string{"status", "reason"},
+)
+
+// AgentEmbeddingJobDuration 记录 embedding job 处理耗时。
+var AgentEmbeddingJobDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_embedding_job_duration_seconds",
+		Help:    "Agent embedding job 处理耗时分布（秒），按状态分类",
+		Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 180.0},
+	},
+	[]string{"status"},
+)
+
 // LLMRequestsTotal 记录大模型请求总数，按模型、操作和状态分类。
 var LLMRequestsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{

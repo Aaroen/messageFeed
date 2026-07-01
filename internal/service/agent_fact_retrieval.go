@@ -25,6 +25,10 @@ type agentRecallTraceStore interface {
 	CreateAgentRecallTrace(ctx context.Context, trace domain.AgentRecallTrace) (domain.AgentRecallTrace, error)
 }
 
+type agentFactEmbeddingJobStore interface {
+	CreateAgentFactIndexJob(ctx context.Context, job domain.AgentFactIndexJob) (domain.AgentFactIndexJob, error)
+}
+
 func newAgentFactRetriever(repository AgentConversationRepository, embedding llm.EmbeddingClient, embeddingModel string, now func() time.Time) *agentFactRetriever {
 	if repository == nil {
 		return nil
@@ -259,13 +263,43 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 }
 
 func (r *agentFactRetriever) embedFactsForFutureRecall(ctx context.Context, facts []domain.AgentFactArchiveIndex) error {
-	if r == nil || r.embedder == nil || len(facts) == 0 {
+	if r == nil || len(facts) == 0 {
+		return nil
+	}
+	store, ok := any(r.repository).(agentFactEmbeddingJobStore)
+	if !ok {
 		return nil
 	}
 	if len(facts) > 8 {
 		facts = facts[:8]
 	}
-	return r.embedder.EmbedFacts(ctx, facts)
+	refs := make([]string, 0, len(facts))
+	userID := int64(0)
+	for _, fact := range facts {
+		if userID == 0 {
+			userID = fact.UserID
+		}
+		if strings.TrimSpace(fact.CanonicalRef) != "" {
+			refs = append(refs, fact.CanonicalRef)
+		}
+	}
+	refs = compactNonEmptyStrings(refs)
+	if userID == 0 || len(refs) == 0 {
+		return nil
+	}
+	_, err := store.CreateAgentFactIndexJob(ctx, domain.AgentFactIndexJob{
+		JobType: domain.AgentFactIndexJobEmbed,
+		Scope: domain.AgentJSON{
+			"user_id":         userID,
+			"canonical_refs":  refs,
+			"reason":          "lazy_recall",
+			"embedding_model": r.embeddingModel,
+		},
+		Status:    domain.AgentFactIndexJobPending,
+		CreatedAt: r.now().UTC(),
+		UpdatedAt: r.now().UTC(),
+	})
+	return err
 }
 
 func (r *agentFactRetriever) recordRecallTrace(ctx context.Context, trace domain.AgentRecallTrace) {

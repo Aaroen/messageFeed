@@ -305,6 +305,13 @@ type AgentFactIndexJob struct {
 	UpdatedAt      time.Time
 }
 
+type AgentFactIndexJobClaimInput struct {
+	JobType  AgentFactIndexJobType
+	WorkerID string
+	Limit    int
+	Now      time.Time
+}
+
 type AgentFactBackfillResult struct {
 	ProcessedCount int
 	FailedCount    int
