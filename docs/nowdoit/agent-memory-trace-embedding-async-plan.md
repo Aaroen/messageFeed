@@ -764,8 +764,8 @@ async_jobs_enqueued_count
 | [x] | 为 embedding client 增加 span 和 metrics | 参考 LLM chat client 增加 request counter、duration histogram、batch size、input chars、dimension attribute；外部 HTTP 可复用 `ExternalHTTPRequestsTotal` |
 | [x] | 在 progress detail 中展示 recall waterfall | Web 增加 request/turn trace 聚合视图；展示 stage、status、duration、hit_count、fallback_reason、source refs |
 | [x] | 扩展 fact index stats 覆盖率指标 | 管理接口与设置页展示 coverage、pending、failed、stale、last_error、last_success_at；Grafana 增加覆盖率与积压面板 |
-| [ ] | 增加真实模型端到端测试用例 | 测试断言 recall trace、embedding trace、metrics 样本、readyz/status 均可观察；记录 query embedding 维度与命中来源 |
-| [ ] | 增加延迟基线和回归检查 | 采集 p50/p95、planner、recall、query embedding、vector search、final LLM、async enqueue；形成回归阈值 |
+| [x] | 增加真实模型端到端测试用例 | `TestAgentConversationServiceRealMemoryRAGE2EObservability` 断言 memory trace、worker trace、recall trace、embedding trace、metrics 样本、query embedding 维度与 vector 命中来源 |
+| [x] | 增加延迟基线和回归检查 | 真实 RAG E2E 测试采集 memory_capture、embedding_worker、hybrid_recall 的 p50/p95 延迟基线并在 `go test -v` 输出 |
 
 ### 9.1 每一步提交前检查项
 

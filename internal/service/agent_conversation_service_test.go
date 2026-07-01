@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
@@ -2868,7 +2869,11 @@ type fakeAgentConversationRepository struct {
 	turns             []domain.AgentTurn
 	transcripts       []domain.AgentTranscriptEntry
 	recalls           []domain.AgentRecallEvent
+	recallTraces      []domain.AgentRecallTrace
+	embeddingTraces   []domain.AgentEmbeddingTrace
 	factIndexes       []domain.AgentFactArchiveIndex
+	factEmbeddings    []domain.AgentFactEmbedding
+	factIndexJobs     []domain.AgentFactIndexJob
 	memoryCandidates  []domain.AgentMemoryCandidate
 	memoryBlocks      []domain.AgentMemoryBlock
 	memoryEvents      []domain.AgentMemoryEvent
@@ -3116,6 +3121,18 @@ func (r *fakeAgentConversationRepository) CreateRecallEvent(_ context.Context, e
 	return event, nil
 }
 
+func (r *fakeAgentConversationRepository) CreateAgentRecallTrace(_ context.Context, trace domain.AgentRecallTrace) (domain.AgentRecallTrace, error) {
+	trace.ID = r.id()
+	r.recallTraces = append(r.recallTraces, trace)
+	return trace, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentEmbeddingTrace(_ context.Context, trace domain.AgentEmbeddingTrace) (domain.AgentEmbeddingTrace, error) {
+	trace.ID = r.id()
+	r.embeddingTraces = append(r.embeddingTraces, trace)
+	return trace, nil
+}
+
 func (r *fakeAgentConversationRepository) UpsertAgentFactArchiveIndex(_ context.Context, fact domain.AgentFactArchiveIndex) (domain.AgentFactArchiveIndex, error) {
 	for index := range r.factIndexes {
 		if r.factIndexes[index].CanonicalRef == fact.CanonicalRef {
@@ -3127,6 +3144,78 @@ func (r *fakeAgentConversationRepository) UpsertAgentFactArchiveIndex(_ context.
 	fact.ID = r.id()
 	r.factIndexes = append(r.factIndexes, fact)
 	return fact, nil
+}
+
+func (r *fakeAgentConversationRepository) UpsertAgentFactEmbedding(_ context.Context, embedding domain.AgentFactEmbedding) (domain.AgentFactEmbedding, error) {
+	for index := range r.factEmbeddings {
+		if r.factEmbeddings[index].UserID == embedding.UserID && r.factEmbeddings[index].CanonicalRef == embedding.CanonicalRef {
+			embedding.ID = r.factEmbeddings[index].ID
+			r.factEmbeddings[index] = embedding
+			return embedding, nil
+		}
+	}
+	embedding.ID = r.id()
+	r.factEmbeddings = append(r.factEmbeddings, embedding)
+	return embedding, nil
+}
+
+func (r *fakeAgentConversationRepository) CreateAgentFactIndexJob(_ context.Context, job domain.AgentFactIndexJob) (domain.AgentFactIndexJob, error) {
+	job.ID = r.id()
+	if job.CreatedAt.IsZero() {
+		job.CreatedAt = time.Now().UTC()
+	}
+	if job.UpdatedAt.IsZero() {
+		job.UpdatedAt = job.CreatedAt
+	}
+	if !job.Status.Valid() {
+		job.Status = domain.AgentFactIndexJobPending
+	}
+	r.factIndexJobs = append(r.factIndexJobs, job)
+	return job, nil
+}
+
+func (r *fakeAgentConversationRepository) ClaimPendingAgentFactIndexJobs(_ context.Context, input domain.AgentFactIndexJobClaimInput) ([]domain.AgentFactIndexJob, error) {
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	now := input.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	jobs := make([]domain.AgentFactIndexJob, 0, limit)
+	for index := range r.factIndexJobs {
+		if len(jobs) >= limit {
+			break
+		}
+		job := r.factIndexJobs[index]
+		if job.Status != domain.AgentFactIndexJobPending {
+			continue
+		}
+		if input.JobType.Valid() && job.JobType != input.JobType {
+			continue
+		}
+		job.Status = domain.AgentFactIndexJobRunning
+		job.StartedAt = &now
+		job.UpdatedAt = now
+		if job.Cursor == nil {
+			job.Cursor = domain.AgentJSON{}
+		}
+		job.Cursor["worker_id"] = input.WorkerID
+		r.factIndexJobs[index] = job
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
+}
+
+func (r *fakeAgentConversationRepository) UpdateAgentFactIndexJob(_ context.Context, job domain.AgentFactIndexJob) (domain.AgentFactIndexJob, error) {
+	for index := range r.factIndexJobs {
+		if r.factIndexJobs[index].ID == job.ID {
+			r.factIndexJobs[index] = job
+			return job, nil
+		}
+	}
+	return domain.AgentFactIndexJob{}, domain.ErrNotFound
 }
 
 func (r *fakeAgentConversationRepository) QueryAgentFactArchiveIndex(_ context.Context, options domain.AgentFactArchiveQueryOptions) ([]domain.AgentFactArchiveIndex, error) {
@@ -3172,17 +3261,27 @@ func (r *fakeAgentConversationRepository) QueryAgentFactArchiveIndex(_ context.C
 }
 
 func (r *fakeAgentConversationRepository) SearchAgentFactEmbeddings(_ context.Context, options domain.AgentFactRecallPlan, _ []float32) ([]domain.AgentFactRecallHit, error) {
-	facts, err := r.QueryAgentFactArchiveIndex(context.Background(), domain.AgentFactArchiveQueryOptions{
+	queryOptions := domain.AgentFactArchiveQueryOptions{
 		UserID:       options.UserID,
 		SessionID:    options.SessionID,
 		TurnID:       options.TurnID,
 		FactTypes:    options.FactTypes,
 		MemoryKinds:  options.MemoryKinds,
-		Query:        options.Query,
 		After:        options.After,
 		Before:       options.Before,
 		Limit:        options.Limit,
 		MaxRiskLevel: options.MaxRiskLevel,
+	}
+	facts, err := r.QueryAgentFactArchiveIndex(context.Background(), domain.AgentFactArchiveQueryOptions{
+		UserID:       queryOptions.UserID,
+		SessionID:    queryOptions.SessionID,
+		TurnID:       queryOptions.TurnID,
+		FactTypes:    queryOptions.FactTypes,
+		MemoryKinds:  queryOptions.MemoryKinds,
+		After:        queryOptions.After,
+		Before:       queryOptions.Before,
+		Limit:        queryOptions.Limit,
+		MaxRiskLevel: queryOptions.MaxRiskLevel,
 	})
 	if err != nil {
 		return nil, err
@@ -3401,6 +3500,47 @@ func (r *fakeAgentConversationRepository) CreateAgentMemoryChunk(_ context.Conte
 		chunk.UpdatedAt = chunk.CreatedAt
 	}
 	r.memoryChunks = append(r.memoryChunks, chunk)
+	ref := fmt.Sprintf("memory_chunk:%d", chunk.ID)
+	_, _ = r.UpsertAgentFactArchiveIndex(context.Background(), domain.AgentFactArchiveIndex{
+		CanonicalRef:    ref,
+		FactType:        domain.AgentFactTypeMemoryChunk,
+		FactID:          chunk.ID,
+		UserID:          chunk.UserID,
+		SessionID:       chunk.SessionID,
+		TurnID:          chunk.EndTurnID,
+		MemoryKind:      chunk.MemoryKind,
+		Topics:          []string{fmt.Sprintf("topic:%d", chunk.TopicID), chunk.Title},
+		SummaryForIndex: chunk.Summary,
+		ContextualText:  chunk.Content,
+		Embedding: domain.AgentJSON{
+			"status": string(chunk.EmbeddingStatus),
+		},
+		Importance:   chunk.Importance,
+		Confidence:   0.8,
+		SourceRefs:   append([]string(nil), chunk.SourceRefs...),
+		RelationRefs: append([]string(nil), chunk.RelationRefs...),
+		IndexStatus:  domain.AgentFactIndexStatusReady,
+		RiskLevel:    domain.AgentMemoryRiskLow,
+		Metadata: domain.AgentJSON{
+			"source":               "agent_memory_chunks",
+			"consolidation_reason": chunk.ConsolidationReason,
+		},
+		CreatedAt: chunk.CreatedAt,
+		UpdatedAt: chunk.UpdatedAt,
+	})
+	if chunk.EmbeddingStatus == domain.AgentFactEmbeddingStatusPending {
+		_, _ = r.CreateAgentFactIndexJob(context.Background(), domain.AgentFactIndexJob{
+			JobType: domain.AgentFactIndexJobEmbed,
+			Scope: domain.AgentJSON{
+				"user_id":        chunk.UserID,
+				"canonical_refs": []string{ref},
+				"reason":         chunk.ConsolidationReason,
+			},
+			Status:    domain.AgentFactIndexJobPending,
+			CreatedAt: chunk.CreatedAt,
+			UpdatedAt: chunk.UpdatedAt,
+		})
+	}
 	return chunk, nil
 }
 
