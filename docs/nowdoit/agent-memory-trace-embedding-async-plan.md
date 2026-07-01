@@ -35,6 +35,52 @@
 5. Recall trace 尚不完整，缺少每次召回的 fulltext、embedding、vector、relation、rerank 分段耗时和降级原因持久化。
 6. embedding 覆盖率、stale embedding、失败重试等指标还没有进入 readyz 或管理接口。
 
+### 2.3 已部署可观测性现状
+
+当前项目已经具备较完整的通用可观测性基础，但 RAG 与 embedding 的专项观测尚未闭环。经代码与部署配置核实，现状如下：
+
+| 层级 | 已有实现 | 位置 | 状态 | 主要缺口 |
+| --- | --- | --- | --- | --- |
+| 结构化日志 | `slog` JSON 输出，固定携带 `service`、`service_version`、`environment`、`node_id`、`deployment_mode` | `internal/observability/observability.go` | 已实现 | RAG/embedding worker 日志字段尚未统一 |
+| request id | 继承或生成 `X-Request-ID`，写入 `context.Context` 与响应头 | `internal/observability/context.go`、`internal/handler/middleware.go` | 已实现 | 异步 job 需要继承触发请求或业务关联 id |
+| HTTP access log | 访问日志携带 `request_id`、`trace_id`、`span_id`、method、path、status、duration | `internal/handler/middleware.go` | 已实现 | RAG 内部分段耗时未进入访问日志摘要 |
+| OpenTelemetry trace | 支持 OTLP gRPC exporter、采样比例、span error 状态 | `internal/observability/observability.go` | 已实现 | Docker Compose 中 API 默认关闭 trace |
+| Prometheus metrics | HTTP、DB、Feed、外部 HTTP、通知、企业微信、Agent turn、LLM 请求与 token | `internal/metrics/metrics.go` | 已实现 | 缺少 memory、recall、embedding、queue 专项指标 |
+| DB span/metrics | repository 层统一记录 DB span 与查询耗时 | `internal/repository/observability.go` | 已实现 | 新增表与查询需要继续使用统一封装 |
+| LLM span/metrics | LLM chat 记录 span、请求耗时、请求数、token，并通过 `otelhttp` 传播外部 HTTP span | `internal/llm/openai_compatible.go` | 已实现 | embedding client 尚未记录专用 span、metrics、外部 HTTP 指标 |
+| Embedding client | 支持 OpenAI-compatible `/embeddings`，有重试、维度一致性校验、限速间隔 | `internal/llm/openai_embedding.go` | 已实现 | 缺少 span、metrics、请求体大小、响应维度、失败类型观测 |
+| 事实惰性 embedding | recall 命中 fact 后最多同步补齐 8 条 embedding | `internal/service/agent_fact_retrieval.go`、`internal/service/agent_fact_embedding_service.go` | 已实现 | 应改为投递后台 job，并保留同步路径只用于显式管理任务 |
+| readiness | `/readyz` 检查 database、migration、pgvector、agent fact index | `internal/handler/router.go` | 已实现 | 需加入 embedding 覆盖率、pending/failed job、worker 新鲜度 |
+| runtime node | `/api/runtime/node` 返回节点、部署模式、公开地址等 | `internal/runtime/node.go` | 已实现 | 多 worker 时需展示 worker id 与职责 |
+| 管理配置状态 | 设置页可展示 trace 是否启用、采样、Prometheus、Grafana 地址 | `internal/service/admin_config_service.go`、`web/src/views/SettingsView.vue` | 已实现 | 尚未展示 RAG/embedding 子系统健康度 |
+| Agent 内部 trace | `agent_runs`、`agent_run_context_traces`、`agent_observations`、`agent_artifacts`、`agent_audit_logs` 等 | domain/repository/service 多处 | 已实现 | 缺少 recall trace 与 embedding trace 独立事实表 |
+| Progress 页面 | 可展示 controller run、context trace、ContextBundle、历史召回块、运行观测摘要 | `web/src/views/AgentPlanView.vue` | 已实现 | 缺少 recall waterfall、embedding job lifecycle 与延迟拆分 |
+| Prometheus | 抓取 `api:60001/metrics`、`api-dev:60001/metrics`、collector metrics | `ops/observability/prometheus/prometheus.yml` | 已部署 | 面板尚未覆盖 RAG/embedding 指标 |
+| Loki/Promtail | Docker 日志采集，解析 JSON 字段并提取 `trace_id` 标签 | `ops/observability/loki/loki.yml`、`ops/observability/promtail/promtail.yml` | 已部署 | 异步 job 日志需要标准字段以便检索 |
+| Tempo/OTel Collector | OTLP receiver、batch processor、trace 写入 Tempo | `ops/observability/tempo/tempo.yml`、`ops/observability/otel-collector/otel-collector.yml` | 已部署 | API trace 默认关闭，生产启用策略需明确 |
+| Grafana datasource | Prometheus、Loki、Tempo 已配置，Loki `trace_id` 可跳转 Tempo | `ops/observability/grafana/provisioning/datasources/datasources.yml` | 已部署 | RAG/embedding dashboard 尚未添加 |
+| Grafana dashboard | 已有 HTTP、DB、Feed、外部 HTTP、通知、Agent、LLM 等概览 | `ops/observability/grafana/dashboards/messagefeed-overview.json` | 已部署 | 需新增 recall、embedding、queue、覆盖率面板 |
+
+### 2.4 当前观测性结论
+
+1. 通用观测链路已经成型：日志、metrics、trace provider、Prometheus、Loki、Tempo、OTel Collector、Grafana 均存在可复用实现。
+2. API 进程已可在启用 trace 后把 HTTP、repository、service、LLM、通知等 span 输出到 Tempo；日志中也具备 `trace_id` 与 `span_id` 关联字段。
+3. 当前部署配置中 API 默认 `OBSERVABILITY_TRACE_ENABLED=false`，因此 Tempo 链路处于“已部署但默认不采集 API trace”的状态。开发环境可继续默认关闭，联调、预发和生产建议按采样比例启用。
+4. RAG 当前可通过 preview diagnostics 判断 query embedding 状态、向量维度、候选数和错误原因，但这些信息尚未统一写入持久化 trace，也未进入 Prometheus 和 Grafana。
+5. embedding client 当前是功能型实现，未沿用 LLM chat client 的 span/metrics 模式，因此无法直接回答“embedding 失败率、延迟分布、批大小、维度、重试次数、上游错误类型”等运行问题。
+6. progress 页面已具备展示 context trace 和历史召回内容的基础，但尚不是 waterfall 视图，无法按一次请求顺序展示 planner、recall、query embedding、vector search、relation expansion、final answer 与 async jobs。
+
+### 2.5 后续可观测性设计原则
+
+后续每新增一个 RAG 或 memory 功能，不应只完成业务表和接口，还必须同步补齐以下观测面：
+
+1. OpenTelemetry span：覆盖耗时较高、可能失败、存在降级路径的步骤。
+2. Prometheus metrics：覆盖吞吐、耗时、失败率、队列深度、覆盖率和降级次数。
+3. 持久化 trace 表：保存业务诊断所需字段，避免仅依赖外部 trace retention。
+4. 结构化日志字段：异步 worker 与模型调用必须携带可检索字段。
+5. readiness/admin status：暴露可用性、积压和最近错误。
+6. Progress/Grafana UI：分别服务单次任务排障和整体运行趋势分析。
+
 ## 3. 总体目标架构
 
 建议采用以下长期架构：
@@ -341,7 +387,50 @@ retry_count
 created_at
 ```
 
-### 5.5 单次请求 Waterfall
+### 5.5 Prometheus 指标补齐
+
+RAG 与 embedding 专项指标建议按低基数原则补齐，不把 `user_id`、`session_id`、`canonical_ref` 作为 label。需要新增的指标如下：
+
+| 指标 | 类型 | labels | 用途 |
+| --- | --- | --- | --- |
+| `messagefeed_agent_memory_topics_total` | counter | `status`,`reason` | 统计 topic 创建、关闭、归档 |
+| `messagefeed_agent_memory_chunks_total` | counter | `memory_kind`,`reason`,`status` | 统计 chunk 形成与状态 |
+| `messagefeed_agent_recall_requests_total` | counter | `mode`,`status`,`fallback_reason` | 统计 recall 请求与降级 |
+| `messagefeed_agent_recall_duration_seconds` | histogram | `mode`,`stage`,`status` | 统计 fulltext、query_embedding、vector、relation、projection、total 分段耗时 |
+| `messagefeed_agent_recall_hits` | histogram | `mode`,`source` | 统计 fulltext/vector/relation/final 命中数 |
+| `messagefeed_agent_embedding_requests_total` | counter | `provider`,`model`,`operation`,`status` | 统计 embedding API 调用结果 |
+| `messagefeed_agent_embedding_duration_seconds` | histogram | `provider`,`model`,`operation`,`status` | 统计 query embedding 与 batch embedding 耗时 |
+| `messagefeed_agent_embedding_batch_size` | histogram | `provider`,`model`,`operation` | 统计批量 embedding 输入数量 |
+| `messagefeed_agent_embedding_input_chars` | histogram | `provider`,`model`,`operation` | 统计 embedding 输入规模 |
+| `messagefeed_agent_embedding_jobs_total` | counter | `status`,`reason` | 统计 job claim、success、failed、retry、skipped |
+| `messagefeed_agent_embedding_job_duration_seconds` | histogram | `status` | 统计 job 生命周期耗时 |
+| `messagefeed_agent_embedding_queue_depth` | gauge | `status` | 统计 pending、running、failed、retryable 积压 |
+| `messagefeed_agent_embedding_coverage_ratio` | gauge | `fact_type`,`embedding_model` | 统计 fact/chunk embedding 覆盖率 |
+| `messagefeed_agent_memory_stale_embeddings` | gauge | `fact_type`,`embedding_model` | 统计 content hash 变化后的 stale embedding |
+
+### 5.6 Span 命名与属性规范
+
+后续 span 建议保持稳定命名，便于 Grafana Tempo 与日志检索：
+
+| 操作 | span name | 关键属性 |
+| --- | --- | --- |
+| 主题判断 | `service.agent.memory.topic.classify` | `agent.user_id_hash`、`agent.session_id`、`memory.topic_id`、`memory.decision`、`memory.reason` |
+| 记忆巩固判断 | `service.agent.memory.consolidation.evaluate` | `memory.topic_id`、`memory.trigger_reason`、`memory.token_estimate`、`memory.message_count` |
+| chunk 构建 | `service.agent.memory.chunk.build` | `memory.chunk_id`、`memory.kind`、`memory.source_count`、`memory.importance` |
+| fact index 写入 | `service.agent.fact_index.upsert` | `agent.fact_type`、`agent.canonical_ref_hash`、`agent.embedding_status` |
+| recall 总入口 | `service.agent.recall` | `agent.recall.mode`、`agent.recall.needs_history`、`agent.recall.limit` |
+| fulltext 召回 | `service.agent.recall.fulltext` | `agent.recall.hit_count`、`db.sql.table` |
+| query embedding | `service.agent.recall.query_embedding` | `llm.provider`、`llm.model`、`embedding.dimension`、`embedding.status` |
+| vector search | `service.agent.recall.vector_search` | `agent.recall.vector_candidates`、`embedding.model`、`embedding.dimension` |
+| relation expansion | `service.agent.recall.relation_expand` | `agent.recall.relation_refs`、`agent.recall.hit_count` |
+| source projection | `service.agent.recall.source_projection` | `agent.recall.source_count` |
+| embedding job claim | `service.agent.embedding_job.claim` | `job.id`、`job.status`、`worker.id` |
+| batch embedding | `service.agent.embedding.batch_embed` | `llm.provider`、`llm.model`、`embedding.batch_size`、`embedding.input_chars` |
+| embedding upsert | `service.agent.embedding.upsert` | `agent.fact_type`、`embedding.dimension`、`embedding.status` |
+
+敏感文本不应直接进入 span attribute。`canonical_ref`、query text、source refs 如需关联，应优先使用 hash、计数和 trace 表中的受控字段。
+
+### 5.7 单次请求 Waterfall
 
 前端或内部 API 可以按 `request_id` / `turn_id` 聚合：
 
@@ -362,7 +451,7 @@ inbound_message
   -> async_jobs_enqueued
 ```
 
-### 5.6 与 LangSmith / Cozeloop 的关系
+### 5.8 与 LangSmith / Cozeloop 的关系
 
 第一阶段建议继续建设内部 trace。原因：
 
@@ -533,21 +622,47 @@ async_jobs_enqueued_count
 
 ## 9. 实施步骤清单
 
-- [ ] 新增 `agent_memory_topics`、`agent_memory_chunks` migration。
-- [ ] 新增 `memory_chunk` fact type。
-- [ ] 实现规则版 `TopicTracker`。
-- [ ] 实现 `MemoryConsolidationPolicy`。
-- [ ] 实现 `MemoryChunkBuilder`。
-- [ ] 将 memory chunk 写入 `agent_fact_archive_index`。
-- [ ] 将惰性 embedding 改为投递 `embed_fact_index` job。
-- [ ] 实现 embedding worker claim、执行、重试和状态更新。
-- [ ] 新增 `agent_recall_traces`。
-- [ ] 新增 `agent_embedding_traces`。
-- [ ] 将 recall diagnostics 持久化到 recall trace。
-- [ ] 在 progress detail 中展示 recall waterfall。
-- [ ] 扩展 fact index stats 覆盖率指标。
-- [ ] 增加真实模型端到端测试用例。
-- [ ] 增加延迟基线和回归检查。
+本清单后续实施时应逐项勾选。每完成一项功能实现，需要同步完成同一行的观测性更新；否则该项不视为完成。
+
+| 状态 | 实施项 | 必须同步更新的观测性实现 |
+| --- | --- | --- |
+| [ ] | 新增 `agent_memory_topics`、`agent_memory_chunks` migration | `/readyz` 增加 memory 表结构检查；repository 新查询统一使用 `traceRepositoryOperation`；管理统计预留 topic/chunk count |
+| [ ] | 新增 `memory_chunk` fact type | fact index stats 按 `fact_type` 输出 chunk 数量与覆盖率；日志字段增加 `fact_type`、`canonical_ref_hash` |
+| [ ] | 实现规则版 `TopicTracker` | 新增 `service.agent.memory.topic.classify` span；新增 topic created/closed counter；trace 内容记录 decision、reason、message_count |
+| [ ] | 实现 `MemoryConsolidationPolicy` | 新增 `service.agent.memory.consolidation.evaluate` span；新增 consolidation counter 与 duration；记录 trigger_reason、token_estimate、omitted_units_count |
+| [ ] | 实现 `MemoryChunkBuilder` | 新增 chunk build span 与 chunk counter；写入 `agent_run_context_traces` 或新增 memory trace 记录 source refs、risk level、redaction status |
+| [ ] | 将 memory chunk 写入 `agent_fact_archive_index` | 新增 fact index upsert span；DB 指标自动覆盖新增表操作；记录 indexer_version、content_hash、embedding_status |
+| [ ] | 将惰性 embedding 改为投递 `embed_fact_index` job | recall trace 记录 `async_embedding_enqueued` 与 enqueued count；新增 job enqueue counter；召回日志记录降级与投递原因 |
+| [ ] | 实现 embedding worker claim、执行、重试和状态更新 | 新增 job claim/batch/upsert span；新增 jobs total、duration、queue depth、batch size、input chars、coverage、stale gauges；worker 日志携带 `worker_id`、`job_id`、`attempt`、`status` |
+| [ ] | 新增 `agent_recall_traces` | repository 查询使用 DB span；管理接口按 request/turn/run 查询；trace 表记录 fulltext、embedding、vector、relation、projection、fallback |
+| [ ] | 新增 `agent_embedding_traces` | 记录 job_id、request_id、canonical_ref、model、dimension、duration、status、error；失败时截断 error_message 并保留 retry_count |
+| [ ] | 将 recall diagnostics 持久化到 recall trace | `agentFactRetriever.Recall` 分段计时；hybrid 降级时记录 fallback_reason；semantic 失败时记录明确 error code |
+| [ ] | 为 embedding client 增加 span 和 metrics | 参考 LLM chat client 增加 request counter、duration histogram、batch size、input chars、dimension attribute；外部 HTTP 可复用 `ExternalHTTPRequestsTotal` |
+| [ ] | 在 progress detail 中展示 recall waterfall | Web 增加 request/turn trace 聚合视图；展示 stage、status、duration、hit_count、fallback_reason、source refs |
+| [ ] | 扩展 fact index stats 覆盖率指标 | 管理接口与设置页展示 coverage、pending、failed、stale、last_error、last_success_at；Grafana 增加覆盖率与积压面板 |
+| [ ] | 增加真实模型端到端测试用例 | 测试断言 recall trace、embedding trace、metrics 样本、readyz/status 均可观察；记录 query embedding 维度与命中来源 |
+| [ ] | 增加延迟基线和回归检查 | 采集 p50/p95、planner、recall、query embedding、vector search、final LLM、async enqueue；形成回归阈值 |
+
+### 9.1 每一步提交前检查项
+
+每个阶段提交前，需要执行以下检查：
+
+1. 新增业务耗时路径是否有 span。
+2. 新增异步 job 是否有 queue depth、成功数、失败数、重试数和耗时指标。
+3. 新增表是否被 readiness、admin status 或 stats 接口覆盖。
+4. 新增错误路径是否写入结构化日志，并带 `request_id`、`trace_id`、`job_id` 或业务关联 id。
+5. 新增 RAG/embedding 诊断字段是否能在 progress detail 或 trace API 中查询。
+6. Grafana dashboard 是否需要新增或调整 panel。
+7. 测试是否覆盖成功、失败、降级和异步不阻塞用户回复四类路径。
+
+### 9.2 建议实施顺序
+
+1. 先补齐 embedding client 的 span/metrics，并将 query embedding 与 batch embedding 区分为不同 operation。该步骤风险较低，能够立即改善现有问题定位能力。
+2. 新增 recall trace 表与持久化逻辑，把当前 diagnostics 从“接口返回”升级为“每次运行可追溯”。
+3. 将惰性 embedding 改为 job enqueue，保留显式管理任务或测试工具中的同步 embedding 能力。
+4. 实现 embedding worker，并把 queue depth、coverage、failed/stale 状态接入 readyz、admin status 和 Grafana。
+5. 实现 memory topic 与 memory chunk，使 embedding 的主触发从“召回时补齐”转为“主题巩固后异步生成”。
+6. 最后实现 progress waterfall 与端到端延迟回归检查，验证用户主链路延迟没有被后台 embedding 放大。
 
 ## 10. 选型结论
 
@@ -564,3 +679,40 @@ Semantic Chunking
 
 不建议仅依赖上下文溢出触发 embedding。主题级记忆化更适合长期 Agent 系统，可以降低成本、减少重复 embedding、提升召回质量，并使用户端响应延迟更可控。
 
+## 11. 观测性部署启用与验收
+
+### 11.1 部署启用策略
+
+当前 Compose 已部署 Prometheus、Loki、Promtail、Tempo、OTel Collector 和 Grafana。API 容器已配置 OTLP endpoint，但 trace 默认关闭。建议采用以下策略：
+
+| 环境 | trace 策略 | 采样建议 | 说明 |
+| --- | --- | --- | --- |
+| 本地开发 | 默认关闭，排障时手动开启 | 1.0 | 避免本地日志和 trace 噪声过高 |
+| 联调环境 | 默认开启 | 0.2 到 1.0 | 用于验证 RAG waterfall、embedding worker 和日志关联 |
+| 生产环境 | 默认开启 | 0.05 到 0.2 | 对错误、慢请求和关键 RAG 路径可在代码侧强制保留业务 trace 表 |
+
+生产环境即使降低 OTel 采样率，也应完整写入内部 `agent_recall_traces`、`agent_embedding_traces` 和 job 状态表。外部 trace 负责跨服务时序分析，内部 trace 负责业务回放和召回质量诊断，两者职责不同。
+
+### 11.2 验收方式
+
+每次实现 RAG/embedding 相关阶段后，需要完成以下验收：
+
+1. `/metrics` 能查询到对应新增指标，且 label 基数保持可控。
+2. `/readyz` 或管理状态接口能反映新增表、job 积压、失败数、覆盖率或最近错误。
+3. 开启 trace 后，Grafana Tempo 能按日志中的 `trace_id` 查到请求 span。
+4. Loki 日志能按 `request_id`、`trace_id`、`job_id` 或 `worker_id` 检索到异步处理过程。
+5. Progress detail 能按 turn/run 展示 recall waterfall、命中来源、降级原因和异步 job 投递结果。
+6. Grafana dashboard 能看到 recall 耗时、embedding 耗时、queue depth、coverage、失败率和 LLM/embedding 外部调用趋势。
+7. embedding 上游失败、vector search 失败、relation expansion 失败时，hybrid 模式能降级并记录原因；semantic 模式能返回明确错误并写入 trace。
+
+### 11.3 观测代码修改边界
+
+后续实现时应遵守以下边界：
+
+1. `internal/metrics/metrics.go` 只定义低基数指标，不加入用户、会话、canonical ref 等高基数字段。
+2. `internal/observability` 继续作为通用 trace/logger/context 工具层，不放入 Agent 业务判断。
+3. repository 层继续通过 `traceRepositoryOperation` 记录 DB span 与 query metrics。
+4. service 层负责业务 span、业务 metrics、trace 表写入和降级原因。
+5. handler 层只负责请求级日志、HTTP metrics、响应中的 trace id，不承载 RAG 内部分段统计。
+6. worker 入口必须建立独立 span，并在日志中写入稳定 `worker_id`、`job_id`、`attempt`、`status`。
+7. Web progress 负责单次任务排障；Grafana 负责整体趋势与告警；两者不应互相替代。
