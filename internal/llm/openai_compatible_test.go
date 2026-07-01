@@ -592,3 +592,27 @@ func TestOpenAICompatibleClientFallsBackToChatCompletionsForToolsWhenResponsesUn
 		}
 	}
 }
+
+func TestOpenAICompatibleEmbeddingClientRejectsEmptyData(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/embeddings" {
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"test-embedding","data":[]}`))
+	}))
+	defer server.Close()
+
+	client, err := NewOpenAICompatibleEmbeddingClient(OpenAICompatibleEmbeddingConfig{
+		BaseURL: server.URL,
+		APIKey:  "test-key",
+		Model:   "test-embedding",
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAICompatibleEmbeddingClient() error = %v", err)
+	}
+
+	if _, err := client.Embed(context.Background(), EmbeddingRequest{Input: []string{"hello"}}); err == nil {
+		t.Fatal("Embed() error = nil, want count mismatch error")
+	}
+}

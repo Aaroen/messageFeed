@@ -45,6 +45,7 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 	}
 	plan = normalizeAgentFactRecallPlan(plan, r.embeddingModel)
 	hitsByRef := map[string]domain.AgentFactRecallHit{}
+	diagnostics := domain.AgentFactRecallDiagnostics{}
 	if shouldRunFullTextRecall(plan) {
 		facts, err := r.repository.QueryAgentFactArchiveIndex(ctx, domain.AgentFactArchiveQueryOptions{
 			UserID:        plan.UserID,
@@ -74,25 +75,54 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 			mergeRecallHit(hitsByRef, hit)
 		}
 	}
-	if shouldRunVectorRecall(plan) && r.embedding != nil {
-		response, err := r.embedding.Embed(ctx, llm.EmbeddingRequest{Input: []string{plan.Query}})
-		if err == nil && len(response.Embeddings) > 0 {
-			vectorPlan := plan
-			if strings.TrimSpace(vectorPlan.EmbeddingModel) == "" {
-				vectorPlan.EmbeddingModel = response.Model
+	if shouldRunVectorRecall(plan) {
+		diagnostics.VectorAttempted = true
+		if r.embedding == nil {
+			diagnostics.QueryEmbeddingStatus = "unavailable"
+			diagnostics.VectorError = "embedding client is not configured"
+			if plan.Mode == domain.AgentFactRecallModeSemantic {
+				return domain.AgentFactRecallResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_embedding_unavailable", diagnostics.VectorError, "service.agent_fact_retrieval.recall", false, nil)
 			}
-			vectorHits, err := r.repository.SearchAgentFactEmbeddings(ctx, vectorPlan, response.Embeddings[0])
+		} else {
+			response, err := r.embedding.Embed(ctx, llm.EmbeddingRequest{Input: []string{plan.Query}})
 			if err != nil {
-				return domain.AgentFactRecallResult{}, err
-			}
-			for index, hit := range vectorHits {
-				hit.StructuredScore = structuredScore(plan, hit.Fact)
-				hit.ImportanceScore = float64(hit.Fact.Importance) / 100
-				hit.RecencyScore = recencyScore(hit.Fact.UpdatedAt, r.now)
-				if hit.VectorScore == 0 {
-					hit.VectorScore = rankScore(index, len(vectorHits))
+				diagnostics.QueryEmbeddingStatus = "failed"
+				diagnostics.VectorError = err.Error()
+				if plan.Mode == domain.AgentFactRecallModeSemantic {
+					return domain.AgentFactRecallResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_query_embedding_failed", "query embedding failed", "service.agent_fact_retrieval.recall", true, err)
 				}
-				mergeRecallHit(hitsByRef, hit)
+			} else if len(response.Embeddings) == 0 {
+				diagnostics.QueryEmbeddingStatus = "empty"
+				diagnostics.QueryEmbeddingModel = strings.TrimSpace(response.Model)
+				diagnostics.VectorError = "embedding response contains no vectors"
+				if plan.Mode == domain.AgentFactRecallModeSemantic {
+					return domain.AgentFactRecallResult{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_fact_query_embedding_empty", diagnostics.VectorError, "service.agent_fact_retrieval.recall", true, nil)
+				}
+			} else {
+				queryVector := response.Embeddings[0]
+				diagnostics.QueryEmbeddingStatus = "ready"
+				diagnostics.QueryEmbeddingModel = strings.TrimSpace(response.Model)
+				diagnostics.QueryEmbeddingDimension = len(queryVector)
+				diagnostics.QueryEmbeddingCount = len(response.Embeddings)
+				vectorPlan := plan
+				if strings.TrimSpace(vectorPlan.EmbeddingModel) == "" {
+					vectorPlan.EmbeddingModel = response.Model
+				}
+				vectorHits, err := r.repository.SearchAgentFactEmbeddings(ctx, vectorPlan, queryVector)
+				if err != nil {
+					diagnostics.VectorError = err.Error()
+					return domain.AgentFactRecallResult{}, err
+				}
+				diagnostics.VectorCandidateCount = len(vectorHits)
+				for index, hit := range vectorHits {
+					hit.StructuredScore = structuredScore(plan, hit.Fact)
+					hit.ImportanceScore = float64(hit.Fact.Importance) / 100
+					hit.RecencyScore = recencyScore(hit.Fact.UpdatedAt, r.now)
+					if hit.VectorScore == 0 {
+						hit.VectorScore = rankScore(index, len(vectorHits))
+					}
+					mergeRecallHit(hitsByRef, hit)
+				}
 			}
 		}
 	}
@@ -152,6 +182,7 @@ func (r *agentFactRetriever) Recall(ctx context.Context, plan domain.AgentFactRe
 		Hits:        hits,
 		Sources:     sources,
 		Projections: projections,
+		Diagnostics: diagnostics,
 		GeneratedAt: r.now().UTC(),
 	}, nil
 }

@@ -135,7 +135,18 @@ type AgentFactRecallPreviewResult struct {
 	Plan        AgentFactRecallPlanResponse   `json:"plan"`
 	Hits        []AgentFactRecallHitResponse  `json:"hits"`
 	Projections []AgentFactProjectionResponse `json:"projections"`
+	Diagnostics AgentFactRecallDiagnostics    `json:"diagnostics"`
 	GeneratedAt string                        `json:"generated_at"`
+}
+
+type AgentFactRecallDiagnostics struct {
+	VectorAttempted         bool   `json:"vector_attempted"`
+	QueryEmbeddingStatus    string `json:"query_embedding_status"`
+	QueryEmbeddingModel     string `json:"query_embedding_model,omitempty"`
+	QueryEmbeddingDimension int    `json:"query_embedding_dimension,omitempty"`
+	QueryEmbeddingCount     int    `json:"query_embedding_count,omitempty"`
+	VectorCandidateCount    int    `json:"vector_candidate_count"`
+	VectorError             string `json:"vector_error,omitempty"`
 }
 
 type AgentFactRecallPlanResponse struct {
@@ -4827,6 +4838,7 @@ func agentFactRecallPreviewResult(result domain.AgentFactRecallResult) AgentFact
 		Plan:        agentFactRecallPlanResponse(result.Plan),
 		Hits:        make([]AgentFactRecallHitResponse, 0, len(result.Hits)),
 		Projections: make([]AgentFactProjectionResponse, 0, len(result.Projections)),
+		Diagnostics: agentFactRecallDiagnostics(result.Diagnostics),
 		GeneratedAt: formatOptionalTime(&result.GeneratedAt),
 	}
 	for _, hit := range result.Hits {
@@ -4836,6 +4848,18 @@ func agentFactRecallPreviewResult(result domain.AgentFactRecallResult) AgentFact
 		output.Projections = append(output.Projections, agentFactProjectionResponse(projection))
 	}
 	return output
+}
+
+func agentFactRecallDiagnostics(diagnostics domain.AgentFactRecallDiagnostics) AgentFactRecallDiagnostics {
+	return AgentFactRecallDiagnostics{
+		VectorAttempted:         diagnostics.VectorAttempted,
+		QueryEmbeddingStatus:    diagnostics.QueryEmbeddingStatus,
+		QueryEmbeddingModel:     diagnostics.QueryEmbeddingModel,
+		QueryEmbeddingDimension: diagnostics.QueryEmbeddingDimension,
+		QueryEmbeddingCount:     diagnostics.QueryEmbeddingCount,
+		VectorCandidateCount:    diagnostics.VectorCandidateCount,
+		VectorError:             diagnostics.VectorError,
+	}
 }
 
 func agentFactRecallPlanResponse(plan domain.AgentFactRecallPlan) AgentFactRecallPlanResponse {

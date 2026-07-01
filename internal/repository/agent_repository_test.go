@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestAgentRecallEventModelMapsQueryTextColumn(t *testing.T) {
@@ -154,6 +155,16 @@ func TestAgentFactSearchFragmentsExtractsRecallTokens(t *testing.T) {
 		if !agentRepositoryStringSliceContains(fragments, want) {
 			t.Fatalf("fragments = %#v, want %q", fragments, want)
 		}
+	}
+}
+
+func TestSafeTextPrefixKeepsValidUTF8(t *testing.T) {
+	if got := safeTextPrefix("你好世界", 3); got != "你好世" || !utf8.ValidString(got) {
+		t.Fatalf("safeTextPrefix() = %q valid=%v, want valid prefix", got, utf8.ValidString(got))
+	}
+	invalid := string([]byte{'o', 'k', 0xe4})
+	if got := safeTextPrefix(invalid, 10); got != "ok" || !utf8.ValidString(got) {
+		t.Fatalf("safeTextPrefix(invalid) = %q valid=%v, want cleaned valid string", got, utf8.ValidString(got))
 	}
 }
 

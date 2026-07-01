@@ -1009,7 +1009,7 @@ func stringFromAgentJSON(values domain.AgentJSON, key string) string {
 }
 
 func normalizeAgentFactArchiveIndex(fact domain.AgentFactArchiveIndex) domain.AgentFactArchiveIndex {
-	fact.CanonicalRef = strings.TrimSpace(fact.CanonicalRef)
+	fact.CanonicalRef = strings.TrimSpace(validUTF8String(fact.CanonicalRef))
 	if !fact.FactType.Valid() {
 		fact.FactType = domain.AgentFactTypeTranscript
 	}
@@ -1025,8 +1025,8 @@ func normalizeAgentFactArchiveIndex(fact domain.AgentFactArchiveIndex) domain.Ag
 	fact.Topics = compactNonEmptyStrings(fact.Topics)
 	fact.Keywords = compactNonEmptyStrings(fact.Keywords)
 	fact.Entities = compactNonEmptyStrings(fact.Entities)
-	fact.SummaryForIndex = strings.TrimSpace(fact.SummaryForIndex)
-	fact.ContextualText = strings.TrimSpace(fact.ContextualText)
+	fact.SummaryForIndex = strings.TrimSpace(validUTF8String(fact.SummaryForIndex))
+	fact.ContextualText = strings.TrimSpace(validUTF8String(fact.ContextualText))
 	fact.SourceRefs = compactNonEmptyStrings(fact.SourceRefs)
 	fact.RelationRefs = compactNonEmptyStrings(fact.RelationRefs)
 	if fact.Embedding == nil {
@@ -1370,7 +1370,7 @@ func compactNonEmptyStrings(values []string) []string {
 	seen := map[string]struct{}{}
 	output := make([]string, 0, len(values))
 	for _, value := range values {
-		value = strings.TrimSpace(value)
+		value = strings.TrimSpace(validUTF8String(value))
 		if value == "" {
 			continue
 		}
@@ -1418,11 +1418,19 @@ func clampConfidence(value float64) float64 {
 }
 
 func safeTextPrefix(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if limit <= 0 || len(value) <= limit {
+	value = strings.TrimSpace(validUTF8String(value))
+	if limit <= 0 {
 		return value
 	}
-	return strings.TrimSpace(value[:limit])
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return strings.TrimSpace(string(runes[:limit]))
+}
+
+func validUTF8String(value string) string {
+	return strings.ToValidUTF8(value, "")
 }
 
 func confidenceForClassification(classification transcriptMemoryClassification) float64 {

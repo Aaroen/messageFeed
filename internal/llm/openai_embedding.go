@@ -189,6 +189,9 @@ func (c *OpenAICompatibleEmbeddingClient) embedOnce(ctx context.Context, input [
 		}
 		return EmbeddingResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "embedding_request_failed", message, "llm.openai_embedding.embed", true, nil)
 	}
+	if len(decoded.Data) != len(input) {
+		return EmbeddingResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "embedding_response_count_mismatch", "embedding response count does not match input count", "llm.openai_embedding.embed", true, nil)
+	}
 	sort.SliceStable(decoded.Data, func(i, j int) bool {
 		return decoded.Data[i].Index < decoded.Data[j].Index
 	})

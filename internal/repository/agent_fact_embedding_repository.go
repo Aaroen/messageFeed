@@ -43,8 +43,32 @@ type agentFactIndexJobModel struct {
 }
 
 type agentFactArchiveIndexVectorHitModel struct {
-	agentFactArchiveIndexModel `gorm:"embedded"`
-	VectorScore                float64 `gorm:"column:vector_score"`
+	ID              int64 `gorm:"primaryKey"`
+	CanonicalRef    string
+	FactType        string
+	FactID          int64
+	UserID          int64 `gorm:"not null"`
+	SessionID       *int64
+	TurnID          *int64
+	MemoryKind      string
+	Topics          []string `gorm:"column:topics_json;serializer:json;type:jsonb;not null"`
+	Keywords        []string `gorm:"column:keywords_json;serializer:json;type:jsonb;not null"`
+	Entities        []string `gorm:"column:entities_json;serializer:json;type:jsonb;not null"`
+	SummaryForIndex string
+	ContextualText  string
+	Embedding       domain.AgentJSON `gorm:"column:embedding_json;serializer:json;type:jsonb;not null"`
+	Importance      int
+	Confidence      float64
+	SourceRefs      []string `gorm:"column:source_refs_json;serializer:json;type:jsonb;not null"`
+	RelationRefs    []string `gorm:"column:relation_refs_json;serializer:json;type:jsonb;not null"`
+	IndexStatus     string
+	RiskLevel       string
+	AccessCount     int
+	LastAccessedAt  *time.Time
+	Metadata        domain.AgentJSON `gorm:"column:metadata_json;serializer:json;type:jsonb;not null"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	VectorScore     float64 `gorm:"column:vector_score"`
 }
 
 func (agentFactEmbeddingModel) TableName() string { return "agent_fact_embeddings" }
@@ -171,7 +195,7 @@ func (r *AgentRepository) SearchAgentFactEmbeddings(ctx context.Context, plan do
 	hits := make([]domain.AgentFactRecallHit, 0, len(rows))
 	ids := make([]int64, 0, len(rows))
 	for _, row := range rows {
-		fact := agentFactArchiveIndexModelToDomain(row.agentFactArchiveIndexModel)
+		fact := agentFactArchiveIndexModelToDomain(row.agentFactArchiveIndexModel())
 		hits = append(hits, domain.AgentFactRecallHit{
 			Fact:         fact,
 			CanonicalRef: fact.CanonicalRef,
@@ -182,6 +206,36 @@ func (r *AgentRepository) SearchAgentFactEmbeddings(ctx context.Context, plan do
 	}
 	r.touchAgentFactArchiveIndexes(ctx, ids)
 	return hits, nil
+}
+
+func (row agentFactArchiveIndexVectorHitModel) agentFactArchiveIndexModel() agentFactArchiveIndexModel {
+	return agentFactArchiveIndexModel{
+		ID:              row.ID,
+		CanonicalRef:    row.CanonicalRef,
+		FactType:        row.FactType,
+		FactID:          row.FactID,
+		UserID:          row.UserID,
+		SessionID:       row.SessionID,
+		TurnID:          row.TurnID,
+		MemoryKind:      row.MemoryKind,
+		Topics:          row.Topics,
+		Keywords:        row.Keywords,
+		Entities:        row.Entities,
+		SummaryForIndex: row.SummaryForIndex,
+		ContextualText:  row.ContextualText,
+		Embedding:       row.Embedding,
+		Importance:      row.Importance,
+		Confidence:      row.Confidence,
+		SourceRefs:      row.SourceRefs,
+		RelationRefs:    row.RelationRefs,
+		IndexStatus:     row.IndexStatus,
+		RiskLevel:       row.RiskLevel,
+		AccessCount:     row.AccessCount,
+		LastAccessedAt:  row.LastAccessedAt,
+		Metadata:        row.Metadata,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
+	}
 }
 
 func (r *AgentRepository) CreateAgentFactIndexJob(ctx context.Context, job domain.AgentFactIndexJob) (domain.AgentFactIndexJob, error) {

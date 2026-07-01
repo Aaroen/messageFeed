@@ -165,6 +165,68 @@ func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.
 	}
 }
 
+func TestAgentFactRetrieverSemanticRecallReturnsVectorDiagnostics(t *testing.T) {
+	now := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.factIndexes = []domain.AgentFactArchiveIndex{
+		{
+			ID:              1,
+			CanonicalRef:    "transcript:1",
+			FactType:        domain.AgentFactTypeTranscript,
+			FactID:          1,
+			UserID:          7,
+			MemoryKind:      domain.AgentMemoryKindPreference,
+			SummaryForIndex: "RAG-E2E semantic preference",
+			ContextualText:  "RAG-E2E semantic preference says answer with conclusion first",
+			IndexStatus:     domain.AgentFactIndexStatusReady,
+			RiskLevel:       domain.AgentMemoryRiskLow,
+			Importance:      80,
+			Confidence:      0.9,
+			UpdatedAt:       now,
+		},
+	}
+	embedding := &fakeEmbeddingClient{
+		response: llm.EmbeddingResponse{
+			Model:      "test-embedding",
+			Embeddings: [][]float32{{0.1, 0.2, 0.3}},
+		},
+	}
+	retriever := newAgentFactRetriever(repository, embedding, "test-embedding", func() time.Time { return now })
+
+	result, err := retriever.Recall(context.Background(), domain.AgentFactRecallPlan{
+		Mode:         domain.AgentFactRecallModeSemantic,
+		Query:        "RAG-E2E semantic preference",
+		UserID:       7,
+		Limit:        3,
+		MaxRiskLevel: domain.AgentMemoryRiskMedium,
+	})
+	if err != nil {
+		t.Fatalf("Recall() error = %v", err)
+	}
+	if result.Diagnostics.QueryEmbeddingStatus != "ready" || result.Diagnostics.QueryEmbeddingDimension != 3 || result.Diagnostics.VectorCandidateCount != 1 {
+		t.Fatalf("diagnostics = %#v", result.Diagnostics)
+	}
+	if len(result.Hits) != 1 || !agentConversationStringSliceContains(result.Hits[0].HitSources, "vector") {
+		t.Fatalf("hits = %#v", result.Hits)
+	}
+}
+
+func TestAgentFactRetrieverSemanticRecallReturnsEmbeddingError(t *testing.T) {
+	repository := newFakeAgentConversationRepository()
+	retriever := newAgentFactRetriever(repository, &fakeEmbeddingClient{err: errors.New("embedding unavailable")}, "test-embedding", time.Now)
+
+	_, err := retriever.Recall(context.Background(), domain.AgentFactRecallPlan{
+		Mode:         domain.AgentFactRecallModeSemantic,
+		Query:        "RAG-E2E semantic preference",
+		UserID:       7,
+		Limit:        3,
+		MaxRiskLevel: domain.AgentMemoryRiskMedium,
+	})
+	if err == nil {
+		t.Fatal("Recall() error = nil, want embedding error")
+	}
+}
+
 func TestAgentConversationServiceCapturesLowRiskMemoryCandidate(t *testing.T) {
 	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -2780,6 +2842,20 @@ type fakeAgentConversationRepository struct {
 	externalAccounts  []domain.ExternalAccount
 }
 
+type fakeEmbeddingClient struct {
+	response llm.EmbeddingResponse
+	err      error
+	calls    int
+}
+
+func (c *fakeEmbeddingClient) Embed(_ context.Context, _ llm.EmbeddingRequest) (llm.EmbeddingResponse, error) {
+	c.calls++
+	if c.err != nil {
+		return llm.EmbeddingResponse{}, c.err
+	}
+	return c.response, nil
+}
+
 func newFakeAgentConversationRepository() *fakeAgentConversationRepository {
 	return &fakeAgentConversationRepository{nextID: 1}
 }
@@ -3902,4 +3978,13 @@ type fakeAgentSourceProvider struct {
 
 func (f *fakeAgentSourceProvider) ListSources(_ context.Context, _ int64) ([]domain.Source, error) {
 	return f.sources, nil
+}
+
+func agentConversationStringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

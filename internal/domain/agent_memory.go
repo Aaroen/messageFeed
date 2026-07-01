@@ -239,7 +239,18 @@ type AgentFactRecallResult struct {
 	Hits        []AgentFactRecallHit
 	Sources     []AgentFactSource
 	Projections []AgentFactProjection
+	Diagnostics AgentFactRecallDiagnostics
 	GeneratedAt time.Time
+}
+
+type AgentFactRecallDiagnostics struct {
+	VectorAttempted         bool
+	QueryEmbeddingStatus    string
+	QueryEmbeddingModel     string
+	QueryEmbeddingDimension int
+	QueryEmbeddingCount     int
+	VectorCandidateCount    int
+	VectorError             string
 }
 
 type AgentFactIndexJobType string
