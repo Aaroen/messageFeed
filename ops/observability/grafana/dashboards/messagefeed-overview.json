@@ -1036,6 +1036,206 @@
       ],
       "title": "Memory 与 Embedding 覆盖率",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 82
+      },
+      "id": 29,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, provider, status) (rate(messagefeed_agent_turn_duration_seconds_bucket[5m])))",
+          "legendFormat": "turn p95 {{provider}} {{status}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, provider, status) (rate(messagefeed_agent_turn_duration_seconds_bucket[5m])))",
+          "legendFormat": "turn p99 {{provider}} {{status}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation, status) (rate(messagefeed_wechat_work_callback_duration_seconds_bucket[5m])))",
+          "legendFormat": "callback ack p95 {{operation}} {{status}}",
+          "refId": "C"
+        }
+      ],
+      "title": "端到端耗时预算",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 82
+      },
+      "id": 30,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, event_kind, status) (rate(messagefeed_agent_trace_event_duration_seconds_bucket[5m]))))",
+          "legendFormat": "{{event_kind}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "慢段 P95 Top",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 90
+      },
+      "id": 31,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (task_type, status, latency_class) (increase(messagefeed_agent_task_routes_total[30m]))",
+          "legendFormat": "{{task_type}} {{status}} {{latency_class}}",
+          "refId": "A"
+        }
+      ],
+      "title": "任务分级分布",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 90
+      },
+      "id": 32,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, task_type, status, latency_class) (rate(messagefeed_agent_task_route_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{task_type}} {{status}} {{latency_class}}",
+          "refId": "A"
+        }
+      ],
+      "title": "任务分级 P95 延迟",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 90
+      },
+      "id": 33,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, channel, status) (rate(messagefeed_notification_duration_seconds_bucket[5m])))",
+          "legendFormat": "notification p95 {{channel}} {{status}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, event_kind, status) (rate(messagefeed_agent_trace_event_duration_seconds_bucket{event_kind=\"notification\"}[5m])))",
+          "legendFormat": "notification trace p95 {{status}}",
+          "refId": "B"
+        }
+      ],
+      "title": "用户触达慢段",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",
@@ -1055,6 +1255,6 @@
   "timezone": "browser",
   "title": "messageFeed Overview",
   "uid": "messagefeed-overview",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

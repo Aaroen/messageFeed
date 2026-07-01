@@ -261,6 +261,25 @@ var AgentPlannerRequestsTotal = promauto.NewCounterVec(
 	[]string{"status", "needs_history_recall", "needs_approval"},
 )
 
+// AgentTaskRoutesTotal 记录主 Agent 任务分级结果。
+var AgentTaskRoutesTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_task_routes_total",
+		Help: "主 Agent 任务分级总数，按任务类型、状态和预估延迟分类",
+	},
+	[]string{"task_type", "status", "latency_class"},
+)
+
+// AgentTaskRouteDuration 记录主 Agent 任务分级耗时。
+var AgentTaskRouteDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_agent_task_route_duration_seconds",
+		Help:    "主 Agent 任务分级耗时分布（秒），按任务类型、状态和预估延迟分类",
+		Buckets: []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0},
+	},
+	[]string{"task_type", "status", "latency_class"},
+)
+
 // AgentSubagentDispatchesTotal 记录子 Agent 下发结果。
 var AgentSubagentDispatchesTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{

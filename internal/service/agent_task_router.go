@@ -7,6 +7,7 @@ import (
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
+	"messagefeed/internal/metrics"
 	"messagefeed/internal/observability"
 	"strings"
 	"time"
@@ -174,6 +175,8 @@ func fallbackAgentTaskRoute(reason string) agentTaskRouteClassification {
 
 func (s *AgentConversationService) recordAgentTaskRouteTrace(ctx context.Context, input ReceiveWeChatWorkAppMessageInput, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, controllerRun domain.AgentRun, route agentTaskRouteClassification, status domain.AgentTraceEventStatus, startedAt time.Time, errorCode string, errorMessage string) {
 	finishedAt, durationMS := agentTraceFinish(startedAt, s.now)
+	metrics.AgentTaskRoutesTotal.WithLabelValues(route.TaskType, string(status), route.EstimatedLatencyClass).Inc()
+	metrics.AgentTaskRouteDuration.WithLabelValues(route.TaskType, string(status), route.EstimatedLatencyClass).Observe(float64(durationMS) / 1000)
 	event := domain.AgentTraceEvent{
 		RequestID:     input.RequestID,
 		TraceID:       input.TraceID,
