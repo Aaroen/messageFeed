@@ -21,6 +21,9 @@ const (
 	// defaultAgentNotificationTimeout 只约束企业微信发送动作。
 	// 通知超时必须独立于执行超时，避免主流程超时后连失败消息也发不出去。
 	defaultAgentNotificationTimeout = 15 * time.Second
+	// defaultAgentProgressNotifyInterval 是异步长任务面向企微用户的低频进度心跳。
+	// 间隔保持分钟级，避免把内部 trace 噪声转化为用户侧打扰。
+	defaultAgentProgressNotifyInterval = 2 * time.Minute
 	// defaultAgentMemoryCaptureTimeout 只约束后台长期记忆候选捕获。
 	// 该流程会调用真实模型分类，不能阻塞企业微信回调确认。
 	defaultAgentMemoryCaptureTimeout = 2 * time.Minute
@@ -30,35 +33,36 @@ const (
 )
 
 type AgentConversationService struct {
-	repository            AgentConversationRepository
-	llmClient             AgentConversationLLM
-	embeddingClient       llm.EmbeddingClient
-	embeddingModel        string
-	sender                AgentConversationSender
-	resolver              AgentExternalAccountResolver
-	userCtx               AgentUserContextProvider
-	recentItems           AgentRecentItemsProvider
-	sourceProvider        AgentSourceProvider
-	notificationJobs      AgentNotificationJobStore
-	scheduledTasks        AgentScheduleEvalRepository
-	webFetcher            agentWebFetcher
-	turnRunner            *agent.TurnRunner
-	runManager            *agent.RunManager
-	planner               *agent.Planner
-	capabilityRegistry    *agent.CapabilityRegistry
-	policyEngine          *agent.PolicyEngine
-	now                   func() time.Time
-	ownerID               int64
-	publicBaseURL         string
-	processInline         bool
-	processTimeout        time.Duration
-	notificationTimeout   time.Duration
-	lockMu                sync.Mutex
-	sessionLocks          map[int64]*sync.Mutex
-	activeProcessMu       sync.Mutex
-	activeByTurnID        map[int64]*agentActiveProcess
-	activeByPlanID        map[int64]*agentActiveProcess
-	derivedParentByTurnID map[int64]domain.AgentPlan
+	repository             AgentConversationRepository
+	llmClient              AgentConversationLLM
+	embeddingClient        llm.EmbeddingClient
+	embeddingModel         string
+	sender                 AgentConversationSender
+	resolver               AgentExternalAccountResolver
+	userCtx                AgentUserContextProvider
+	recentItems            AgentRecentItemsProvider
+	sourceProvider         AgentSourceProvider
+	notificationJobs       AgentNotificationJobStore
+	scheduledTasks         AgentScheduleEvalRepository
+	webFetcher             agentWebFetcher
+	turnRunner             *agent.TurnRunner
+	runManager             *agent.RunManager
+	planner                *agent.Planner
+	capabilityRegistry     *agent.CapabilityRegistry
+	policyEngine           *agent.PolicyEngine
+	now                    func() time.Time
+	ownerID                int64
+	publicBaseURL          string
+	processInline          bool
+	processTimeout         time.Duration
+	notificationTimeout    time.Duration
+	progressNotifyInterval time.Duration
+	lockMu                 sync.Mutex
+	sessionLocks           map[int64]*sync.Mutex
+	activeProcessMu        sync.Mutex
+	activeByTurnID         map[int64]*agentActiveProcess
+	activeByPlanID         map[int64]*agentActiveProcess
+	derivedParentByTurnID  map[int64]domain.AgentPlan
 }
 
 type AgentConversationServiceOption func(*AgentConversationService)
@@ -146,6 +150,14 @@ func WithAgentConversationNotificationTimeout(timeout time.Duration) AgentConver
 	}
 }
 
+func WithAgentConversationProgressNotifyInterval(interval time.Duration) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		if interval > 0 {
+			service.progressNotifyInterval = interval
+		}
+	}
+}
+
 func WithAgentConversationNow(now func() time.Time) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		if now != nil {
@@ -170,17 +182,18 @@ func WithAgentConversationPublicBaseURL(publicBaseURL string) AgentConversationS
 
 func NewAgentConversationService(repository AgentConversationRepository, options ...AgentConversationServiceOption) *AgentConversationService {
 	service := &AgentConversationService{
-		repository:            repository,
-		capabilityRegistry:    agent.NewP0CapabilityRegistry(),
-		policyEngine:          agent.NewPolicyEngine(),
-		now:                   time.Now,
-		ownerID:               defaultAgentOwnerUserID,
-		processTimeout:        defaultAgentProcessTimeout,
-		notificationTimeout:   defaultAgentNotificationTimeout,
-		sessionLocks:          map[int64]*sync.Mutex{},
-		activeByTurnID:        map[int64]*agentActiveProcess{},
-		activeByPlanID:        map[int64]*agentActiveProcess{},
-		derivedParentByTurnID: map[int64]domain.AgentPlan{},
+		repository:             repository,
+		capabilityRegistry:     agent.NewP0CapabilityRegistry(),
+		policyEngine:           agent.NewPolicyEngine(),
+		now:                    time.Now,
+		ownerID:                defaultAgentOwnerUserID,
+		processTimeout:         defaultAgentProcessTimeout,
+		notificationTimeout:    defaultAgentNotificationTimeout,
+		progressNotifyInterval: defaultAgentProgressNotifyInterval,
+		sessionLocks:           map[int64]*sync.Mutex{},
+		activeByTurnID:         map[int64]*agentActiveProcess{},
+		activeByPlanID:         map[int64]*agentActiveProcess{},
+		derivedParentByTurnID:  map[int64]domain.AgentPlan{},
 	}
 	for _, option := range options {
 		option(service)

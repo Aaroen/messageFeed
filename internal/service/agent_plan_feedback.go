@@ -7,6 +7,7 @@ import (
 	"messagefeed/internal/metrics"
 	"messagefeed/internal/notifier"
 	"strings"
+	"time"
 )
 
 // approvalRequiredReply 将确认请求的结构化事实交给模型生成用户可见短回复。
@@ -32,6 +33,40 @@ func (s *AgentConversationService) sendPlanStartedFeedback(
 		return
 	}
 	s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "started", "started")
+}
+
+func (s *AgentConversationService) startPlanPeriodicProgressNotifications(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	plan domain.AgentPlan,
+) context.CancelFunc {
+	if s == nil || s.processInline || plan.ID == 0 || s.progressNotifyInterval <= 0 {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		ticker := time.NewTicker(s.progressNotifyInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				latest := plan
+				if loaded, err := s.repository.GetAgentPlan(ctx, account.UserID, plan.ID); err == nil && loaded.ID > 0 {
+					latest = loaded
+				}
+				if agentPlanTerminal(latest.Status) || latest.Status == domain.AgentPlanStatusAwaitingApproval || latest.Status == domain.AgentPlanStatusRejected {
+					return
+				}
+				s.sendPlanProgressNotification(ctx, account, session, turn, input, latest, "periodic_progress", "periodic_progress")
+			}
+		}
+	}()
+	return cancel
 }
 
 // sendPlanProgressNotification 将关键阶段进度同步到企业微信。
@@ -74,6 +109,8 @@ func (s *AgentConversationService) sendPlanProgressNotification(
 	eventType := "agent.plan_progress_notification"
 	if stage == "started" {
 		eventType = "agent.plan_started_feedback"
+	} else if stage == "periodic_progress" {
+		eventType = "agent.plan_periodic_progress_notification"
 	}
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
@@ -100,6 +137,19 @@ func (s *AgentConversationService) sendPlanProgressNotification(
 		RequestID: input.RequestID,
 		TraceID:   input.TraceID,
 		CreatedAt: s.now().UTC(),
+	})
+	traceStatus := domain.AgentTraceEventSucceeded
+	var traceErr error
+	if status == "failed" {
+		traceStatus = domain.AgentTraceEventFailed
+		traceErr = fmt.Errorf("%s", message)
+	}
+	s.recordAgentNotificationTraceEvent(ctx, input, account, session, turn, plan, progressNotificationTraceEventName(stage), traceStatus, delivery.SendCount, traceErr, domain.AgentJSON{
+		"stage":           stage,
+		"progress_url":    progressURL,
+		"message_type":    delivery.DeliveryMode,
+		"template_status": delivery.TemplateStatus,
+		"fallback_status": delivery.FallbackStatus,
 	})
 }
 
@@ -209,11 +259,32 @@ func planProgressNotificationStep(plan domain.AgentPlan) domain.AgentPlanStep {
 		return failed
 	}
 	for index := len(plan.Steps) - 1; index >= 0; index-- {
+		if plan.Steps[index].Status == domain.AgentPlanStepStatusExecuting {
+			return plan.Steps[index]
+		}
+	}
+	for index := len(plan.Steps) - 1; index >= 0; index-- {
 		if plan.Steps[index].Status == domain.AgentPlanStepStatusCompleted {
 			return plan.Steps[index]
 		}
 	}
 	return domain.AgentPlanStep{}
+}
+
+func progressNotificationTraceEventName(stage string) string {
+	if strings.TrimSpace(stage) == "periodic_progress" {
+		return "periodic_progress_delivery"
+	}
+	return "plan_progress_delivery"
+}
+
+func agentPlanTerminal(status domain.AgentPlanStatus) bool {
+	switch status {
+	case domain.AgentPlanStatusCompleted, domain.AgentPlanStatusFailed, domain.AgentPlanStatusExpired:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *AgentConversationService) agentPlanURL(planID int64) string {

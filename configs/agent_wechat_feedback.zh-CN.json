@@ -4,6 +4,7 @@
     "accepted": "收到，正在处理。",
     "started": "开始处理了，有进展会继续同步。{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",
     "progress": "还在处理中，有新的结果会继续同步。{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",
+    "periodic_progress": "还在处理。{{if .StepTitle}}\n正在做：{{.StepTitle}}{{end}}{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",
     "subagent_stage_completed": "阶段处理完成。{{if .StepTitle}}\n{{.StepTitle}}{{end}}{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",
     "step_failed": "这个阶段没有处理成功。{{if .StepTitle}}\n阶段：{{.StepTitle}}{{end}}{{if .Error}}\n原因：{{.Error}}{{end}}{{if .ProgressURL}}\n详情：{{.ProgressURL}}{{end}}",
     "failed": "这次任务没有完成。{{if .StepTitle}}\n失败阶段：{{.StepTitle}}{{end}}{{if .Error}}\n原因：{{.Error}}{{end}}{{if .ProgressURL}}\n详情：{{.ProgressURL}}{{end}}",

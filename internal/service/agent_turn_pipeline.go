@@ -146,6 +146,8 @@ func (s *AgentConversationService) processTurn(
 		result.Plan = plan
 		return result, err
 	}
+	stopPeriodicProgress := s.startPlanPeriodicProgressNotifications(ctx, account, session, turn, input, plan)
+	defer stopPeriodicProgress()
 	historyQueryPlan := historyQueryPlanForTurn(plan)
 	if !planAllowsConversationHistory(plan) {
 		historyQueryPlan = agent.PlanHistoryQueryPlan{}

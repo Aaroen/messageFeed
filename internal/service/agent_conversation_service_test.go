@@ -2002,6 +2002,74 @@ func TestAgentConversationServiceFallsBackToTextWhenProgressTemplateFails(t *tes
 	}
 }
 
+func TestAgentConversationServiceSendsPeriodicProgressNotification(t *testing.T) {
+	repository := newFakeAgentConversationRepository()
+	sender := &fakeAgentConversationSender{
+		result:     notifier.WeChatWorkSendResult{MessageID: "wx-periodic-progress"},
+		sentEvents: make(chan notifier.WeChatWorkTextMessage, 4),
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationSender(sender),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+		WithAgentConversationProgressNotifyInterval(20*time.Millisecond),
+	)
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	plan := domain.AgentPlan{
+		ID:        12,
+		UserID:    1,
+		SessionID: 2,
+		TurnID:    3,
+		Status:    domain.AgentPlanStatusExecuting,
+		Goal:      "整理问题",
+		Summary:   "正在整理",
+		Steps: []domain.AgentPlanStep{
+			{ID: 21, PlanID: 12, Status: domain.AgentPlanStepStatusExecuting, Title: "检索历史", CapabilityKey: "conversation.query_history"},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	repository.plans = append(repository.plans, plan)
+
+	stop := service.startPlanPeriodicProgressNotifications(
+		context.Background(),
+		domain.ExternalAccount{UserID: 1},
+		domain.AgentSession{ID: 2},
+		domain.AgentTurn{ID: 3},
+		ReceiveWeChatWorkAppMessageInput{
+			Provider:          domain.AgentProviderWeChatWorkApp,
+			ProviderMessageID: "msg-periodic",
+			ExternalUserID:    "zhangsan",
+		},
+		plan,
+	)
+	defer stop()
+
+	message := waitForWeChatTextMessage(t, sender.sentEvents, func(message notifier.WeChatWorkTextMessage) bool {
+		return strings.Contains(message.Content, "https://messagefeed.example/agent/plans/12")
+	})
+	if !strings.Contains(message.Content, "检索历史") || strings.Contains(message.Content, "{") || strings.Contains(message.Content, "trace") || strings.Contains(message.Content, "权限：") {
+		t.Fatalf("periodic progress message = %q", message.Content)
+	}
+	if !fakeAuditContains(repository.audits, "agent.plan_periodic_progress_notification") {
+		t.Fatalf("audits = %#v", repository.audits)
+	}
+	traceEvent := fakeTraceEventByName(repository.traceEvents, "periodic_progress_delivery", domain.AgentTraceEventSucceeded)
+	if traceEvent.ID == 0 ||
+		traceEvent.EventKind != domain.AgentTraceEventNotification ||
+		traceEvent.Metadata["stage"] != "periodic_progress" ||
+		traceEvent.Metadata["progress_url"] != "https://messagefeed.example/agent/plans/12" {
+		t.Fatalf("periodic progress trace = %#v", traceEvent)
+	}
+
+	stop()
+	sentAfterStop := sender.templateCalls + sender.calls
+	time.Sleep(60 * time.Millisecond)
+	if sender.templateCalls+sender.calls != sentAfterStop {
+		t.Fatalf("periodic progress continued after stop: before=%d after=%d", sentAfterStop, sender.templateCalls+sender.calls)
+	}
+}
+
 func TestAgentConversationServiceBindPlanStepsWritesQualityAndDeploymentMetadata(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
