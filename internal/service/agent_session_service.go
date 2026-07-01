@@ -109,19 +109,27 @@ type AgentFactIndexBackfillResult struct {
 }
 
 type AgentFactIndexStatsResult struct {
-	UserID               int64            `json:"user_id"`
-	FactIndexCount       int64            `json:"fact_index_count"`
-	ReadyCount           int64            `json:"ready_count"`
-	PendingCount         int64            `json:"pending_count"`
-	FailedCount          int64            `json:"failed_count"`
-	ArchivedCount        int64            `json:"archived_count"`
-	EmbeddingCount       int64            `json:"embedding_count"`
-	ReadyEmbeddingCount  int64            `json:"ready_embedding_count"`
-	FailedEmbeddingCount int64            `json:"failed_embedding_count"`
-	LastIndexedAt        string           `json:"last_indexed_at,omitempty"`
-	LastEmbeddedAt       string           `json:"last_embedded_at,omitempty"`
-	ByFactType           map[string]int64 `json:"by_fact_type"`
-	ByMemoryKind         map[string]int64 `json:"by_memory_kind"`
+	UserID                int64            `json:"user_id"`
+	FactIndexCount        int64            `json:"fact_index_count"`
+	ReadyCount            int64            `json:"ready_count"`
+	PendingCount          int64            `json:"pending_count"`
+	FailedCount           int64            `json:"failed_count"`
+	ArchivedCount         int64            `json:"archived_count"`
+	EmbeddingCount        int64            `json:"embedding_count"`
+	ReadyEmbeddingCount   int64            `json:"ready_embedding_count"`
+	FailedEmbeddingCount  int64            `json:"failed_embedding_count"`
+	EmbeddingCoverage     float64          `json:"embedding_coverage"`
+	MemoryChunkCount      int64            `json:"memory_chunk_count"`
+	MemoryChunkReadyCount int64            `json:"memory_chunk_ready_count"`
+	MemoryChunkCoverage   float64          `json:"memory_chunk_embedding_coverage"`
+	PendingEmbeddingJobs  int64            `json:"pending_embedding_job_count"`
+	FailedEmbeddingJobs   int64            `json:"failed_embedding_job_count"`
+	StaleEmbeddingCount   int64            `json:"stale_embedding_count"`
+	LastEmbeddingError    string           `json:"last_embedding_error,omitempty"`
+	LastIndexedAt         string           `json:"last_indexed_at,omitempty"`
+	LastEmbeddedAt        string           `json:"last_embedded_at,omitempty"`
+	ByFactType            map[string]int64 `json:"by_fact_type"`
+	ByMemoryKind          map[string]int64 `json:"by_memory_kind"`
 }
 
 type AgentFactRecallPreviewInput struct {
@@ -5015,19 +5023,27 @@ func agentMemoryBlockResponse(block domain.AgentMemoryBlock) AgentMemoryBlockRes
 
 func agentFactIndexStatsResult(stats domain.AgentFactIndexStats) AgentFactIndexStatsResult {
 	return AgentFactIndexStatsResult{
-		UserID:               stats.UserID,
-		FactIndexCount:       stats.FactIndexCount,
-		ReadyCount:           stats.ReadyCount,
-		PendingCount:         stats.PendingCount,
-		FailedCount:          stats.FailedCount,
-		ArchivedCount:        stats.ArchivedCount,
-		EmbeddingCount:       stats.EmbeddingCount,
-		ReadyEmbeddingCount:  stats.ReadyEmbeddingCount,
-		FailedEmbeddingCount: stats.FailedEmbeddingCount,
-		LastIndexedAt:        formatOptionalTime(stats.LastIndexedAt),
-		LastEmbeddedAt:       formatOptionalTime(stats.LastEmbeddedAt),
-		ByFactType:           cloneInt64Map(stats.ByFactType),
-		ByMemoryKind:         cloneInt64Map(stats.ByMemoryKind),
+		UserID:                stats.UserID,
+		FactIndexCount:        stats.FactIndexCount,
+		ReadyCount:            stats.ReadyCount,
+		PendingCount:          stats.PendingCount,
+		FailedCount:           stats.FailedCount,
+		ArchivedCount:         stats.ArchivedCount,
+		EmbeddingCount:        stats.EmbeddingCount,
+		ReadyEmbeddingCount:   stats.ReadyEmbeddingCount,
+		FailedEmbeddingCount:  stats.FailedEmbeddingCount,
+		EmbeddingCoverage:     stats.EmbeddingCoverage,
+		MemoryChunkCount:      stats.MemoryChunkCount,
+		MemoryChunkReadyCount: stats.MemoryChunkReadyCount,
+		MemoryChunkCoverage:   stats.MemoryChunkCoverage,
+		PendingEmbeddingJobs:  stats.PendingEmbeddingJobs,
+		FailedEmbeddingJobs:   stats.FailedEmbeddingJobs,
+		StaleEmbeddingCount:   stats.StaleEmbeddingCount,
+		LastEmbeddingError:    stats.LastEmbeddingError,
+		LastIndexedAt:         formatOptionalTime(stats.LastIndexedAt),
+		LastEmbeddedAt:        formatOptionalTime(stats.LastEmbeddedAt),
+		ByFactType:            cloneInt64Map(stats.ByFactType),
+		ByMemoryKind:          cloneInt64Map(stats.ByMemoryKind),
 	}
 }
 

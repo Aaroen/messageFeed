@@ -403,6 +403,33 @@ var AgentEmbeddingJobDuration = promauto.NewHistogramVec(
 	[]string{"status"},
 )
 
+// AgentEmbeddingQueueDepth 记录 embedding job 队列深度。
+var AgentEmbeddingQueueDepth = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "messagefeed_agent_embedding_queue_depth",
+		Help: "Agent embedding job 队列深度，按状态分类",
+	},
+	[]string{"status"},
+)
+
+// AgentEmbeddingCoverageRatio 记录 fact/chunk embedding 覆盖率。
+var AgentEmbeddingCoverageRatio = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "messagefeed_agent_embedding_coverage_ratio",
+		Help: "Agent fact/chunk embedding 覆盖率，按 fact_type 和模型分类",
+	},
+	[]string{"fact_type", "embedding_model"},
+)
+
+// AgentMemoryStaleEmbeddings 记录 content hash 已变化的 stale embedding 数量。
+var AgentMemoryStaleEmbeddings = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "messagefeed_agent_memory_stale_embeddings",
+		Help: "Agent stale embedding 数量，按 fact_type 和模型分类",
+	},
+	[]string{"fact_type", "embedding_model"},
+)
+
 // LLMRequestsTotal 记录大模型请求总数，按模型、操作和状态分类。
 var LLMRequestsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{

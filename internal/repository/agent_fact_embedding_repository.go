@@ -390,6 +390,44 @@ func (r *AgentRepository) GetAgentFactIndexStats(ctx context.Context, userID int
 	_ = embeddingBase.Count(&stats.EmbeddingCount).Error
 	_ = embeddingBase.Where("embedding_status = ?", string(domain.AgentFactEmbeddingStatusReady)).Count(&stats.ReadyEmbeddingCount).Error
 	_ = embeddingBase.Where("embedding_status = ?", string(domain.AgentFactEmbeddingStatusFailed)).Count(&stats.FailedEmbeddingCount).Error
+	if stats.FactIndexCount > 0 {
+		stats.EmbeddingCoverage = float64(stats.ReadyEmbeddingCount) / float64(stats.FactIndexCount)
+	}
+	_ = r.db.WithContext(ctx).
+		Table("agent_memory_chunks").
+		Where("user_id = ?", userID).
+		Count(&stats.MemoryChunkCount).Error
+	_ = r.db.WithContext(ctx).
+		Table("agent_memory_chunks").
+		Where("user_id = ? AND embedding_status = ?", userID, string(domain.AgentFactEmbeddingStatusReady)).
+		Count(&stats.MemoryChunkReadyCount).Error
+	if stats.MemoryChunkCount > 0 {
+		stats.MemoryChunkCoverage = float64(stats.MemoryChunkReadyCount) / float64(stats.MemoryChunkCount)
+	}
+	_ = r.db.WithContext(ctx).
+		Table("agent_fact_index_jobs").
+		Where("job_type = ? AND status = ? AND scope_json->>'user_id' = ?", string(domain.AgentFactIndexJobEmbed), string(domain.AgentFactIndexJobPending), strconv.FormatInt(userID, 10)).
+		Count(&stats.PendingEmbeddingJobs).Error
+	_ = r.db.WithContext(ctx).
+		Table("agent_fact_index_jobs").
+		Where("job_type = ? AND status = ? AND scope_json->>'user_id' = ?", string(domain.AgentFactIndexJobEmbed), string(domain.AgentFactIndexJobFailed), strconv.FormatInt(userID, 10)).
+		Count(&stats.FailedEmbeddingJobs).Error
+	var lastEmbeddingError sql.NullString
+	if err := r.db.WithContext(ctx).
+		Table("agent_fact_index_jobs").
+		Select("error_message").
+		Where("job_type = ? AND error_message <> '' AND scope_json->>'user_id' = ?", string(domain.AgentFactIndexJobEmbed), strconv.FormatInt(userID, 10)).
+		Order("updated_at DESC").
+		Limit(1).
+		Row().
+		Scan(&lastEmbeddingError); err == nil && lastEmbeddingError.Valid {
+		stats.LastEmbeddingError = lastEmbeddingError.String
+	}
+	_ = r.db.WithContext(ctx).
+		Table("agent_fact_archive_index AS i").
+		Joins("JOIN agent_fact_embeddings AS e ON e.user_id = i.user_id AND e.canonical_ref = i.canonical_ref").
+		Where("i.user_id = ? AND e.embedding_status = ? AND e.content_hash <> i.content_hash", userID, string(domain.AgentFactEmbeddingStatusReady)).
+		Count(&stats.StaleEmbeddingCount).Error
 	var lastEmbedded sql.NullTime
 	if err := r.db.WithContext(ctx).
 		Table("agent_fact_embeddings").

@@ -11,6 +11,7 @@ import (
 	appdb "messagefeed/internal/db"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
+	"messagefeed/internal/metrics"
 	"messagefeed/internal/notifier"
 	"messagefeed/internal/observability"
 
@@ -364,7 +365,20 @@ func (s *AdminConfigService) agentObservabilityStatus(ctx context.Context) Admin
 	if dbStatus.LastEmbeddingJobUpdatedAt != nil {
 		status.LastEmbeddingJobUpdatedAt = dbStatus.LastEmbeddingJobUpdatedAt.UTC().Format(time.RFC3339)
 	}
+	s.recordAgentObservabilityMetrics(dbStatus)
 	return status
+}
+
+func (s *AdminConfigService) recordAgentObservabilityMetrics(status appdb.AgentObservabilityStatus) {
+	model := strings.TrimSpace(s.cfg.Embedding.Model)
+	if model == "" {
+		model = "unknown"
+	}
+	metrics.AgentEmbeddingQueueDepth.WithLabelValues("pending").Set(float64(status.PendingEmbeddingJobs))
+	metrics.AgentEmbeddingQueueDepth.WithLabelValues("running").Set(float64(status.RunningEmbeddingJobs))
+	metrics.AgentEmbeddingQueueDepth.WithLabelValues("failed").Set(float64(status.FailedEmbeddingJobs))
+	metrics.AgentEmbeddingCoverageRatio.WithLabelValues("memory_chunk", model).Set(status.MemoryChunkEmbeddingCoverageRate)
+	metrics.AgentMemoryStaleEmbeddings.WithLabelValues("memory_chunk", model).Set(0)
 }
 
 func adminAgentObservabilityMetrics() []AdminObservabilityMetricEntry {
@@ -379,6 +393,8 @@ func adminAgentObservabilityMetrics() []AdminObservabilityMetricEntry {
 		{Name: "messagefeed_agent_embedding_requests_total", Purpose: "embedding 模型调用结果"},
 		{Name: "messagefeed_agent_embedding_jobs_total", Purpose: "embedding job 生命周期"},
 		{Name: "messagefeed_agent_embedding_queue_depth", Purpose: "embedding 队列积压"},
+		{Name: "messagefeed_agent_embedding_coverage_ratio", Purpose: "fact/chunk embedding 覆盖率"},
+		{Name: "messagefeed_agent_memory_stale_embeddings", Purpose: "content hash 变化后的 stale embedding 数量"},
 		{Name: "messagefeed_agent_memory_topics_total", Purpose: "记忆主题生成数量"},
 		{Name: "messagefeed_agent_memory_chunks_total", Purpose: "记忆 chunk 生成数量"},
 	}

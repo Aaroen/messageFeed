@@ -377,19 +377,27 @@ type AgentFactBackfillResult struct {
 }
 
 type AgentFactIndexStats struct {
-	UserID               int64
-	FactIndexCount       int64
-	ReadyCount           int64
-	PendingCount         int64
-	FailedCount          int64
-	ArchivedCount        int64
-	EmbeddingCount       int64
-	ReadyEmbeddingCount  int64
-	FailedEmbeddingCount int64
-	LastIndexedAt        *time.Time
-	LastEmbeddedAt       *time.Time
-	ByFactType           map[string]int64
-	ByMemoryKind         map[string]int64
+	UserID                int64
+	FactIndexCount        int64
+	ReadyCount            int64
+	PendingCount          int64
+	FailedCount           int64
+	ArchivedCount         int64
+	EmbeddingCount        int64
+	ReadyEmbeddingCount   int64
+	FailedEmbeddingCount  int64
+	EmbeddingCoverage     float64
+	MemoryChunkCount      int64
+	MemoryChunkReadyCount int64
+	MemoryChunkCoverage   float64
+	PendingEmbeddingJobs  int64
+	FailedEmbeddingJobs   int64
+	StaleEmbeddingCount   int64
+	LastEmbeddingError    string
+	LastIndexedAt         *time.Time
+	LastEmbeddedAt        *time.Time
+	ByFactType            map[string]int64
+	ByMemoryKind          map[string]int64
 }
 
 type AgentMemoryCandidateStatus string
