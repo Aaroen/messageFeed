@@ -97,6 +97,29 @@ func TestAgentSessionManagementMigrationDefinesActiveSessionAndContextState(t *t
 	}
 }
 
+func TestAgentTraceEventsMigrationDefinesWaterfallTable(t *testing.T) {
+	content, err := os.ReadFile("../../migrations/000035_add_agent_trace_events.up.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"CREATE TABLE IF NOT EXISTS agent_trace_events",
+		"request_id TEXT NOT NULL DEFAULT ''",
+		"event_kind VARCHAR(48) NOT NULL",
+		"'subagent_dispatch'",
+		"'tool_execution'",
+		"'degraded'",
+		"metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb",
+		"idx_agent_trace_events_request",
+		"idx_agent_trace_events_run",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("migration missing %q", required)
+		}
+	}
+}
+
 func TestTranscriptMemoryClassificationRuleV2(t *testing.T) {
 	cases := []struct {
 		name       string
