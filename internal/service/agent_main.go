@@ -21,6 +21,9 @@ const (
 	// defaultAgentNotificationTimeout 只约束企业微信发送动作。
 	// 通知超时必须独立于执行超时，避免主流程超时后连失败消息也发不出去。
 	defaultAgentNotificationTimeout = 15 * time.Second
+	// defaultAgentMemoryCaptureTimeout 只约束后台长期记忆候选捕获。
+	// 该流程会调用真实模型分类，不能阻塞企业微信回调确认。
+	defaultAgentMemoryCaptureTimeout = 2 * time.Minute
 	// defaultAgentStopWaitTimeout 是用户主动停止后等待 goroutine 退出的确认窗口。
 	// 超过该时间仍未退出时，不把计划标记为已停止，避免掩盖无法取消的后台执行。
 	defaultAgentStopWaitTimeout = 5 * time.Second

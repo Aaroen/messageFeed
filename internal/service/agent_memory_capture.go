@@ -131,6 +131,18 @@ func (s *AgentConversationService) captureMemoryCandidateFromTranscript(ctx cont
 	}
 }
 
+func (s *AgentConversationService) captureMemoryCandidateFromTranscriptAsync(ctx context.Context, entry domain.AgentTranscriptEntry) {
+	if s == nil || entry.ID == 0 || entry.UserID == 0 || entry.Role != domain.AgentTranscriptRoleUser {
+		return
+	}
+	baseCtx := context.WithoutCancel(ctx)
+	go func() {
+		captureCtx, cancel := context.WithTimeout(baseCtx, defaultAgentMemoryCaptureTimeout)
+		defer cancel()
+		s.captureMemoryCandidateFromTranscript(captureCtx, entry)
+	}()
+}
+
 func (s *AgentConversationService) createMemoryChunkFromCapture(ctx context.Context, entry domain.AgentTranscriptEntry, activeTopic domain.AgentMemoryTopic, hasActiveTopic bool, classification agentMemoryCaptureClassification, block domain.AgentMemoryBlock) {
 	store, ok := any(s.repository).(agentMemoryTopicChunkStore)
 	if !ok || entry.UserID == 0 || strings.TrimSpace(entry.Content) == "" {

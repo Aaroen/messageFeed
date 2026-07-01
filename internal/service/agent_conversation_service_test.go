@@ -1501,6 +1501,73 @@ func TestAgentConversationServiceSplitsLongWeChatWorkReply(t *testing.T) {
 	}
 }
 
+func TestAgentConversationServiceAsyncWeChatDoesNotWaitForMemoryCapture(t *testing.T) {
+	now := time.Date(2026, 7, 1, 13, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		memoryDelay: 250 * time.Millisecond,
+		memoryResponses: []llm.ChatResponse{fakeAgentMemoryClassificationResponse(domain.AgentJSON{
+			"should_capture":        true,
+			"memory_kind":           "preference",
+			"confidence":            0.9,
+			"importance":            80,
+			"risk_level":            "low",
+			"summary":               "用户要求默认使用中文。",
+			"keywords":              []string{"中文"},
+			"topic_decision":        "new_topic",
+			"topic_title":           "回复语言偏好",
+			"topic_summary":         "用户要求默认使用中文。",
+			"topic_intent":          "preference",
+			"consolidation_reason":  "high_value",
+			"should_create_chunk":   true,
+			"chunk_title":           "回复语言偏好",
+			"chunk_summary":         "用户要求默认使用中文。",
+			"chunk_content":         "用户要求以后默认使用中文。",
+			"requires_confirmation": false,
+			"reason":                "模型判断为长期偏好。",
+		})},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
+
+	startedAt := time.Now()
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-async-memory",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "以后默认使用中文",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if !result.ProcessingAsync {
+		t.Fatalf("ProcessingAsync = false, want true")
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 150*time.Millisecond {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() elapsed = %s, want below memory delay", elapsed)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for {
+		if len(repository.memoryCandidates) == 1 {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("memory candidates = %d, want async candidate", len(repository.memoryCandidates))
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
 func TestAgentConversationServiceDoesNotSendDuplicateInboundMessage(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
 	repository.forceDuplicate = true
@@ -3873,6 +3940,7 @@ type fakeAgentConversationLLM struct {
 	responses         []llm.ChatResponse
 	feedbackResponses []llm.ChatResponse
 	memoryResponses   []llm.ChatResponse
+	memoryDelay       time.Duration
 	err               error
 	planErr           error
 	started           chan struct{}
@@ -3888,8 +3956,15 @@ type fakeAgentConversationLLM struct {
 
 // Chat 同时模拟主 Agent 规划调用和执行 Agent 调用。
 // 规划调用返回结构化 PlanSpec，执行调用仍沿用各测试显式声明的 response。
-func (f *fakeAgentConversationLLM) Chat(_ context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
+func (f *fakeAgentConversationLLM) Chat(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	if fakeIsAgentMemoryClassificationRequest(request) {
+		if f.memoryDelay > 0 {
+			select {
+			case <-time.After(f.memoryDelay):
+			case <-ctx.Done():
+				return llm.ChatResponse{}, ctx.Err()
+			}
+		}
 		if len(f.memoryResponses) > 0 {
 			index := f.memoryIdx
 			if index >= len(f.memoryResponses) {

@@ -172,7 +172,11 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		Metadata:  domain.AgentJSON{"provider_message_id": input.ProviderMessageID},
 		CreatedAt: now,
 	})
-	s.captureMemoryCandidateFromTranscript(ctx, userTranscript)
+	if s.processInline {
+		s.captureMemoryCandidateFromTranscript(ctx, userTranscript)
+	} else {
+		s.captureMemoryCandidateFromTranscriptAsync(ctx, userTranscript)
+	}
 
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
