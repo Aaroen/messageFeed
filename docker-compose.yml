@@ -106,7 +106,7 @@ services:
       # 观测配置
       OTEL_SERVICE_NAME: messagefeed-api
       OTEL_SERVICE_VERSION: 0.2.0
-      OBSERVABILITY_TRACE_ENABLED: "false"
+      OBSERVABILITY_TRACE_ENABLED: ${OBSERVABILITY_TRACE_ENABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
       OTEL_EXPORTER_OTLP_INSECURE: "true"
       OTEL_TRACES_SAMPLER_ARG: "1.0"
@@ -241,7 +241,7 @@ services:
       DEPLOYMENT_MODE: single_node
       ENVIRONMENT: development
       LOG_LEVEL: debug
-      OBSERVABILITY_TRACE_ENABLED: "false"
+      OBSERVABILITY_TRACE_ENABLED: ${OBSERVABILITY_TRACE_ENABLED:-true}
       DATABASE_URL: postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable
       AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-aroen}
       AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD:-***REMOVED-FROM-GIT-HISTORY***}
