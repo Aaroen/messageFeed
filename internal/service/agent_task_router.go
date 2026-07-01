@@ -30,6 +30,7 @@ type agentTaskRouteClassification struct {
 	RequiresSubAgent      bool
 	EstimatedLatencyClass string
 	HistoryQuery          string
+	CandidateCapabilities []string
 	Reason                string
 	Provider              string
 	Model                 string
@@ -37,14 +38,15 @@ type agentTaskRouteClassification struct {
 }
 
 type agentTaskRouteJSON struct {
-	TaskType              string  `json:"task_type"`
-	Confidence            float64 `json:"confidence"`
-	NeedsHistoryRecall    bool    `json:"needs_history_recall"`
-	NeedsTools            bool    `json:"needs_tools"`
-	RequiresSubAgent      bool    `json:"requires_sub_agent"`
-	EstimatedLatencyClass string  `json:"estimated_latency_class"`
-	HistoryQuery          string  `json:"history_query"`
-	Reason                string  `json:"reason"`
+	TaskType              string   `json:"task_type"`
+	Confidence            float64  `json:"confidence"`
+	NeedsHistoryRecall    bool     `json:"needs_history_recall"`
+	NeedsTools            bool     `json:"needs_tools"`
+	RequiresSubAgent      bool     `json:"requires_sub_agent"`
+	EstimatedLatencyClass string   `json:"estimated_latency_class"`
+	HistoryQuery          string   `json:"history_query"`
+	CandidateCapabilities []string `json:"candidate_capabilities"`
+	Reason                string   `json:"reason"`
 }
 
 func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, controllerRun domain.AgentRun, input ReceiveWeChatWorkAppMessageInput) (agentTaskRouteClassification, error) {
@@ -68,6 +70,7 @@ func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, a
 		"message_type": input.MsgType,
 		"user_message": strings.TrimSpace(input.TextContent),
 		"current_time": s.now().UTC().Format(time.RFC3339),
+		"capabilities": s.mainAgentCapabilityCatalog(),
 	}
 	routeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentTaskRouterTimeout)
 	defer cancel()
@@ -94,6 +97,7 @@ func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, a
 	classification.Model = response.Model
 	classification.Raw = strings.TrimSpace(response.Content)
 	classification = guardAgentTaskRoute(classification)
+	classification.CandidateCapabilities = s.validAgentTaskRouteCapabilities(classification.CandidateCapabilities)
 	s.recordAgentTaskRouteTrace(ctx, input, account, session, turn, controllerRun, classification, domain.AgentTraceEventSucceeded, startedAt, "", "")
 	return classification, nil
 }
@@ -124,6 +128,7 @@ func parseAgentTaskRouteJSON(raw string) (agentTaskRouteClassification, error) {
 		RequiresSubAgent:      decoded.RequiresSubAgent,
 		EstimatedLatencyClass: strings.TrimSpace(decoded.EstimatedLatencyClass),
 		HistoryQuery:          safeSummary(decoded.HistoryQuery, 300),
+		CandidateCapabilities: compactStrings(decoded.CandidateCapabilities),
 		Reason:                safeSummary(decoded.Reason, 500),
 	}, nil
 }
@@ -154,11 +159,47 @@ func guardAgentTaskRoute(c agentTaskRouteClassification) agentTaskRouteClassific
 		if strings.TrimSpace(c.HistoryQuery) == "" {
 			c.HistoryQuery = "当前用户问题相关的历史上下文"
 		}
+		if len(c.CandidateCapabilities) == 0 {
+			c.CandidateCapabilities = []string{"conversation.query_history"}
+		}
 	}
 	if strings.TrimSpace(c.Reason) == "" {
 		c.Reason = "主 Agent 已完成任务分级。"
 	}
 	return c
+}
+
+func (s *AgentConversationService) validAgentTaskRouteCapabilities(values []string) []string {
+	values = compactStrings(values)
+	if s == nil || s.capabilityRegistry == nil || len(values) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		capability, ok := s.capabilityRegistry.Get(value)
+		if !ok || capability.Mode == agent.CapabilityModeHidden {
+			continue
+		}
+		result = append(result, value)
+	}
+	return result
+}
+
+func compactStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func fallbackAgentTaskRoute(reason string) agentTaskRouteClassification {
@@ -203,6 +244,7 @@ func (s *AgentConversationService) recordAgentTaskRouteTrace(ctx context.Context
 			"requires_sub_agent":      route.RequiresSubAgent,
 			"estimated_latency_class": route.EstimatedLatencyClass,
 			"history_query":           route.HistoryQuery,
+			"candidate_capabilities":  append([]string(nil), route.CandidateCapabilities...),
 			"reason":                  route.Reason,
 		},
 		CreatedAt: startedAt,
@@ -227,6 +269,34 @@ func llmModelKeyFromParts(provider string, model string) string {
 
 func agentTaskRouteShouldUseLightPlan(route agentTaskRouteClassification) bool {
 	return route.Confidence >= 0.65 && (route.TaskType == agentTaskRouteQuickAnswer || route.TaskType == agentTaskRouteRAGAnswer)
+}
+
+func agentTaskRouteFallbackPlanSpec(route agentTaskRouteClassification, goal string) (agent.PlanSpec, bool) {
+	if route.TaskType == agentTaskRouteRAGAnswer || route.TaskType == agentTaskRouteQuickAnswer {
+		return agentTaskRoutePlanSpec(route, goal), true
+	}
+	if route.TaskType != agentTaskRouteDeepTask || len(route.CandidateCapabilities) == 0 {
+		return agent.PlanSpec{}, false
+	}
+	spec := agentTaskRoutePlanSpec(route, goal)
+	spec.Complexity = agent.PlanningComplexityComplex
+	spec.RequiresSubAgent = true
+	spec.DirectAnswerAllowed = false
+	spec.RequiredCapabilities = append([]string(nil), route.CandidateCapabilities...)
+	spec.Subtasks = []agent.PlanSubtask{
+		{
+			Title:           "执行用户任务",
+			Prompt:          "根据用户目标选择可用能力执行任务，优先获取必要证据，再生成用户可读结果。",
+			ContextSummary:  route.Reason,
+			CapabilityKeys:  append([]string(nil), route.CandidateCapabilities...),
+			ExpectedOutput:  "可验证证据、执行结论和面向用户的最终答复。",
+			FailureStrategy: "能力调用失败时说明已完成部分、失败原因和可继续处理的范围。",
+			MaxRetries:      1,
+		},
+	}
+	spec.ExpectedEvidenceScope = []string{"tool_result", "current_context"}
+	spec.Metadata["fallback_reason"] = "main_agent_planner_failed"
+	return spec, true
 }
 
 func agentTaskRoutePlanSpec(route agentTaskRouteClassification, goal string) agent.PlanSpec {

@@ -308,7 +308,9 @@ func assertRealAgentFlowCompleted(t *testing.T, result ReceiveWeChatWorkAppMessa
 	if strings.TrimSpace(result.Reply) == "" {
 		t.Fatal("reply is empty")
 	}
-	if !fakeContextTraceContains(repository.contextTraces, "main_agent_plan_spec_valid") {
+	route := metadataMap(result.Plan.Metadata, "task_route")
+	lightPlan, _ := route["light_plan"].(bool)
+	if !lightPlan && !fakeContextTraceContains(repository.contextTraces, "main_agent_plan_spec_valid") {
 		t.Fatalf("main agent planning trace is missing: %#v", repository.contextTraces)
 	}
 	if result.Plan.Metadata["main_agent_plan"] == nil {

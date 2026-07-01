@@ -33,6 +33,7 @@ func agentTaskRouterSchemaHint() domain.AgentJSON {
 		"requires_sub_agent":      "boolean",
 		"estimated_latency_class": "fast | normal | slow",
 		"history_query":           "需要历史召回时填写简短查询；否则为空字符串",
+		"candidate_capabilities":  "string[]，当 needs_tools 或 requires_sub_agent 为 true 时，从 payload.capabilities 中选择后续执行可能需要的 capability key；quick_answer 可为空",
 		"reason":                  "一句中文说明，用于用户侧展示主 Agent 判断依据",
 	}
 }

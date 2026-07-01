@@ -671,11 +671,22 @@ func (s *AgentConversationService) createPlanForTurn(
 		// 主 Agent 先由模型生成 PlanSpec，避免 service 层继续通过关键词硬编码推断用户意图。
 		mainPlan, err = s.buildMainAgentPlanSpec(ctx, account, session, turn, controllerRun, input)
 		if err != nil {
-			failedPlan, createErr := s.createPlanningFailedPlan(ctx, account, session, turn, controllerRun, input, err)
-			if createErr != nil {
-				return domain.AgentPlan{}, "", createErr
+			if fallbackSpec, ok := agentTaskRouteFallbackPlanSpec(route, input.TextContent); ok {
+				mainPlan = mainAgentPlanSpecResult{
+					Spec:      fallbackSpec,
+					Provider:  route.Provider,
+					Model:     route.Model,
+					Raw:       route.Raw,
+					Attempts:  0,
+					Validated: true,
+				}
+			} else {
+				failedPlan, createErr := s.createPlanningFailedPlan(ctx, account, session, turn, controllerRun, input, err)
+				if createErr != nil {
+					return domain.AgentPlan{}, "", createErr
+				}
+				return failedPlan, "", err
 			}
-			return failedPlan, "", err
 		}
 	}
 	// planner 只把模型计划转换为持久化计划和步骤，权限、预算、确认策略仍走后续治理链路。

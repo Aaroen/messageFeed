@@ -526,6 +526,47 @@ func TestAgentTaskRouterBuildsRAGAnswerLightPlan(t *testing.T) {
 	}
 }
 
+func TestAgentTaskRouterFallbacksWhenFullPlannerReturnsEmpty(t *testing.T) {
+	now := time.Date(2026, 7, 1, 15, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	llmClient := &fakeAgentConversationLLM{
+		planErr: errors.New("llm response is empty"),
+		routeResponses: []llm.ChatResponse{fakeAgentTaskRouteResponse(domain.AgentJSON{
+			"task_type":               "deep_task",
+			"confidence":              0.84,
+			"needs_history_recall":    false,
+			"needs_tools":             true,
+			"requires_sub_agent":      true,
+			"estimated_latency_class": "slow",
+			"history_query":           "",
+			"candidate_capabilities":  []string{"web.search", "missing.capability"},
+			"reason":                  "需要联网搜索和分析。",
+		})},
+	}
+	service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
+
+	plan, _, err := service.createPlanForTurn(context.Background(), testAgentExternalAccount(now), domain.AgentSession{ID: 2, UserID: 1}, domain.AgentTurn{ID: 3, UserID: 1, SessionID: 2}, domain.AgentRun{ID: 4, SessionID: 2, TurnID: 3, ModelKey: "test-model"}, ReceiveWeChatWorkAppMessageInput{
+		Provider:          domain.AgentProviderWeb,
+		ProviderMessageID: "msg-route-fallback",
+		MsgType:           "text",
+		TextContent:       "搜索最新港股消息并分析",
+		RequestID:         "req-route-fallback",
+	})
+	if err != nil {
+		t.Fatalf("createPlanForTurn() error = %v", err)
+	}
+	if !containsAgentString(plan.AllowedScopes, "web.search") || containsAgentString(plan.AllowedScopes, "missing.capability") {
+		t.Fatalf("allowed scopes = %#v, want filtered web.search fallback", plan.AllowedScopes)
+	}
+	mainPlan := metadataMap(plan.Metadata, "main_agent_plan")
+	if mainPlan["requires_sub_agent"] != true || mainPlan["direct_answer_allowed"] != false {
+		t.Fatalf("main agent plan = %#v", mainPlan)
+	}
+	if !fakeTraceEventExists(repository.traceEvents, "main_agent_plan_spec", domain.AgentTraceEventFailed) {
+		t.Fatalf("trace events = %#v, want failed full planner trace", repository.traceEvents)
+	}
+}
+
 func TestConversationMemoryProviderExecutesPlannedHistoryQuery(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
