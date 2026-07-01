@@ -4,9 +4,15 @@ import (
 	"context"
 	"fmt"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
 	"strings"
 	"time"
 )
+
+type agentMemoryTopicChunkStore interface {
+	CreateAgentMemoryTopic(ctx context.Context, topic domain.AgentMemoryTopic) (domain.AgentMemoryTopic, error)
+	CreateAgentMemoryChunk(ctx context.Context, chunk domain.AgentMemoryChunk) (domain.AgentMemoryChunk, error)
+}
 
 type agentMemoryCaptureClassification struct {
 	Kind       domain.AgentMemoryKind
@@ -75,9 +81,94 @@ func (s *AgentConversationService) captureMemoryCandidateFromTranscript(ctx cont
 		})
 		return
 	}
-	if _, err := s.repository.ApplyAgentMemoryCandidate(ctx, entry.UserID, candidate.ID, now); err != nil {
+	block, err := s.repository.ApplyAgentMemoryCandidate(ctx, entry.UserID, candidate.ID, now)
+	if err != nil {
 		s.recordMemoryCaptureFailure(ctx, entry, "candidate_apply_failed", err)
+		return
 	}
+	s.createMemoryChunkFromCapture(ctx, entry, classification, block)
+}
+
+func (s *AgentConversationService) createMemoryChunkFromCapture(ctx context.Context, entry domain.AgentTranscriptEntry, classification agentMemoryCaptureClassification, block domain.AgentMemoryBlock) {
+	store, ok := any(s.repository).(agentMemoryTopicChunkStore)
+	if !ok || entry.UserID == 0 || strings.TrimSpace(entry.Content) == "" {
+		return
+	}
+	now := s.now().UTC()
+	topic, err := store.CreateAgentMemoryTopic(ctx, domain.AgentMemoryTopic{
+		UserID:        entry.UserID,
+		SessionID:     entry.SessionID,
+		TopicKey:      fmt.Sprintf("memory-capture:%d", entry.TurnID),
+		Title:         summarizeMemoryCandidate(entry.Content),
+		Summary:       summarizeMemoryCandidate(entry.Content),
+		Keywords:      append([]string(nil), classification.Terms...),
+		Intent:        classification.Reason,
+		Status:        domain.AgentMemoryTopicClosed,
+		MessageCount:  1,
+		TokenEstimate: estimateTokenCount(entry.Content),
+		StartTurnID:   entry.TurnID,
+		EndTurnID:     entry.TurnID,
+		LastMessageAt: &entry.CreatedAt,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	if err != nil {
+		s.recordMemoryCaptureFailure(ctx, entry, "topic_create_failed", err)
+		return
+	}
+	metrics.AgentMemoryTopicsTotal.WithLabelValues(string(topic.Status), "high_value_signal").Inc()
+	chunk, err := store.CreateAgentMemoryChunk(ctx, domain.AgentMemoryChunk{
+		UserID:              entry.UserID,
+		SessionID:           entry.SessionID,
+		TopicID:             topic.ID,
+		Title:               topic.Title,
+		Summary:             topic.Summary,
+		Content:             strings.TrimSpace(entry.Content),
+		MemoryKind:          classification.Kind,
+		Importance:          classification.Importance,
+		SourceRefs:          []string{fmt.Sprintf("transcript:%d", entry.ID), fmt.Sprintf("turn:%d", entry.TurnID), fmt.Sprintf("memory_block:%d", block.ID)},
+		RelationRefs:        []string{fmt.Sprintf("session:%d", entry.SessionID), fmt.Sprintf("turn:%d", entry.TurnID)},
+		StartTurnID:         entry.TurnID,
+		EndTurnID:           entry.TurnID,
+		EmbeddingStatus:     domain.AgentFactEmbeddingStatusPending,
+		ConsolidationReason: "high_value_signal",
+		Metadata: domain.AgentJSON{
+			"classification_reason": classification.Reason,
+			"classification_terms":  classification.Terms,
+			"memory_block_id":       block.ID,
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	if err != nil {
+		s.recordMemoryCaptureFailure(ctx, entry, "chunk_create_failed", err)
+		metrics.AgentMemoryChunksTotal.WithLabelValues(string(classification.Kind), "high_value_signal", "failed").Inc()
+		return
+	}
+	metrics.AgentMemoryChunksTotal.WithLabelValues(string(chunk.MemoryKind), chunk.ConsolidationReason, "created").Inc()
+	s.recordAgentTraceEvent(ctx, domain.AgentTraceEvent{
+		UserID:        entry.UserID,
+		SessionID:     entry.SessionID,
+		TurnID:        entry.TurnID,
+		EventKind:     domain.AgentTraceEventMemory,
+		EventName:     "memory_chunk_created",
+		Status:        domain.AgentTraceEventSucceeded,
+		StartedAt:     now,
+		FinishedAt:    &now,
+		DurationMS:    0,
+		SourceRefs:    chunk.SourceRefs,
+		InputSummary:  summarizeMemoryCandidate(entry.Content),
+		OutputSummary: fmt.Sprintf("memory_chunk:%d", chunk.ID),
+		Metadata: domain.AgentJSON{
+			"topic_id":              topic.ID,
+			"chunk_id":              chunk.ID,
+			"memory_kind":           string(chunk.MemoryKind),
+			"consolidation_reason":  chunk.ConsolidationReason,
+			"embedding_status":      string(chunk.EmbeddingStatus),
+			"classification_reason": classification.Reason,
+		},
+		CreatedAt: now,
+	})
 }
 
 func (s *AgentConversationService) memoryBlockAlreadyExists(ctx context.Context, userID int64, content string) bool {

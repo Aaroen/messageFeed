@@ -327,6 +327,24 @@ var AgentRecallHits = promauto.NewHistogramVec(
 	[]string{"mode", "source"},
 )
 
+// AgentMemoryTopicsTotal 记录 Agent memory topic 创建与关闭。
+var AgentMemoryTopicsTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_memory_topics_total",
+		Help: "Agent memory topic 事件总数，按状态和原因分类",
+	},
+	[]string{"status", "reason"},
+)
+
+// AgentMemoryChunksTotal 记录 Agent memory chunk 形成结果。
+var AgentMemoryChunksTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_agent_memory_chunks_total",
+		Help: "Agent memory chunk 事件总数，按记忆类型、原因和状态分类",
+	},
+	[]string{"memory_kind", "reason", "status"},
+)
+
 // AgentEmbeddingRequestsTotal 记录 Agent embedding 请求结果。
 var AgentEmbeddingRequestsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{
