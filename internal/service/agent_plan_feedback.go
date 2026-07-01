@@ -144,10 +144,11 @@ func (s *AgentConversationService) sendWeChatWorkTaskAcceptedFeedback(
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
 ) (string, notifier.WeChatWorkSendResult, int) {
-	reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+	request := agentWeChatFeedbackRequest{
 		Stage:       "accepted",
 		UserMessage: input.TextContent,
-	})
+	}
+	reply := finalizeAgentWeChatFeedbackText(renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData()))
 	if s == nil || !s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "process") {
 		return reply, notifier.WeChatWorkSendResult{}, 0
 	}
