@@ -743,25 +743,25 @@ async_jobs_enqueued_count
 
 | 状态 | 实施项 | 必须同步更新的观测性实现 |
 | --- | --- | --- |
-| [ ] | 建立全 Agent trace event 写入规范 | 新增 `agent_trace_events` migration、domain、repository；定义 event_kind/status 枚举；所有主链路事件统一关联 request_id、trace_id、turn_id、plan_id、run_id |
-| [ ] | 补齐主 Agent planner trace | planner span 记录 plan_valid、needs_history_recall、needs_approval、needs_tool、needs_subagent；metrics 记录 planner 请求数、失败数、耗时；trace event 记录输入/输出摘要和解析错误 |
-| [ ] | 补齐 context projection trace | 将 selected/skipped/protected/projected 单元数、裁剪原因、token 分布写入 trace event；progress detail 展示投影 waterfall 与预算变化 |
-| [ ] | 补齐子 Agent 下发 trace | dispatch span 记录 parent_run_id、child_run_id、capability_scope；metrics 记录 dispatch 成功、失败、耗时；trace event 关联 plan step 与 child run |
-| [ ] | 补齐工具执行 trace | tool span 记录 capability、tool、retry_count、status；metrics 记录工具调用次数、失败率、耗时；observation/artifact 与 trace event 建立稳定关联 |
-| [ ] | 补齐审批、治理与恢复 trace | approval/governance/recovery 事件写入 `agent_trace_events` 与 audit log；metrics 记录审批决策、风险级别、恢复动作和失败分类 |
-| [ ] | 补齐通知与回调 trace | notification enqueue/send/callback replay 事件统一关联 request_id、turn_id、job_id；Grafana 展示通知成功率、重试和 provider 错误 |
-| [ ] | 新增 `agent_memory_topics`、`agent_memory_chunks` migration | `/readyz` 增加 memory 表结构检查；repository 新查询统一使用 `traceRepositoryOperation`；管理统计预留 topic/chunk count |
-| [ ] | 新增 `memory_chunk` fact type | fact index stats 按 `fact_type` 输出 chunk 数量与覆盖率；日志字段增加 `fact_type`、`canonical_ref_hash` |
+| [x] | 建立全 Agent trace event 写入规范 | 新增 `agent_trace_events` migration、domain、repository；定义 event_kind/status 枚举；所有主链路事件统一关联 request_id、trace_id、turn_id、plan_id、run_id |
+| [x] | 补齐主 Agent planner trace | planner span 记录 plan_valid、needs_history_recall、needs_approval、needs_tool、needs_subagent；metrics 记录 planner 请求数、失败数、耗时；trace event 记录输入/输出摘要和解析错误 |
+| [x] | 补齐 context projection trace | 将 selected/skipped/protected/projected 单元数、裁剪原因、token 分布写入 trace event；progress detail 展示投影 waterfall 与预算变化 |
+| [x] | 补齐子 Agent 下发 trace | dispatch span 记录 parent_run_id、child_run_id、capability_scope；metrics 记录 dispatch 成功、失败、耗时；trace event 关联 plan step 与 child run |
+| [x] | 补齐工具执行 trace | tool span 记录 capability、tool、retry_count、status；metrics 记录工具调用次数、失败率、耗时；observation/artifact 与 trace event 建立稳定关联 |
+| [x] | 补齐审批、治理与恢复 trace | approval/governance/recovery 事件写入 `agent_trace_events` 与 audit log；metrics 记录审批决策、风险级别、恢复动作和失败分类 |
+| [x] | 补齐通知与回调 trace | notification enqueue/send/callback replay 事件统一关联 request_id、turn_id、job_id；Grafana 展示通知成功率、重试和 provider 错误 |
+| [x] | 新增 `agent_memory_topics`、`agent_memory_chunks` migration | `/readyz` 增加 memory 表结构检查；repository 新查询统一使用 `traceRepositoryOperation`；管理统计预留 topic/chunk count |
+| [x] | 新增 `memory_chunk` fact type | fact index stats 按 `fact_type` 输出 chunk 数量与覆盖率；日志字段增加 `fact_type`、`canonical_ref_hash` |
 | [ ] | 实现规则版 `TopicTracker` | 新增 `service.agent.memory.topic.classify` span；新增 topic created/closed counter；trace 内容记录 decision、reason、message_count |
 | [ ] | 实现 `MemoryConsolidationPolicy` | 新增 `service.agent.memory.consolidation.evaluate` span；新增 consolidation counter 与 duration；记录 trigger_reason、token_estimate、omitted_units_count |
 | [ ] | 实现 `MemoryChunkBuilder` | 新增 chunk build span 与 chunk counter；写入 `agent_run_context_traces` 或新增 memory trace 记录 source refs、risk level、redaction status |
-| [ ] | 将 memory chunk 写入 `agent_fact_archive_index` | 新增 fact index upsert span；DB 指标自动覆盖新增表操作；记录 indexer_version、content_hash、embedding_status |
-| [ ] | 将惰性 embedding 改为投递 `embed_fact_index` job | recall trace 记录 `async_embedding_enqueued` 与 enqueued count；新增 job enqueue counter；召回日志记录降级与投递原因 |
-| [ ] | 实现 embedding worker claim、执行、重试和状态更新 | 新增 job claim/batch/upsert span；新增 jobs total、duration、queue depth、batch size、input chars、coverage、stale gauges；worker 日志携带 `worker_id`、`job_id`、`attempt`、`status` |
-| [ ] | 新增 `agent_recall_traces` | repository 查询使用 DB span；管理接口按 request/turn/run 查询；trace 表记录 fulltext、embedding、vector、relation、projection、fallback |
-| [ ] | 新增 `agent_embedding_traces` | 记录 job_id、request_id、canonical_ref、model、dimension、duration、status、error；失败时截断 error_message 并保留 retry_count |
-| [ ] | 将 recall diagnostics 持久化到 recall trace | `agentFactRetriever.Recall` 分段计时；hybrid 降级时记录 fallback_reason；semantic 失败时记录明确 error code |
-| [ ] | 为 embedding client 增加 span 和 metrics | 参考 LLM chat client 增加 request counter、duration histogram、batch size、input chars、dimension attribute；外部 HTTP 可复用 `ExternalHTTPRequestsTotal` |
+| [x] | 将 memory chunk 写入 `agent_fact_archive_index` | 新增 fact index upsert span；DB 指标自动覆盖新增表操作；记录 indexer_version、content_hash、embedding_status |
+| [x] | 将惰性 embedding 改为投递 `embed_fact_index` job | recall trace 记录 `async_embedding_enqueued` 与 enqueued count；新增 job enqueue counter；召回日志记录降级与投递原因 |
+| [x] | 实现 embedding worker claim、执行、重试和状态更新 | 新增 job claim/batch/upsert span；新增 jobs total、duration、queue depth、batch size、input chars、coverage、stale gauges；worker 日志携带 `worker_id`、`job_id`、`attempt`、`status` |
+| [x] | 新增 `agent_recall_traces` | repository 查询使用 DB span；管理接口按 request/turn/run 查询；trace 表记录 fulltext、embedding、vector、relation、projection、fallback |
+| [x] | 新增 `agent_embedding_traces` | 记录 job_id、request_id、canonical_ref、model、dimension、duration、status、error；失败时截断 error_message 并保留 retry_count |
+| [x] | 将 recall diagnostics 持久化到 recall trace | `agentFactRetriever.Recall` 分段计时；hybrid 降级时记录 fallback_reason；semantic 失败时记录明确 error code |
+| [x] | 为 embedding client 增加 span 和 metrics | 参考 LLM chat client 增加 request counter、duration histogram、batch size、input chars、dimension attribute；外部 HTTP 可复用 `ExternalHTTPRequestsTotal` |
 | [ ] | 在 progress detail 中展示 recall waterfall | Web 增加 request/turn trace 聚合视图；展示 stage、status、duration、hit_count、fallback_reason、source refs |
 | [ ] | 扩展 fact index stats 覆盖率指标 | 管理接口与设置页展示 coverage、pending、failed、stale、last_error、last_success_at；Grafana 增加覆盖率与积压面板 |
 | [ ] | 增加真实模型端到端测试用例 | 测试断言 recall trace、embedding trace、metrics 样本、readyz/status 均可观察；记录 query embedding 维度与命中来源 |

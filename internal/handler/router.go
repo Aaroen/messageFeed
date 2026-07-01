@@ -179,6 +179,30 @@ func readyzHandler(database *gorm.DB, logger *slog.Logger, now func() time.Time)
 							),
 						})
 					}
+					if agentObservabilityStatus, err := db.CheckAgentObservabilityStatus(ctx, database); err != nil {
+						checks = append(checks, appRuntime.ReadinessCheck{
+							Name:    "agent_observability",
+							Status:  appRuntime.ReadinessNotReady,
+							Message: "agent observability tables are not ready",
+						})
+					} else {
+						checks = append(checks, appRuntime.ReadinessCheck{
+							Name:   "agent_observability",
+							Status: appRuntime.ReadinessReady,
+							Message: fmt.Sprintf(
+								"trace_events=%d recall_traces=%d embedding_traces=%d memory_topics=%d memory_chunks=%d embedding_jobs pending=%d running=%d failed=%d chunk_coverage=%.2f",
+								agentObservabilityStatus.TraceEventRows,
+								agentObservabilityStatus.RecallTraceRows,
+								agentObservabilityStatus.EmbeddingTraceRows,
+								agentObservabilityStatus.MemoryTopicRows,
+								agentObservabilityStatus.MemoryChunkRows,
+								agentObservabilityStatus.PendingEmbeddingJobs,
+								agentObservabilityStatus.RunningEmbeddingJobs,
+								agentObservabilityStatus.FailedEmbeddingJobs,
+								agentObservabilityStatus.MemoryChunkEmbeddingCoverageRate,
+							),
+						})
+					}
 				}
 			}
 		}

@@ -147,6 +147,7 @@ func main() {
 	}
 	adminConfigService = service.NewAdminConfigService(
 		cfg,
+		service.WithAdminConfigDatabase(database),
 		service.WithAdminConfigLLM(llmClient),
 		service.WithAdminConfigWeChatWorkSender(weChatWorkSender),
 		service.WithAdminConfigWeChatWorkCallbackConfigured(weChatWorkAppCallback != nil),

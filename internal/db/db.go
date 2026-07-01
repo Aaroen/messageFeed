@@ -214,6 +214,21 @@ type AgentFactIndexStatus struct {
 	LastEmbeddedAt *time.Time
 }
 
+type AgentObservabilityStatus struct {
+	TraceEventRows                   int64
+	RecallTraceRows                  int64
+	EmbeddingTraceRows               int64
+	MemoryTopicRows                  int64
+	MemoryChunkRows                  int64
+	MemoryChunkReadyRows             int64
+	PendingEmbeddingJobs             int64
+	RunningEmbeddingJobs             int64
+	FailedEmbeddingJobs              int64
+	MemoryChunkEmbeddingCoverageRate float64
+	LastEmbeddingJobUpdatedAt        *time.Time
+	LastEmbeddingError               string
+}
+
 // GetStats 获取数据库连接池统计信息。
 func GetStats(db *gorm.DB) (Stats, error) {
 	sqlDB, err := db.DB()
@@ -305,6 +320,52 @@ func CheckAgentFactIndexStatus(ctx context.Context, db *gorm.DB) (AgentFactIndex
 	if err := db.WithContext(ctx).Raw("SELECT MAX(updated_at) FROM agent_fact_embeddings").Row().Scan(&lastEmbedded); err == nil && lastEmbedded.Valid {
 		value := lastEmbedded.Time
 		status.LastEmbeddedAt = &value
+	}
+	return status, nil
+}
+
+func CheckAgentObservabilityStatus(ctx context.Context, db *gorm.DB) (AgentObservabilityStatus, error) {
+	var status AgentObservabilityStatus
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_trace_events").Row().Scan(&status.TraceEventRows); err != nil {
+		return AgentObservabilityStatus{}, fmt.Errorf("query agent trace events: %w", err)
+	}
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_recall_traces").Row().Scan(&status.RecallTraceRows); err != nil {
+		return AgentObservabilityStatus{}, fmt.Errorf("query agent recall traces: %w", err)
+	}
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_embedding_traces").Row().Scan(&status.EmbeddingTraceRows); err != nil {
+		return AgentObservabilityStatus{}, fmt.Errorf("query agent embedding traces: %w", err)
+	}
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_memory_topics").Row().Scan(&status.MemoryTopicRows); err != nil {
+		return AgentObservabilityStatus{}, fmt.Errorf("query agent memory topics: %w", err)
+	}
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_memory_chunks").Row().Scan(&status.MemoryChunkRows); err != nil {
+		return AgentObservabilityStatus{}, fmt.Errorf("query agent memory chunks: %w", err)
+	}
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_memory_chunks WHERE embedding_status = 'ready'").Row().Scan(&status.MemoryChunkReadyRows); err != nil {
+		return AgentObservabilityStatus{}, fmt.Errorf("query ready agent memory chunks: %w", err)
+	}
+	if status.MemoryChunkRows > 0 {
+		status.MemoryChunkEmbeddingCoverageRate = float64(status.MemoryChunkReadyRows) / float64(status.MemoryChunkRows)
+	}
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_fact_index_jobs WHERE job_type = 'embed_fact_index' AND status = 'pending'").Row().Scan(&status.PendingEmbeddingJobs); err != nil {
+		return AgentObservabilityStatus{}, fmt.Errorf("query pending embedding jobs: %w", err)
+	}
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_fact_index_jobs WHERE job_type = 'embed_fact_index' AND status = 'running'").Row().Scan(&status.RunningEmbeddingJobs); err != nil {
+		return AgentObservabilityStatus{}, fmt.Errorf("query running embedding jobs: %w", err)
+	}
+	if err := db.WithContext(ctx).Raw("SELECT COUNT(*) FROM agent_fact_index_jobs WHERE job_type = 'embed_fact_index' AND status = 'failed'").Row().Scan(&status.FailedEmbeddingJobs); err != nil {
+		return AgentObservabilityStatus{}, fmt.Errorf("query failed embedding jobs: %w", err)
+	}
+	var lastJobUpdated sql.NullTime
+	if err := db.WithContext(ctx).Raw("SELECT MAX(updated_at) FROM agent_fact_index_jobs WHERE job_type = 'embed_fact_index'").Row().Scan(&lastJobUpdated); err == nil && lastJobUpdated.Valid {
+		value := lastJobUpdated.Time
+		status.LastEmbeddingJobUpdatedAt = &value
+	}
+	var lastEmbeddingError sql.NullString
+	if err := db.WithContext(ctx).Raw("SELECT error_message FROM agent_fact_index_jobs WHERE job_type = 'embed_fact_index' AND error_message <> '' ORDER BY updated_at DESC LIMIT 1").Row().Scan(&lastEmbeddingError); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return AgentObservabilityStatus{}, fmt.Errorf("query last embedding job error: %w", err)
+	} else if lastEmbeddingError.Valid {
+		status.LastEmbeddingError = lastEmbeddingError.String
 	}
 	return status, nil
 }

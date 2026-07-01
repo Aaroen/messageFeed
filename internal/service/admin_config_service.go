@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"messagefeed/internal/config"
+	appdb "messagefeed/internal/db"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/notifier"
 	"messagefeed/internal/observability"
 
 	"go.opentelemetry.io/otel/attribute"
+	"gorm.io/gorm"
 )
 
 const (
@@ -33,6 +35,7 @@ type AdminConfigWeChatWorkSender interface {
 
 type AdminConfigService struct {
 	cfg                config.Config
+	database           *gorm.DB
 	llmClient          AdminConfigLLM
 	weChatWorkSender   AdminConfigWeChatWorkSender
 	weChatWorkCallback bool
@@ -44,6 +47,12 @@ type AdminConfigServiceOption func(*AdminConfigService)
 func WithAdminConfigLLM(client AdminConfigLLM) AdminConfigServiceOption {
 	return func(service *AdminConfigService) {
 		service.llmClient = client
+	}
+}
+
+func WithAdminConfigDatabase(database *gorm.DB) AdminConfigServiceOption {
+	return func(service *AdminConfigService) {
+		service.database = database
 	}
 }
 
@@ -133,12 +142,40 @@ type AdminLLMConfigStatus struct {
 }
 
 type AdminObservabilityConfigStatus struct {
-	TraceEnabled       bool    `json:"trace_enabled"`
-	OTLPEndpointSet    bool    `json:"otlp_endpoint_set"`
-	OTLPInsecure       bool    `json:"otlp_insecure"`
-	TraceSampleRatio   float64 `json:"trace_sample_ratio"`
-	PrometheusEndpoint string  `json:"prometheus_endpoint"`
-	GrafanaURL         string  `json:"grafana_url"`
+	TraceEnabled       bool                            `json:"trace_enabled"`
+	OTLPEndpointSet    bool                            `json:"otlp_endpoint_set"`
+	OTLPInsecure       bool                            `json:"otlp_insecure"`
+	TraceSampleRatio   float64                         `json:"trace_sample_ratio"`
+	PrometheusEndpoint string                          `json:"prometheus_endpoint"`
+	GrafanaURL         string                          `json:"grafana_url"`
+	Agent              AdminAgentObservabilityStatus   `json:"agent"`
+	Metrics            []AdminObservabilityMetricEntry `json:"metrics"`
+}
+
+type AdminAgentObservabilityStatus struct {
+	Configured                        bool    `json:"configured"`
+	Ready                             bool    `json:"ready"`
+	ErrorMessage                      string  `json:"error_message,omitempty"`
+	TraceEventRows                    int64   `json:"trace_event_rows"`
+	RecallTraceRows                   int64   `json:"recall_trace_rows"`
+	EmbeddingTraceRows                int64   `json:"embedding_trace_rows"`
+	MemoryTopicRows                   int64   `json:"memory_topic_rows"`
+	MemoryChunkRows                   int64   `json:"memory_chunk_rows"`
+	MemoryChunkReadyRows              int64   `json:"memory_chunk_ready_rows"`
+	MemoryChunkEmbeddingCoverageRatio float64 `json:"memory_chunk_embedding_coverage_ratio"`
+	PendingEmbeddingJobs              int64   `json:"pending_embedding_jobs"`
+	RunningEmbeddingJobs              int64   `json:"running_embedding_jobs"`
+	FailedEmbeddingJobs               int64   `json:"failed_embedding_jobs"`
+	LastEmbeddingJobUpdatedAt         string  `json:"last_embedding_job_updated_at,omitempty"`
+	LastEmbeddingError                string  `json:"last_embedding_error,omitempty"`
+	EmbeddingWorkerEnabled            bool    `json:"embedding_worker_enabled"`
+	EmbeddingWorkerConfigured         bool    `json:"embedding_worker_configured"`
+	EmbeddingModelConfigured          bool    `json:"embedding_model_configured"`
+}
+
+type AdminObservabilityMetricEntry struct {
+	Name    string `json:"name"`
+	Purpose string `json:"purpose"`
 }
 
 type AdminConfigEndpointStatus struct {
@@ -246,6 +283,8 @@ func (s *AdminConfigService) Status(ctx context.Context) (AdminConfigStatus, err
 			TraceSampleRatio:   s.cfg.Observability.TraceSampleRatio,
 			PrometheusEndpoint: "http://127.0.0.1:9090",
 			GrafanaURL:         "http://127.0.0.1:3000/d/messagefeed-overview/messagefeed-overview",
+			Agent:              s.agentObservabilityStatus(ctx),
+			Metrics:            adminAgentObservabilityMetrics(),
 		},
 		Endpoints: AdminConfigEndpointStatus{
 			WeChatWorkCallback: callbackURL,
@@ -290,6 +329,59 @@ func (s *AdminConfigService) Status(ctx context.Context) (AdminConfigStatus, err
 		attribute.Bool("admin_config.llm.enabled", status.LLM.Enabled),
 	)
 	return status, nil
+}
+
+func (s *AdminConfigService) agentObservabilityStatus(ctx context.Context) AdminAgentObservabilityStatus {
+	status := AdminAgentObservabilityStatus{
+		Configured:                s.database != nil,
+		EmbeddingWorkerEnabled:    s.cfg.Embedding.Enabled(),
+		EmbeddingWorkerConfigured: s.cfg.Embedding.Enabled() && strings.TrimSpace(s.cfg.Embedding.Model) != "",
+		EmbeddingModelConfigured:  strings.TrimSpace(s.cfg.Embedding.Model) != "",
+	}
+	if s.database == nil {
+		status.ErrorMessage = "database is not configured"
+		return status
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	dbStatus, err := appdb.CheckAgentObservabilityStatus(checkCtx, s.database)
+	if err != nil {
+		status.ErrorMessage = err.Error()
+		return status
+	}
+	status.Ready = true
+	status.TraceEventRows = dbStatus.TraceEventRows
+	status.RecallTraceRows = dbStatus.RecallTraceRows
+	status.EmbeddingTraceRows = dbStatus.EmbeddingTraceRows
+	status.MemoryTopicRows = dbStatus.MemoryTopicRows
+	status.MemoryChunkRows = dbStatus.MemoryChunkRows
+	status.MemoryChunkReadyRows = dbStatus.MemoryChunkReadyRows
+	status.MemoryChunkEmbeddingCoverageRatio = dbStatus.MemoryChunkEmbeddingCoverageRate
+	status.PendingEmbeddingJobs = dbStatus.PendingEmbeddingJobs
+	status.RunningEmbeddingJobs = dbStatus.RunningEmbeddingJobs
+	status.FailedEmbeddingJobs = dbStatus.FailedEmbeddingJobs
+	status.LastEmbeddingError = truncateRunes(dbStatus.LastEmbeddingError, 240)
+	if dbStatus.LastEmbeddingJobUpdatedAt != nil {
+		status.LastEmbeddingJobUpdatedAt = dbStatus.LastEmbeddingJobUpdatedAt.UTC().Format(time.RFC3339)
+	}
+	return status
+}
+
+func adminAgentObservabilityMetrics() []AdminObservabilityMetricEntry {
+	return []AdminObservabilityMetricEntry{
+		{Name: "messagefeed_agent_trace_events_total", Purpose: "Agent waterfall 事件吞吐与状态"},
+		{Name: "messagefeed_agent_trace_event_duration_seconds", Purpose: "Agent 内部分段耗时"},
+		{Name: "messagefeed_agent_planner_requests_total", Purpose: "主 Agent planner 请求结果"},
+		{Name: "messagefeed_agent_subagent_dispatches_total", Purpose: "子 Agent 下发结果"},
+		{Name: "messagefeed_agent_tool_executions_total", Purpose: "工具调用次数与状态"},
+		{Name: "messagefeed_agent_recall_requests_total", Purpose: "RAG 召回请求与降级"},
+		{Name: "messagefeed_agent_recall_duration_seconds", Purpose: "RAG fulltext/vector/relation 分段耗时"},
+		{Name: "messagefeed_agent_embedding_requests_total", Purpose: "embedding 模型调用结果"},
+		{Name: "messagefeed_agent_embedding_jobs_total", Purpose: "embedding job 生命周期"},
+		{Name: "messagefeed_agent_embedding_queue_depth", Purpose: "embedding 队列积压"},
+		{Name: "messagefeed_agent_memory_topics_total", Purpose: "记忆主题生成数量"},
+		{Name: "messagefeed_agent_memory_chunks_total", Purpose: "记忆 chunk 生成数量"},
+	}
 }
 
 func (s *AdminConfigService) weChatWorkOAuthConfigured() bool {

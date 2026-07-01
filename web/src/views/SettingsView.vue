@@ -273,6 +273,14 @@ const statusCards = computed(() => {
       value: status?.observability.trace_enabled ? 'Trace 已启用' : '指标可用',
       meta: status?.observability.trace_enabled ? `采样 ${status.observability.trace_sample_ratio}` : 'Prometheus / Grafana',
     },
+    {
+      title: 'Agent 观测',
+      ready: Boolean(status?.observability.agent.ready),
+      value: status?.observability.agent.ready ? '表结构可用' : '待检查',
+      meta: status?.observability.agent.ready
+        ? `pending ${status.observability.agent.pending_embedding_jobs} / failed ${status.observability.agent.failed_embedding_jobs}`
+        : status?.observability.agent.error_message || '数据库状态未加载',
+    },
   ]
 })
 
@@ -1031,6 +1039,13 @@ function protocolModeLabel(value: string) {
 
 function yesNo(value: boolean | undefined) {
   return value ? '是' : '否'
+}
+
+function formatRatio(value: number | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return '0.00%'
+  }
+  return `${(value * 100).toFixed(2)}%`
 }
 
 function formatTime(value: string | undefined) {
@@ -1882,6 +1897,79 @@ defineExpose({ refreshPage })
                 <dd class="settings-mono">{{ configStatus.observability.grafana_url }}</dd>
               </div>
             </dl>
+          </section>
+
+          <section class="settings-panel">
+            <div class="settings-panel__title">Agent 观测</div>
+            <dl class="settings-description-list">
+              <div>
+                <dt>状态</dt>
+                <dd>{{ configStatus.observability.agent.ready ? '可用' : '不可用' }}</dd>
+              </div>
+              <div>
+                <dt>Trace 事件</dt>
+                <dd>{{ configStatus.observability.agent.trace_event_rows }}</dd>
+              </div>
+              <div>
+                <dt>Recall Trace</dt>
+                <dd>{{ configStatus.observability.agent.recall_trace_rows }}</dd>
+              </div>
+              <div>
+                <dt>Embedding Trace</dt>
+                <dd>{{ configStatus.observability.agent.embedding_trace_rows }}</dd>
+              </div>
+              <div>
+                <dt>Memory Topic</dt>
+                <dd>{{ configStatus.observability.agent.memory_topic_rows }}</dd>
+              </div>
+              <div>
+                <dt>Memory Chunk</dt>
+                <dd>
+                  {{ configStatus.observability.agent.memory_chunk_rows }}
+                  / ready {{ configStatus.observability.agent.memory_chunk_ready_rows }}
+                  / {{ formatRatio(configStatus.observability.agent.memory_chunk_embedding_coverage_ratio) }}
+                </dd>
+              </div>
+              <div>
+                <dt>Embedding Job</dt>
+                <dd>
+                  pending {{ configStatus.observability.agent.pending_embedding_jobs }}
+                  / running {{ configStatus.observability.agent.running_embedding_jobs }}
+                  / failed {{ configStatus.observability.agent.failed_embedding_jobs }}
+                </dd>
+              </div>
+              <div>
+                <dt>Worker</dt>
+                <dd>
+                  {{ configStatus.observability.agent.embedding_worker_configured ? '已配置' : '未配置' }}
+                  / 模型 {{ yesNo(configStatus.observability.agent.embedding_model_configured) }}
+                </dd>
+              </div>
+              <div>
+                <dt>最近 Job</dt>
+                <dd>{{ formatTime(configStatus.observability.agent.last_embedding_job_updated_at) }}</dd>
+              </div>
+              <div v-if="configStatus.observability.agent.last_embedding_error">
+                <dt>最近错误</dt>
+                <dd>{{ configStatus.observability.agent.last_embedding_error }}</dd>
+              </div>
+              <div v-if="configStatus.observability.agent.error_message">
+                <dt>检查错误</dt>
+                <dd>{{ configStatus.observability.agent.error_message }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section class="settings-panel">
+            <div class="settings-panel__title">Agent 指标</div>
+            <div class="settings-bindings">
+              <div v-for="metric in configStatus.observability.metrics" :key="metric.name" class="settings-binding-row">
+                <div>
+                  <div class="settings-binding-row__title settings-mono">{{ metric.name }}</div>
+                  <div class="settings-binding-row__meta">{{ metric.purpose }}</div>
+                </div>
+              </div>
+            </div>
           </section>
 
           <section class="settings-panel">

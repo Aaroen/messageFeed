@@ -61,6 +61,30 @@ export interface AdminConfigStatus {
     trace_sample_ratio: number
     prometheus_endpoint: string
     grafana_url: string
+    agent: {
+      configured: boolean
+      ready: boolean
+      error_message?: string
+      trace_event_rows: number
+      recall_trace_rows: number
+      embedding_trace_rows: number
+      memory_topic_rows: number
+      memory_chunk_rows: number
+      memory_chunk_ready_rows: number
+      memory_chunk_embedding_coverage_ratio: number
+      pending_embedding_jobs: number
+      running_embedding_jobs: number
+      failed_embedding_jobs: number
+      last_embedding_job_updated_at?: string
+      last_embedding_error?: string
+      embedding_worker_enabled: boolean
+      embedding_worker_configured: boolean
+      embedding_model_configured: boolean
+    }
+    metrics: Array<{
+      name: string
+      purpose: string
+    }>
   }
   endpoints: {
     wechat_work_callback: string
