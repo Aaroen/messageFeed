@@ -28,7 +28,7 @@ func buildAgentWeChatComponentSet(plans []domain.AgentPlan, tasks []domain.Agent
 		if task.ID < 1 {
 			continue
 		}
-		url := fmt.Sprintf("/agent/plans?scheduled_task_id=%d", task.ID)
+		url := fmt.Sprintf("/agent?scheduled_task_id=%d", task.ID)
 		if task.PlanID > 0 {
 			url = fmt.Sprintf("/agent/plans/%d?scheduled_task_id=%d", task.PlanID, task.ID)
 		}
@@ -83,7 +83,7 @@ func buildAgentWeChatNativeActions(components AgentWeChatComponentSetResponse) A
 		}
 	}
 	if !hasReport {
-		reportURL := "/agent/plans"
+		reportURL := "/agent"
 		if len(components.Actions) > 0 && strings.TrimSpace(components.Actions[0].URL) != "" {
 			reportURL = components.Actions[0].URL
 		}

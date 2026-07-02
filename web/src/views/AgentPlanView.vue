@@ -16,6 +16,7 @@ import {
   agentProgressStreamURL,
   getAgentProgress,
   getAgentTraceBundle,
+  listAgentTasks,
   retryAgentPlan,
   retryAgentPlanStep,
   stopAgentPlan,
@@ -24,6 +25,7 @@ import {
   type AgentProgressSnapshot,
   type AgentRecallTrace,
   type AgentRun,
+  type AgentTaskSummary,
   type AgentTraceBundle,
   type AgentTraceEvent,
 } from '@/api/agent'
@@ -61,6 +63,7 @@ const progress = ref<AgentProgressSnapshot | null>(null)
 const plan = ref<AgentPlan | null>(null)
 const runs = ref<AgentRun[]>([])
 const traceBundle = ref<AgentTraceBundle | null>(null)
+const latestTask = ref<AgentTaskSummary | null>(null)
 const loading = ref(false)
 const refreshing = ref(false)
 const traceLoading = ref(false)
@@ -78,16 +81,19 @@ let progressStream: EventSource | undefined
 let progressStreamKey = ''
 
 const planID = computed(() => {
-  const value = route.params.id
-  const id = typeof value === 'string' ? Number(value) : 0
-  return Number.isFinite(id) ? id : 0
+  return positiveRouteNumber(route.params.id)
 })
 
 const scheduledTaskID = computed(() => {
-  const value = route.query.scheduled_task_id
-  const id = typeof value === 'string' ? Number(value) : 0
-  return Number.isFinite(id) ? id : 0
+  return (
+    positiveQueryNumber(route.query.scheduled_task_id) ||
+    positiveQueryNumber(route.query.task_id) ||
+    positiveQueryNumber(route.query.scheduledTaskID)
+  )
 })
+
+const effectivePlanID = computed(() => planID.value || latestTask.value?.plan_id || 0)
+const effectiveScheduledTaskID = computed(() => scheduledTaskID.value || latestTask.value?.scheduled_task_id || 0)
 
 const sortedSteps = computed(() =>
   [...(plan.value?.steps || [])].sort((left, right) => left.step_order - right.step_order || left.id - right.id),
@@ -204,6 +210,8 @@ const pageSummary = computed(() => {
 })
 
 watch([planID, scheduledTaskID], () => {
+  latestTask.value = null
+  closeProgressStream()
   void loadPlan()
 })
 
@@ -217,10 +225,6 @@ onBeforeUnmount(() => {
 })
 
 async function loadPlan(options: { silent?: boolean } = {}) {
-  if (!planID.value && !scheduledTaskID.value) {
-    errorMessage.value = '缺少任务标识。'
-    return
-  }
   const seq = ++requestSeq
   if (options.silent) {
     refreshing.value = true
@@ -229,9 +233,22 @@ async function loadPlan(options: { silent?: boolean } = {}) {
   }
   errorMessage.value = ''
   try {
+    if (!effectivePlanID.value && !effectiveScheduledTaskID.value) {
+      await loadLatestTask()
+      if (seq !== requestSeq) {
+        return
+      }
+    }
+    const query = progressQuery()
+    if (!query.plan_id && !query.scheduled_task_id) {
+      errorMessage.value = '暂无可展示任务。'
+      clearPollTimer()
+      closeProgressStream()
+      return
+    }
     const nextProgress = await getAgentProgress({
-      plan_id: planID.value || undefined,
-      scheduled_task_id: scheduledTaskID.value || undefined,
+      plan_id: query.plan_id,
+      scheduled_task_id: query.scheduled_task_id,
     })
     if (seq !== requestSeq) {
       return
@@ -260,10 +277,17 @@ function applyProgress(nextProgress: AgentProgressSnapshot) {
   progress.value = nextProgress
   plan.value = nextProgress.plan || null
   runs.value = nextProgress.runs || []
+  if (nextProgress.plan?.id && latestTask.value) {
+    latestTask.value = {
+      ...latestTask.value,
+      plan_id: nextProgress.plan.id,
+      scheduled_task_id: effectiveScheduledTaskID.value,
+    }
+  }
 }
 
 async function loadTrace(nextProgress: AgentProgressSnapshot) {
-  const currentPlanID = nextProgress.plan?.id || planID.value
+  const currentPlanID = nextProgress.plan?.id || effectivePlanID.value
   if (!currentPlanID) {
     traceBundle.value = null
     return
@@ -279,10 +303,7 @@ async function loadTrace(nextProgress: AgentProgressSnapshot) {
 }
 
 function openProgressStream() {
-  const url = agentProgressStreamURL({
-    plan_id: planID.value || undefined,
-    scheduled_task_id: scheduledTaskID.value || undefined,
-  })
+  const url = agentProgressStreamURL(progressQuery())
   if (!url || progressStreamKey === url) {
     return
   }
@@ -350,6 +371,44 @@ function clearPollTimer() {
     window.clearTimeout(pollTimer)
     pollTimer = undefined
   }
+}
+
+async function loadLatestTask() {
+  const result = await listAgentTasks({ limit: 1 })
+  latestTask.value = result.tasks.find((task) => task.plan_id > 0 || task.scheduled_task_id > 0) || null
+}
+
+function progressQuery() {
+  const query: { plan_id?: number; scheduled_task_id?: number } = {}
+  if (effectivePlanID.value > 0) {
+    query.plan_id = effectivePlanID.value
+  }
+  if (effectiveScheduledTaskID.value > 0) {
+    query.scheduled_task_id = effectiveScheduledTaskID.value
+  }
+  return query
+}
+
+function positiveRouteNumber(value: unknown) {
+  if (Array.isArray(value)) {
+    return positiveRouteNumber(value[0])
+  }
+  if (typeof value !== 'string') {
+    return 0
+  }
+  const id = Number(value)
+  return Number.isFinite(id) && id > 0 ? id : 0
+}
+
+function positiveQueryNumber(value: unknown) {
+  if (Array.isArray(value)) {
+    return positiveQueryNumber(value[0])
+  }
+  if (typeof value !== 'string') {
+    return 0
+  }
+  const id = Number(value)
+  return Number.isFinite(id) && id > 0 ? id : 0
 }
 
 async function retryStep(step: AgentPlanStep) {
