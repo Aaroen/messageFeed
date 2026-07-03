@@ -289,6 +289,55 @@ func TestAgentConversationServiceCapturesLowRiskMemoryCandidate(t *testing.T) {
 	}
 }
 
+func TestAgentConversationServiceRetriesEmptyMemoryClassificationResponse(t *testing.T) {
+	now := time.Date(2026, 6, 30, 10, 5, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	llmClient := &fakeAgentConversationLLM{memoryResponses: []llm.ChatResponse{
+		{Provider: "openai_compatible", Model: "memory-classifier-model", Content: ""},
+		fakeAgentMemoryClassificationResponse(domain.AgentJSON{
+			"should_capture":        true,
+			"memory_kind":           "preference",
+			"confidence":            0.9,
+			"importance":            84,
+			"risk_level":            "low",
+			"summary":               "用户偏好回答先给结论，再列风险和验证步骤。",
+			"keywords":              []string{"结论", "风险", "验证"},
+			"topic_decision":        "new_topic",
+			"topic_title":           "回复结构偏好",
+			"topic_summary":         "用户要求后续回答先给结论并列出风险和验证步骤。",
+			"topic_intent":          "preference",
+			"consolidation_reason":  "high_value",
+			"should_create_chunk":   true,
+			"chunk_title":           "回复结构偏好",
+			"chunk_summary":         "用户偏好先结论、再风险和验证步骤。",
+			"chunk_content":         "用户要求以后所有回答默认先给结论，然后列风险和验证步骤。",
+			"requires_confirmation": false,
+			"reason":                "重试后模型判断为可复用偏好。",
+		}),
+	}}
+	service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
+
+	service.captureMemoryCandidateFromTranscript(context.Background(), domain.AgentTranscriptEntry{
+		ID:        12,
+		SessionID: 22,
+		TurnID:    32,
+		UserID:    42,
+		Role:      domain.AgentTranscriptRoleUser,
+		Content:   "长期偏好：以后所有回答默认先给结论，然后列风险和验证步骤。",
+		CreatedAt: now,
+	})
+
+	if llmClient.memoryIdx != 2 {
+		t.Fatalf("memory classification calls = %d, want 2", llmClient.memoryIdx)
+	}
+	if len(repository.memoryCandidates) != 1 || len(repository.memoryChunks) != 1 {
+		t.Fatalf("memory capture did not succeed after retry: candidates=%#v chunks=%#v", repository.memoryCandidates, repository.memoryChunks)
+	}
+	if !fakeTraceEventExists(repository.traceEvents, "memory_classification", domain.AgentTraceEventSucceeded) {
+		t.Fatalf("trace events = %#v, want succeeded memory classification", repository.traceEvents)
+	}
+}
+
 func TestAgentConversationServiceKeepsHighRiskMemoryCandidatePending(t *testing.T) {
 	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()

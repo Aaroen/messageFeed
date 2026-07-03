@@ -34,6 +34,15 @@ func agentMemoryClassificationSystemPrompt() string {
 	}, "\n")
 }
 
+func agentMemoryClassificationRetrySystemPrompt() string {
+	return strings.Join([]string{
+		"你是 messageFeed 的长期记忆判定器。",
+		"上一次模型调用没有返回可解析 JSON。现在只完成结构化判定，不要解释。",
+		"所有语义判断仍由你完成；后端只做结构校验、安全阈值、落库和观测记录。",
+		"输出必须是一个严格 JSON 对象，不能包含 Markdown、代码块或额外文字。",
+	}, "\n")
+}
+
 func agentMemoryClassificationSchemaHint() domain.AgentJSON {
 	return domain.AgentJSON{
 		"should_capture":        "boolean，是否应创建 memory candidate。",
@@ -60,6 +69,15 @@ func agentMemoryClassificationSchemaHint() domain.AgentJSON {
 func agentMemoryClassificationUserPrompt(payload domain.AgentJSON) string {
 	payload["required_schema"] = agentMemoryClassificationSchemaHint()
 	payload["output_language"] = "zh-CN"
+	body, _ := json.Marshal(payload)
+	return string(body)
+}
+
+func agentMemoryClassificationRetryUserPrompt(payload domain.AgentJSON, previousError string) string {
+	payload["required_schema"] = agentMemoryClassificationSchemaHint()
+	payload["output_language"] = "zh-CN"
+	payload["previous_error"] = strings.TrimSpace(previousError)
+	payload["instruction"] = "只返回符合 required_schema 的 JSON 对象。无法沉淀时 should_capture=false；适合长期复用时给出 memory_kind、summary、topic 和 chunk 字段。"
 	body, _ := json.Marshal(payload)
 	return string(body)
 }

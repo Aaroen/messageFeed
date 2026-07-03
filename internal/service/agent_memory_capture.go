@@ -316,28 +316,71 @@ func (s *AgentConversationService) classifyAgentMemoryCandidateWithModel(ctx con
 			"end_turn_id":    activeTopic.EndTurnID,
 		}
 	}
-	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
+	request := llm.ChatRequest{
 		Messages: []llm.ChatMessage{
 			{Role: "system", Content: agentMemoryClassificationSystemPrompt()},
 			{Role: "user", Content: agentMemoryClassificationUserPrompt(payload)},
 		},
 		Temperature: 0,
 		MaxTokens:   1800,
-	})
+	}
+	response, err := s.llmClient.Chat(ctx, request)
 	if err != nil {
-		classification := fallbackAgentMemoryClassification("llm_call_failed")
-		s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventDegraded, startedAt, "llm_call_failed", err.Error())
-		return classification
+		response, err = s.retryAgentMemoryClassification(ctx, payload, err)
+		if err != nil {
+			classification := fallbackAgentMemoryClassification("llm_call_failed")
+			s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventDegraded, startedAt, "llm_call_failed", err.Error())
+			return classification
+		}
 	}
 	classification, parseErr := parseAgentMemoryClassificationJSON(response.Content)
 	if parseErr != nil {
-		classification := fallbackAgentMemoryClassification("llm_response_invalid")
-		s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventDegraded, startedAt, "llm_response_invalid", parseErr.Error())
-		return classification
+		response, err = s.retryAgentMemoryClassification(ctx, payload, parseErr)
+		if err != nil {
+			classification := fallbackAgentMemoryClassification("llm_response_invalid")
+			s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventDegraded, startedAt, "llm_response_invalid", err.Error())
+			return classification
+		}
+		classification, parseErr = parseAgentMemoryClassificationJSON(response.Content)
+		if parseErr != nil {
+			classification := fallbackAgentMemoryClassification("llm_response_invalid")
+			s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventDegraded, startedAt, "llm_response_invalid", parseErr.Error())
+			return classification
+		}
 	}
 	classification = guardAgentMemoryClassification(entry.Content, classification)
 	s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventSucceeded, startedAt, "", "")
 	return classification
+}
+
+func (s *AgentConversationService) retryAgentMemoryClassification(ctx context.Context, payload domain.AgentJSON, previousErr error) (llm.ChatResponse, error) {
+	if previousErr == nil {
+		previousErr = fmt.Errorf("unknown memory classification error")
+	}
+	if ctx.Err() != nil {
+		return llm.ChatResponse{}, previousErr
+	}
+	retryPayload := cloneAgentMemoryPromptPayload(payload)
+	response, retryErr := s.llmClient.Chat(ctx, llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: agentMemoryClassificationRetrySystemPrompt()},
+			{Role: "user", Content: agentMemoryClassificationRetryUserPrompt(retryPayload, previousErr.Error())},
+		},
+		Temperature: 0,
+		MaxTokens:   1200,
+	})
+	if retryErr != nil {
+		return llm.ChatResponse{}, fmt.Errorf("%w; retry failed: %v", previousErr, retryErr)
+	}
+	return response, nil
+}
+
+func cloneAgentMemoryPromptPayload(payload domain.AgentJSON) domain.AgentJSON {
+	cloned := make(domain.AgentJSON, len(payload))
+	for key, value := range payload {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func parseAgentMemoryClassificationJSON(raw string) (agentMemoryCaptureClassification, error) {

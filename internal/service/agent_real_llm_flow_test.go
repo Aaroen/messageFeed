@@ -252,6 +252,13 @@ func realAgentFlowService(repository *fakeAgentConversationRepository, client *l
 		WithAgentConversationSender(&fakeAgentConversationSender{}),
 		WithAgentConversationExternalAccountResolver(&fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}),
 		WithAgentConversationUserContextProvider(&fakeAgentUserContextProvider{}),
+		WithAgentConversationWebFetcher(func(_ context.Context, rawURL string) ([]byte, string, int, string, error) {
+			if strings.Contains(rawURL, "duckduckgo.com") {
+				return []byte(`<html><body><div class="anomaly-modal">challenge</div></body></html>`), rawURL, 202, "text/html; charset=utf-8", nil
+			}
+			body := `<html><body><ol><li class="b_algo"><h2><a href="https://example.com/hk-market-20260627">港股最新消息：2026年6月27日恒指震荡，科技股分化</a></h2><div class="b_caption"><p>2026年6月27日港股市场关注恒指、科技股成交和南向资金变化。</p></div></li></ol></body></html>`
+			return []byte(body), rawURL, 200, "text/html; charset=utf-8", nil
+		}),
 		WithAgentConversationNow(func() time.Time { return now }),
 		WithAgentConversationInlineProcessing(true),
 	}
