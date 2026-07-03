@@ -517,6 +517,9 @@ func TestAgentTaskRouterBuildsRAGAnswerLightPlan(t *testing.T) {
 	if !containsAgentString(plan.AllowedScopes, "conversation.query_history") {
 		t.Fatalf("allowed scopes = %#v, want conversation.query_history", plan.AllowedScopes)
 	}
+	if !containsAgentString(plan.AllowedScopes, "memory.fact_recall") {
+		t.Fatalf("allowed scopes = %#v, want memory.fact_recall", plan.AllowedScopes)
+	}
 	historyPlan := historyQueryPlanForTurn(plan)
 	if historyPlan.Mode != string(domain.AgentFactRecallModeHybrid) || historyPlan.Query != "用户之前的回复偏好" {
 		t.Fatalf("history query plan = %#v", historyPlan)

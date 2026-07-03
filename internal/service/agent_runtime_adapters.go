@@ -310,6 +310,7 @@ type agentP0CapabilityExecutor struct {
 	notificationJobs AgentNotificationJobStore
 	scheduledTasks   AgentScheduleEvalRepository
 	webFetcher       agentWebFetcher
+	factRetriever    *agentFactRetriever
 	now              func() time.Time
 }
 
@@ -363,6 +364,8 @@ func (e agentP0CapabilityExecutor) CallTool(ctx context.Context, input agent.MCP
 		return capabilityExecuteResultToToolResult(result), err
 	case "conversation.query_history":
 		return e.queryConversationHistory(ctx, input)
+	case "memory.fact_recall":
+		return e.memoryFactRecall(ctx, input)
 	case "agent.schedule_task":
 		return e.scheduleTask(ctx, input)
 	case "agent.schedule_message":
@@ -808,13 +811,51 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 		MatchedCount: len(contextMessages),
 		TimeRange:    timeRange,
 	})
+	fallback := domain.AgentFactRecallResult{}
+	var fallbackErr error
+	if len(contextMessages) == 0 && conversationHistoryModeSupportsFactFallback(mode) {
+		fallbackQuery := firstNonEmptyString(keyword, args.Query, args.Keyword, input.Message)
+		fallback, fallbackErr = e.recallFactsForTool(ctx, input.UserID, input.SessionID, input.TurnID, fallbackQuery, limit)
+		if len(fallback.Projections) > 0 || len(fallback.Hits) > 0 {
+			content = strings.TrimSpace(content) + "\n\n" + formatFactRecallToolResult(factRecallToolFormatInput{
+				Title:  "长期事实索引兜底",
+				Query:  strings.TrimSpace(fallbackQuery),
+				Result: fallback,
+			})
+		}
+	}
+	metadata := domain.AgentJSON{
+		"history_tool_empty": len(contextMessages) == 0,
+		"rag_hits_used":     factRecallUsedCount(fallback),
+	}
+	if len(contextMessages) == 0 && conversationHistoryModeSupportsFactFallback(mode) {
+		metadata["rag_fallback_attempted"] = true
+		metadata["rag_fallback_source"] = "memory.fact_recall"
+	}
+	if fallbackErr != nil {
+		metadata["rag_fallback_status"] = "failed"
+		metadata["rag_fallback_error"] = fallbackErr.Error()
+	} else if len(contextMessages) == 0 && factRecallUsedCount(fallback) > 0 {
+		metadata["rag_fallback_status"] = "used"
+	} else if len(contextMessages) == 0 && conversationHistoryModeSupportsFactFallback(mode) {
+		metadata["rag_fallback_status"] = "empty"
+	}
+	if len(contextMessages) == 0 {
+		metadata["web_fallback_skipped"] = true
+		metadata["web_fallback_reason"] = "conversation_history_tool_does_not_perform_external_web_access"
+	}
 	if len(contextMessages) == 0 {
 		observation.Status = "empty"
 		observation.Summary = "no matching history messages"
+		if len(fallback.Projections) > 0 {
+			observation.Status = "succeeded"
+			observation.Summary = fmt.Sprintf("loaded 0 history messages, used %d fact recall hits", len(fallback.Projections))
+		}
 	} else {
 		observation.Status = "succeeded"
 		observation.Summary = fmt.Sprintf("loaded %d history messages", len(contextMessages))
 	}
+	observation.Metadata = metadata
 
 	_, err = e.repository.CreateRecallEvent(ctx, domain.AgentRecallEvent{
 		SessionID: input.SessionID,
@@ -856,6 +897,157 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 		return agent.MCPCallToolResult{}, err
 	}
 	return agent.NewMCPTextCallToolResult(content, false, observation), nil
+}
+
+func (e agentP0CapabilityExecutor) memoryFactRecall(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
+	observation := agent.CapabilityObservation{
+		Capability: input.Capability.Key,
+		Decision:   string(agent.PolicyDecisionAllow),
+	}
+	args := parseConversationHistoryToolArgs(input.RawArguments)
+	query := firstNonEmptyString(args.Query, args.Keyword, input.Message)
+	limit := args.Limit
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 12 {
+		limit = 12
+	}
+	result, err := e.recallFactsForTool(ctx, input.UserID, input.SessionID, input.TurnID, query, limit)
+	metadata := factRecallObservationMetadata(result)
+	metadata["history_tool_empty"] = false
+	metadata["web_fallback_skipped"] = true
+	metadata["web_fallback_reason"] = "memory_fact_recall_is_local_index_only"
+	if err != nil {
+		observation.Status = "failed"
+		observation.Summary = "fact recall failed"
+		observation.Metadata = metadata
+		return agent.NewMCPTextCallToolResult("长期事实索引召回失败："+err.Error(), true, observation), nil
+	}
+	hitCount := factRecallUsedCount(result)
+	if hitCount == 0 {
+		observation.Status = "empty"
+		observation.Summary = "no matching fact recall hits"
+	} else {
+		observation.Status = "succeeded"
+		observation.Summary = fmt.Sprintf("loaded %d fact recall hits", hitCount)
+	}
+	metadata["rag_hits_used"] = hitCount
+	observation.Metadata = metadata
+	return agent.NewMCPTextCallToolResult(formatFactRecallToolResult(factRecallToolFormatInput{
+		Title:  "长期事实索引召回",
+		Query:  strings.TrimSpace(query),
+		Result: result,
+	}), false, observation), nil
+}
+
+func (e agentP0CapabilityExecutor) recallFactsForTool(ctx context.Context, userID int64, sessionID int64, turnID int64, query string, limit int) (domain.AgentFactRecallResult, error) {
+	if userID < 1 || strings.TrimSpace(query) == "" {
+		return domain.AgentFactRecallResult{}, nil
+	}
+	retriever := e.factRetriever
+	if retriever == nil {
+		retriever = newAgentFactRetriever(e.repository, nil, "", e.now)
+	}
+	if retriever == nil {
+		return domain.AgentFactRecallResult{}, nil
+	}
+	if limit <= 0 {
+		limit = 8
+	}
+	if limit > 12 {
+		limit = 12
+	}
+	return retriever.Recall(ctx, domain.AgentFactRecallPlan{
+		Mode:            domain.AgentFactRecallModeHybrid,
+		Query:           strings.TrimSpace(query),
+		UserID:          userID,
+		SessionID:       sessionID,
+		TurnID:          turnID,
+		Limit:           limit,
+		NeedsSourceFact: true,
+		MaxRiskLevel:    domain.AgentMemoryRiskMedium,
+	})
+}
+
+type factRecallToolFormatInput struct {
+	Title  string
+	Query  string
+	Result domain.AgentFactRecallResult
+}
+
+func formatFactRecallToolResult(input factRecallToolFormatInput) string {
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		title = "长期事实索引召回"
+	}
+	var builder strings.Builder
+	builder.WriteString(title)
+	if strings.TrimSpace(input.Query) != "" {
+		builder.WriteString("\n查询：")
+		builder.WriteString(strings.TrimSpace(input.Query))
+	}
+	builder.WriteString("\n召回模式：")
+	builder.WriteString(string(input.Result.Plan.Mode))
+	builder.WriteString("\n命中条数：")
+	builder.WriteString(strconv.Itoa(factRecallUsedCount(input.Result)))
+	builder.WriteString("\nembedding：")
+	builder.WriteString(firstNonEmptyString(input.Result.Diagnostics.QueryEmbeddingStatus, "not_attempted"))
+	if input.Result.Diagnostics.VectorCandidateCount > 0 {
+		builder.WriteString(fmt.Sprintf(" / vector_candidates=%d", input.Result.Diagnostics.VectorCandidateCount))
+	}
+	if len(input.Result.Projections) == 0 {
+		builder.WriteString("\n没有查到符合条件的长期事实索引证据。")
+		return builder.String()
+	}
+	builder.WriteString("\n证据片段：")
+	refs := make([]string, 0, len(input.Result.Projections))
+	for index, projection := range input.Result.Projections {
+		ref := agent.NormalizeCanonicalRef(projection.CanonicalRef)
+		refs = append(refs, ref)
+		builder.WriteString(fmt.Sprintf("\n%d. %s score=%.3f", index+1, ref, projection.IndexHit.FinalScore))
+		if len(projection.IndexHit.HitSources) > 0 {
+			builder.WriteString(" sources=")
+			builder.WriteString(strings.Join(projection.IndexHit.HitSources, ","))
+		}
+		builder.WriteString("\n")
+		builder.WriteString(strings.TrimSpace(formatFactProjectionForContext(projection)))
+	}
+	builder.WriteString("\nEvidence refs：")
+	builder.WriteString(strings.Join(agent.NormalizeCanonicalRefs(refs), ", "))
+	return builder.String()
+}
+
+func factRecallUsedCount(result domain.AgentFactRecallResult) int {
+	if len(result.Projections) > 0 {
+		return len(result.Projections)
+	}
+	return len(result.Hits)
+}
+
+func factRecallObservationMetadata(result domain.AgentFactRecallResult) domain.AgentJSON {
+	return domain.AgentJSON{
+		"rag_hits_used":            factRecallUsedCount(result),
+		"rag_mode":                 string(result.Plan.Mode),
+		"embedding_status":         result.Diagnostics.QueryEmbeddingStatus,
+		"embedding_model":          result.Diagnostics.QueryEmbeddingModel,
+		"embedding_dimension":      result.Diagnostics.QueryEmbeddingDimension,
+		"vector_attempted":         result.Diagnostics.VectorAttempted,
+		"vector_candidate_count":   result.Diagnostics.VectorCandidateCount,
+		"fact_projection_count":    len(result.Projections),
+		"fact_hit_count":           len(result.Hits),
+		"rag_fallback_source":      "memory.fact_recall",
+		"rag_fallback_trace_label": "agent_fact_recall",
+	}
+}
+
+func conversationHistoryModeSupportsFactFallback(mode string) bool {
+	switch inferConversationHistoryMode(mode) {
+	case conversationHistoryModeSearch, conversationHistoryModeTimeRange:
+		return true
+	default:
+		return false
+	}
 }
 
 func (e agentP0CapabilityExecutor) scheduleMessage(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {

@@ -220,7 +220,7 @@ func ContextBudgetProfileForCapabilityScope(capabilityKeys []string) ContextBudg
 	hasAnalysis := false
 	for _, key := range capabilityKeys {
 		switch strings.TrimSpace(key) {
-		case "conversation.query_history":
+		case "conversation.query_history", "memory.fact_recall":
 			hasHistory = true
 		case "feed.query_recent_items", "source.query_latest_items", "web.search", "web.fetch_page", "web.extract_page", "repo.search", "repo.inspect_remote":
 			hasSearch = true

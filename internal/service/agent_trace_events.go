@@ -110,6 +110,17 @@ func (s *AgentConversationService) recordAgentApprovalTraceEvent(ctx context.Con
 	}
 	metrics.AgentApprovalsTotal.WithLabelValues(decision, riskLevel).Inc()
 	now := s.now().UTC()
+	metadata := domain.AgentJSON{
+		"decision":            decision,
+		"risk_level":          riskLevel,
+		"plan_status":         string(plan.Status),
+		"policy_decision":     plan.PolicyDecision,
+		"policy_reason":       plan.PolicyReason,
+		"confirmation_policy": plan.ConfirmationPolicy,
+	}
+	if policy := agentPlanWebFallbackPolicy(plan); policy != nil {
+		metadata["web_fallback_policy"] = policy
+	}
 	s.recordAgentTraceEvent(ctx, domain.AgentTraceEvent{
 		RequestID:  input.RequestID,
 		TraceID:    input.TraceID,
@@ -124,15 +135,42 @@ func (s *AgentConversationService) recordAgentApprovalTraceEvent(ctx context.Con
 		StartedAt:  now,
 		FinishedAt: &now,
 		ModelKey:   run.ModelKey,
-		Metadata: domain.AgentJSON{
-			"decision":            decision,
-			"risk_level":          riskLevel,
-			"plan_status":         string(plan.Status),
-			"policy_decision":     plan.PolicyDecision,
-			"policy_reason":       plan.PolicyReason,
-			"confirmation_policy": plan.ConfirmationPolicy,
-		},
+		Metadata:   metadata,
 	})
+}
+
+func agentPlanWebFallbackPolicy(plan domain.AgentPlan) domain.AgentJSON {
+	mainPlan := metadataMap(plan.Metadata, "main_agent_plan")
+	if mainPlan == nil {
+		return nil
+	}
+	plannerMetadata := agentTraceNestedMetadataMap(mainPlan, "metadata")
+	if plannerMetadata == nil {
+		return nil
+	}
+	policy := agentTraceNestedMetadataMap(plannerMetadata, "web_fallback_policy")
+	if policy == nil {
+		return nil
+	}
+	cloned := make(domain.AgentJSON, len(policy))
+	for key, value := range policy {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func agentTraceNestedMetadataMap(metadata map[string]any, key string) map[string]any {
+	if metadata == nil {
+		return nil
+	}
+	raw := metadata[key]
+	if typed, ok := raw.(map[string]any); ok {
+		return typed
+	}
+	if typed, ok := raw.(domain.AgentJSON); ok {
+		return map[string]any(typed)
+	}
+	return nil
 }
 
 func (s *AgentConversationService) recordAgentNotificationTraceEvent(ctx context.Context, input ReceiveWeChatWorkAppMessageInput, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, plan domain.AgentPlan, eventName string, status domain.AgentTraceEventStatus, sendCount int, err error, extraMetadata ...domain.AgentJSON) {

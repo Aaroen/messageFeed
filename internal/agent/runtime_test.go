@@ -35,6 +35,23 @@ func TestP0CapabilityRegistryContainsWebCapabilities(t *testing.T) {
 	}
 }
 
+func TestP0CapabilityRegistryContainsMemoryFactRecall(t *testing.T) {
+	registry := NewP0CapabilityRegistry()
+	capability, ok := registry.Get("memory.fact_recall")
+	if !ok {
+		t.Fatal("memory.fact_recall was not registered")
+	}
+	if capability.Mutates {
+		t.Fatal("memory.fact_recall should be read-only")
+	}
+	if capability.ExternalAccess {
+		t.Fatal("memory.fact_recall should not be marked as external access")
+	}
+	if capability.DataDomain != "long_term_memory" {
+		t.Fatalf("data domain = %q, want long_term_memory", capability.DataDomain)
+	}
+}
+
 func TestP0CapabilityRegistryContainsScheduleTask(t *testing.T) {
 	registry := NewP0CapabilityRegistry()
 	capability, ok := registry.Get("agent.schedule_task")

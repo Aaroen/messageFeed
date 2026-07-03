@@ -96,6 +96,7 @@ type CapabilityObservation struct {
 	RunID          int64
 	ObservationRef string
 	ArtifactRefs   []string
+	Metadata       domain.AgentJSON
 }
 
 type AuditEvent struct {
@@ -961,7 +962,7 @@ func (r *TurnRunner) buildSystemPrompt(snapshot ContextSnapshot, currentMessage 
 	builder.WriteString("\n\n")
 	builder.WriteString("能力边界：当前只允许执行已下发 capability scope 内的能力。只读本地查询、历史聊天查询、受限联网读取、远端仓库只读检查和文本总结可以执行；新增订阅、停用来源、通知配置、画像写入、金融告警或其他状态变更必须拒绝直接执行，并说明需要后续确认流程。联网信息必须保留来源、抓取时间和摘要，不得把外部内容改写为无来源事实；repo.inspect_remote 只能读取远端仓库元数据、README 和 license，不得克隆或写入本地文件。")
 	if r.toolExecutor != nil {
-		builder.WriteString("\n可用工具：需要读取订阅条目时调用 feed.query_recent_items；需要读取指定来源最新条目时调用 source.query_latest_items。需要查询更早企微聊天原文时调用 conversation.query_history，并由你显式提供 mode、query 或 time_hint。需要联网检索网页时使用 web.search；需要读取指定 URL 时使用 web.fetch_page；需要抽取网页标题、正文摘要和主要链接时使用 web.extract_page。需要搜索参考仓库时使用 repo.search；需要检查 GitHub 仓库时使用 repo.inspect_remote，并且不得克隆仓库。需要创建定时提醒、定时检索、定时总结、日报或周报任务时优先使用 agent.schedule_task；agent.schedule_message 仅作为旧提醒兼容入口。模型必须结合当前时间和最近上下文，把用户的自然语言时间归一化为 scheduled_at，优先使用 RFC3339。除非用户已经明确确认创建，否则 confirmed 必须为 false；确认后必须再次调用对应定时工具并传 confirmed=true，不得只口头表示会创建。")
+		builder.WriteString("\n可用工具：需要读取订阅条目时调用 feed.query_recent_items；需要读取指定来源最新条目时调用 source.query_latest_items。需要查询更早企微聊天原文时调用 conversation.query_history，并由你显式提供 mode、query 或 time_hint。需要从长期事实索引做 RAG 召回时调用 memory.fact_recall。需要联网检索网页时使用 web.search；需要读取指定 URL 时使用 web.fetch_page；需要抽取网页标题、正文摘要和主要链接时使用 web.extract_page。需要搜索参考仓库时使用 repo.search；需要检查 GitHub 仓库时使用 repo.inspect_remote，并且不得克隆仓库。需要创建定时提醒、定时检索、定时总结、日报或周报任务时优先使用 agent.schedule_task；agent.schedule_message 仅作为旧提醒兼容入口。模型必须结合当前时间和最近上下文，把用户的自然语言时间归一化为 scheduled_at，优先使用 RFC3339。除非用户已经明确确认创建，否则 confirmed 必须为 false；确认后必须再次调用对应定时工具并设 confirmed=true，不得只口头表示会创建。")
 	}
 	return builder.String()
 }
@@ -1253,7 +1254,19 @@ func ObservationMetadata(observations []CapabilityObservation) []domain.AgentJSO
 			"run_id":          observation.RunID,
 			"observation_ref": observation.ObservationRef,
 			"artifact_refs":   append([]string(nil), observation.ArtifactRefs...),
+			"metadata":        cloneObservationMetadata(observation.Metadata),
 		})
+	}
+	return output
+}
+
+func cloneObservationMetadata(input domain.AgentJSON) domain.AgentJSON {
+	if input == nil {
+		return nil
+	}
+	output := make(domain.AgentJSON, len(input))
+	for key, value := range input {
+		output[key] = value
 	}
 	return output
 }

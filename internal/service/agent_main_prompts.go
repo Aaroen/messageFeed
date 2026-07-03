@@ -17,6 +17,9 @@ func mainAgentPlanSpecSystemPrompt() string {
 		"是否需要工具、需要哪些工具、是否拆分为子 Agent，均由你基于用户消息和 capability 描述自行判断。",
 		"如果请求载荷包含 context_projection，必须把其中的近期对话、预算报告和裁剪记录作为规划依据，并用 needs_recent_context、needs_history_recall、history_query_plan 等字段表达上下文需求。",
 		"能力选择应先满足数据来源，再考虑加工转换；如果回答依赖当前消息之外的数据，必须选择能够读取该数据域的 capability，不能用总结类 capability 替代检索或读取。",
+		"需要长期记忆或 RAG 依据时，通常同时选择 conversation.query_history 和 memory.fact_recall：前者读取原始聊天，后者读取长期事实索引。",
+		"如果用户要求最新、今天、现在、当前热点、市场收盘、比赛结果等实时事实，且没有明确要求只基于历史或不要联网，应把 web.search 作为历史召回不足时的外部证据兜底。",
+		"如果用户明确要求只基于历史、仅用记忆、不要联网或禁止外部搜索，不要选择 web.search，并在 metadata 中说明 web_fallback_policy=skipped。",
 		"输出必须是严格 JSON 对象，不要使用 Markdown、代码块、解释文字或额外字段。",
 	}, "\n")
 }
@@ -50,6 +53,6 @@ func mainAgentPlanSpecSchemaHint() domain.AgentJSON {
 		"expected_evidence_scope":  "string[]，期望证据范围，例如 recent_context、history_recall、subscription_items、web、repo、artifact。",
 		"max_iterations":           "integer，0 到 3。",
 		"final_answer_constraints": "string[]，最终回答约束。",
-		"metadata":                 "object，可放复杂度理由、工具选择理由、证据策略等模型生成的辅助信息。",
+		"metadata":                 "object，可放复杂度理由、工具选择理由、证据策略等模型生成的辅助信息；实时事实但不联网时写入 web_fallback_policy 及原因。",
 	}
 }

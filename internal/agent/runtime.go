@@ -109,6 +109,36 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 		},
 	})
 	registry.Register(Capability{
+		Key:         "memory.fact_recall",
+		Name:        "召回长期事实索引",
+		Description: "使用全文、向量和关系扩展混合召回当前用户长期事实索引，返回可溯源证据片段。适用于 RAG、偏好、决策和历史事实核验。",
+		Mode:        CapabilityModeCore,
+		Risk:        CapabilityRiskLow,
+		DataDomain:  "long_term_memory",
+		Reusable:    true,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"mode": map[string]any{
+					"type":        "string",
+					"description": "召回模式，默认 hybrid。",
+					"enum":        []string{"search", "semantic", "hybrid"},
+				},
+				"query": map[string]any{
+					"type":        "string",
+					"description": "用于长期事实索引召回的自然语言查询。",
+				},
+				"limit": map[string]any{
+					"type":        "integer",
+					"description": "返回证据片段数量，默认 8，最大 12。",
+					"minimum":     1,
+					"maximum":     12,
+				},
+			},
+			"required": []string{"query"},
+		},
+	})
+	registry.Register(Capability{
 		Key:         "agent.schedule_message",
 		Name:        "定时发送消息",
 		Description: "兼容旧入口：创建当前企微用户的定时提醒或定时发送消息任务。新任务应优先使用 agent.schedule_task。",

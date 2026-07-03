@@ -84,6 +84,10 @@ const planID = computed(() => {
   return positiveRouteNumber(route.params.id)
 })
 
+const queryPlanID = computed(() => {
+  return positiveQueryNumber(route.query.plan_id) || positiveQueryNumber(route.query.planID)
+})
+
 const scheduledTaskID = computed(() => {
   return (
     positiveQueryNumber(route.query.scheduled_task_id) ||
@@ -92,8 +96,13 @@ const scheduledTaskID = computed(() => {
   )
 })
 
-const effectivePlanID = computed(() => planID.value || latestTask.value?.plan_id || 0)
+const turnID = computed(() => positiveQueryNumber(route.query.turn_id) || positiveQueryNumber(route.query.turnID))
+const runID = computed(() => positiveQueryNumber(route.query.run_id) || positiveQueryNumber(route.query.runID))
+
+const effectivePlanID = computed(() => planID.value || queryPlanID.value || latestTask.value?.plan_id || 0)
 const effectiveScheduledTaskID = computed(() => scheduledTaskID.value || latestTask.value?.scheduled_task_id || 0)
+const effectiveTurnID = computed(() => turnID.value || latestTask.value?.turn_id || 0)
+const effectiveRunID = computed(() => runID.value || 0)
 
 const sortedSteps = computed(() =>
   [...(plan.value?.steps || [])].sort((left, right) => left.step_order - right.step_order || left.id - right.id),
@@ -209,7 +218,7 @@ const pageSummary = computed(() => {
   return progress.value?.next_action || plan.value?.summary || '正在读取任务进度。'
 })
 
-watch([planID, scheduledTaskID], () => {
+watch([planID, queryPlanID, scheduledTaskID, turnID, runID], () => {
   latestTask.value = null
   closeProgressStream()
   void loadPlan()
@@ -233,14 +242,14 @@ async function loadPlan(options: { silent?: boolean } = {}) {
   }
   errorMessage.value = ''
   try {
-    if (!effectivePlanID.value && !effectiveScheduledTaskID.value) {
+    if (!effectivePlanID.value && !effectiveScheduledTaskID.value && !effectiveTurnID.value && !effectiveRunID.value) {
       await loadLatestTask()
       if (seq !== requestSeq) {
         return
       }
     }
     const query = progressQuery()
-    if (!query.plan_id && !query.scheduled_task_id) {
+    if (!query.plan_id && !query.scheduled_task_id && !query.turn_id && !query.run_id) {
       errorMessage.value = '暂无可展示任务。'
       clearPollTimer()
       closeProgressStream()
@@ -248,6 +257,8 @@ async function loadPlan(options: { silent?: boolean } = {}) {
     }
     const nextProgress = await getAgentProgress({
       plan_id: query.plan_id,
+      turn_id: query.turn_id,
+      run_id: query.run_id,
       scheduled_task_id: query.scheduled_task_id,
     })
     if (seq !== requestSeq) {
@@ -282,19 +293,27 @@ function applyProgress(nextProgress: AgentProgressSnapshot) {
       ...latestTask.value,
       plan_id: nextProgress.plan.id,
       scheduled_task_id: effectiveScheduledTaskID.value,
+      turn_id: nextProgress.plan.turn_id || latestTask.value.turn_id,
     }
   }
 }
 
 async function loadTrace(nextProgress: AgentProgressSnapshot) {
   const currentPlanID = nextProgress.plan?.id || effectivePlanID.value
-  if (!currentPlanID) {
+  const currentTurnID = nextProgress.plan?.turn_id || effectiveTurnID.value
+  const currentRunID = effectiveRunID.value || orderedRuns.value[0]?.id || 0
+  if (!currentPlanID && !currentTurnID && !currentRunID) {
     traceBundle.value = null
     return
   }
   traceLoading.value = true
   try {
-    traceBundle.value = await getAgentTraceBundle({ plan_id: currentPlanID, limit: 80 })
+    traceBundle.value = await getAgentTraceBundle({
+      plan_id: currentPlanID || undefined,
+      turn_id: currentPlanID ? undefined : currentTurnID || undefined,
+      run_id: currentPlanID || currentTurnID ? undefined : currentRunID || undefined,
+      limit: 80,
+    })
   } catch {
     traceBundle.value = null
   } finally {
@@ -379,9 +398,15 @@ async function loadLatestTask() {
 }
 
 function progressQuery() {
-  const query: { plan_id?: number; scheduled_task_id?: number } = {}
+  const query: { plan_id?: number; turn_id?: number; run_id?: number; scheduled_task_id?: number } = {}
   if (effectivePlanID.value > 0) {
     query.plan_id = effectivePlanID.value
+  }
+  if (effectiveTurnID.value > 0) {
+    query.turn_id = effectiveTurnID.value
+  }
+  if (effectiveRunID.value > 0) {
+    query.run_id = effectiveRunID.value
   }
   if (effectiveScheduledTaskID.value > 0) {
     query.scheduled_task_id = effectiveScheduledTaskID.value

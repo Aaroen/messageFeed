@@ -48,6 +48,7 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 		ToolName:        input.Capability.Key,
 		InputSummary:    input.Message,
 		OutputSummary:   result.Observation.Summary,
+		Metadata:        result.Observation.Metadata,
 		StartedAt:       startedAt,
 		Err:             err,
 	})
@@ -92,6 +93,7 @@ func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCP
 		ToolName:        firstNonEmptyString(input.Name, input.Tool.Name, input.Capability.Key),
 		InputSummary:    input.RawArguments,
 		OutputSummary:   result.TextContent(),
+		Metadata:        result.Observation.Metadata,
 		StartedAt:       startedAt,
 		RequestID:       input.RequestID,
 		TraceID:         input.TraceID,
@@ -115,6 +117,7 @@ type agentToolTraceEventInput struct {
 	ToolName        string
 	InputSummary    string
 	OutputSummary   string
+	Metadata        domain.AgentJSON
 	StartedAt       time.Time
 	RequestID       string
 	TraceID         string
@@ -202,6 +205,7 @@ func (e agentRunRecordingExecutor) recordToolTraceEvent(ctx context.Context, inp
 		ToolName:      input.ToolName,
 		InputSummary:  safeSummary(input.InputSummary, 1000),
 		OutputSummary: safeSummary(input.OutputSummary, 1000),
+		Metadata:      cloneAgentTraceMetadata(input.Metadata),
 		CreatedAt:     finishedAt,
 	}
 	if input.Err != nil {
@@ -294,6 +298,7 @@ func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, ru
 				"decision":   observation.Decision,
 				"status":     status,
 				"summary":    observation.Summary,
+				"metadata":   cloneAgentTraceMetadata(observation.Metadata),
 			},
 			"artifact_count": artifactCount,
 		},
@@ -302,6 +307,17 @@ func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, ru
 	})
 	_, _ = e.runManager.CompleteRun(ctx, run, "observation")
 	return observation
+}
+
+func cloneAgentTraceMetadata(input domain.AgentJSON) domain.AgentJSON {
+	if input == nil {
+		return nil
+	}
+	output := make(domain.AgentJSON, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
 }
 
 func (e agentRunRecordingExecutor) recordExecutorFailure(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, err error) agent.CapabilityObservation {

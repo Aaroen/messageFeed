@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"messagefeed/internal/agent"
+	"messagefeed/internal/domain"
 	"strings"
 	"testing"
 	"time"
@@ -73,6 +74,60 @@ func TestAgentWebSearchFiltersFutureAndStaleEvidence(t *testing.T) {
 	}
 	if !strings.Contains(content, "20260629") || !strings.Contains(content, "future=1") || !strings.Contains(content, "stale=1") {
 		t.Fatalf("content missing current result or filter summary: %q", content)
+	}
+}
+
+func TestConversationHistoryFallsBackToFactRecallWhenTranscriptEmpty(t *testing.T) {
+	now := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.factIndexes = []domain.AgentFactArchiveIndex{
+		{
+			ID:              1,
+			CanonicalRef:    "transcript:101",
+			FactType:        domain.AgentFactTypeTranscript,
+			FactID:          101,
+			UserID:          7,
+			SessionID:       2,
+			TurnID:          3,
+			MemoryKind:      domain.AgentMemoryKindPreference,
+			SummaryForIndex: "用户回复偏好",
+			ContextualText:  "用户此前明确表示回复偏好是先给结论，再给依据。",
+			IndexStatus:     domain.AgentFactIndexStatusReady,
+			RiskLevel:       domain.AgentMemoryRiskLow,
+			Importance:      85,
+			Confidence:      0.92,
+			UpdatedAt:       now,
+			CreatedAt:       now,
+		},
+	}
+	executor := agentP0CapabilityExecutor{
+		repository:    repository,
+		factRetriever: newAgentFactRetriever(repository, nil, "test-embedding", func() time.Time { return now }),
+		now:           func() time.Time { return now },
+	}
+
+	result, err := executor.queryConversationHistory(context.Background(), agent.MCPCallToolInput{
+		Capability:   agent.Capability{Key: "conversation.query_history"},
+		UserID:       7,
+		SessionID:    2,
+		TurnID:       9,
+		Message:      "我之前说过什么回复偏好",
+		RawArguments: `{"mode":"search","query":"回复偏好","limit":8}`,
+	})
+	if err != nil {
+		t.Fatalf("queryConversationHistory() error = %v", err)
+	}
+	if result.Observation.Status != "succeeded" {
+		t.Fatalf("observation = %#v, want succeeded", result.Observation)
+	}
+	if !strings.Contains(result.TextContent(), "长期事实索引兜底") || !strings.Contains(result.TextContent(), "先给结论") {
+		t.Fatalf("tool result missing fact recall fallback: %q", result.TextContent())
+	}
+	if result.Observation.Metadata["rag_fallback_status"] != "used" || result.Observation.Metadata["rag_hits_used"] != 1 {
+		t.Fatalf("observation metadata = %#v", result.Observation.Metadata)
+	}
+	if !fakeTraceEventExists(repository.traceEvents, "agent_fact_recall", domain.AgentTraceEventDegraded) {
+		t.Fatalf("trace events = %#v, want degraded agent_fact_recall trace", repository.traceEvents)
 	}
 }
 

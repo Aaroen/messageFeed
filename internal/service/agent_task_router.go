@@ -160,7 +160,7 @@ func guardAgentTaskRoute(c agentTaskRouteClassification) agentTaskRouteClassific
 			c.HistoryQuery = "当前用户问题相关的历史上下文"
 		}
 		if len(c.CandidateCapabilities) == 0 {
-			c.CandidateCapabilities = []string{"conversation.query_history"}
+			c.CandidateCapabilities = []string{"conversation.query_history", "memory.fact_recall"}
 		}
 	}
 	if strings.TrimSpace(c.Reason) == "" {
@@ -323,13 +323,13 @@ func agentTaskRoutePlanSpec(route agentTaskRouteClassification, goal string) age
 		spec.Complexity = agent.PlanningComplexityStandard
 		spec.RequiresSubAgent = true
 		spec.DirectAnswerAllowed = false
-		spec.RequiredCapabilities = []string{"conversation.query_history"}
+		spec.RequiredCapabilities = []string{"conversation.query_history", "memory.fact_recall"}
 		spec.Subtasks = []agent.PlanSubtask{
 			{
 				Title:           "召回历史上下文",
-				Prompt:          "围绕用户问题召回相关历史上下文，提炼可引用依据，并生成简洁答复。",
+				Prompt:          "围绕用户问题召回相关历史上下文和长期事实索引，提炼可引用依据，并生成简洁答复。",
 				ContextSummary:  route.Reason,
-				CapabilityKeys:  []string{"conversation.query_history"},
+				CapabilityKeys:  []string{"conversation.query_history", "memory.fact_recall"},
 				ExpectedOutput:  "相关历史依据和面向用户的回答。",
 				FailureStrategy: "召回失败时说明依据不足，并给出可回答范围。",
 				MaxRetries:      1,
@@ -343,7 +343,7 @@ func agentTaskRoutePlanSpec(route agentTaskRouteClassification, goal string) age
 			Limit:    8,
 			TimeHint: "",
 		}
-		spec.ExpectedEvidenceScope = []string{"history"}
+		spec.ExpectedEvidenceScope = []string{"history", "long_term_fact_index"}
 	}
 	return spec
 }

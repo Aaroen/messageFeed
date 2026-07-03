@@ -159,8 +159,14 @@ func TestPlannerBuildFromSpecAddsHistoryRecallCapability(t *testing.T) {
 	if !testPlanHasStep(output.Steps, "conversation.query_history") {
 		t.Fatalf("steps = %#v, want conversation.query_history", output.Steps)
 	}
+	if !testPlanHasStep(output.Steps, "memory.fact_recall") {
+		t.Fatalf("steps = %#v, want memory.fact_recall", output.Steps)
+	}
 	if !testStringSliceContains(output.Plan.AllowedScopes, "conversation.query_history") {
 		t.Fatalf("allowed scopes = %#v, want conversation.query_history", output.Plan.AllowedScopes)
+	}
+	if !testStringSliceContains(output.Plan.AllowedScopes, "memory.fact_recall") {
+		t.Fatalf("allowed scopes = %#v, want memory.fact_recall", output.Plan.AllowedScopes)
 	}
 	mainPlan := testAgentJSONMap(output.Plan.Metadata["main_agent_plan"])
 	if mainPlan == nil || mainPlan["needs_history_recall"] != true {
@@ -169,6 +175,69 @@ func TestPlannerBuildFromSpecAddsHistoryRecallCapability(t *testing.T) {
 	historyPlan := testAgentJSONMap(mainPlan["history_query_plan"])
 	if historyPlan == nil || historyPlan["mode"] != "search" || historyPlan["query"] == "" {
 		t.Fatalf("history query plan = %#v", historyPlan)
+	}
+}
+
+func TestPlannerBuildFromSpecAuthorizesWebFallbackForFreshHistoryRecall(t *testing.T) {
+	planner := NewPlanner(PlannerOptions{})
+
+	output := planner.BuildFromSpec(context.Background(), PlanInput{
+		UserID: 1,
+		Goal:   "结合历史偏好和今天最新市场情况回答",
+	}, PlanSpec{
+		Intent:              "结合历史偏好与实时事实生成回答",
+		TaskType:            "current_events",
+		NeedsHistoryRecall:  true,
+		DirectAnswerAllowed: false,
+		EvidenceRequirements: []PlanEvidenceRequirement{
+			{EvidenceType: "market", Summary: "需要当前市场信息", Freshness: "current", Required: true},
+		},
+	})
+
+	if !testPlanHasStep(output.Steps, "web.search") {
+		t.Fatalf("steps = %#v, want web.search fallback", output.Steps)
+	}
+	if !testStringSliceContains(output.Plan.AllowedScopes, "web.search") {
+		t.Fatalf("allowed scopes = %#v, want web.search", output.Plan.AllowedScopes)
+	}
+	mainPlan := testAgentJSONMap(output.Plan.Metadata["main_agent_plan"])
+	if mainPlan == nil {
+		t.Fatalf("main agent plan metadata = %#v", output.Plan.Metadata["main_agent_plan"])
+	}
+	plannerMetadata := testAgentJSONMap(mainPlan["metadata"])
+	policy := testAgentJSONMap(plannerMetadata["web_fallback_policy"])
+	if policy == nil || policy["status"] != "authorized" {
+		t.Fatalf("web fallback policy = %#v", policy)
+	}
+}
+
+func TestPlannerBuildFromSpecSkipsWebFallbackWhenHistoryOnlyRequested(t *testing.T) {
+	planner := NewPlanner(PlannerOptions{})
+
+	output := planner.BuildFromSpec(context.Background(), PlanInput{
+		UserID: 1,
+		Goal:   "只基于历史回答我之前的偏好，不要联网",
+	}, PlanSpec{
+		Intent:              "只基于历史偏好回答",
+		TaskType:            "history_recall",
+		NeedsHistoryRecall:  true,
+		DirectAnswerAllowed: false,
+		FinalAnswerConstraints: []string{
+			"不要联网",
+		},
+	})
+
+	if testPlanHasStep(output.Steps, "web.search") {
+		t.Fatalf("steps = %#v, want no web.search", output.Steps)
+	}
+	mainPlan := testAgentJSONMap(output.Plan.Metadata["main_agent_plan"])
+	if mainPlan == nil {
+		t.Fatalf("main agent plan metadata = %#v", output.Plan.Metadata["main_agent_plan"])
+	}
+	plannerMetadata := testAgentJSONMap(mainPlan["metadata"])
+	policy := testAgentJSONMap(plannerMetadata["web_fallback_policy"])
+	if policy == nil || policy["status"] != "skipped" || policy["reason"] != "history_only_requested" {
+		t.Fatalf("web fallback policy = %#v", policy)
 	}
 }
 

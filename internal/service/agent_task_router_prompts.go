@@ -10,8 +10,8 @@ func agentTaskRouterSystemPrompt() string {
 
 可选 task_type：
 - quick_answer：普通问答、解释、改写、很短的总结；不需要历史召回、工具、子 Agent。
-- rag_answer：用户明确要求结合历史上下文、之前记录、记忆、偏好、刚才内容或依据来源；需要历史召回，但不需要外部工具。
-- deep_task：需要多步骤规划、外部工具、持续执行、审批、定时任务、联网搜索、复杂分析或不确定风险。
+- rag_answer：用户明确要求结合历史上下文、之前记录、记忆、偏好、刚才内容或依据来源；需要 conversation.query_history 与 memory.fact_recall，但不需要外部网页工具。
+- deep_task：需要多步骤规划、外部工具、持续执行、审批、定时任务、联网搜索、复杂分析或不确定风险。若用户要求最新、今天、现在、当前热点、市场收盘或比赛结果等实时事实，且未明确限制只基于历史，应归为 deep_task 并候选 web.search。
 
 输出必须是一个 JSON 对象，不要 Markdown，不要解释。`
 }

@@ -343,17 +343,33 @@ func normalizePlanSpec(goal string, spec PlanSpec) PlanSpec {
 			Limit:  8,
 		}
 	}
+	if spec.Metadata == nil {
+		spec.Metadata = domain.AgentJSON{}
+	}
 	if spec.NeedsHistoryRecall {
-		spec.RequiredCapabilities = uniqueStrings(append(spec.RequiredCapabilities, "conversation.query_history"))
+		spec.RequiredCapabilities = uniqueStrings(append(spec.RequiredCapabilities, "conversation.query_history", "memory.fact_recall"))
+		if shouldAuthorizeWebSearchFallback(spec) {
+			spec.RequiredCapabilities = uniqueStrings(append(spec.RequiredCapabilities, "web.search"))
+			spec.Metadata["web_fallback_policy"] = domain.AgentJSON{
+				"status": "authorized",
+				"reason": "fresh_external_evidence_required",
+			}
+		} else {
+			reason := "not_required"
+			if specExplicitlyRestrictsExternalWeb(spec) {
+				reason = "history_only_requested"
+			}
+			spec.Metadata["web_fallback_policy"] = domain.AgentJSON{
+				"status": "skipped",
+				"reason": reason,
+			}
+		}
 	}
 	spec.RequiredMemoryTypes = normalizeTextList(spec.RequiredMemoryTypes, 80)
 	spec.ExpectedEvidenceScope = normalizeTextList(spec.ExpectedEvidenceScope, 120)
 	spec.FinalAnswerConstraints = normalizeTextList(spec.FinalAnswerConstraints, 300)
 	spec.Complexity = normalizePlanningComplexity(spec.Complexity, spec)
 	spec.MaxIterations = normalizeMaxIterations(spec.MaxIterations, spec)
-	if spec.Metadata == nil {
-		spec.Metadata = domain.AgentJSON{}
-	}
 	return spec
 }
 
@@ -375,6 +391,90 @@ func normalizeEvidenceRequirements(requirements []PlanEvidenceRequirement) []Pla
 		output = append(output, requirement)
 	}
 	return output
+}
+
+func shouldAuthorizeWebSearchFallback(spec PlanSpec) bool {
+	if specExplicitlyRestrictsExternalWeb(spec) {
+		return false
+	}
+	for _, scope := range spec.ExpectedEvidenceScope {
+		if textHasAnyFold(scope, "web", "external_web", "internet", "online") {
+			return true
+		}
+	}
+	for _, requirement := range spec.EvidenceRequirements {
+		if textHasAnyFold(requirement.Freshness, "latest", "current", "realtime", "real-time", "up_to_date", "now") {
+			return true
+		}
+		if textHasAnyFold(requirement.EvidenceType, "web", "external_web", "internet", "online") {
+			return true
+		}
+	}
+	if textHasAnyFold(spec.TaskType, "current", "latest", "realtime", "market_news", "current_events") {
+		return true
+	}
+	if plannerJSONContainsAny(spec.Metadata, "requires_web_fallback", "web_fallback", "external_freshness_required") {
+		return true
+	}
+	return textHasAnyFold(strings.Join([]string{spec.Goal, spec.Intent, spec.HistoryQueryPlan.Query}, " "), "最新", "今天", "现在", "当前", "热点", "收盘", "比赛结果", "latest", "today", "now", "current")
+}
+
+func specExplicitlyRestrictsExternalWeb(spec PlanSpec) bool {
+	text := strings.Join(append([]string{
+		spec.Goal,
+		spec.Intent,
+		spec.TaskType,
+		spec.HistoryQueryPlan.Reason,
+	}, append(spec.FinalAnswerConstraints, spec.ExpectedEvidenceScope...)...), " ")
+	return textHasAnyFold(text, "只基于历史", "仅基于历史", "只用历史", "仅用历史", "不要联网", "不联网", "无需联网", "禁止联网", "only history", "history only", "no web", "without web", "do not search web")
+}
+
+func plannerJSONContainsAny(value any, needles ...string) bool {
+	switch typed := value.(type) {
+	case nil:
+		return false
+	case string:
+		return textHasAnyFold(typed, needles...)
+	case []string:
+		for _, item := range typed {
+			if textHasAnyFold(item, needles...) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			if plannerJSONContainsAny(item, needles...) {
+				return true
+			}
+		}
+	case map[string]any:
+		for key, item := range typed {
+			if textHasAnyFold(key, needles...) || plannerJSONContainsAny(item, needles...) {
+				return true
+			}
+		}
+	case domain.AgentJSON:
+		for key, item := range typed {
+			if textHasAnyFold(key, needles...) || plannerJSONContainsAny(item, needles...) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func textHasAnyFold(text string, needles ...string) bool {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return false
+	}
+	for _, needle := range needles {
+		needle = strings.ToLower(strings.TrimSpace(needle))
+		if needle != "" && strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizePlanHistoryQueryPlan(plan PlanHistoryQueryPlan) PlanHistoryQueryPlan {
@@ -806,7 +906,7 @@ func qualityStatus(ok bool) string {
 
 func capabilitySetHasEvidence(keys []string) bool {
 	for _, key := range keys {
-		if strings.HasPrefix(key, "feed.") || strings.HasPrefix(key, "source.") || strings.HasPrefix(key, "conversation.") || strings.HasPrefix(key, "web.") || strings.HasPrefix(key, "repo.") {
+		if strings.HasPrefix(key, "feed.") || strings.HasPrefix(key, "source.") || strings.HasPrefix(key, "conversation.") || strings.HasPrefix(key, "memory.") || strings.HasPrefix(key, "web.") || strings.HasPrefix(key, "repo.") {
 			return true
 		}
 	}
@@ -829,6 +929,8 @@ func expectedCapabilityOutput(key string) string {
 	switch key {
 	case "conversation.query_history":
 		return "对话记录引用和原始消息片段。"
+	case "memory.fact_recall":
+		return "长期事实索引命中、混合召回诊断和可溯源证据片段。"
 	case "web.search":
 		return "候选结果 URL、来源信息和摘要。"
 	case "web.fetch_page":
