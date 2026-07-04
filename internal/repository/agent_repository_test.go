@@ -54,6 +54,19 @@ func TestAgentJSONSliceClonesKeepEmptyArray(t *testing.T) {
 	}
 }
 
+func TestRepositoryJSONBExprMarshalsStringSlice(t *testing.T) {
+	expr, err := repositoryJSONBExpr([]string{"比赛", "赛程"})
+	if err != nil {
+		t.Fatalf("repositoryJSONBExpr() error = %v", err)
+	}
+	if expr.SQL != "?::jsonb" {
+		t.Fatalf("expr.SQL = %q, want jsonb cast", expr.SQL)
+	}
+	if len(expr.Vars) != 1 || expr.Vars[0] != `["比赛","赛程"]` {
+		t.Fatalf("expr.Vars = %#v", expr.Vars)
+	}
+}
+
 func TestAgentRunUpdateColumnsPersistPlanScopeFields(t *testing.T) {
 	for _, required := range []string{"TaskPacket", "CapabilityScope", "ContextBudget"} {
 		if !agentRepositoryStringSliceContains(agentRunUpdateColumns, required) {

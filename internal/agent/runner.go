@@ -196,6 +196,7 @@ const emptyLLMResponseRetryLimit = 2
 const requiredToolCallRetryLimit = 2
 const promptedToolActionRetryLimit = 2
 const plainTextReplyRepairLimit = 2
+const replyCompletenessRepairLimit = 2
 
 func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult, error) {
 	ctx, span := observability.StartSpan(ctx, "agent.turn_runner.run",
@@ -313,6 +314,17 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 	response, err = r.ensurePlainTextReply(ctx, input, finalMessages, response)
 	if err != nil {
 		return "", response.Provider, response.Model, snapshot, err
+	}
+	response, err = r.ensureCompleteReply(ctx, input, finalMessages, response)
+	if err != nil {
+		return "", response.Provider, response.Model, snapshot, err
+	}
+	response, err = r.ensurePlainTextReply(ctx, input, finalMessages, response)
+	if err != nil {
+		return "", response.Provider, response.Model, snapshot, err
+	}
+	if violation := PlainTextReplyCompletenessViolation(response.Content); violation != "" {
+		return "", response.Provider, response.Model, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_reply_incomplete", "agent reply appears incomplete", "agent.turn_runner.reply_completeness", true, nil)
 	}
 	if strings.TrimSpace(response.Content) == "" {
 		return "", response.Provider, response.Model, snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_empty_reply", "agent reply is empty", "agent.turn_runner.generate", true, nil)
@@ -474,6 +486,59 @@ func (r *TurnRunner) ensurePlainTextReply(ctx context.Context, input TurnRunInpu
 		effectiveMessages = append(repairMessages, llm.ChatMessage{Role: "assistant", Content: content})
 	}
 	return llm.ChatResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_reply_plain_text_violation", "agent reply does not satisfy plain text format", "agent.turn_runner.reply_format", true, nil)
+}
+
+// ensureCompleteReply 对明显截断的最终回复执行一次模型侧修复。
+// 后端只识别结构性不完整形态，修复内容仍由模型基于已有上下文生成。
+func (r *TurnRunner) ensureCompleteReply(ctx context.Context, input TurnRunInput, messages []llm.ChatMessage, response llm.ChatResponse) (llm.ChatResponse, error) {
+	if r == nil || r.llmClient == nil {
+		return response, nil
+	}
+	content := strings.TrimSpace(response.Content)
+	violation := PlainTextReplyCompletenessViolation(content)
+	if violation == "" {
+		return response, nil
+	}
+	effectiveMessages := append([]llm.ChatMessage(nil), messages...)
+	if content != "" {
+		effectiveMessages = append(effectiveMessages, llm.ChatMessage{Role: "assistant", Content: content})
+	}
+	current := response
+	for attempt := 0; attempt < replyCompletenessRepairLimit; attempt++ {
+		r.record(ctx, AuditEvent{
+			SessionID: input.Session.ID,
+			TurnID:    input.Turn.ID,
+			UserID:    input.UserID,
+			EventType: "agent.reply_completeness_repair_retry",
+			Status:    "retrying",
+			Message:   "agent reply completeness repair retry scheduled",
+			Metadata: domain.AgentJSON{
+				"attempt":   attempt + 1,
+				"violation": violation,
+			},
+			RequestID: input.RequestID,
+			TraceID:   input.TraceID,
+			CreatedAt: r.now().UTC(),
+		})
+		repairMessages := append([]llm.ChatMessage(nil), effectiveMessages...)
+		repairMessages = append(repairMessages, llm.ChatMessage{
+			Role:    "user",
+			Content: PlainTextReplyCompletenessRepairPrompt(current.Content, violation, attempt+1),
+		})
+		repaired, _, err := r.chatWithEmptyResponseRetry(ctx, input, repairMessages, nil, true, true, false)
+		if err != nil {
+			return llm.ChatResponse{}, err
+		}
+		current = repaired
+		content = strings.TrimSpace(current.Content)
+		violation = PlainTextReplyCompletenessViolation(content)
+		if violation == "" {
+			current.Content = content
+			return current, nil
+		}
+		effectiveMessages = append(repairMessages, llm.ChatMessage{Role: "assistant", Content: content})
+	}
+	return llm.ChatResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_reply_incomplete", "agent reply appears incomplete", "agent.turn_runner.reply_completeness", true, nil)
 }
 
 // chatWithEmptyResponseRetry 处理上游模型“请求成功但没有内容”的临界情况。

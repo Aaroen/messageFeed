@@ -120,6 +120,11 @@ func (r *AgentRepository) UpdateAgentMemoryTopic(ctx context.Context, topic doma
 
 	topic = normalizeAgentMemoryTopic(topic)
 	model := agentMemoryTopicModelFromDomain(topic)
+	keywordsExpr, err := repositoryJSONBExpr(model.Keywords)
+	if err != nil {
+		opErr = err
+		return domain.AgentMemoryTopic{}, opErr
+	}
 	result := r.db.WithContext(ctx).
 		Model(&agentMemoryTopicModel{}).
 		Where("id = ? AND user_id = ?", topic.ID, topic.UserID).
@@ -127,7 +132,7 @@ func (r *AgentRepository) UpdateAgentMemoryTopic(ctx context.Context, topic doma
 			"topic_key":       model.TopicKey,
 			"title":           model.Title,
 			"summary":         model.Summary,
-			"keywords_json":   model.Keywords,
+			"keywords_json":   keywordsExpr,
 			"intent":          model.Intent,
 			"status":          model.Status,
 			"message_count":   model.MessageCount,

@@ -1755,6 +1755,85 @@ func TestAgentConversationServiceAsyncWeChatDoesNotWaitForMemoryCapture(t *testi
 	}
 }
 
+func TestAgentConversationServiceAsyncWeChatDoesNotWaitForFollowupIntent(t *testing.T) {
+	now := time.Date(2026, 7, 4, 19, 10, 0, 0, time.UTC)
+	completedAt := now.Add(-10 * time.Minute)
+	repository := newFakeAgentConversationRepository()
+	repository.session = domain.AgentSession{
+		ID:                88,
+		UserID:            1,
+		ExternalAccountID: 10,
+		Provider:          domain.AgentProviderWeChatWorkApp,
+		ChannelSessionKey: "corp-a:1000002:zhangsan",
+		Status:            domain.AgentSessionStatusActive,
+		StartedAt:         now.Add(-time.Hour),
+		LastActiveAt:      now.Add(-time.Minute),
+	}
+	repository.plans = []domain.AgentPlan{
+		{
+			ID:          66,
+			UserID:      1,
+			SessionID:   88,
+			TurnID:      77,
+			Status:      domain.AgentPlanStatusCompleted,
+			Goal:        "搜索最新比赛和后续赛程",
+			Summary:     "已完成赛事搜索",
+			Metadata:    domain.AgentJSON{},
+			CreatedAt:   now.Add(-15 * time.Minute),
+			UpdatedAt:   completedAt,
+			CompletedAt: &completedAt,
+		},
+	}
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	llmClient := &fakeAgentConversationLLM{
+		followupIntent: agentFollowupIntentQuestion,
+		followupDelay:  250 * time.Millisecond,
+		followupAnswer: "后续比赛包括下一场和随后的赛程安排。",
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationProcessTimeout(time.Second),
+	)
+
+	startedAt := time.Now()
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-async-followup",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "下几场是什么",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if !result.ProcessingAsync {
+		t.Fatalf("ProcessingAsync = false, want true")
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 150*time.Millisecond {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() elapsed = %s, want below followup delay", elapsed)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for {
+		if len(repository.turns) > 0 && repository.turns[0].Status == domain.AgentTurnStatusSucceeded {
+			if !strings.Contains(repository.turns[0].OutputText, "后续比赛") {
+				t.Fatalf("turn output = %q", repository.turns[0].OutputText)
+			}
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("turns = %#v", repository.turns)
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
 func TestAgentConversationServiceDoesNotSendDuplicateInboundMessage(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
 	repository.forceDuplicate = true
@@ -4218,6 +4297,7 @@ type fakeAgentConversationLLM struct {
 	planKeys          []string
 	followupIntent    agentFollowupIntent
 	followupAnswer    string
+	followupDelay     time.Duration
 }
 
 // Chat 同时模拟主 Agent 规划调用和执行 Agent 调用。
@@ -4260,6 +4340,13 @@ func (f *fakeAgentConversationLLM) Chat(ctx context.Context, request llm.ChatReq
 	f.calls++
 	f.lastRequest = request
 	if fakeIsAgentFollowupIntentRequest(request) {
+		if f.followupDelay > 0 {
+			select {
+			case <-time.After(f.followupDelay):
+			case <-ctx.Done():
+				return llm.ChatResponse{}, ctx.Err()
+			}
+		}
 		intent := f.followupIntent
 		if intent == "" {
 			intent = agentFollowupIntentNewTask

@@ -759,6 +759,44 @@ func TestTurnRunnerRepairsMarkdownFinalReply(t *testing.T) {
 	}
 }
 
+func TestTurnRunnerRepairsIncompleteFinalReply(t *testing.T) {
+	now := time.Date(2026, 7, 4, 19, 0, 0, 0, time.UTC)
+	chat := &runnerFakeChatClient{
+		responses: []llm.ChatResponse{
+			{Provider: "openai_compatible", Model: "custom-model", Content: "央视网已发布完整赛程（链接：https"},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "央视网已发布完整赛程。来源链接在本轮证据中不完整，建议以任务详情中的来源记录为准。"},
+		},
+	}
+	audit := &runnerFakeAuditLogger{}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store:       &runnerFakeTurnStore{},
+		AuditLogger: audit,
+		LLMClient:   chat,
+		Now:         func() time.Time { return now },
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:         1,
+		Session:        domain.AgentSession{ID: 10, UserID: 1},
+		Turn:           domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage: domain.AgentInboundMessage{ID: 30, UserID: 1},
+		MessageType:    "text",
+		MessageText:    "重新搜索最新比赛怎么样，下几场是什么",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if violation := PlainTextReplyCompletenessViolation(result.Reply); violation != "" {
+		t.Fatalf("reply completeness violation = %q reply=%q", violation, result.Reply)
+	}
+	if chat.calls != 2 {
+		t.Fatalf("chat calls = %d, want 2", chat.calls)
+	}
+	if !runnerAuditContains(audit.events, "agent.reply_completeness_repair_retry") {
+		t.Fatalf("audit events = %#v", audit.events)
+	}
+}
+
 type runnerFakeChatClient struct {
 	calls       int
 	responseIdx int

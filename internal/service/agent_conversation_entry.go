@@ -174,8 +174,6 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	})
 	if s.processInline {
 		s.captureMemoryCandidateFromTranscript(ctx, userTranscript)
-	} else {
-		s.captureMemoryCandidateFromTranscriptAsync(ctx, userTranscript)
 	}
 
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
@@ -195,20 +193,29 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		CreatedAt: now,
 	})
 
-	if handled, handledResult, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, input); err != nil {
-		status = "failed"
-		opErr = err
-		return ReceiveWeChatWorkAppMessageResult{}, err
-	} else if handled {
-		return handledResult, nil
-	}
-
-	if handled, handledResult, err := s.handleWeChatButtonCallback(ctx, account, inbound, session, turn, input); err != nil {
-		status = "failed"
-		opErr = err
-		return ReceiveWeChatWorkAppMessageResult{}, err
-	} else if handled {
-		return handledResult, nil
+	if s.processInline {
+		if handled, handledResult, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, input); err != nil {
+			status = "failed"
+			opErr = err
+			return ReceiveWeChatWorkAppMessageResult{}, err
+		} else if handled {
+			return handledResult, nil
+		}
+		if handled, handledResult, err := s.handleWeChatButtonCallback(ctx, account, inbound, session, turn, input); err != nil {
+			status = "failed"
+			opErr = err
+			return ReceiveWeChatWorkAppMessageResult{}, err
+		} else if handled {
+			return handledResult, nil
+		}
+	} else {
+		if handled, handledResult, err := s.handleWeChatButtonCallback(ctx, account, inbound, session, turn, input); err != nil {
+			status = "failed"
+			opErr = err
+			return ReceiveWeChatWorkAppMessageResult{}, err
+		} else if handled {
+			return handledResult, nil
+		}
 	}
 
 	result := ReceiveWeChatWorkAppMessageResult{
@@ -237,10 +244,29 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	go func() {
 		ctx, cancel := context.WithTimeout(processCtx, s.processTimeout)
 		defer cancel()
-		_, _ = s.processTurn(ctx, account, inbound, session, turn, input)
+		s.processQueuedWeChatWorkTurn(ctx, account, inbound, session, turn, input, userTranscript)
 	}()
 
 	return result, nil
+}
+
+func (s *AgentConversationService) processQueuedWeChatWorkTurn(
+	ctx context.Context,
+	account domain.ExternalAccount,
+	inbound domain.AgentInboundMessage,
+	session domain.AgentSession,
+	turn domain.AgentTurn,
+	input ReceiveWeChatWorkAppMessageInput,
+	userTranscript domain.AgentTranscriptEntry,
+) {
+	defer s.captureMemoryCandidateFromTranscriptAsync(ctx, userTranscript)
+	if handled, _, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, input); err != nil {
+		s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, err)
+		return
+	} else if handled {
+		return
+	}
+	_, _ = s.processTurn(ctx, account, inbound, session, turn, input)
 }
 
 // ReceiveWebAgentTask 接收 Web 任务，复用同一套 Agent turn 闭环。
