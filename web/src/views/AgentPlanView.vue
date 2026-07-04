@@ -63,7 +63,7 @@ const progress = ref<AgentProgressSnapshot | null>(null)
 const plan = ref<AgentPlan | null>(null)
 const runs = ref<AgentRun[]>([])
 const traceBundle = ref<AgentTraceBundle | null>(null)
-const latestTask = ref<AgentTaskSummary | null>(null)
+const taskRecords = ref<AgentTaskSummary[]>([])
 const loading = ref(false)
 const refreshing = ref(false)
 const traceLoading = ref(false)
@@ -79,6 +79,7 @@ let requestSeq = 0
 let pollTimer: number | undefined
 let progressStream: EventSource | undefined
 let progressStreamKey = ''
+const taskRecordLimit = 100
 
 const planID = computed(() => {
   return positiveRouteNumber(route.params.id)
@@ -98,10 +99,11 @@ const scheduledTaskID = computed(() => {
 
 const turnID = computed(() => positiveQueryNumber(route.query.turn_id) || positiveQueryNumber(route.query.turnID))
 const runID = computed(() => positiveQueryNumber(route.query.run_id) || positiveQueryNumber(route.query.runID))
+const isTaskListMode = computed(() => !planID.value && !queryPlanID.value && !scheduledTaskID.value && !turnID.value && !runID.value)
 
-const effectivePlanID = computed(() => planID.value || queryPlanID.value || latestTask.value?.plan_id || 0)
-const effectiveScheduledTaskID = computed(() => scheduledTaskID.value || latestTask.value?.scheduled_task_id || 0)
-const effectiveTurnID = computed(() => turnID.value || latestTask.value?.turn_id || 0)
+const effectivePlanID = computed(() => planID.value || queryPlanID.value || 0)
+const effectiveScheduledTaskID = computed(() => scheduledTaskID.value || 0)
+const effectiveTurnID = computed(() => turnID.value || 0)
 const effectiveRunID = computed(() => runID.value || 0)
 
 const sortedSteps = computed(() =>
@@ -205,6 +207,9 @@ const canStopPlan = computed(() => Boolean(plan.value && !isTerminalAgentProgres
 const canRetryPlan = computed(() => Boolean(plan.value && plan.value.status === 'failed' && subAgentDetails.value.some((item) => item.canRetry)))
 
 const pageTitle = computed(() => {
+  if (isTaskListMode.value) {
+    return '任务记录'
+  }
   if (plan.value?.goal) {
     return plan.value.goal
   }
@@ -215,11 +220,13 @@ const pageTitle = computed(() => {
 })
 
 const pageSummary = computed(() => {
+  if (isTaskListMode.value) {
+    return taskRecords.value.length > 0 ? `已加载 ${taskRecords.value.length} 条任务记录。` : '正在读取任务记录。'
+  }
   return progress.value?.next_action || plan.value?.summary || '正在读取任务进度。'
 })
 
 watch([planID, queryPlanID, scheduledTaskID, turnID, runID], () => {
-  latestTask.value = null
   closeProgressStream()
   void loadPlan()
 })
@@ -242,11 +249,19 @@ async function loadPlan(options: { silent?: boolean } = {}) {
   }
   errorMessage.value = ''
   try {
-    if (!effectivePlanID.value && !effectiveScheduledTaskID.value && !effectiveTurnID.value && !effectiveRunID.value) {
-      await loadLatestTask()
+    if (isTaskListMode.value) {
+      await loadTaskRecords()
       if (seq !== requestSeq) {
         return
       }
+      progress.value = null
+      plan.value = null
+      runs.value = []
+      traceBundle.value = null
+      clearPollTimer()
+      closeProgressStream()
+      refreshNotice.value = `更新于 ${formatTime(new Date().toISOString())}`
+      return
     }
     const query = progressQuery()
     if (!query.plan_id && !query.scheduled_task_id && !query.turn_id && !query.run_id) {
@@ -288,14 +303,6 @@ function applyProgress(nextProgress: AgentProgressSnapshot) {
   progress.value = nextProgress
   plan.value = nextProgress.plan || null
   runs.value = nextProgress.runs || []
-  if (nextProgress.plan?.id && latestTask.value) {
-    latestTask.value = {
-      ...latestTask.value,
-      plan_id: nextProgress.plan.id,
-      scheduled_task_id: effectiveScheduledTaskID.value,
-      turn_id: nextProgress.plan.turn_id || latestTask.value.turn_id,
-    }
-  }
 }
 
 async function loadTrace(nextProgress: AgentProgressSnapshot) {
@@ -392,9 +399,31 @@ function clearPollTimer() {
   }
 }
 
-async function loadLatestTask() {
-  const result = await listAgentTasks({ limit: 1 })
-  latestTask.value = result.tasks.find((task) => task.plan_id > 0 || task.scheduled_task_id > 0) || null
+async function loadTaskRecords() {
+  const result = await listAgentTasks({ limit: taskRecordLimit })
+  taskRecords.value = result.tasks.filter((task) => task.plan_id > 0 || task.scheduled_task_id > 0 || task.turn_id > 0)
+}
+
+function openTaskRecord(task: AgentTaskSummary) {
+  if (task.plan_id > 0) {
+    router.push({ name: 'agent-plan', params: { id: String(task.plan_id) } })
+    return
+  }
+  if (task.scheduled_task_id > 0) {
+    router.push({ name: 'agent', query: { scheduled_task_id: String(task.scheduled_task_id) } })
+    return
+  }
+  if (task.turn_id > 0) {
+    router.push({ name: 'agent', query: { turn_id: String(task.turn_id) } })
+  }
+}
+
+function taskKindLabel(kind: string) {
+  const labels: Record<string, string> = {
+    plan: '执行计划',
+    scheduled_task: '调度任务',
+  }
+  return labels[kind] || kind || '任务'
 }
 
 function progressQuery() {
@@ -697,8 +726,37 @@ function boolValue(value: unknown) {
       </div>
     </header>
 
-    <section v-if="loading" class="state-band">正在加载任务进度。</section>
+    <section v-if="loading" class="state-band">{{ isTaskListMode ? '正在加载任务记录。' : '正在加载任务进度。' }}</section>
     <section v-else-if="errorMessage" class="state-band state-band--error">{{ errorMessage }}</section>
+    <section v-else-if="isTaskListMode" class="task-history-layout">
+      <section class="panel">
+        <div class="section-heading">
+          <h2>全部任务记录</h2>
+          <span>{{ refreshNotice || `${taskRecords.length} 条` }}</span>
+        </div>
+        <div v-if="taskRecords.length" class="task-record-list">
+          <button v-for="task in taskRecords" :key="task.id" class="task-record-row" type="button" @click="openTaskRecord(task)">
+            <span class="step-status" :class="`tone-${statusTone(task.status)}`">
+              <component :is="statusIcon(task.status)" />
+            </span>
+            <span class="task-record-main">
+              <span class="task-record-title">{{ task.goal || task.summary || task.id }}</span>
+              <span class="task-record-summary">{{ task.next_action || task.latest_progress || task.summary || '暂无进展摘要' }}</span>
+              <span class="task-record-meta">
+                <span>{{ taskKindLabel(task.kind) }}</span>
+                <span>{{ statusLabel(task.status) }}</span>
+                <span>{{ formatTime(task.updated_at) }}</span>
+              </span>
+            </span>
+            <span class="task-record-side">
+              <span>{{ task.permission_status || '权限未知' }}</span>
+              <strong>{{ task.budget_status || '预算未知' }}</strong>
+            </span>
+          </button>
+        </div>
+        <p v-else class="empty-text">暂无任务记录。</p>
+      </section>
+    </section>
     <section v-else class="progress-layout">
       <section class="progress-overview">
         <div class="progress-ring" :style="{ '--progress': `${progressPercent}%` }">
@@ -950,6 +1008,13 @@ function boolValue(value: unknown) {
   margin: 0 auto;
 }
 
+.task-history-layout {
+  display: grid;
+  gap: 18px;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
 .progress-overview,
 .panel,
 .state-band {
@@ -1071,6 +1136,70 @@ body[arco-theme='dark'] .state-band {
 .step-list {
   display: grid;
   gap: 14px;
+}
+
+.task-record-list {
+  display: grid;
+  gap: 12px;
+}
+
+.task-record-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(150px, auto);
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid rgba(117, 132, 153, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--mf-text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.task-record-row:hover {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: rgba(237, 243, 247, 0.72);
+}
+
+.task-record-main {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.task-record-title {
+  font-size: 16px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.task-record-summary {
+  color: var(--mf-text-muted);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.task-record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--mf-text-muted);
+  font-size: 13px;
+}
+
+.task-record-side {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  color: var(--mf-text-muted);
+  font-size: 13px;
+}
+
+.task-record-side strong {
+  color: var(--mf-text);
+  font-size: 14px;
 }
 
 .step-row {
@@ -1259,6 +1388,7 @@ body[arco-theme='dark'] .state-band {
 
   .progress-header,
   .progress-overview,
+  .task-record-row,
   .content-grid,
   .step-row {
     grid-template-columns: 1fr;
@@ -1291,6 +1421,10 @@ body[arco-theme='dark'] .state-band {
 
   .compact-button {
     width: 100%;
+  }
+
+  .task-record-side {
+    justify-items: start;
   }
 }
 
