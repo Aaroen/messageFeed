@@ -218,7 +218,7 @@ func (s *AgentConversationService) processTurn(
 	_, _ = s.runManager.CompleteRun(ctx, controllerRun, "turn_output")
 	reply := runResult.Reply
 	if !s.processInline {
-		reply = s.agentTurnCompletionReply(plan, reply)
+		reply = s.agentTurnCompletionReply(ctx, plan, reply)
 	}
 	reply = sanitizeAgentReportText(reply)
 	observations := runResult.Context.Observations

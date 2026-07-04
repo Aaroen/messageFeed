@@ -162,7 +162,7 @@ func (s *AgentConversationService) sendTurnFailureFeedback(
 		ProgressURL: s.agentPlanURLIfAvailable(plan.ID),
 	})
 	if !s.processInline {
-		reply = s.agentTurnCompletionReply(plan, reply)
+		reply = s.agentTurnCompletionReply(ctx, plan, reply)
 	}
 	reply = sanitizeAgentReportText(reply)
 	sendResult := notifier.WeChatWorkSendResult{}

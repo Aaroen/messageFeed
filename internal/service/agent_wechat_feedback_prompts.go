@@ -17,6 +17,8 @@ func agentWeChatFeedbackSystemPrompt() string {
 		"错误消息必须说明失败阶段和用户能理解的原因；如果 payload.error 非空，不允许只说处理失败。",
 		"如果 timed_out=true，必须明确说本轮处理超时。",
 		"如果 thinking_timeout=true 或 error_type=thinking_timeout，必须明确说明这是模型思考阶段超时。",
+		"如果 stage=accepted，只表达已收到并开始处理，不要暗示任务已经完成。",
+		"如果 stage=button_callback，要把按钮动作处理结果改写成用户能理解的话，不要照抄 handler、control_type 或英文内部摘要。",
 		"不要暴露状态锚点、权限、预算、质量评分、成本、trace、run_id、plan_id、内部错误栈或开发实现细节。",
 		"如果 payload 提供 progress_url 或 approval_url，可以在必要时自然包含对应 URL。",
 	}, "\n")
@@ -38,6 +40,7 @@ func agentWeChatFeedbackPayloadSchema() domain.AgentJSON {
 		"thinking_timeout": "是否由模型思考阶段超时触发。",
 		"progress_url":     "Web 详情地址，可为空。",
 		"approval_url":     "需要用户确认时的审批地址，可为空。",
+		"control":          "按钮回调或显式控制结果，可为空；包含 action_key、type、status、summary、changed、scheduled_task_status 等字段。",
 	}
 }
 

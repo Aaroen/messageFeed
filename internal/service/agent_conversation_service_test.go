@@ -902,7 +902,7 @@ func TestAgentConversationServiceHandlesWeChatButtonCallback(t *testing.T) {
 	account.ActiveAgentSessionID = 2
 	resolver := &fakeAgentExternalAccountResolver{account: account}
 	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-button-1"}}
-	llmClient := &fakeAgentConversationLLM{response: llm.ChatResponse{Content: "不应调用"}}
+	llmClient := &fakeAgentConversationLLM{}
 	service := NewAgentConversationService(
 		repository,
 		WithAgentConversationLLM(llmClient),
@@ -927,11 +927,13 @@ func TestAgentConversationServiceHandlesWeChatButtonCallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if result.Plan.ID != 9 || !strings.Contains(result.Reply, "计划 #9") || !strings.Contains(result.Reply, "https://messagefeed.example/agent/plans/9") {
+	if result.Plan.ID != 9 ||
+		!strings.Contains(result.Reply, "feedback:button_callback") ||
+		!strings.Contains(result.Reply, "https://messagefeed.example/agent/plans/9") {
 		t.Fatalf("result = %#v", result)
 	}
-	if llmClient.calls != 0 {
-		t.Fatalf("llm calls = %d, want 0", llmClient.calls)
+	if llmClient.feedbackIdx != 1 {
+		t.Fatalf("feedback calls = %d, want 1", llmClient.feedbackIdx)
 	}
 	if !fakeAuditContains(repository.audits, "agent.button_direct_control") {
 		t.Fatalf("audits = %#v", repository.audits)
@@ -939,7 +941,7 @@ func TestAgentConversationServiceHandlesWeChatButtonCallback(t *testing.T) {
 	if repository.inbound.Status != domain.AgentInboundMessageStatusSucceeded {
 		t.Fatalf("inbound status = %q", repository.inbound.Status)
 	}
-	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "计划 #9") {
+	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "feedback:button_callback") {
 		t.Fatalf("sent = %#v calls=%d", sender.sent, sender.calls)
 	}
 }
@@ -966,6 +968,7 @@ func TestAgentConversationServiceButtonCallbackRetriesFailedPlan(t *testing.T) {
 	account.ActiveAgentSessionID = 2
 	service := NewAgentConversationService(
 		repository,
+		WithAgentConversationLLM(&fakeAgentConversationLLM{}),
 		WithAgentConversationSender(&fakeAgentConversationSender{}),
 		WithAgentConversationExternalAccountResolver(&fakeAgentExternalAccountResolver{account: account}),
 		WithAgentConversationNow(func() time.Time { return now }),
@@ -985,7 +988,7 @@ func TestAgentConversationServiceButtonCallbackRetriesFailedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if result.Plan.Status != domain.AgentPlanStatusExecuting || !strings.Contains(result.Reply, "重试按钮回调") {
+	if result.Plan.Status != domain.AgentPlanStatusExecuting || !strings.Contains(result.Reply, "feedback:button_callback") {
 		t.Fatalf("result = %#v", result)
 	}
 	if repository.plans[0].Steps[0].Status != domain.AgentPlanStepStatusApproved || repository.plans[0].Steps[0].RetryCount != 1 {
@@ -1008,6 +1011,7 @@ func TestAgentConversationServiceButtonCallbackCancelsScheduledTask(t *testing.T
 	account.ActiveAgentSessionID = 2
 	service := NewAgentConversationService(
 		repository,
+		WithAgentConversationLLM(&fakeAgentConversationLLM{}),
 		WithAgentConversationSender(&fakeAgentConversationSender{}),
 		WithAgentConversationExternalAccountResolver(&fakeAgentExternalAccountResolver{account: account}),
 		WithAgentConversationNow(func() time.Time { return now }),
@@ -1027,7 +1031,9 @@ func TestAgentConversationServiceButtonCallbackCancelsScheduledTask(t *testing.T
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if !strings.Contains(result.Reply, "任务 #30") || repository.scheduledTasks[0].Status != domain.AgentScheduledTaskStatusCanceled {
+	if !strings.Contains(result.Reply, "feedback:button_callback") ||
+		!strings.Contains(result.Reply, "task:30") ||
+		repository.scheduledTasks[0].Status != domain.AgentScheduledTaskStatusCanceled {
 		t.Fatalf("result = %#v task = %#v", result, repository.scheduledTasks[0])
 	}
 	if !fakeAuditContains(repository.audits, "agent.button_direct_control") {
@@ -1876,6 +1882,54 @@ func TestAgentConversationServiceAsyncWeChatDoesNotWaitForFollowupIntent(t *test
 	}
 }
 
+func TestAgentConversationServiceAsyncWeChatDoesNotWaitForAcceptedFeedbackModel(t *testing.T) {
+	now := time.Date(2026, 7, 4, 20, 40, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}
+	sentEvents := make(chan notifier.WeChatWorkTextMessage, 4)
+	sender := &fakeAgentConversationSender{
+		result:     notifier.WeChatWorkSendResult{MessageID: "wx-accepted-async"},
+		sentEvents: sentEvents,
+	}
+	llmClient := &fakeAgentConversationLLM{
+		feedbackDelay: 250 * time.Millisecond,
+		response:      llm.ChatResponse{Provider: "openai_compatible", Model: "custom-model", Content: "后台处理完成。"},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+		WithAgentConversationExternalAccountResolver(resolver),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationProcessTimeout(time.Second),
+	)
+
+	startedAt := time.Now()
+	result, err := service.ReceiveWeChatWorkAppMessage(context.Background(), ReceiveWeChatWorkAppMessageInput{
+		ProviderMessageID: "msg-async-accepted",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "重新搜索最新比赛",
+	})
+	if err != nil {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
+	}
+	if !result.ProcessingAsync {
+		t.Fatalf("ProcessingAsync = false, want true")
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 150*time.Millisecond {
+		t.Fatalf("ReceiveWeChatWorkAppMessage() elapsed = %s, want below accepted feedback delay", elapsed)
+	}
+	message := waitForWeChatTextMessage(t, sentEvents, func(message notifier.WeChatWorkTextMessage) bool {
+		return strings.Contains(message.Content, "feedback:accepted")
+	})
+	if message.ToUser != "zhangsan" {
+		t.Fatalf("accepted message = %#v", message)
+	}
+}
+
 func TestAgentConversationServiceDoesNotSendDuplicateInboundMessage(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
 	repository.forceDuplicate = true
@@ -2025,8 +2079,8 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	if result.Turn.Status != domain.AgentTurnStatusRunning {
 		t.Fatalf("initial turn status = %q, want running", result.Turn.Status)
 	}
-	if strings.TrimSpace(result.Reply) == "" {
-		t.Fatalf("initial reply = %q", result.Reply)
+	if strings.TrimSpace(result.Reply) != "" {
+		t.Fatalf("initial reply = %q, want empty because acceptance feedback is sent asynchronously", result.Reply)
 	}
 
 	var acceptedMessage notifier.WeChatWorkTextMessage
@@ -2035,7 +2089,7 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("task acceptance feedback was not sent")
 	}
-	if acceptedMessage.Content != result.Reply || acceptedMessage.ToUser != "zhangsan" {
+	if acceptedMessage.ToUser != "zhangsan" || !strings.Contains(acceptedMessage.Content, "feedback:accepted") {
 		t.Fatalf("acceptance feedback = %#v", acceptedMessage)
 	}
 	for _, forbidden := range []string{"状态锚点", "企微动作组件", "调度方式", "权限：", "预算：", "详情："} {
@@ -2972,6 +3026,73 @@ func TestAgentConversationServicePlanStartedFeedbackUsesTemplateSource(t *testin
 		if strings.Contains(reply, forbidden) {
 			t.Fatalf("reply leaked %q: %q", forbidden, reply)
 		}
+	}
+}
+
+func TestAgentConversationServiceTaskAcceptedFeedbackUsesGeneratedText(t *testing.T) {
+	now := time.Date(2026, 7, 4, 20, 30, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-accepted-generated"}}
+	llmClient := &fakeAgentConversationLLM{
+		feedbackResponses: []llm.ChatResponse{
+			{Provider: "openai_compatible", Model: "feedback-model", Content: "我先接住这个任务，开始处理。"},
+		},
+	}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationSender(sender),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
+
+	reply, sendResult, sendCount := service.sendWeChatWorkTaskAcceptedFeedback(
+		context.Background(),
+		domain.ExternalAccount{UserID: 1},
+		domain.AgentSession{ID: 2},
+		domain.AgentTurn{ID: 3},
+		ReceiveWeChatWorkAppMessageInput{
+			Provider:          domain.AgentProviderWeChatWorkApp,
+			ProviderMessageID: "msg-accepted-generated",
+			ExternalUserID:    "zhangsan",
+			TextContent:       "重新搜索最新比赛",
+		},
+	)
+	if reply != "我先接住这个任务，开始处理。" ||
+		sender.sent.Content != reply ||
+		sendResult.MessageID != "wx-accepted-generated" ||
+		sendCount != 1 {
+		t.Fatalf("accepted reply=%q sent=%#v result=%#v count=%d", reply, sender.sent, sendResult, sendCount)
+	}
+	if llmClient.feedbackIdx != 1 {
+		t.Fatalf("feedback calls = %d, want 1", llmClient.feedbackIdx)
+	}
+}
+
+func TestAgentConversationServiceEmptyCompletionUsesGeneratedFeedback(t *testing.T) {
+	now := time.Date(2026, 7, 4, 20, 35, 0, 0, time.UTC)
+	llmClient := &fakeAgentConversationLLM{
+		feedbackResponses: []llm.ChatResponse{
+			{Provider: "openai_compatible", Model: "feedback-model", Content: "处理完成，结果已经整理好。"},
+		},
+	}
+	service := NewAgentConversationService(
+		newFakeAgentConversationRepository(),
+		WithAgentConversationLLM(llmClient),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+		WithAgentConversationNow(func() time.Time { return now }),
+	)
+
+	reply := service.agentTurnCompletionReply(context.Background(), domain.AgentPlan{
+		ID:        12,
+		Status:    domain.AgentPlanStatusCompleted,
+		Summary:   "整理赛事信息",
+		UpdatedAt: now,
+	}, "")
+	if reply != "处理完成，结果已经整理好。" {
+		t.Fatalf("reply = %q", reply)
+	}
+	if llmClient.feedbackIdx != 1 {
+		t.Fatalf("feedback calls = %d, want 1", llmClient.feedbackIdx)
 	}
 }
 
@@ -4326,6 +4447,7 @@ type fakeAgentConversationLLM struct {
 	feedbackResponses []llm.ChatResponse
 	memoryResponses   []llm.ChatResponse
 	routeResponses    []llm.ChatResponse
+	feedbackDelay     time.Duration
 	memoryDelay       time.Duration
 	err               error
 	planErr           error
@@ -4434,6 +4556,13 @@ func (f *fakeAgentConversationLLM) Chat(ctx context.Context, request llm.ChatReq
 		return fakeMainAgentPlanSpecResponse(request, f.fakePlanCapabilityKeys()), nil
 	}
 	if fakeIsAgentWeChatFeedbackRequest(request) {
+		if f.feedbackDelay > 0 {
+			select {
+			case <-time.After(f.feedbackDelay):
+			case <-ctx.Done():
+				return llm.ChatResponse{}, ctx.Err()
+			}
+		}
 		if len(f.feedbackResponses) > 0 {
 			index := f.feedbackIdx
 			if index >= len(f.feedbackResponses) {
@@ -4442,6 +4571,7 @@ func (f *fakeAgentConversationLLM) Chat(ctx context.Context, request llm.ChatReq
 			f.feedbackIdx++
 			return f.feedbackResponses[index], nil
 		}
+		f.feedbackIdx++
 		return fakeAgentWeChatFeedbackResponse(request), nil
 	}
 	if f.started != nil {
@@ -4619,6 +4749,8 @@ func fakeAgentWeChatFeedbackResponse(request llm.ChatRequest) llm.ChatResponse {
 	stage := "feedback"
 	progressURL := ""
 	approvalURL := ""
+	actionKey := ""
+	taskID := ""
 	if len(request.Messages) > 1 {
 		var wrapper map[string]any
 		if err := json.Unmarshal([]byte(request.Messages[1].Content), &wrapper); err == nil {
@@ -4632,10 +4764,29 @@ func fakeAgentWeChatFeedbackResponse(request llm.ChatRequest) llm.ChatResponse {
 				if value, ok := payload["approval_url"].(string); ok {
 					approvalURL = strings.TrimSpace(value)
 				}
+				if control, ok := payload["control"].(map[string]any); ok {
+					if value, ok := control["action_key"].(string); ok {
+						actionKey = strings.TrimSpace(value)
+					}
+					switch value := control["scheduled_task_id"].(type) {
+					case float64:
+						taskID = strconv.FormatInt(int64(value), 10)
+					case int64:
+						taskID = strconv.FormatInt(value, 10)
+					case int:
+						taskID = strconv.Itoa(value)
+					}
+				}
 			}
 		}
 	}
 	parts := []string{"feedback:" + stage}
+	if actionKey != "" {
+		parts = append(parts, "action:"+actionKey)
+	}
+	if taskID != "" {
+		parts = append(parts, "task:"+taskID)
+	}
 	if progressURL != "" {
 		parts = append(parts, progressURL)
 	}

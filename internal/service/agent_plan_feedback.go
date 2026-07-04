@@ -171,7 +171,7 @@ func (s *AgentConversationService) agentPlanProgressNotificationText(
 	})
 }
 
-func (s *AgentConversationService) agentTurnCompletionReply(plan domain.AgentPlan, reply string) string {
+func (s *AgentConversationService) agentTurnCompletionReply(ctx context.Context, plan domain.AgentPlan, reply string) string {
 	reply = strings.TrimSpace(reply)
 	if reply != "" {
 		return reply
@@ -180,11 +180,11 @@ func (s *AgentConversationService) agentTurnCompletionReply(plan domain.AgentPla
 	if plan.Status == domain.AgentPlanStatusFailed {
 		key = "failed"
 	}
-	return finalizeAgentWeChatFeedbackText(renderAgentWeChatFeedbackTemplate(key, agentWeChatFeedbackRequest{
+	return s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
 		Stage:       key,
 		Plan:        plan,
 		ProgressURL: s.agentPlanURLIfAvailable(plan.ID),
-	}.templateData()))
+	})
 }
 
 func (s *AgentConversationService) sendWeChatWorkTaskAcceptedFeedback(
@@ -198,10 +198,10 @@ func (s *AgentConversationService) sendWeChatWorkTaskAcceptedFeedback(
 		Stage:       "accepted",
 		UserMessage: input.TextContent,
 	}
-	reply := finalizeAgentWeChatFeedbackText(renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData()))
 	if s == nil || !s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "process") {
-		return reply, notifier.WeChatWorkSendResult{}, 0
+		return "", notifier.WeChatWorkSendResult{}, 0
 	}
+	reply := s.generateAgentWeChatFeedbackText(ctx, request)
 	sendResult, sendCount, err := s.sendWeChatWorkReply(ctx, input.ExternalUserID, reply)
 	status := "succeeded"
 	message := "wechat work task acceptance feedback sent"

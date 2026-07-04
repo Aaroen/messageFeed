@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"messagefeed/internal/domain"
 	"strings"
 	"time"
@@ -48,7 +47,7 @@ func (s *AgentConversationService) handleWeChatButtonCallback(
 		return false, ReceiveWeChatWorkAppMessageResult{}, err
 	}
 	plan = control.Plan
-	reply := s.agentButtonCallbackReply(actionKey, handler, control)
+	reply := s.agentButtonCallbackReply(ctx, input, actionKey, handler, control)
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
 		TurnID:    turn.ID,
@@ -279,29 +278,24 @@ func normalizeAgentButtonCallbackKey(eventKey string) string {
 	}
 }
 
-func (s *AgentConversationService) agentButtonCallbackReply(actionKey string, handler string, control agentButtonControlResult) string {
+func (s *AgentConversationService) agentButtonCallbackReply(ctx context.Context, input ReceiveWeChatWorkAppMessageInput, actionKey string, handler string, control agentButtonControlResult) string {
 	plan := control.Plan
-	if plan.ID < 1 {
-		return fmt.Sprintf("已收到企业微信按钮动作：%s。\n处理器：%s。\n结果：%s。\n当前没有可关联的 Agent 计划，请在 Web 任务工作台查看最近任务。", actionKey, handler, control.Summary)
-	}
-	progressURL := s.agentPlanURL(plan.ID)
-	switch actionKey {
-	case "view_progress":
-		return fmt.Sprintf("已打开计划 #%d 的进度。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
-	case "approval":
-		return fmt.Sprintf("已处理计划 #%d 的审批按钮回调。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
-	case "retry_plan":
-		return fmt.Sprintf("已处理计划 #%d 的重试按钮回调。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
-	case "recover_plan":
-		return fmt.Sprintf("已处理计划 #%d 的恢复按钮回调。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
-	case "cancel_scheduled_task":
-		if control.Task.ID > 0 {
-			return fmt.Sprintf("已处理计划 #%d 的取消按钮回调。\n任务 #%d 状态：%s\n结果：%s\n进度：%s", plan.ID, control.Task.ID, string(control.Task.Status), control.Summary, progressURL)
-		}
-		return fmt.Sprintf("已处理计划 #%d 的取消按钮回调。\n状态：%s\n结果：%s\n进度：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
-	case "view_final_report":
-		return fmt.Sprintf("计划 #%d 的最终报告入口已确认。\n状态：%s\n结果：%s\n详情：%s", plan.ID, string(plan.Status), control.Summary, progressURL)
-	default:
-		return fmt.Sprintf("已收到企业微信按钮动作：%s。\n处理器：%s。\n关联计划：#%d\n结果：%s\n进度：%s", actionKey, handler, plan.ID, control.Summary, progressURL)
-	}
+	return s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{
+		Stage:       "button_callback",
+		UserMessage: input.TextContent,
+		Plan:        plan,
+		ProgressURL: s.agentPlanURLIfAvailable(plan.ID),
+		Control: agentWeChatFeedbackControl{
+			ActionKey:           actionKey,
+			Handler:             handler,
+			Type:                control.ControlType,
+			Status:              control.Status,
+			Summary:             control.Summary,
+			Changed:             control.Changed,
+			PlanID:              plan.ID,
+			ScheduledTaskID:     control.Task.ID,
+			ScheduledTaskStatus: string(control.Task.Status),
+			Metadata:            control.Metadata,
+		},
+	})
 }

@@ -225,11 +225,6 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		Turn:            turn,
 		ProcessingAsync: !s.processInline,
 	}
-	if !s.processInline {
-		reply, sendResult, _ := s.sendWeChatWorkTaskAcceptedFeedback(ctx, account, session, turn, input)
-		result.Reply = reply
-		result.SendResult = sendResult
-	}
 	if s.processInline {
 		processed, err := s.processTurn(context.WithoutCancel(ctx), account, inbound, session, turn, input)
 		if err != nil {
@@ -242,6 +237,7 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 
 	processCtx := context.WithoutCancel(ctx)
 	go func() {
+		s.sendWeChatWorkTaskAcceptedFeedback(processCtx, account, session, turn, input)
 		ctx, cancel := context.WithTimeout(processCtx, s.processTimeout)
 		defer cancel()
 		s.processQueuedWeChatWorkTurn(ctx, account, inbound, session, turn, input, userTranscript)

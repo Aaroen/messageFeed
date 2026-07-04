@@ -26,10 +26,24 @@ type agentWeChatFeedbackRequest struct {
 	UserMessage string
 	Plan        domain.AgentPlan
 	Step        domain.AgentPlanStep
+	Control     agentWeChatFeedbackControl
 	ErrorText   string
 	Cause       error
 	ProgressURL string
 	ApprovalURL string
+}
+
+type agentWeChatFeedbackControl struct {
+	ActionKey           string
+	Handler             string
+	Type                string
+	Status              string
+	Summary             string
+	Changed             bool
+	PlanID              int64
+	ScheduledTaskID     int64
+	ScheduledTaskStatus string
+	Metadata            domain.AgentJSON
 }
 
 type agentWeChatFeedbackTemplateFile struct {
@@ -37,18 +51,26 @@ type agentWeChatFeedbackTemplateFile struct {
 }
 
 type agentWeChatFeedbackTemplateData struct {
-	Stage            string
-	Status           string
-	Goal             string
-	Summary          string
-	StepTitle        string
-	StepSummary      string
-	Error            string
-	ErrorType        string
-	TimedOut         bool
-	ThinkingTimedOut bool
-	ProgressURL      string
-	ApprovalURL      string
+	Stage               string
+	Status              string
+	Goal                string
+	Summary             string
+	StepTitle           string
+	StepSummary         string
+	Error               string
+	ErrorType           string
+	TimedOut            bool
+	ThinkingTimedOut    bool
+	ProgressURL         string
+	ApprovalURL         string
+	ActionKey           string
+	Handler             string
+	ControlType         string
+	ControlStatus       string
+	ControlSummary      string
+	Changed             bool
+	ScheduledTaskID     int64
+	ScheduledTaskStatus string
 }
 
 // outboundNotificationContext 为企业微信发送动作创建独立短超时上下文。
@@ -160,6 +182,9 @@ func (request agentWeChatFeedbackRequest) agentWeChatFeedbackPayload() domain.Ag
 			"capability": request.Step.CapabilityKey,
 		}
 	}
+	if control := request.controlPayload(); len(control) > 0 {
+		payload["control"] = control
+	}
 	return payload
 }
 
@@ -170,18 +195,26 @@ func (request agentWeChatFeedbackRequest) templateData() agentWeChatFeedbackTemp
 	}
 	thinkingTimedOut := isAgentThinkingTimeoutError(request.Cause, errorText)
 	return agentWeChatFeedbackTemplateData{
-		Stage:            strings.TrimSpace(request.Stage),
-		Status:           string(request.Plan.Status),
-		Goal:             safeSummary(request.Plan.Goal, 300),
-		Summary:          safeSummary(request.Plan.Summary, 300),
-		StepTitle:        safeSummary(request.Step.Title, 160),
-		StepSummary:      safeSummary(firstNonEmptyString(request.Step.OutputSummary, request.Step.InputSummary), 220),
-		Error:            safeSummary(errorText, 300),
-		ErrorType:        agentFeedbackErrorType(request.Cause, errorText),
-		TimedOut:         thinkingTimedOut || isAgentTimeoutError(request.Cause) || strings.Contains(strings.ToLower(errorText), "deadline exceeded"),
-		ThinkingTimedOut: thinkingTimedOut,
-		ProgressURL:      strings.TrimSpace(request.ProgressURL),
-		ApprovalURL:      strings.TrimSpace(request.ApprovalURL),
+		Stage:               strings.TrimSpace(request.Stage),
+		Status:              string(request.Plan.Status),
+		Goal:                safeSummary(request.Plan.Goal, 300),
+		Summary:             safeSummary(request.Plan.Summary, 300),
+		StepTitle:           safeSummary(request.Step.Title, 160),
+		StepSummary:         safeSummary(firstNonEmptyString(request.Step.OutputSummary, request.Step.InputSummary), 220),
+		Error:               safeSummary(errorText, 300),
+		ErrorType:           agentFeedbackErrorType(request.Cause, errorText),
+		TimedOut:            thinkingTimedOut || isAgentTimeoutError(request.Cause) || strings.Contains(strings.ToLower(errorText), "deadline exceeded"),
+		ThinkingTimedOut:    thinkingTimedOut,
+		ProgressURL:         strings.TrimSpace(request.ProgressURL),
+		ApprovalURL:         strings.TrimSpace(request.ApprovalURL),
+		ActionKey:           strings.TrimSpace(request.Control.ActionKey),
+		Handler:             strings.TrimSpace(request.Control.Handler),
+		ControlType:         strings.TrimSpace(request.Control.Type),
+		ControlStatus:       strings.TrimSpace(request.Control.Status),
+		ControlSummary:      safeSummary(request.Control.Summary, 220),
+		Changed:             request.Control.Changed,
+		ScheduledTaskID:     request.Control.ScheduledTaskID,
+		ScheduledTaskStatus: strings.TrimSpace(request.Control.ScheduledTaskStatus),
 	}
 }
 
@@ -197,10 +230,48 @@ func (request agentWeChatFeedbackRequest) fallbackTemplateKey() string {
 	if stage == "failed" && data.TimedOut {
 		return "failed_timeout"
 	}
+	if stage == "button_callback" && request.Plan.ID < 1 {
+		return "button_callback_no_plan"
+	}
 	if request.Step.ID > 0 && request.Step.Status == domain.AgentPlanStepStatusFailed {
 		return "step_failed"
 	}
 	return stage
+}
+
+func (request agentWeChatFeedbackRequest) controlPayload() domain.AgentJSON {
+	control := domain.AgentJSON{}
+	if value := strings.TrimSpace(request.Control.ActionKey); value != "" {
+		control["action_key"] = value
+	}
+	if value := strings.TrimSpace(request.Control.Handler); value != "" {
+		control["handler"] = value
+	}
+	if value := strings.TrimSpace(request.Control.Type); value != "" {
+		control["type"] = value
+	}
+	if value := strings.TrimSpace(request.Control.Status); value != "" {
+		control["status"] = value
+	}
+	if value := strings.TrimSpace(request.Control.Summary); value != "" {
+		control["summary"] = safeSummary(value, 300)
+	}
+	if request.Control.Changed {
+		control["changed"] = true
+	}
+	if request.Control.PlanID > 0 {
+		control["plan_id"] = request.Control.PlanID
+	}
+	if request.Control.ScheduledTaskID > 0 {
+		control["scheduled_task_id"] = request.Control.ScheduledTaskID
+	}
+	if value := strings.TrimSpace(request.Control.ScheduledTaskStatus); value != "" {
+		control["scheduled_task_status"] = value
+	}
+	if len(request.Control.Metadata) > 0 {
+		control["metadata"] = request.Control.Metadata
+	}
+	return control
 }
 
 func finalizeAgentWeChatFeedbackText(text string) string {

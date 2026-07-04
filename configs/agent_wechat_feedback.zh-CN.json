@@ -16,6 +16,8 @@
     "approval_waiting": "这一步需要确认后继续。{{if .ApprovalURL}}\n{{.ApprovalURL}}{{end}}",
     "rejected": "这次任务没有继续执行。{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",
     "completed_empty": "处理完成。{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",
+    "button_callback": "按钮操作已处理。{{if .ProgressURL}}\n{{.ProgressURL}}{{end}}",
+    "button_callback_no_plan": "按钮操作已收到。当前没有可关联的任务。",
     "progress_card_title": "进度更新",
     "progress_card_description": "任务状态：{{.Status}}{{if .ProgressURL}} / {{.ProgressURL}}{{end}}",
     "progress_card_button_text": "查看进度",
