@@ -79,7 +79,9 @@ let requestSeq = 0
 let pollTimer: number | undefined
 let progressStream: EventSource | undefined
 let progressStreamKey = ''
+let taskRecordPress: { id: string; pointerId: number; x: number; y: number } | null = null
 const taskRecordLimit = 100
+const taskRecordPressMoveLimit = 10
 
 const planID = computed(() => {
   return positiveRouteNumber(route.params.id)
@@ -406,16 +408,47 @@ async function loadTaskRecords() {
 
 function openTaskRecord(task: AgentTaskSummary) {
   if (task.plan_id > 0) {
-    router.push({ name: 'agent-plan', params: { id: String(task.plan_id) } })
+    void router.push({ name: 'agent-plan', params: { id: String(task.plan_id) } })
     return
   }
   if (task.scheduled_task_id > 0) {
-    router.push({ name: 'agent', query: { scheduled_task_id: String(task.scheduled_task_id) } })
+    void router.push({ name: 'agent', query: { scheduled_task_id: String(task.scheduled_task_id) } })
     return
   }
   if (task.turn_id > 0) {
-    router.push({ name: 'agent', query: { turn_id: String(task.turn_id) } })
+    void router.push({ name: 'agent', query: { turn_id: String(task.turn_id) } })
   }
+}
+
+function beginTaskRecordPress(task: AgentTaskSummary, event: PointerEvent) {
+  if (event.pointerType === 'mouse' && event.button !== 0) {
+    taskRecordPress = null
+    return
+  }
+  taskRecordPress = { id: task.id, pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+}
+
+function openTaskRecordFromPointer(task: AgentTaskSummary, event: PointerEvent) {
+  if (event.pointerType === 'mouse' && event.button !== 0) {
+    taskRecordPress = null
+    return
+  }
+  const press = taskRecordPress
+  taskRecordPress = null
+  if (!press || press.id !== task.id || press.pointerId !== event.pointerId) {
+    return
+  }
+  const moved = Math.hypot(event.clientX - press.x, event.clientY - press.y)
+  if (moved > taskRecordPressMoveLimit) {
+    return
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  openTaskRecord(task)
+}
+
+function cancelTaskRecordPress() {
+  taskRecordPress = null
 }
 
 function taskKindLabel(kind: string) {
@@ -735,7 +768,19 @@ function boolValue(value: unknown) {
           <span>{{ refreshNotice || `${taskRecords.length} 条` }}</span>
         </div>
         <div v-if="taskRecords.length" class="task-record-list">
-          <button v-for="task in taskRecords" :key="task.id" class="task-record-row" type="button" @click="openTaskRecord(task)">
+          <button
+            v-for="task in taskRecords"
+            :key="task.id"
+            class="task-record-row"
+            type="button"
+            @pointerdown.stop="beginTaskRecordPress(task, $event)"
+            @pointerup.stop="openTaskRecordFromPointer(task, $event)"
+            @pointercancel="cancelTaskRecordPress"
+            @pointerleave="cancelTaskRecordPress"
+            @click.prevent.stop
+            @keydown.enter.prevent.stop="openTaskRecord(task)"
+            @keydown.space.prevent.stop="openTaskRecord(task)"
+          >
             <span class="step-status" :class="`tone-${statusTone(task.status)}`">
               <component :is="statusIcon(task.status)" />
             </span>
