@@ -76,12 +76,15 @@ const retryingStepID = ref(0)
 const stoppingPlan = ref(false)
 
 let requestSeq = 0
+let traceRequestSeq = 0
 let pollTimer: number | undefined
 let progressStream: EventSource | undefined
 let progressStreamKey = ''
 let taskRecordPress: { id: string; pointerId: number; x: number; y: number } | null = null
+let lastTaskRecordNavigation: { id: string; at: number } | null = null
 const taskRecordLimit = 100
 const taskRecordPressMoveLimit = 10
+const taskRecordNavigationDedupeMS = 400
 
 const planID = computed(() => {
   return positiveRouteNumber(route.params.id)
@@ -256,10 +259,12 @@ async function loadPlan(options: { silent?: boolean } = {}) {
       if (seq !== requestSeq) {
         return
       }
+      traceRequestSeq += 1
       progress.value = null
       plan.value = null
       runs.value = []
       traceBundle.value = null
+      traceLoading.value = false
       clearPollTimer()
       closeProgressStream()
       refreshNotice.value = `更新于 ${formatTime(new Date().toISOString())}`
@@ -282,10 +287,10 @@ async function loadPlan(options: { silent?: boolean } = {}) {
       return
     }
     applyProgress(nextProgress)
-    await loadTrace(nextProgress)
     refreshNotice.value = `更新于 ${formatTime(new Date().toISOString())}`
     scheduleNextRefresh()
     openProgressStream()
+    void loadTrace(nextProgress, seq)
   } catch (error) {
     if (seq !== requestSeq) {
       return
@@ -307,26 +312,37 @@ function applyProgress(nextProgress: AgentProgressSnapshot) {
   runs.value = nextProgress.runs || []
 }
 
-async function loadTrace(nextProgress: AgentProgressSnapshot) {
+async function loadTrace(nextProgress: AgentProgressSnapshot, ownerSeq = requestSeq) {
+  const seq = ++traceRequestSeq
   const currentPlanID = nextProgress.plan?.id || effectivePlanID.value
   const currentTurnID = nextProgress.plan?.turn_id || effectiveTurnID.value
   const currentRunID = effectiveRunID.value || orderedRuns.value[0]?.id || 0
   if (!currentPlanID && !currentTurnID && !currentRunID) {
-    traceBundle.value = null
+    if (seq === traceRequestSeq && ownerSeq === requestSeq) {
+      traceBundle.value = null
+      traceLoading.value = false
+    }
     return
   }
   traceLoading.value = true
   try {
-    traceBundle.value = await getAgentTraceBundle({
+    const bundle = await getAgentTraceBundle({
       plan_id: currentPlanID || undefined,
       turn_id: currentPlanID ? undefined : currentTurnID || undefined,
       run_id: currentPlanID || currentTurnID ? undefined : currentRunID || undefined,
       limit: 80,
     })
+    if (seq === traceRequestSeq && ownerSeq === requestSeq) {
+      traceBundle.value = bundle
+    }
   } catch {
-    traceBundle.value = null
+    if (seq === traceRequestSeq && ownerSeq === requestSeq) {
+      traceBundle.value = null
+    }
   } finally {
-    traceLoading.value = false
+    if (seq === traceRequestSeq) {
+      traceLoading.value = false
+    }
   }
 }
 
@@ -407,6 +423,14 @@ async function loadTaskRecords() {
 }
 
 function openTaskRecord(task: AgentTaskSummary) {
+  const now = Date.now()
+  if (
+    lastTaskRecordNavigation?.id === task.id &&
+    now - lastTaskRecordNavigation.at < taskRecordNavigationDedupeMS
+  ) {
+    return
+  }
+  lastTaskRecordNavigation = { id: task.id, at: now }
   if (task.plan_id > 0) {
     void router.push({ name: 'agent-plan', params: { id: String(task.plan_id) } })
     return
@@ -547,11 +571,11 @@ async function stopCurrentPlan() {
 }
 
 function back() {
-  if (window.history.length > 1) {
-    router.back()
-  } else {
-    router.push({ name: 'feed' })
+  if (!isTaskListMode.value) {
+    void router.push({ name: 'agent-plans' })
+    return
   }
+  void router.push({ name: 'recommendations' })
 }
 
 function matchSubtask(step: AgentPlanStep, index: number) {
@@ -777,7 +801,7 @@ function boolValue(value: unknown) {
             @pointerup.stop="openTaskRecordFromPointer(task, $event)"
             @pointercancel="cancelTaskRecordPress"
             @pointerleave="cancelTaskRecordPress"
-            @click.prevent.stop
+            @click.prevent.stop="openTaskRecord(task)"
             @keydown.enter.prevent.stop="openTaskRecord(task)"
             @keydown.space.prevent.stop="openTaskRecord(task)"
           >
