@@ -606,5 +606,6 @@ func mainAgentPlanSpecMetadata(spec agent.PlanSpec) domain.AgentJSON {
 		"required_memory_types":   spec.RequiredMemoryTypes,
 		"expected_evidence_scope": spec.ExpectedEvidenceScope,
 		"max_iterations":          spec.MaxIterations,
+		"metadata":                cloneApprovalMetadata(spec.Metadata),
 	}
 }

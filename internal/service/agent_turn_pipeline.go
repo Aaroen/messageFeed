@@ -671,7 +671,7 @@ func (s *AgentConversationService) createPlanForTurn(
 		// 主 Agent 先由模型生成 PlanSpec，避免 service 层继续通过关键词硬编码推断用户意图。
 		mainPlan, err = s.buildMainAgentPlanSpec(ctx, account, session, turn, controllerRun, input)
 		if err != nil {
-			if fallbackSpec, ok := agentTaskRouteFallbackPlanSpec(route, input.TextContent); ok {
+			if fallbackSpec, ok := agentTaskRouteFallbackPlanSpec(route, input.TextContent); ok && mainAgentPlannerErrorAllowsRouteFallback(err) {
 				mainPlan = mainAgentPlanSpecResult{
 					Spec:      fallbackSpec,
 					Provider:  route.Provider,
@@ -816,6 +816,27 @@ func (s *AgentConversationService) createPlanForTurn(
 		return domain.AgentPlan{}, "", err
 	}
 	return plan, token, nil
+}
+
+func mainAgentPlannerErrorAllowsRouteFallback(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	for _, blocked := range []string{
+		"invalid api key",
+		"api key",
+		"unauthorized",
+		"forbidden",
+		"permission denied",
+		"401",
+		"403",
+	} {
+		if strings.Contains(lower, blocked) {
+			return false
+		}
+	}
+	return true
 }
 
 func historyQueryPlanForTurn(plan domain.AgentPlan) agent.PlanHistoryQueryPlan {

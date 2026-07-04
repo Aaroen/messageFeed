@@ -275,20 +275,24 @@ func agentTaskRouteFallbackPlanSpec(route agentTaskRouteClassification, goal str
 	if route.TaskType == agentTaskRouteRAGAnswer || route.TaskType == agentTaskRouteQuickAnswer {
 		return agentTaskRoutePlanSpec(route, goal), true
 	}
-	if route.TaskType != agentTaskRouteDeepTask || len(route.CandidateCapabilities) == 0 {
+	capabilities := route.CandidateCapabilities
+	if len(capabilities) == 0 {
+		capabilities = fallbackAgentTaskRouteCapabilities(route)
+	}
+	if route.TaskType != agentTaskRouteDeepTask || len(capabilities) == 0 {
 		return agent.PlanSpec{}, false
 	}
 	spec := agentTaskRoutePlanSpec(route, goal)
 	spec.Complexity = agent.PlanningComplexityComplex
 	spec.RequiresSubAgent = true
 	spec.DirectAnswerAllowed = false
-	spec.RequiredCapabilities = append([]string(nil), route.CandidateCapabilities...)
+	spec.RequiredCapabilities = append([]string(nil), capabilities...)
 	spec.Subtasks = []agent.PlanSubtask{
 		{
 			Title:           "执行用户任务",
 			Prompt:          "根据用户目标选择可用能力执行任务，优先获取必要证据，再生成用户可读结果。",
 			ContextSummary:  route.Reason,
-			CapabilityKeys:  append([]string(nil), route.CandidateCapabilities...),
+			CapabilityKeys:  append([]string(nil), capabilities...),
 			ExpectedOutput:  "可验证证据、执行结论和面向用户的最终答复。",
 			FailureStrategy: "能力调用失败时说明已完成部分、失败原因和可继续处理的范围。",
 			MaxRetries:      1,
@@ -296,7 +300,21 @@ func agentTaskRouteFallbackPlanSpec(route agentTaskRouteClassification, goal str
 	}
 	spec.ExpectedEvidenceScope = []string{"tool_result", "current_context"}
 	spec.Metadata["fallback_reason"] = "main_agent_planner_failed"
+	if len(route.CandidateCapabilities) == 0 {
+		spec.Metadata["fallback_capabilities"] = capabilities
+	}
 	return spec, true
+}
+
+func fallbackAgentTaskRouteCapabilities(route agentTaskRouteClassification) []string {
+	capabilities := make([]string, 0, 3)
+	if route.NeedsHistoryRecall {
+		capabilities = append(capabilities, "conversation.query_history", "memory.fact_recall")
+	}
+	if route.NeedsTools || route.RequiresSubAgent {
+		capabilities = append(capabilities, "web.search")
+	}
+	return compactStrings(capabilities)
 }
 
 func agentTaskRoutePlanSpec(route agentTaskRouteClassification, goal string) agent.PlanSpec {

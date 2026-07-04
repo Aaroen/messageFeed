@@ -619,6 +619,48 @@ func TestAgentTaskRouterFallbacksWhenFullPlannerReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestAgentTaskRouterFallbacksWithDefaultCapabilityWhenRouteHasNoCandidates(t *testing.T) {
+	now := time.Date(2026, 7, 4, 19, 20, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	llmClient := &fakeAgentConversationLLM{
+		planErr: errors.New("llm response is empty"),
+		routeResponses: []llm.ChatResponse{fakeAgentTaskRouteResponse(domain.AgentJSON{
+			"task_type":               "deep_task",
+			"confidence":              0.82,
+			"needs_history_recall":    false,
+			"needs_tools":             true,
+			"requires_sub_agent":      true,
+			"estimated_latency_class": "slow",
+			"candidate_capabilities":  []string{},
+			"reason":                  "需要外部证据支持。",
+		})},
+	}
+	service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
+
+	plan, _, err := service.createPlanForTurn(context.Background(), testAgentExternalAccount(now), domain.AgentSession{ID: 2, UserID: 1}, domain.AgentTurn{ID: 3, UserID: 1, SessionID: 2}, domain.AgentRun{ID: 4, SessionID: 2, TurnID: 3, ModelKey: "test-model"}, ReceiveWeChatWorkAppMessageInput{
+		Provider:          domain.AgentProviderWeb,
+		ProviderMessageID: "msg-route-default-fallback",
+		MsgType:           "text",
+		TextContent:       "重新搜索最新比赛怎么样，下几场是什么",
+		RequestID:         "req-route-default-fallback",
+	})
+	if err != nil {
+		t.Fatalf("createPlanForTurn() error = %v", err)
+	}
+	if !containsAgentString(plan.AllowedScopes, "web.search") {
+		t.Fatalf("allowed scopes = %#v, want web.search fallback", plan.AllowedScopes)
+	}
+	mainPlan := metadataMap(plan.Metadata, "main_agent_plan")
+	mainPlanMetadata := metadataMap(domain.AgentJSON{"metadata": mainPlan["metadata"]}, "metadata")
+	if !metadataStringSliceContains(mainPlanMetadata["fallback_capabilities"], "web.search") {
+		t.Fatalf("main agent plan = %#v, want fallback capabilities metadata", mainPlan)
+	}
+	planningCall := metadataMap(plan.Metadata, "main_agent_planning_call")
+	if planningCall["attempts"] != 0 {
+		t.Fatalf("planning call metadata = %#v, want fallback attempts 0", planningCall)
+	}
+}
+
 func TestConversationMemoryProviderExecutesPlannedHistoryQuery(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -4755,6 +4797,20 @@ func agentConversationStringSliceContains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
 			return true
+		}
+	}
+	return false
+}
+
+func metadataStringSliceContains(value any, target string) bool {
+	switch typed := value.(type) {
+	case []string:
+		return agentConversationStringSliceContains(typed, target)
+	case []any:
+		for _, item := range typed {
+			if text, _ := item.(string); text == target {
+				return true
+			}
 		}
 	}
 	return false
