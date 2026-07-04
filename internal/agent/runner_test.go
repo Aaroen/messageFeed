@@ -133,6 +133,74 @@ func TestTurnRunnerRetriesWhenModelSkipsRequiredTool(t *testing.T) {
 	}
 }
 
+func TestTurnRunnerFinalizesAfterObservedToolRoundLimit(t *testing.T) {
+	now := time.Date(2026, 7, 4, 20, 0, 0, 0, time.UTC)
+	chat := &runnerFakeChatClient{
+		responses: []llm.ChatResponse{
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-1", Name: "web__search", Arguments: `{"query":"比赛 最新","limit":5}`},
+				},
+			},
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-2", Name: "web__search", Arguments: `{"query":"比赛 下几场","limit":5}`},
+				},
+			},
+			{
+				Provider: "openai_compatible",
+				Model:    "custom-model",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call-3", Name: "web__search", Arguments: `{"query":"赛程 最新","limit":5}`},
+				},
+			},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "已基于三次搜索结果汇总后续赛程。"},
+		},
+	}
+	audit := &runnerFakeAuditLogger{}
+	runner := NewTurnRunner(TurnRunnerOptions{
+		Store:        &runnerFakeTurnStore{},
+		AuditLogger:  audit,
+		ToolExecutor: &runnerFakeToolExecutor{content: "搜索结果：后续赛程候选。"},
+		ToolKeys:     []string{"web.search"},
+		LLMClient:    chat,
+		Now:          func() time.Time { return now },
+		SystemPrompt: "系统提示",
+	})
+
+	result, err := runner.Run(context.Background(), TurnRunInput{
+		UserID:          1,
+		Session:         domain.AgentSession{ID: 10, UserID: 1},
+		Turn:            domain.AgentTurn{ID: 20, SessionID: 10, UserID: 1, Status: domain.AgentTurnStatusRunning},
+		InboundMessage:  domain.AgentInboundMessage{ID: 30, UserID: 1},
+		AllowedToolKeys: []string{"web.search"},
+		MessageType:     "text",
+		MessageText:     "重新搜索最新比赛怎么样，下几场是什么",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Reply != "已基于三次搜索结果汇总后续赛程。" {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if chat.calls != 4 {
+		t.Fatalf("chat calls = %d, want 4", chat.calls)
+	}
+	if len(chat.requests[3].Tools) != 0 || chat.requests[3].ToolChoice != "" {
+		t.Fatalf("finalization request should disable tools: %#v", chat.requests[3])
+	}
+	if len(result.Context.Observations) != maxObservedToolRounds {
+		t.Fatalf("observations = %#v", result.Context.Observations)
+	}
+	if !runnerAuditContains(audit.events, "agent.tool_observation_finalization") {
+		t.Fatalf("audit events = %#v", audit.events)
+	}
+}
+
 func TestTurnRunnerRequiresToolWhenSnapshotOnlyHasContextObservation(t *testing.T) {
 	now := time.Date(2026, 6, 28, 18, 25, 0, 0, time.UTC)
 	chat := &runnerFakeChatClient{

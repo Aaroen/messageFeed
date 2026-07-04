@@ -126,6 +126,10 @@ func requiredToolCallRetryPrompt(attempt int) string {
 	return "上一轮没有执行已授权工具。当前计划要求先取得工具观察，再基于观察结果回答；本轮必须调用至少一个已授权工具。"
 }
 
+func observedToolRoundLimitPrompt(observationCount int) string {
+	return fmt.Sprintf("已经取得 %d 条工具观察。请只基于以上工具结果生成最终回答，不要再请求工具；如果证据不足，请直接说明证据不足和已完成的验证范围。", observationCount)
+}
+
 func emptyLLMResponseRetryPrompt(attempt int, finalOnly bool, hasObservations bool, hasTools bool) string {
 	switch {
 	case finalOnly:

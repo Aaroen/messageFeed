@@ -197,6 +197,8 @@ const requiredToolCallRetryLimit = 2
 const promptedToolActionRetryLimit = 2
 const plainTextReplyRepairLimit = 2
 const replyCompletenessRepairLimit = 2
+const maxToolRounds = 12
+const maxObservedToolRounds = 3
 
 func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult, error) {
 	ctx, span := observability.StartSpan(ctx, "agent.turn_runner.run",
@@ -334,9 +336,9 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 
 func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage) (llm.ChatResponse, ContextSnapshot, []llm.ChatMessage, error) {
 	tools := r.listMCPTools(input.AllowedToolKeys)
-	const maxToolRounds = 50
 	requiredToolRetries := 0
 	toolInteractionObserved := false
+	observedToolRounds := 0
 	for round := 0; round <= maxToolRounds; round++ {
 		hasToolObservation := toolInteractionObserved || hasObservationForMCPTools(snapshot.Observations, tools)
 		response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, tools, false, hasToolObservation, len(tools) > 0 && !hasToolObservation)
@@ -416,23 +418,54 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 				Content:    content,
 			})
 		}
+		if hasObservationForMCPTools(snapshot.Observations, tools) {
+			observedToolRounds++
+		}
+		if observedToolRounds >= maxObservedToolRounds {
+			response, finalMessages, err := r.finalizeWithToolObservations(ctx, input, snapshot, messages, "observed_round_limit")
+			return response, snapshot, finalMessages, err
+		}
 	}
 	if len(snapshot.Observations) > 0 {
-		// 工具预算耗尽后进入收敛阶段：不再提供工具，只允许模型基于已有观察生成最终回答。
-		messages = append(messages, llm.ChatMessage{
-			Role:    "user",
-			Content: "工具调用轮次已经达到上限。请只基于以上工具结果生成最终回答，不要再请求工具；如果证据不足，请直接说明证据不足。",
-		})
-		response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, nil, true, true, false)
-		if err != nil {
-			return llm.ChatResponse{}, snapshot, messages, err
-		}
-		messages = effectiveMessages
-		if strings.TrimSpace(response.Content) != "" {
-			return response, snapshot, messages, nil
-		}
+		response, finalMessages, err := r.finalizeWithToolObservations(ctx, input, snapshot, messages, "round_limit")
+		return response, snapshot, finalMessages, err
 	}
 	return llm.ChatResponse{}, snapshot, messages, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_round_limit", "agent tool call round limit exceeded", "agent.turn_runner.tools", true, nil)
+}
+
+func (r *TurnRunner) finalizeWithToolObservations(ctx context.Context, input TurnRunInput, snapshot ContextSnapshot, messages []llm.ChatMessage, reason string) (llm.ChatResponse, []llm.ChatMessage, error) {
+	if len(snapshot.Observations) == 0 {
+		return llm.ChatResponse{}, messages, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_round_limit", "agent tool call round limit exceeded", "agent.turn_runner.tools", true, nil)
+	}
+	r.record(ctx, AuditEvent{
+		SessionID: input.Session.ID,
+		TurnID:    input.Turn.ID,
+		UserID:    input.UserID,
+		EventType: "agent.tool_observation_finalization",
+		Status:    "finalizing",
+		Message:   "agent tool observations reached finalization threshold",
+		Metadata: domain.AgentJSON{
+			"reason":                   reason,
+			"observation_count":        len(snapshot.Observations),
+			"max_tool_rounds":          maxToolRounds,
+			"max_observed_tool_rounds": maxObservedToolRounds,
+		},
+		RequestID: input.RequestID,
+		TraceID:   input.TraceID,
+		CreatedAt: r.now().UTC(),
+	})
+	messages = append(messages, llm.ChatMessage{
+		Role:    "user",
+		Content: observedToolRoundLimitPrompt(len(snapshot.Observations)),
+	})
+	response, effectiveMessages, err := r.chatWithEmptyResponseRetry(ctx, input, messages, nil, true, true, false)
+	if err != nil {
+		return llm.ChatResponse{}, messages, err
+	}
+	if strings.TrimSpace(response.Content) != "" {
+		return response, effectiveMessages, nil
+	}
+	return llm.ChatResponse{}, effectiveMessages, domain.NewAppError(domain.ErrorKindUnavailable, "agent_tool_round_limit", "agent tool call round limit exceeded", "agent.turn_runner.tools", true, nil)
 }
 
 // ensurePlainTextReply 对最终用户可见回答执行纯文本协议校验。
