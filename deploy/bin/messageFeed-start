@@ -31,9 +31,12 @@ run_compose() {
 	fi
 }
 
-# cloudflared QUIC 对 UDP 收发缓冲区比较敏感。systemd 以 root 运行时在启动前
-# 临时调高宿主机上限；该操作失败时不阻断应用启动，避免部署入口变成单点故障。
+# cloudflared 使用 QUIC 时对 UDP 收发缓冲区比较敏感。auto 模式可能选择 QUIC，
+# 因此除显式 HTTP/2 外均在启动前临时调高宿主机上限。
 tune_cloudflared_udp_buffers() {
+	if [ "${CLOUDFLARED_PROTOCOL:-auto}" = "http2" ]; then
+		return 0
+	fi
 	if [ "$(id -u)" -ne 0 ] || ! command -v sysctl >/dev/null 2>&1; then
 		return 0
 	fi
@@ -67,6 +70,7 @@ export GATEWAY_HTTPS_PORT="$PORT"
 export GATEWAY_SITE_ADDRESS
 export GATEWAY_DEFAULT_SNI
 export CLOUDFLARED_TUNNEL_TOKEN="${CLOUDFLARED_TUNNEL_TOKEN:-}"
+export CLOUDFLARED_PROTOCOL="${CLOUDFLARED_PROTOCOL:-auto}"
 
 case "${1:-up}" in
 	up|start)

@@ -380,7 +380,7 @@ services:
     environment:
       # SSL_CERT_FILE 指向本地 CA bundle，供 cloudflared 校验回源 gateway-dev 证书
       SSL_CERT_FILE: /etc/messagefeed-certs/cloudflared-ca-bundle.crt
-    command: ["tunnel", "--no-autoupdate", "--protocol", "quic", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN:-}"]
+    command: ["tunnel", "--no-autoupdate", "--protocol", "${CLOUDFLARED_PROTOCOL:-auto}", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN:-}"]
     volumes:
       - ./deploy/caddy/certs:/etc/messagefeed-certs:ro
     depends_on:
@@ -400,7 +400,7 @@ services:
     environment:
       # SSL_CERT_FILE 指向本地 CA bundle，供 cloudflared 校验回源 gateway-dev 证书
       SSL_CERT_FILE: /etc/messagefeed-certs/cloudflared-ca-bundle.crt
-    command: ["tunnel", "--no-autoupdate", "--protocol", "quic", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN:-}"]
+    command: ["tunnel", "--no-autoupdate", "--protocol", "${CLOUDFLARED_PROTOCOL:-auto}", "run", "--token", "${CLOUDFLARED_TUNNEL_TOKEN:-}"]
     volumes:
       - ./deploy/caddy/certs:/etc/messagefeed-certs:ro
     depends_on:
