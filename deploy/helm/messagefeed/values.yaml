@@ -1,9 +1,13 @@
-# 定义全新安装时使用的默认配置，敏感值应由 Secret 覆盖。
+# messageFeed all-in-one Helm Chart 默认配置；敏感值应通过 existingSecret 提供。
+
+# 资源命名覆盖配置，留空时使用 Helm release 与 Chart 名生成名称。
 nameOverride: ""
 fullnameOverride: ""
 
+# 私有镜像仓库认证 Secret 列表，公开或本地镜像无需配置。
 imagePullSecrets: []
 
+# 为新建 PVC 提供默认 Retain StorageClass，避免 PVC 删除时自动清理底层数据。
 storageClass:
   create: true
   name: local-path-retain
@@ -12,8 +16,8 @@ storageClass:
   volumeBindingMode: WaitForFirstConsumer
   defaultClass: true
 
+# 后端 all-in-one 服务，同时运行 HTTP API 和后台任务，APP_ROLE 拆分前必须保持单副本。
 api:
-  # all-in-one 当前会同时运行 HTTP 服务和后台任务，不能扩容。
   replicaCount: 1
   image:
     repository: messagefeed
@@ -34,6 +38,7 @@ api:
   tolerations: []
   affinity: {}
 
+# Web 静态资源服务，由独立 Caddy 容器监听 8080 端口。
 web:
   enabled: true
   replicaCount: 1
@@ -51,6 +56,7 @@ web:
       cpu: 250m
       memory: 128Mi
 
+# 内置单副本 PostgreSQL 15/pgvector 数据库及其持久卷配置。
 postgresql:
   enabled: true
   image:
@@ -76,6 +82,7 @@ postgresql:
       cpu: "1"
       memory: 1Gi
 
+# 数据库迁移配置，启用后由 API init container 在业务启动前执行 migrate up。
 migrations:
   enabled: true
   image:
@@ -83,6 +90,7 @@ migrations:
     tag: v4.19.1
     pullPolicy: IfNotPresent
 
+# Caddy HTTPS gateway，统一转发 API 与 Web 请求并管理回源 TLS。
 gateway:
   enabled: true
   replicaCount: 1
@@ -96,7 +104,6 @@ gateway:
     type: ClusterIP
     port: 8443
   tls:
-    # Secret 必须包含 gateway-dev.crt、gateway-dev.key 和 cloudflared-ca-bundle.crt。
     existingSecret: messagefeed-caddy-certs
     crt: ""
     key: ""
@@ -109,6 +116,7 @@ gateway:
       cpu: 250m
       memory: 128Mi
 
+# Cloudflare Tunnel 连接器，通过出站连接将公网流量转发至 gateway。
 cloudflared:
   enabled: true
   replicaCount: 1
@@ -128,6 +136,7 @@ cloudflared:
       cpu: 250m
       memory: 256Mi
 
+# 应用非敏感运行参数，渲染到 messagefeed-app-config ConfigMap。
 appConfig:
   publicBaseURL: https://localhost:8443
   deploymentMode: single_node
@@ -155,6 +164,7 @@ appConfig:
   embeddingDimension: "4096"
   timezone: UTC
 
+# 应用敏感参数，生产环境应设置 existingSecret，避免在 values 文件中保存明文。
 appSecret:
   existingSecret: ""
   authOwnerPassword: ""
@@ -165,6 +175,7 @@ appSecret:
   llmConfigSecret: ""
   embeddingAPIKey: ""
 
+# 可选单实例观测栈，包含 Prometheus、Loki、Tempo、OTel Collector、Grafana 和 Promtail。
 observability:
   enabled: true
   storageClass: local-path-retain

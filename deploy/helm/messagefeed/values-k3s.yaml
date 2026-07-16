@@ -1,43 +1,52 @@
-# 当前 WSL2/K3s all-in-one 环境的非敏感覆盖配置。
+# 当前 WSL2/K3s all-in-one 环境的非敏感覆盖配置，需与 values.yaml 一同使用。
+
+# 固定资源名称以接管现有 messagefeed 工作负载。
 fullnameOverride: messagefeed
 
-# 既有 PVC 的 storageClassName 不可修改；仅新建 PVC 默认使用 local-path-retain。
+# 创建默认 Retain StorageClass；现有 PVC 保持原 local-path，避免修改不可变字段。
 storageClass:
   create: true
   name: local-path-retain
   defaultClass: true
 
+# 复用已导入 K3s containerd 的现有 API 镜像。
 api:
   image:
     repository: messagefeed-api
     tag: allinone-0703de0
     pullPolicy: IfNotPresent
 
+# 复用已导入 K3s containerd 的现有 Web 镜像。
 web:
   image:
     repository: messagefeed-web
     tag: allinone-0703de0
     pullPolicy: IfNotPresent
 
+# PostgreSQL 复用现有认证 Secret 和已绑定的 local-path PVC。
 postgresql:
   auth:
     existingSecret: messagefeed-postgres-secret
   persistence:
     storageClass: local-path
 
+# 应用敏感配置继续引用集群中现有 Secret，不在 values 中保存明文。
 appSecret:
   existingSecret: messagefeed-app-secret
 
+# gateway 继续引用现有 Caddy 证书和 CA bundle Secret。
 gateway:
   tls:
     existingSecret: messagefeed-caddy-certs
 
+# cloudflared 复用现有 Tunnel Secret，并使用 WSL 节点网络出站。
 cloudflared:
   image:
     tag: latest
   existingSecret: messagefeed-cloudflared-secret
   hostNetwork: true
 
+# 覆盖当前公网地址、企业微信及模型服务等非敏感应用参数。
 appConfig:
   publicBaseURL: https://aroen.eu.cc
   environment: wsl-k3s
@@ -51,6 +60,7 @@ appConfig:
   embeddingBaseURL: https://ai.hybgzs.com/v1
   embeddingModel: Qwen/Qwen3-Embedding-8B
 
+# 启用完整观测栈；现有观测 PVC 继续使用不可变的 local-path StorageClass。
 observability:
   enabled: true
   storageClass: local-path
