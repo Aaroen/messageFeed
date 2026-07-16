@@ -12,7 +12,7 @@ services:
   postgres:
     image: pgvector/pgvector:pg15
     container_name: messagefeed-postgres
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
 
     # 环境变量配置
@@ -82,7 +82,7 @@ services:
       dockerfile: Dockerfile
     image: messagefeed:latest
     container_name: messagefeed-api
-    restart: unless-stopped
+    restart: "no"
 
     # 依赖关系：等待 PostgreSQL 健康且数据库迁移完成后再启动
     depends_on:
@@ -177,7 +177,7 @@ services:
       target: web
     image: messagefeed-web:latest
     container_name: messagefeed-web
-    restart: unless-stopped
+    restart: "no"
 
     expose:
       - "8080"
@@ -191,7 +191,7 @@ services:
   gateway:
     image: caddy:2.10.2-alpine
     container_name: messagefeed-gateway
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
 
     environment:
@@ -375,7 +375,7 @@ services:
     container_name: messagefeed-cloudflared
     profiles:
       - cloudflare
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
     environment:
       # SSL_CERT_FILE 指向本地 CA bundle，供 cloudflared 校验回源 gateway-dev 证书
@@ -395,7 +395,7 @@ services:
     container_name: messagefeed-cloudflared-dev
     profiles:
       - cloudflare-dev
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
     environment:
       # SSL_CERT_FILE 指向本地 CA bundle，供 cloudflared 校验回源 gateway-dev 证书

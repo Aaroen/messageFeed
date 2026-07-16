@@ -1,4 +1,4 @@
-## messageFeed Kubernetes 实施详细文档
+## messageFeed Kubernetes 实施文档
 
 **定位**：实施细节、操作步骤、验收口径  
 **更新日期**：2026-07-06  
@@ -12,17 +12,17 @@
 
 ### 第一部分：固定 WSL 执行入口与项目基线
 
-- [ ] 若操作环境位于Linux内这直接进行，否则统一所有操作入口为 `ssh aroen@127.0.0.1`。
-- [ ] 进入项目目录：`/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed`。
-- [ ] 核实当前源码、`Dockerfile`、`docker-compose.yml`、`migrations`、`deploy/caddy`、`ops/observability` 都在 WSL 项目内。
-- [ ] 核实 WSL 内基础命令：`go`、`docker`、`kubectl`、`helm`、`git`。
-- [ ] 记录当前运行方式、端口、Cloudflare Tunnel token 来源、数据库数据目录和 `.env` 敏感配置来源。
-- [ ] 明确当前阶段边界：WSL 长期运行，但不承诺 Windows 关机、WSL 停止或本机断网后服务持续在线。
+- [x] 若操作环境位于Linux内这直接进行，否则统一所有操作入口为 `ssh aroen@127.0.0.1`。
+- [x] 进入项目目录：`/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed`。
+- [x] 核实当前源码、`Dockerfile`、`docker-compose.yml`、`migrations`、`deploy/caddy`、`ops/observability` 都在 WSL 项目内。
+- [x] 核实 WSL 内基础命令：`go`、`docker`、`kubectl`、`helm`、`git`。
+- [x] 记录当前运行方式、端口、Cloudflare Tunnel token 来源、数据库数据目录和 `.env` 敏感配置来源。
+- [x] 明确当前阶段边界：WSL 长期运行，但不承诺 Windows 关机、WSL 停止或本机断网后服务持续在线。
 
 ### 第二部分：核实现有代码职责与改造切入点
 
-- [ ] 核实 `cmd/api/main.go` 当前同时启动 HTTP API、source sync、notification、agent scheduled task、embedding worker。
-- [ ] 核实数据库连接池、健康检查、指标、日志、OpenTelemetry、企业微信、LLM、Embedding 配置读取方式。
+- [x] 核实 `cmd/api/main.go` 当前同时启动 HTTP API、source sync、notification、agent scheduled task、embedding worker。
+- [x] 核实数据库连接池、健康检查、指标、日志、OpenTelemetry、企业微信、LLM、Embedding 配置读取方式。
 - [ ] 梳理当前 worker 的任务锁、job claim、幂等、重试和失败记录机制。
 - [ ] 确认第一轮不改业务模型、不拆仓库、不直接引入 gRPC/Eino/Nginx Ingress。
 - [ ] 确认第一轮重构目标是运行边界，不是业务微服务边界。
