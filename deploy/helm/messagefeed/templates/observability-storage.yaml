@@ -1,0 +1,23 @@
+{{- if .Values.observability.enabled }}
+{{- range $name, $component := dict "prometheus" .Values.observability.prometheus "loki" .Values.observability.loki "tempo" .Values.observability.tempo "grafana" .Values.observability.grafana }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-data
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "messagefeed.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if $.Values.observability.storageClass }}
+  storageClassName: {{ $.Values.observability.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $component.storage }}
+---
+{{- end }}
+{{- end }}

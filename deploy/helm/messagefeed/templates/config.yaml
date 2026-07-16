@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: messagefeed-app-config
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+data:
+  BIND_ADDR: "0.0.0.0:60001"
+  PUBLIC_BASE_URL: {{ .Values.appConfig.publicBaseURL | quote }}
+  DEPLOYMENT_MODE: {{ .Values.appConfig.deploymentMode | quote }}
+  ENVIRONMENT: {{ .Values.appConfig.environment | quote }}
+  LOG_LEVEL: {{ .Values.appConfig.logLevel | quote }}
+  TRUSTED_PROXY_CIDRS: {{ .Values.appConfig.trustedProxyCIDRs | quote }}
+  OTEL_SERVICE_NAME: {{ .Values.appConfig.otelServiceName | quote }}
+  OTEL_SERVICE_VERSION: {{ .Values.appConfig.otelServiceVersion | quote }}
+  OBSERVABILITY_TRACE_ENABLED: {{ and .Values.observability.enabled .Values.appConfig.observabilityTraceEnabled | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+  OTEL_EXPORTER_OTLP_INSECURE: "true"
+  OTEL_TRACES_SAMPLER_ARG: {{ .Values.appConfig.otelTracesSamplerArg | quote }}
+  AUTH_OWNER_USERNAME: {{ .Values.appConfig.authOwnerUsername | quote }}
+  AUTH_SESSION_COOKIE_NAME: {{ .Values.appConfig.authSessionCookieName | quote }}
+  AUTH_SESSION_TTL: {{ .Values.appConfig.authSessionTTL | quote }}
+  AUTH_SESSION_COOKIE_SECURE: {{ .Values.appConfig.authSessionCookieSecure | quote }}
+  AUTH_OAUTH_STATE_TTL: {{ .Values.appConfig.authOAuthStateTTL | quote }}
+  AUTH_APPROVAL_TOKEN_TTL: {{ .Values.appConfig.authApprovalTokenTTL | quote }}
+  WECHAT_WORK_CORP_ID: {{ .Values.appConfig.wechatWorkCorpID | quote }}
+  WECHAT_WORK_AGENT_ID: {{ .Values.appConfig.wechatWorkAgentID | quote }}
+  LLM_PROVIDER: {{ .Values.appConfig.llmProvider | quote }}
+  LLM_BASE_URL: {{ .Values.appConfig.llmBaseURL | quote }}
+  LLM_MODEL: {{ .Values.appConfig.llmModel | quote }}
+  EMBEDDING_PROVIDER: {{ .Values.appConfig.embeddingProvider | quote }}
+  EMBEDDING_BASE_URL: {{ .Values.appConfig.embeddingBaseURL | quote }}
+  EMBEDDING_MODEL: {{ .Values.appConfig.embeddingModel | quote }}
+  EMBEDDING_DIMENSION: {{ .Values.appConfig.embeddingDimension | quote }}
+  TZ: {{ .Values.appConfig.timezone | quote }}
+{{- if .Values.gateway.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: messagefeed-gateway-config
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+data:
+  GATEWAY_SITE_ADDRESS: {{ .Values.gateway.siteAddress | quote }}
+  GATEWAY_DEFAULT_SNI: {{ .Values.gateway.defaultSNI | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: messagefeed-caddy-config
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+data:
+  Caddyfile: |
+    {
+      local_certs
+      default_sni {$GATEWAY_DEFAULT_SNI:localhost}
+    }
+
+    (messagefeed_routes) {
+      encode zstd gzip
+      @api path /api /api/* /healthz /readyz /metrics
+      handle @api {
+        reverse_proxy api:60001
+      }
+      handle {
+        reverse_proxy web:8080
+      }
+    }
+
+    https://gateway:8443 {
+      tls /etc/caddy/certs/gateway-dev.crt /etc/caddy/certs/gateway-dev.key
+      import messagefeed_routes
+    }
+
+    https://gateway-dev:8443 {
+      tls /etc/caddy/certs/gateway-dev.crt /etc/caddy/certs/gateway-dev.key
+      import messagefeed_routes
+    }
+
+    {$GATEWAY_SITE_ADDRESS:https://localhost:8443} {
+      tls internal
+      import messagefeed_routes
+    }
+
+    :8443 {
+      tls internal
+      import messagefeed_routes
+    }
+{{- end }}

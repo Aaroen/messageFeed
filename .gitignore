@@ -133,6 +133,7 @@ deploy/*.generated.yaml
 *.bak
 *.backup
 *.orig
+/backups/
 
 # 参考项目（位于上级目录，本项目不包含）
 # 已在上级 Go_Pro/.gitignore 处理

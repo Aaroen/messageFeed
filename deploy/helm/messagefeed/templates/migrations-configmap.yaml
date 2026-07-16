@@ -1,0 +1,11 @@
+{{- if .Values.migrations.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: messagefeed-migrations
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+data:
+{{ (.Files.Glob "files/migrations/*.sql").AsConfig | indent 2 }}
+{{- end }}
+

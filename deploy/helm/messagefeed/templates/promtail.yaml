@@ -1,0 +1,72 @@
+{{- if .Values.observability.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "messagefeed.fullname" . }}-promtail
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "messagefeed.fullname" . }}-promtail
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "messagefeed.fullname" . }}-promtail
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "messagefeed.fullname" . }}-promtail
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "messagefeed.fullname" . }}-promtail
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+    app.kubernetes.io/name: promtail
+spec:
+  selector:
+    matchLabels:
+      {{- include "messagefeed.selectorLabels" (dict "name" "promtail" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/observability-config.yaml") . | sha256sum }}
+      labels:
+        {{- include "messagefeed.selectorLabels" (dict "name" "promtail" "root" .) | nindent 8 }}
+        app.kubernetes.io/part-of: messagefeed
+    spec:
+      serviceAccountName: {{ include "messagefeed.fullname" . }}-promtail
+      containers:
+        - name: promtail
+          image: {{ .Values.observability.promtail.image }}
+          args: ["-config.file=/etc/promtail/promtail.yml"]
+          resources:
+            {{- toYaml .Values.observability.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/promtail/promtail.yml, subPath: promtail.yml, readOnly: true}
+            - {name: varlogpods, mountPath: /var/log/pods, readOnly: true}
+            - {name: positions, mountPath: /run/promtail}
+      volumes:
+        - name: config
+          configMap: {name: messagefeed-promtail-config}
+        - name: varlogpods
+          hostPath: {path: /var/log/pods}
+        - name: positions
+          emptyDir: {}
+{{- end }}

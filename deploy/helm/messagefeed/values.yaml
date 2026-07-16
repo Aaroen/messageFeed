@@ -1,0 +1,195 @@
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+storageClass:
+  create: true
+  name: local-path-retain
+  provisioner: rancher.io/local-path
+  reclaimPolicy: Retain
+  volumeBindingMode: WaitForFirstConsumer
+  defaultClass: true
+
+api:
+  # all-in-one 当前会同时运行 HTTP 服务和后台任务，不能扩容。
+  replicaCount: 1
+  image:
+    repository: messagefeed
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    port: 60001
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+web:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: messagefeed-web
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    port: 8080
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+postgresql:
+  enabled: true
+  image:
+    repository: pgvector/pgvector
+    tag: pg15
+    pullPolicy: IfNotPresent
+  auth:
+    existingSecret: ""
+    username: messagefeed
+    password: ""
+    database: messagefeed
+  persistence:
+    enabled: true
+    storageClass: local-path-retain
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+migrations:
+  enabled: true
+  image:
+    repository: migrate/migrate
+    tag: v4.19.1
+    pullPolicy: IfNotPresent
+
+gateway:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: caddy
+    tag: 2.10.2-alpine
+    pullPolicy: IfNotPresent
+  siteAddress: https://localhost:8443
+  defaultSNI: localhost
+  service:
+    type: ClusterIP
+    port: 8443
+  tls:
+    # Secret 必须包含 gateway-dev.crt、gateway-dev.key 和 cloudflared-ca-bundle.crt。
+    existingSecret: messagefeed-caddy-certs
+    crt: ""
+    key: ""
+    caBundle: ""
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+cloudflared:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: cloudflare/cloudflared
+    tag: "2026.6.1"
+    pullPolicy: IfNotPresent
+  existingSecret: ""
+  tunnelToken: ""
+  protocol: http2
+  hostNetwork: true
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+appConfig:
+  publicBaseURL: https://localhost:8443
+  deploymentMode: single_node
+  environment: k3s
+  logLevel: info
+  trustedProxyCIDRs: ""
+  observabilityTraceEnabled: true
+  otelServiceName: messagefeed-all-in-one
+  otelServiceVersion: 0.2.0
+  otelTracesSamplerArg: "1.0"
+  authOwnerUsername: aroen
+  authSessionCookieName: messagefeed_session
+  authSessionTTL: "604800"
+  authSessionCookieSecure: "true"
+  authOAuthStateTTL: "600"
+  authApprovalTokenTTL: "1800"
+  wechatWorkCorpID: ""
+  wechatWorkAgentID: ""
+  llmProvider: ""
+  llmBaseURL: ""
+  llmModel: ""
+  embeddingProvider: ""
+  embeddingBaseURL: ""
+  embeddingModel: ""
+  embeddingDimension: "4096"
+  timezone: UTC
+
+appSecret:
+  existingSecret: ""
+  authOwnerPassword: ""
+  wechatWorkSecret: ""
+  wechatWorkCallbackToken: ""
+  wechatWorkEncodingAESKey: ""
+  llmAPIKey: ""
+  llmConfigSecret: ""
+  embeddingAPIKey: ""
+
+observability:
+  enabled: true
+  storageClass: local-path-retain
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  prometheus:
+    image: prom/prometheus:v3.8.1
+    storage: 5Gi
+  loki:
+    image: grafana/loki:3.5.8
+    storage: 5Gi
+  tempo:
+    image: grafana/tempo:2.9.0
+    storage: 5Gi
+  otelCollector:
+    image: otel/opentelemetry-collector-contrib:0.142.0
+  grafana:
+    image: grafana/grafana:12.3.0
+    storage: 5Gi
+    adminUser: admin
+    adminPassword: admin
+    anonymousEnabled: true
+  promtail:
+    image: grafana/promtail:3.5.8

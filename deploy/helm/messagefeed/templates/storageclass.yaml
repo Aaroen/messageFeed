@@ -1,0 +1,14 @@
+{{- if .Values.storageClass.create }}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: {{ .Values.storageClass.name }}
+  annotations:
+    helm.sh/resource-policy: keep
+    storageclass.kubernetes.io/is-default-class: {{ .Values.storageClass.defaultClass | quote }}
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+provisioner: {{ .Values.storageClass.provisioner }}
+reclaimPolicy: {{ .Values.storageClass.reclaimPolicy }}
+volumeBindingMode: {{ .Values.storageClass.volumeBindingMode }}
+{{- end }}

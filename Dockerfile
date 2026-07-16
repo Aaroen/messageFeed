@@ -57,7 +57,8 @@ FROM alpine:3.19 AS api
 # 安装运行时依赖
 # - ca-certificates: HTTPS 请求所需
 # - tzdata: 时区数据
-RUN apk add --no-cache ca-certificates tzdata
+# - tini: 作为容器 PID 1 转发信号并回收孤儿子进程
+RUN apk add --no-cache ca-certificates tzdata tini
 
 # 创建非 root 用户运行服务
 # 使用固定 UID/GID 便于跨容器保持一致性
@@ -91,5 +92,5 @@ ENV BIND_ADDR=0.0.0.0:60001 \
     DEPLOYMENT_MODE=single_node \
     LOG_LEVEL=info
 
-# 启动服务
-ENTRYPOINT ["/app/messagefeed"]
+# 由 init 进程启动服务，避免孤儿子进程退出后形成僵尸进程
+ENTRYPOINT ["/sbin/tini", "--", "/app/messagefeed"]

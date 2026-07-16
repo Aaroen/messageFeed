@@ -1,0 +1,155 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: messagefeed-all-in-one
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+    app.kubernetes.io/name: messagefeed-all-in-one
+    app.kubernetes.io/component: all-in-one
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "messagefeed.selectorLabels" (dict "name" "messagefeed-all-in-one" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+        {{- if .Values.migrations.enabled }}
+        checksum/migrations: {{ (.Files.Glob "files/migrations/*.sql").AsConfig | sha256sum }}
+        {{- end }}
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "messagefeed.selectorLabels" (dict "name" "messagefeed-all-in-one" "root" .) | nindent 8 }}
+        app.kubernetes.io/component: all-in-one
+        app.kubernetes.io/part-of: messagefeed
+        {{- with .Values.api.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.migrations.enabled }}
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag }}"
+          imagePullPolicy: {{ .Values.migrations.image.pullPolicy }}
+          args:
+            - -path
+            - /migrations
+            - -database
+            - $(DATABASE_URL)
+            - up
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "messagefeed.appSecretName" . }}
+                  key: DATABASE_URL
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+      {{- end }}
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 60001
+          envFrom:
+            - configMapRef:
+                name: messagefeed-app-config
+            - secretRef:
+                name: {{ include "messagefeed.appSecretName" . }}
+          env:
+            - name: APP_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          {{- if .Values.migrations.enabled }}
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+              readOnly: true
+          {{- end }}
+      {{- if .Values.migrations.enabled }}
+      volumes:
+        - name: migrations
+          configMap:
+            name: messagefeed-migrations
+      {{- end }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+    app.kubernetes.io/name: api
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "messagefeed.selectorLabels" (dict "name" "messagefeed-all-in-one" "root" .) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.api.service.port }}
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: messagefeed-api
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+    app.kubernetes.io/name: messagefeed-api
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "messagefeed.selectorLabels" (dict "name" "messagefeed-all-in-one" "root" .) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.api.service.port }}
+      targetPort: http

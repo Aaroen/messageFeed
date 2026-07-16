@@ -1,0 +1,8 @@
+DROP INDEX IF EXISTS idx_agent_recall_events_user_created;
+DROP INDEX IF EXISTS idx_agent_recall_events_session_created;
+DROP TABLE IF EXISTS agent_recall_events;
+
+DROP TRIGGER IF EXISTS update_agent_transcript_archive_index_updated_at ON agent_transcript_archive_index;
+DROP INDEX IF EXISTS idx_agent_transcript_archive_user_kind;
+DROP INDEX IF EXISTS idx_agent_transcript_archive_session_status;
+DROP TABLE IF EXISTS agent_transcript_archive_index;

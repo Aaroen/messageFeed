@@ -1,0 +1,9 @@
+检查部署状态：
+  kubectl -n {{ .Release.Namespace }} get pod,svc,pvc
+
+等待核心组件就绪：
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/messagefeed-postgres --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/messagefeed-all-in-one --timeout=240s
+
+本地访问：
+  kubectl -n {{ .Release.Namespace }} port-forward service/gateway 8443:8443

@@ -1,0 +1,72 @@
+{{- if .Values.cloudflared.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/component: tunnel
+spec:
+  replicas: {{ .Values.cloudflared.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "messagefeed.selectorLabels" (dict "name" "cloudflared" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "messagefeed.selectorLabels" (dict "name" "cloudflared" "root" .) | nindent 8 }}
+        app.kubernetes.io/component: tunnel
+        app.kubernetes.io/part-of: messagefeed
+    spec:
+      hostNetwork: {{ .Values.cloudflared.hostNetwork }}
+      dnsPolicy: {{ ternary "ClusterFirstWithHostNet" "ClusterFirst" .Values.cloudflared.hostNetwork }}
+      containers:
+        - name: cloudflared
+          image: "{{ .Values.cloudflared.image.repository }}:{{ .Values.cloudflared.image.tag }}"
+          imagePullPolicy: {{ .Values.cloudflared.image.pullPolicy }}
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --metrics
+            - 0.0.0.0:2000
+            - --protocol
+            - $(CLOUDFLARED_PROTOCOL)
+            - run
+            - --token
+            - $(CLOUDFLARED_TUNNEL_TOKEN)
+          env:
+            - name: SSL_CERT_FILE
+              value: /etc/messagefeed-certs/cloudflared-ca-bundle.crt
+            - name: CLOUDFLARED_TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "messagefeed.cloudflaredSecretName" . }}
+                  key: CLOUDFLARED_TUNNEL_TOKEN
+            - name: CLOUDFLARED_PROTOCOL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "messagefeed.cloudflaredSecretName" . }}
+                  key: CLOUDFLARED_PROTOCOL
+          ports:
+            - name: metrics
+              containerPort: 2000
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.cloudflared.resources | nindent 12 }}
+          volumeMounts:
+            - name: caddy-certs
+              mountPath: /etc/messagefeed-certs
+              readOnly: true
+      volumes:
+        - name: caddy-certs
+          secret:
+            secretName: {{ include "messagefeed.caddySecretName" . }}
+{{- end }}
+

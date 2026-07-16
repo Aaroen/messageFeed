@@ -1,0 +1,56 @@
+# 当前 WSL2/K3s all-in-one 环境的非敏感覆盖配置。
+fullnameOverride: messagefeed
+
+# 既有 PVC 的 storageClassName 不可修改；仅新建 PVC 默认使用 local-path-retain。
+storageClass:
+  create: true
+  name: local-path-retain
+  defaultClass: true
+
+api:
+  image:
+    repository: messagefeed-api
+    tag: allinone-0703de0
+    pullPolicy: IfNotPresent
+
+web:
+  image:
+    repository: messagefeed-web
+    tag: allinone-0703de0
+    pullPolicy: IfNotPresent
+
+postgresql:
+  auth:
+    existingSecret: messagefeed-postgres-secret
+  persistence:
+    storageClass: local-path
+
+appSecret:
+  existingSecret: messagefeed-app-secret
+
+gateway:
+  tls:
+    existingSecret: messagefeed-caddy-certs
+
+cloudflared:
+  image:
+    tag: latest
+  existingSecret: messagefeed-cloudflared-secret
+  hostNetwork: true
+
+appConfig:
+  publicBaseURL: https://aroen.eu.cc
+  environment: wsl-k3s
+  authSessionCookieSecure: "false"
+  wechatWorkCorpID: ww8ee8972ac7733fed
+  wechatWorkAgentID: "1000002"
+  llmProvider: openai_compatible
+  llmBaseURL: http://192.168.3.40:15721/v1
+  llmModel: qwen/qwen3.5-122b-a10b
+  embeddingProvider: openai_compatible
+  embeddingBaseURL: https://ai.hybgzs.com/v1
+  embeddingModel: Qwen/Qwen3-Embedding-8B
+
+observability:
+  enabled: true
+  storageClass: local-path
