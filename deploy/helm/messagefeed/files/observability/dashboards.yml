@@ -1,3 +1,4 @@
+# 配置 Grafana 从本地目录自动加载 messageFeed dashboard。
 apiVersion: 1
 
 providers:

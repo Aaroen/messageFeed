@@ -1,3 +1,4 @@
+{{/* 部署 Cloudflare Tunnel 连接器及其 readiness 探针。 */}}
 {{- if .Values.cloudflared.enabled }}
 apiVersion: apps/v1
 kind: Deployment
@@ -69,4 +70,3 @@ spec:
           secret:
             secretName: {{ include "messagefeed.caddySecretName" . }}
 {{- end }}
-

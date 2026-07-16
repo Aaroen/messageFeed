@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP INDEX IF EXISTS idx_external_accounts_active_agent_session;
 
 ALTER TABLE external_accounts

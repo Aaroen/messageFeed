@@ -1,7 +1,7 @@
+# 定义 messageFeed all-in-one Helm Chart 的元数据与版本。
 apiVersion: v2
 name: messagefeed
 description: messageFeed all-in-one Kubernetes deployment
 type: application
 version: 0.1.0
 appVersion: "0.2.0"
-

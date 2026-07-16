@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP INDEX IF EXISTS idx_source_catalog_entries_popularity;
 DROP INDEX IF EXISTS idx_source_catalog_entries_language_country;
 DROP INDEX IF EXISTS idx_source_catalog_entries_license;

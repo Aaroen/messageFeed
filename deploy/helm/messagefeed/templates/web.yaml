@@ -1,3 +1,4 @@
+{{/* 部署 Web 静态资源服务及其 ClusterIP Service。 */}}
 {{- if .Values.web.enabled }}
 apiVersion: apps/v1
 kind: Deployment
@@ -62,4 +63,3 @@ spec:
       port: {{ .Values.web.service.port }}
       targetPort: http
 {{- end }}
-

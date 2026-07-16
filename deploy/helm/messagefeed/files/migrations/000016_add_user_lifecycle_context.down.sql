@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP TRIGGER IF EXISTS update_user_profiles_updated_at ON user_profiles;
 DROP TABLE IF EXISTS user_profiles;
 

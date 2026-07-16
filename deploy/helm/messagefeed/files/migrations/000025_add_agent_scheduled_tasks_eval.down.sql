@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP INDEX IF EXISTS idx_agent_eval_results_run;
 DROP TABLE IF EXISTS agent_eval_results;
 

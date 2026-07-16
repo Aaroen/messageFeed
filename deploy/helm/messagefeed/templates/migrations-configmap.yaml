@@ -1,3 +1,4 @@
+{{/* 将 Chart 内 SQL migration 打包为应用可挂载的 ConfigMap。 */}}
 {{- if .Values.migrations.enabled }}
 apiVersion: v1
 kind: ConfigMap
@@ -8,4 +9,3 @@ metadata:
 data:
 {{ (.Files.Glob "files/migrations/*.sql").AsConfig | indent 2 }}
 {{- end }}
-

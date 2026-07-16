@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE;
 

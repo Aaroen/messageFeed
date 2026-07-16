@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP TRIGGER IF EXISTS update_agent_memory_chunks_updated_at ON agent_memory_chunks;
 DROP TRIGGER IF EXISTS update_agent_memory_topics_updated_at ON agent_memory_topics;
 DROP TABLE IF EXISTS agent_memory_chunks;

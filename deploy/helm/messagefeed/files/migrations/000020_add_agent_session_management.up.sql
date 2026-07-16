@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 ALTER TABLE agent_sessions
     ADD COLUMN IF NOT EXISTS context_initialized_at TIMESTAMP WITH TIME ZONE,
     ADD COLUMN IF NOT EXISTS context_rebuild_started_at TIMESTAMP WITH TIME ZONE,

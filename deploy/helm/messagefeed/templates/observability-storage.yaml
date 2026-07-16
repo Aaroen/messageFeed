@@ -1,3 +1,4 @@
+{{/* 为单实例观测组件创建保留型持久卷声明。 */}}
 {{- if .Values.observability.enabled }}
 {{- range $name, $component := dict "prometheus" .Values.observability.prometheus "loki" .Values.observability.loki "tempo" .Values.observability.tempo "grafana" .Values.observability.grafana }}
 apiVersion: v1

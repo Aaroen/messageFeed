@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP TRIGGER IF EXISTS update_agent_fact_index_jobs_updated_at ON agent_fact_index_jobs;
 DROP TABLE IF EXISTS agent_fact_index_jobs;
 

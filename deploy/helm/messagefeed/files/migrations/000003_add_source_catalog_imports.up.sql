@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 -- messageFeed 官方源目录与导入任务迁移
 -- 文件名：000003_add_source_catalog_imports.up.sql
 

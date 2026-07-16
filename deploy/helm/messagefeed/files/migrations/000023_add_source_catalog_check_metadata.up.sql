@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 ALTER TABLE source_catalog_entries
     ADD COLUMN IF NOT EXISTS last_check_http_status INTEGER,
     ADD COLUMN IF NOT EXISTS last_check_content_type TEXT NOT NULL DEFAULT '';

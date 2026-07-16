@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 ALTER TABLE source_catalog_entries
     ADD COLUMN IF NOT EXISTS license_status VARCHAR(32) NOT NULL DEFAULT 'unknown',
     ADD COLUMN IF NOT EXISTS license_note TEXT NOT NULL DEFAULT '',

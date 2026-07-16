@@ -1,3 +1,4 @@
+{{/* 部署单副本 all-in-one API，并在启动前执行数据库迁移。 */}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

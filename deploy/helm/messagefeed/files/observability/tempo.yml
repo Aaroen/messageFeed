@@ -1,3 +1,4 @@
+# 配置单实例 Tempo 的 OTLP 接收端点与本地 trace 存储。
 server:
   http_listen_port: 3200
 

@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP INDEX IF EXISTS idx_auth_invite_redemptions_invite;
 DROP TABLE IF EXISTS auth_invite_redemptions;
 

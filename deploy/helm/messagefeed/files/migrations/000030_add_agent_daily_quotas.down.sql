@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 ALTER TABLE agent_notification_preferences
     DROP COLUMN IF EXISTS daily_capability_call_quota,
     DROP COLUMN IF EXISTS daily_external_call_quota,

@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 ALTER TABLE agent_notification_preferences
     ADD COLUMN IF NOT EXISTS max_concurrent_tasks INTEGER NOT NULL DEFAULT 2,
     ADD COLUMN IF NOT EXISTS max_queued_tasks INTEGER NOT NULL DEFAULT 20,

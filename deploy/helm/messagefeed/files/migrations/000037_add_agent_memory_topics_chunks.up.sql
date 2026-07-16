@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 ALTER TABLE agent_fact_archive_index
     DROP CONSTRAINT IF EXISTS chk_agent_fact_archive_fact_type;
 

@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP INDEX IF EXISTS idx_agent_recall_events_user_created;
 DROP INDEX IF EXISTS idx_agent_recall_events_session_created;
 DROP TABLE IF EXISTS agent_recall_events;

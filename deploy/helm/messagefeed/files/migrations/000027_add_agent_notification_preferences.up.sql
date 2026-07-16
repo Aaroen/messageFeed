@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 CREATE TABLE IF NOT EXISTS agent_notification_preferences (
     user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     process_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,

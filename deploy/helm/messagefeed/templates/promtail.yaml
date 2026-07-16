@@ -1,3 +1,4 @@
+{{/* 部署 Promtail DaemonSet 及读取 Kubernetes Pod 元数据的 RBAC。 */}}
 {{- if .Values.observability.enabled }}
 apiVersion: v1
 kind: ServiceAccount

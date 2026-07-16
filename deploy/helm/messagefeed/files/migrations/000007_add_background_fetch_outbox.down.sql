@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP TRIGGER IF EXISTS update_item_events_updated_at ON item_events;
 DROP INDEX IF EXISTS idx_item_events_item;
 DROP INDEX IF EXISTS idx_item_events_user_created;

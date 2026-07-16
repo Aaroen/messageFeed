@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 -- 增补中文官方源目录：覆盖新闻、科技、开发、商业、文化等中文内容。
 
 INSERT INTO source_catalog_entries (

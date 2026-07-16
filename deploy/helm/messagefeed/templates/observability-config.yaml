@@ -1,3 +1,4 @@
+{{/* 生成观测组件配置、Grafana dashboard 与 Promtail 采集规则。 */}}
 {{- if .Values.observability.enabled }}
 apiVersion: v1
 kind: ConfigMap
@@ -61,4 +62,3 @@ data:
         pipeline_stages:
           - cri: {}
 {{- end }}
-

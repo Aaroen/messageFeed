@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 CREATE TABLE IF NOT EXISTS agent_transcript_archive_index (
     id BIGSERIAL PRIMARY KEY,
     transcript_entry_id BIGINT NOT NULL REFERENCES agent_transcript_entries(id) ON DELETE CASCADE,

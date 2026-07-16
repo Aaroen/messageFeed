@@ -1,3 +1,4 @@
+# 配置 OpenTelemetry Collector 接收 OTLP 并导出到 Tempo。
 receivers:
   otlp:
     protocols:

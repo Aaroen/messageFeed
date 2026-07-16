@@ -1,3 +1,4 @@
+# 定义全新安装时使用的默认配置，敏感值应由 Secret 覆盖。
 nameOverride: ""
 fullnameOverride: ""
 

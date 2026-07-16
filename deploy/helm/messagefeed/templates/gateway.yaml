@@ -1,3 +1,4 @@
+{{/* 部署 Caddy HTTPS gateway 及内部访问 Service。 */}}
 {{- if .Values.gateway.enabled }}
 apiVersion: apps/v1
 kind: Deployment
@@ -101,4 +102,3 @@ spec:
       port: {{ .Values.gateway.service.port }}
       targetPort: https
 {{- end }}
-

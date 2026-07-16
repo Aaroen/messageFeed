@@ -1,3 +1,4 @@
+{{/* 安装完成后输出核心资源检查与本地访问命令。 */}}
 检查部署状态：
   kubectl -n {{ .Release.Namespace }} get pod,svc,pvc
 

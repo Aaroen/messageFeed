@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 -- 扩展官方推荐源目录。
 
 INSERT INTO source_catalog_entries (

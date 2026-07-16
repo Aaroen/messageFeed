@@ -1,3 +1,4 @@
+{{/* 提供 Chart 资源命名、标签和 Secret 名称等共享模板。 */}}
 {{- define "messagefeed.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}

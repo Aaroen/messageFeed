@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 -- messageFeed 数据库初始化迁移
 -- 文件名：000001_init_schema.up.sql
 -- 本迁移创建阶段一所需的基础表结构，为后续阶段预留扩展空间。

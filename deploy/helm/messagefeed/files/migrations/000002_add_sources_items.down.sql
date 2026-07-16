@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 -- messageFeed 阶段二 Feed 闭环迁移回滚
 -- 文件名：000002_add_sources_items.down.sql
 

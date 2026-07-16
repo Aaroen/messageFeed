@@ -1,3 +1,4 @@
+{{/* 部署 Prometheus、Loki、Tempo、OTel Collector 与 Grafana。 */}}
 {{- if .Values.observability.enabled }}
 apiVersion: apps/v1
 kind: Deployment

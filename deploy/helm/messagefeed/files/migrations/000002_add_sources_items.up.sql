@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 -- messageFeed 阶段二 Feed 闭环迁移
 -- 文件名：000002_add_sources_items.up.sql
 -- 本迁移创建订阅源、抓取条目、用户条目状态和阅读模式偏好表。

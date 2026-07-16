@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 -- 重整默认官方源目录：保留各领域少量高质量、可抓取的权威源。
 
 DELETE FROM source_catalog_entries

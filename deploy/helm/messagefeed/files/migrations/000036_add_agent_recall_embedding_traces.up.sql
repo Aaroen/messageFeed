@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 CREATE TABLE IF NOT EXISTS agent_recall_traces (
     id BIGSERIAL PRIMARY KEY,
     request_id TEXT NOT NULL DEFAULT '',

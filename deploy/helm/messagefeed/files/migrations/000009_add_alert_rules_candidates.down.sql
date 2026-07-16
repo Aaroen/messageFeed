@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP TRIGGER IF EXISTS update_alert_candidates_updated_at ON alert_candidates;
 DROP INDEX IF EXISTS idx_alert_candidates_rule_created;
 DROP INDEX IF EXISTS idx_alert_candidates_status_created;

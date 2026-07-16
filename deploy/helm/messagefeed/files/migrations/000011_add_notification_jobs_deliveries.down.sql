@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP TRIGGER IF EXISTS update_notification_deliveries_updated_at ON notification_deliveries;
 DROP INDEX IF EXISTS idx_notification_deliveries_user_created;
 DROP INDEX IF EXISTS idx_notification_deliveries_job_created;

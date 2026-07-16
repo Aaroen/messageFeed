@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 ALTER TABLE agent_plan_steps
     ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS max_retries INTEGER NOT NULL DEFAULT 1,

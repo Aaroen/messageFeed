@@ -1,3 +1,4 @@
+# 配置 Prometheus 抓取 messageFeed、Prometheus 和 OTel 指标。
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

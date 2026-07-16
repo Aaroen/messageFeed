@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP TRIGGER IF EXISTS update_agent_approvals_updated_at ON agent_approvals;
 DROP INDEX IF EXISTS idx_agent_approvals_user_status;
 DROP TABLE IF EXISTS agent_approvals;

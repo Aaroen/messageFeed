@@ -1,3 +1,4 @@
+{{/* 创建默认 Retain StorageClass，并在 Helm 卸载时保留。 */}}
 {{- if .Values.storageClass.create }}
 apiVersion: storage.k8s.io/v1
 kind: StorageClass

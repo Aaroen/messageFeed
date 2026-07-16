@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 CREATE TABLE IF NOT EXISTS agent_runs (
     id BIGSERIAL PRIMARY KEY,
     parent_run_id BIGINT REFERENCES agent_runs(id) ON DELETE SET NULL,

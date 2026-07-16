@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 ALTER TABLE agent_plan_steps
     DROP CONSTRAINT IF EXISTS chk_agent_plan_steps_retry;
 

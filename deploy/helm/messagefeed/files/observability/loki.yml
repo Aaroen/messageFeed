@@ -1,3 +1,4 @@
+# 配置单实例 Loki 的本地 TSDB 存储与日志保留策略。
 auth_enabled: false
 
 server:

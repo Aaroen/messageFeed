@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 CREATE TABLE IF NOT EXISTS task_locks (
     name VARCHAR(255) PRIMARY KEY,
     owner VARCHAR(255) NOT NULL,

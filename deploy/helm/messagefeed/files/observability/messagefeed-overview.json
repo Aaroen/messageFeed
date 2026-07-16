@@ -1,4 +1,5 @@
 {
+  "description": "messageFeed 核心 HTTP、数据库、抓取与通知观测面板。",
   "annotations": {
     "list": []
   },

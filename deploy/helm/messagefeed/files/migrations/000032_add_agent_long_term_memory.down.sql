@@ -1,3 +1,4 @@
+-- Helm 打包副本；源迁移位于项目 migrations 目录。
 DROP INDEX IF EXISTS idx_agent_memory_events_block;
 DROP INDEX IF EXISTS idx_agent_memory_events_candidate;
 DROP INDEX IF EXISTS idx_agent_memory_events_user_created;
