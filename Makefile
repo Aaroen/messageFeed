@@ -10,6 +10,11 @@ GOFMT := gofmt
 GOVET := $(GO) vet
 GOTEST := $(GO) test
 DOCKER_COMPOSE ?= docker compose
+KUBECTL ?= kubectl
+K3S_NAMESPACE ?= messagefeed
+K3S_APP_SECRET ?= messagefeed-app-secret
+K3S_DEPLOYMENT ?= messagefeed-all-in-one
+ENV_FILE ?= .env
 
 # 开发态统一入口配置。可在命令行覆盖，例如：
 # PUBLIC_BASE_URL=https://100.x.x.x:8443 \
@@ -199,6 +204,21 @@ compose-dev-reload-web: ## 手动重载开发态 Web 服务
 .PHONY: compose-dev-reload-gateway
 compose-dev-reload-gateway: ## 手动重载开发态统一入口服务
 	@GATEWAY_HTTPS_PORT="$(GATEWAY_HTTPS_PORT)" PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" GATEWAY_SITE_ADDRESS="$(GATEWAY_SITE_ADDRESS)" GATEWAY_DEFAULT_SNI="$(GATEWAY_DEFAULT_SNI)" $(DOCKER_COMPOSE) --profile dev restart gateway-dev
+
+# ==================== K3s 目标 ====================
+
+.PHONY: k3s-sync-auth-secret
+k3s-sync-auth-secret: ## 从 .env 同步管理员密码到 K3s Secret 并滚动重启 API
+	@test -f "$(ENV_FILE)" || { echo "缺少环境文件：$(ENV_FILE)" >&2; exit 1; }
+	@password=$$(sed -n 's/^AUTH_OWNER_PASSWORD=//p' "$(ENV_FILE)" | tail -n 1); \
+	if [ -z "$$password" ]; then \
+		echo "$(ENV_FILE) 中的 AUTH_OWNER_PASSWORD 不能为空" >&2; \
+		exit 1; \
+	fi; \
+	jq -n --arg password "$$password" '{"stringData":{"AUTH_OWNER_PASSWORD":$$password}}' | \
+		$(KUBECTL) -n "$(K3S_NAMESPACE)" patch secret "$(K3S_APP_SECRET)" --type=merge --patch-file=/dev/stdin >/dev/null; \
+	$(KUBECTL) -n "$(K3S_NAMESPACE)" rollout restart deployment/"$(K3S_DEPLOYMENT)"; \
+	$(KUBECTL) -n "$(K3S_NAMESPACE)" rollout status deployment/"$(K3S_DEPLOYMENT)" --timeout=180s
 
 # ==================== 依赖管理 ====================
 

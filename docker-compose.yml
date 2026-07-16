@@ -116,7 +116,7 @@ services:
 
       # Web 登录与授权配置
       AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-aroen}
-      AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD:-***REMOVED-FROM-GIT-HISTORY***}
+      AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD:?AUTH_OWNER_PASSWORD must be set in .env}
       AUTH_SESSION_COOKIE_NAME: ${AUTH_SESSION_COOKIE_NAME:-messagefeed_session}
       AUTH_SESSION_TTL: ${AUTH_SESSION_TTL:-604800}
       AUTH_SESSION_COOKIE_SECURE: ${AUTH_SESSION_COOKIE_SECURE:-false}
@@ -224,7 +224,7 @@ services:
     container_name: messagefeed-api-dev
     profiles:
       - dev
-    restart: unless-stopped
+    restart: "no"
     working_dir: /workspace
     command: ["go", "run", "./cmd/api"]
 
@@ -244,7 +244,7 @@ services:
       OBSERVABILITY_TRACE_ENABLED: ${OBSERVABILITY_TRACE_ENABLED:-true}
       DATABASE_URL: postgres://messagefeed:devpassword@postgres:5432/messagefeed?sslmode=disable
       AUTH_OWNER_USERNAME: ${AUTH_OWNER_USERNAME:-aroen}
-      AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD:-***REMOVED-FROM-GIT-HISTORY***}
+      AUTH_OWNER_PASSWORD: ${AUTH_OWNER_PASSWORD:?AUTH_OWNER_PASSWORD must be set in .env}
       AUTH_SESSION_COOKIE_NAME: ${AUTH_SESSION_COOKIE_NAME:-messagefeed_session}
       AUTH_SESSION_TTL: ${AUTH_SESSION_TTL:-604800}
       AUTH_SESSION_COOKIE_SECURE: ${AUTH_SESSION_COOKIE_SECURE:-false}
@@ -306,7 +306,7 @@ services:
     container_name: messagefeed-web-dev
     profiles:
       - dev
-    restart: unless-stopped
+    restart: "no"
     working_dir: /workspace/web
     command: ["sh", "-c", "test -x node_modules/.bin/vite || npm ci; npm run dev -- --host 0.0.0.0"]
 
@@ -338,7 +338,7 @@ services:
     container_name: messagefeed-gateway-dev
     profiles:
       - dev
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
 
     environment:
@@ -413,7 +413,7 @@ services:
   prometheus:
     image: prom/prometheus:v3.8.1
     container_name: messagefeed-prometheus
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -432,7 +432,7 @@ services:
   loki:
     image: grafana/loki:3.5.8
     container_name: messagefeed-loki
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
     command:
       - "-config.file=/etc/loki/loki.yml"
@@ -448,7 +448,7 @@ services:
   promtail:
     image: grafana/promtail:3.5.8
     container_name: messagefeed-promtail
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
     command:
       - "-config.file=/etc/promtail/promtail.yml"
@@ -465,7 +465,7 @@ services:
   tempo:
     image: grafana/tempo:2.9.0
     container_name: messagefeed-tempo
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
     command:
       - "-config.file=/etc/tempo/tempo.yml"
@@ -482,7 +482,7 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.142.0
     container_name: messagefeed-otel-collector
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
     command:
       - "--config=/etc/otel-collector.yml"
@@ -500,7 +500,7 @@ services:
   grafana:
     image: grafana/grafana:12.3.0
     container_name: messagefeed-grafana
-    restart: unless-stopped
+    restart: "no"
     logging: *default-logging
     environment:
       GF_SECURITY_ADMIN_USER: admin
