@@ -1,10 +1,30 @@
 ## messageFeed Kubernetes 实施文档
 
-**定位**：实施细节、操作步骤、验收口径  
-**更新日期**：2026-07-06  
+**定位**：实施细节、操作步骤、验收口径
+**更新日期**：2026-07-17
 **上位约束**：`micr-k8s-plan.md`
 
 本文档只展开 `micr-k8s-plan.md` 已确定的技术方案，不新增新的架构路线。若本文件与 `micr-k8s-plan.md` 冲突，以 `micr-k8s-plan.md` 为准。
+
+## 当前实施状态（2026-07-17）
+
+已完成：
+
+1. WSL 内 K3s single-server、动态网络维护、Helm 工具链和基础运行环境核验。
+2. all-in-one 阶段 Helm Chart、`values.yaml` 与 `values-k3s.yaml`。
+3. PostgreSQL/pgvector、API、Web、Caddy gateway、cloudflared 和观测栈的 Helm 接管。
+4. PostgreSQL 备份校验、5 个 PV 设置为 `Retain`、数据库和公网健康检查验收。
+5. 当前 Helm release `messagefeed` revision 2 为 `deployed`；all-in-one API 仍保持单副本。
+
+当前边界：
+
+1. 当前 API 仍由单体进程同时承担 HTTP API、source sync、notification、agent scheduled task 和 embedding worker。
+2. 当前数据库迁移由 API Pod 的 init container 执行，尚未改为独立 migrate Job。
+3. 当前尚未部署独立 worker、独立 ServiceAccount、最小 RBAC、NetworkPolicy、PDB、HPA 或 CI/CD 发布闭环。
+4. `Dockerfile` 已加入 `tini`，但集群仍使用旧的 `messagefeed-api:allinone-0703de0` 镜像，尚未实际启用该改动。
+5. 当前集群中 `local-path` 与 `local-path-retain` 均被标记为默认 StorageClass；该冲突需在创建新 PVC 前修正，现有 PVC/PV 不应因此迁移。
+
+后续实施门槛：先完成 StorageClass 默认类校正、Secret 与镜像版本治理，再实施 `APP_ROLE` 和独立迁移 Job；在这些条件完成前不进入真实业务微服务拆分。
 
 ## 顶部步骤 TODO
 
@@ -24,8 +44,8 @@
 - [x] 核实 `cmd/api/main.go` 当前同时启动 HTTP API、source sync、notification、agent scheduled task、embedding worker。
 - [x] 核实数据库连接池、健康检查、指标、日志、OpenTelemetry、企业微信、LLM、Embedding 配置读取方式。
 - [ ] 梳理当前 worker 的任务锁、job claim、幂等、重试和失败记录机制。
-- [ ] 确认第一轮不改业务模型、不拆仓库、不直接引入 gRPC/Eino/Nginx Ingress。
-- [ ] 确认第一轮重构目标是运行边界，不是业务微服务边界。
+- [x] 确认第一轮不改业务模型、不拆仓库、不直接引入 gRPC/Eino/Nginx Ingress。
+- [x] 确认第一轮重构目标是运行边界，不是业务微服务边界。
 
 ### 第三部分：完成 `APP_ROLE` 启动角色化
 
@@ -49,106 +69,79 @@
 - [ ] 保证每个角色拥有可区分的 `APP_NODE_ID`、日志字段和指标标签。
 - [ ] 为角色启动行为增加最小测试或命令级验收脚本。
 
-### 第五部分：完成单镜像多角色容器化
+### 第五部分：完成 all-in-one 镜像与容器化基线
 
-- [ ] 后端继续使用一个镜像承载多角色：`messagefeed-api:<git-sha>`。
-- [ ] 前端继续使用独立镜像：`messagefeed-web:<git-sha>`。
+- [x] 后端继续使用一个 all-in-one 镜像：`messagefeed-api:allinone-0703de0`。
+- [x] 前端继续使用独立镜像：`messagefeed-web:allinone-0703de0`。
 - [ ] 禁止生产部署使用 `latest`。
 - [ ] 镜像 tag 使用 Git SHA 或 SemVer + Git SHA。
-- [ ] 本地验证不同 `APP_ROLE` 的容器启动行为。
-- [ ] 确认容器健康检查路径与 K8s 探针一致。
+- [ ] 构建并部署包含 `tini` 的新后端镜像。
+- [x] 确认当前容器健康检查路径与 K8s 探针一致。
 
 ### 第六部分：搭建 WSL 内 K3s single-server 基线
 
-- [ ] 通过 SSH 进入 WSL 后或直接在环境内安装或核实 K3s single-server。
-- [ ] 确认 `kubectl get nodes` 中 WSL 节点为 `Ready`。
-- [ ] 确认 Helm 可在 SSH 会话内操作 WSL 内 K3s。
-- [ ] 规划 WSL 内 StorageClass、数据卷、命名空间和 Secret 管理方式。
-- [ ] 部署或接入 WSL 内 PostgreSQL/pgvector。
-- [ ] 明确数据库备份落点和恢复验证方式。
+- [x] 通过 SSH 进入 WSL 后或直接在环境内安装或核实 K3s single-server。
+- [x] 确认 `kubectl get nodes` 中 WSL 节点为 `Ready`。
+- [x] 确认 Helm 可在 SSH 会话内操作 WSL 内 K3s。
+- [x] 建立 WSL 内 StorageClass、数据卷、命名空间和 Secret 管理基线；默认 StorageClass 唯一性仍待修正。
+- [x] 部署或接入 WSL 内 PostgreSQL/pgvector。
+- [x] 明确数据库备份落点和归档校验方式；完整恢复演练仍待执行。
 
-### 第七部分：编写 Helm Chart 与 `values-wsl.yaml`
+### 第七部分：编写并接管 all-in-one Helm Chart
 
-- [ ] 创建 `deploy/helm/messagefeed` 目录结构。
-- [ ] 编写 API Deployment / Service。
-- [ ] 编写 Web Deployment / Service。
-- [ ] 编写 Caddy gateway Deployment / Service。
-- [ ] 编写 cloudflared Deployment。
-- [ ] 编写 source-worker Deployment。
-- [ ] 编写 notification-worker Deployment。
-- [ ] 编写 agent-scheduler-worker Deployment。
-- [ ] 编写 embedding-worker Deployment。
-- [ ] 编写 migrate Job。
-- [ ] 编写 ConfigMap 与 Secret 引用。
-- [ ] 编写 `values-wsl.yaml`，只描述 WSL 当前阶段所需副本数、资源限制和入口配置。
+- [x] 创建 `deploy/helm/messagefeed` 目录结构。
+- [x] 编写并接管 API、Web、Caddy gateway 和 cloudflared Deployment/Service。
+- [x] 编写并接管 PostgreSQL、Prometheus、Loki、Tempo、OTel Collector、Grafana 和 Promtail。
+- [ ] 编写 source-worker、notification-worker、agent-scheduler-worker 和 embedding-worker Deployment。
+- [ ] 编写独立 migrate Job；当前仍由 API init container 执行迁移。
+- [x] 编写 ConfigMap 与既有 Secret 引用。
+- [x] 使用 `values.yaml` 与 `values-k3s.yaml` 描述 all-in-one WSL/K3s 环境。
+- [x] 建立 `local-path-retain` StorageClass 模板；现有默认类冲突仍待修正。
 
-### 第八部分：部署 WSL 内第一版 K8s 应用
+### 第八部分：环境与资产治理
 
-- [ ] 创建 messageFeed 命名空间。
-- [ ] 创建数据库 Secret、认证 Secret、LLM/Embedding Secret、企业微信 Secret、Cloudflare Tunnel Secret。
-- [ ] 先运行 migrate Job。
-- [ ] 部署 PostgreSQL/pgvector 或确认外部 PostgreSQL 连接可用。
-- [ ] 部署 API/Web/Gateway。
-- [ ] 部署各 worker。
-- [ ] 部署 cloudflared。
-- [ ] 验证 `/healthz`、`/readyz`、`/metrics`、`/api/runtime/node`。
-- [ ] 验证外部 Cloudflare Tunnel 访问链路。
+- [x] 完成 all-in-one Helm 部署、namespace、Secret 引用、PVC/PV 和公网健康检查基线。
+- [ ] 修正 `local-path` 与 `local-path-retain` 双默认 StorageClass。
+- [ ] 固定 cloudflared 镜像版本或 digest，完成默认凭据和 Secret 治理。
+- [ ] 完成 PostgreSQL 备份恢复演练。
 
-### 第九部分：完成 WSL 内应用级高可用演练
+### 第九部分：应用运行边界拆分
 
-- [ ] 删除单个 API Pod，确认 Service 自动切换。
-- [ ] 删除单个 Web Pod，确认页面访问恢复。
-- [ ] 删除单个 Gateway Pod，确认入口恢复。
-- [ ] 删除单个 cloudflared Pod，确认不出现长期 `1033`。
-- [ ] 滚动发布 API，确认旧 Pod 在新 Pod ready 前继续接流量。
-- [ ] 人为制造 readiness 失败，确认失败 Pod 不进入 Service endpoints。
-- [ ] 验证 worker 多副本不会重复 claim 同一任务。
-- [ ] 明确当前阶段不能覆盖 Windows 关机、WSL 停止和本机断网。
+- [ ] 梳理 worker 任务锁、claim、幂等、重试和失败记录。
+- [ ] 实现 `APP_ROLE` 和启动装配层。
+- [ ] 构建并部署包含 `tini` 的新镜像。
+- [ ] 验证 API、各类 worker 和 migrate 可独立启动、停止和观测。
 
-### 第十部分：加入 CI/CD 初版
+### 第十部分：Kubernetes 安全与资源治理
 
-- [ ] PR 阶段执行 `go test`、`go vet`、后端构建。
-- [ ] PR 阶段执行前端 install、type-check、build。
-- [ ] 构建后端镜像并打 Git SHA tag。
-- [ ] 构建前端镜像并打 Git SHA tag。
-- [ ] 推送镜像到镜像仓库。
-- [ ] 手动触发部署到 WSL 内 K3s。
-- [ ] 部署前运行 migrate Job。
-- [ ] 部署后执行 smoke test。
-- [ ] 失败时支持 Helm rollback 或镜像 tag 回退。
+- [ ] 为 API、worker 和 migrate 配置独立 ServiceAccount 与最小 RBAC。
+- [ ] 增加 NetworkPolicy、资源请求/限制、PDB、ResourceQuota 和 LimitRange。
+- [ ] 验证网络访问、权限边界、资源边界和故障预算。
 
-### 第十一部分：准备后续服务器 Agent 扩展
+### 第十一部分：迁移、高可用与回滚
 
-- [ ] 明确实验室服务器只作为受限 worker 节点，不默认作为公网入口。
-- [ ] 明确低配服务器作为后续持续在线兜底节点，是否承载 control-plane 和 PostgreSQL 需要单独迁移方案。
-- [ ] 准备 Tailscale 或 WireGuard 等安全网络方案。
-- [ ] 准备 K3s agent join 脚本。
-- [ ] 设计 WSL、实验室服务器、低配服务器的节点 label。
-- [ ] 设计实验室服务器 taint/toleration 和安全限制。
-- [ ] 准备后续 `values-lab.yaml`、`values-vps.yaml` 或多节点 values。
-- [ ] 验证服务器 agent 加入不影响 WSL 当前主线运行。
+- [ ] 将 API init container 迁移改为独立 migrate Job。
+- [ ] 完成 API、Web、Gateway、cloudflared 多副本和滚动发布演练。
+- [ ] 验证 readiness、单 Pod 故障、worker 幂等和 Helm rollback。
+- [ ] 明确 WSL 关闭、Windows 关机和本机断网不属于当前可用性承诺。
 
-### 第十二部分：达到微服务重构前置条件
+### 第十二部分：CI/CD 闭环
 
-- [ ] WSL 内 K3s 部署稳定。
-- [ ] `APP_ROLE` 多角色运行稳定。
-- [ ] API/Web/Gateway/cloudflared 滚动发布稳定。
-- [ ] worker 幂等、任务锁、job claim 稳定。
-- [ ] migrate Job 与应用发布顺序稳定。
-- [ ] CI/CD 初版可构建、部署、回滚。
-- [ ] 外部访问、健康检查、日志和指标可用于定位问题。
-- [ ] 至少完成一轮备份与恢复演练。
-- [ ] 明确第一个可拆服务边界，优先从 `notification-service` 或 `feed-worker-service` 开始。
+- [ ] 执行后端、前端和 Helm 自动校验。
+- [ ] 构建并推送 Git SHA 或 SemVer + Git SHA 镜像。
+- [ ] 完成 K3s 部署、smoke test、发布观察和 rollback。
 
-### 第十三部分：开始微服务重构
+### 第十三部分：微服务拆分
 
-- [ ] 保留旧 `APP_ROLE` Deployment 作为回滚基线。
-- [ ] 为第一个服务定义接口契约、数据访问边界和失败重试策略。
-- [ ] 新服务先作为独立镜像和独立 Deployment 部署。
-- [ ] 新旧实现短期并存，通过配置或流量策略切换。
-- [ ] 新服务验证通过后，缩容旧角色 Deployment。
-- [ ] 保留回滚路径，确认数据结构和任务状态兼容旧实现。
-- [ ] 第一轮微服务重构完成后，再进入下一个服务。
+- [ ] 第八至十二部分全部完成并通过验收。
+- [ ] 定义第一个服务的接口、数据边界、重试和回滚策略。
+- [ ] 优先拆分 `notification-worker`，每次只迁移一个服务。
+
+### 第十四部分：多节点扩展与阶段验收
+
+- [ ] 确定 Tailscale/WireGuard 等安全网络方案。
+- [ ] 准备 K3s agent join、节点 label、taint/toleration 和多节点 values。
+- [ ] 验证新节点加入不影响 WSL 主线；多节点、数据库 HA 和 HPA 不作为当前微服务化强制前置。
 
 ## 0. 当前连接与执行基线
 
@@ -269,7 +262,11 @@ DEPLOYMENT_MODE=cluster 时，APP_ROLE=all 启动失败。
 DEPLOYMENT_MODE=single_node 时，APP_ROLE=all 可用于本地兼容。
 ```
 
-### 3.3 启动装配拆分
+## 4. 启动装配层
+
+**状态**：尚未完成。当前 `cmd/api/main.go` 仍集中负责配置、依赖构造、HTTP 服务和后台 worker 启动。
+
+### 4.1 启动装配拆分
 
 建议新增：
 
@@ -300,7 +297,7 @@ internal/bootstrap/
 | `workers.go` | 构造并启动 worker loop |
 | `app.go` | 汇总启动依赖 |
 
-### 3.4 角色启动行为
+### 4.2 角色启动行为
 
 | 角色 | 启动 HTTP | 启动 worker |
 | --- | --- | --- |
@@ -312,7 +309,7 @@ internal/bootstrap/
 | `all` | 是 | 全部 |
 | `migrate` | 否 | 仅迁移 |
 
-### 3.5 验收
+### 4.3 验收
 
 命令级验收：
 
@@ -333,9 +330,9 @@ APP_ROLE=embedding-worker go run ./cmd/api
 5. 多 worker 并发不重复处理同一个 job。
 6. `APP_NODE_ID` 能区分不同 Pod。
 
-## 4. 镜像设计
+## 5. 单镜像多角色容器化
 
-### 4.1 后端镜像
+### 5.1 后端镜像
 
 第一阶段仍使用一个后端镜像：
 
@@ -345,13 +342,15 @@ messagefeed-api:<git-sha>
 
 虽然名字叫 `api`，但它通过 `APP_ROLE` 启动不同后端角色。
 
+当前 all-in-one 过渡阶段实际使用 `messagefeed-api:allinone-0703de0`，尚未启用 `APP_ROLE` 角色化。后续构建新镜像时应使用不可变 tag，并验证 `tini` 已作为容器 PID 1 的父进程生效。
+
 原因：
 
 1. 减少第一阶段镜像数量。
 2. 避免拆多个二进制。
 3. 后续真实拆服务时，再把某个角色替换成独立镜像。
 
-### 4.2 前端镜像
+### 5.2 前端镜像
 
 前端独立镜像：
 
@@ -359,7 +358,7 @@ messagefeed-api:<git-sha>
 messagefeed-web:<git-sha>
 ```
 
-### 4.3 镜像 tag
+### 5.3 镜像 tag
 
 禁止生产使用：
 
@@ -374,631 +373,256 @@ latest
 <semver>-<git-sha>
 ```
 
-## 5. Helm Chart 设计
+## 6. WSL 内 K3s single-server 基线
 
-目录：
+**状态**：已完成。WSL 内 K3s、动态网络维护、Helm 工具链和基础组件验收已完成。
 
-```text
-deploy/helm/messagefeed/
-  Chart.yaml
-  values.yaml
-  values-local.yaml
-  values-staging.yaml
-  values-prod.yaml
-  templates/
-    configmap.yaml
-    secret.example.yaml
-    api-deployment.yaml
-    api-service.yaml
-    web-deployment.yaml
-    web-service.yaml
-    gateway-deployment.yaml
-    gateway-service.yaml
-    cloudflared-deployment.yaml
-    source-worker-deployment.yaml
-    notification-worker-deployment.yaml
-    agent-scheduler-worker-deployment.yaml
-    embedding-worker-deployment.yaml
-    migrate-job.yaml
-```
-
-### 5.1 values 结构
-
-建议结构：
-
-```yaml
-global:
-  environment: staging
-  deploymentMode: cluster
-  publicBaseUrl: https://example.com
-
-image:
-  api:
-    repository: registry.example.com/messagefeed-api
-    tag: ""
-  web:
-    repository: registry.example.com/messagefeed-web
-    tag: ""
-
-api:
-  replicas: 2
-
-web:
-  replicas: 2
-
-gateway:
-  replicas: 2
-
-cloudflared:
-  replicas: 2
-  protocol: auto
-
-workers:
-  source:
-    replicas: 1
-  notification:
-    replicas: 1
-  agentScheduler:
-    replicas: 1
-  embedding:
-    replicas: 1
-```
-
-### 5.2 ConfigMap 字段
-
-ConfigMap 放非敏感配置：
+当前基线：
 
 ```text
-BIND_ADDR
-PUBLIC_BASE_URL
-APP_ROLE
-DEPLOYMENT_MODE
-ENVIRONMENT
-LOG_LEVEL
-OTEL_SERVICE_NAME
-OTEL_EXPORTER_OTLP_ENDPOINT
-OBSERVABILITY_TRACE_ENABLED
+Windows
+  -> WSL
+  -> K3s server / control-plane
+  -> messagefeed namespace
+  -> PostgreSQL/pgvector
+  -> all-in-one API / Web / Caddy gateway / cloudflared
+  -> Prometheus / Loki / Tempo / OTel Collector / Grafana / Promtail
 ```
 
-### 5.3 Secret 字段
-
-Secret 放敏感配置：
-
-```text
-DATABASE_URL
-AUTH_OWNER_PASSWORD
-LLM_API_KEY
-EMBEDDING_API_KEY
-WECHAT_WORK_SECRET
-WECHAT_WORK_CALLBACK_TOKEN
-WECHAT_WORK_ENCODING_AES_KEY
-CLOUDFLARED_TUNNEL_TOKEN
-```
-
-## 6. Kubernetes Workload 设计
-
-### 6.1 API Deployment
-
-关键环境变量：
-
-```text
-APP_ROLE=api
-DEPLOYMENT_MODE=cluster
-BIND_ADDR=0.0.0.0:60001
-APP_NODE_ID=$(POD_NAME)
-```
-
-探针：
-
-```text
-startupProbe: /healthz
-livenessProbe: /healthz
-readinessProbe: /readyz
-```
-
-发布策略：
-
-```text
-maxUnavailable=0
-maxSurge=1
-```
-
-### 6.2 Web Deployment
-
-Web 只提供静态资源，不直接访问数据库。
-
-副本建议：
-
-```text
-local: 1
-staging: 1
-prod: 2
-```
-
-### 6.3 Caddy Gateway Deployment
-
-职责：
-
-1. 接收 cloudflared 转发。
-2. `/api/*` 转发到 API Service。
-3. 其他路径转发到 Web Service。
-4. `/healthz`、`/readyz` 按需要转发 API 或提供 gateway 自身检查。
-
-第一阶段继续使用 Caddy，不引入 Nginx。
-
-### 6.4 cloudflared Deployment
-
-职责：
-
-1. 与 Cloudflare 建立 Tunnel 出站连接。
-2. 将外部 hostname 转发到 Caddy gateway Service。
-
-建议：
-
-```text
-replicas=2
-不使用 HPA
-开启 --metrics 0.0.0.0:2000
-使用 /ready 探针
-协议默认 auto，网络不稳时改 http2
-```
-
-### 6.5 Worker Deployments
-
-每类 worker 独立 Deployment：
-
-```text
-source-worker
-notification-worker
-agent-scheduler-worker
-embedding-worker
-```
-
-共同规则：
-
-1. 不暴露公网 Service。
-2. 默认不监听 HTTP。
-3. 使用独立 `APP_NODE_ID`。
-4. 通过数据库 job claim / lock / 幂等保证任务不重复。
-
-初始副本建议：
-
-| worker | 初始副本 |
-| --- | --- |
-| source-worker | 1 |
-| notification-worker | 1 |
-| agent-scheduler-worker | 1 |
-| embedding-worker | 1 |
-
-稳定后再按队列积压扩容。
-
-### 6.6 Migrate Job
-
-迁移必须独立于 API 启动。
-
-规则：
-
-1. 发布前先运行迁移 Job。
-2. 迁移失败则停止发布。
-3. 生产迁移必须向后兼容。
-4. 不在生产流水线自动执行破坏性 down migration。
-
-## 7. WSL 内 K3s 长期运行
-
-当前阶段使用 WSL 内 K3s single-server 作为长期运行基线，不使用 K3d 作为主线。
-
-### 7.1 进入项目
-
-所有操作先通过 SSH 进入 WSL：
-
-```bash
-ssh aroen@127.0.0.1
-cd /home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed
-```
-
-### 7.2 推荐形态
-
-```text
-WSL
-  K3s server / control-plane
-  PostgreSQL/pgvector
-  messageFeed namespace
-    api Deployment
-    web Deployment
-    gateway Deployment
-    cloudflared Deployment
-    source-worker Deployment
-    notification-worker Deployment
-    agent-scheduler-worker Deployment
-    embedding-worker Deployment
-    migrate Job
-```
-
-K3d 只作为一次性沙盒演练可选项，不作为当前长期运行基线。
-
-### 7.3 环境核实
-
-核实项：
-
-```bash
-pwd
-git status --short
-go version
-docker version
-kubectl version --client
-helm version
-```
-
-如果 K3s 尚未安装，先安装 K3s single-server；如果已经安装，先确认当前 kubeconfig 指向 WSL 内 K3s。
-
-### 7.4 集群验收
+核查命令：
 
 ```bash
 kubectl get nodes -o wide
 kubectl get pods -A
 kubectl get storageclass
+helm list -A
 ```
 
 验收标准：
 
-1. WSL 内只有一个 K3s server 节点也可以接受。
-2. 节点状态为 `Ready`。
-3. `kubectl` 和 `helm` 在 SSH 会话内可直接操作集群。
-4. 本阶段不要求跨物理节点高可用。
+1. WSL K3s 节点为 `Ready`。
+2. CoreDNS、local-path-provisioner 和 metrics-server 正常运行。
+3. `kubectl` 与 `helm` 可以访问当前集群。
+4. PostgreSQL 备份落点和归档校验方式已明确。
+5. 当前阶段不承诺 Windows 关机、WSL 停止或本机断网后的持续在线。
 
-### 7.5 应用级高可用验证
+当前遗留项：
 
-本阶段只验证应用级高可用，不代表 Windows 关机、WSL 停止或本机断网后仍可用。
+1. `local-path` 与 `local-path-retain` 同时被标记为默认 StorageClass，创建新 PVC 前必须恢复唯一默认类。
+2. 现有 PVC/PV 不迁移；5 个现有 PV 已为 `Retain`，完整恢复演练仍待执行。
 
-演练目标：
+## 7. Helm Chart 与 Workload 设计
 
-1. Helm chart 可安装。
-2. API/Web/Gateway/cloudflared 多副本可运行。
-3. 删除单个 Pod 不影响主链路。
-4. API rolling update 时外部访问不中断。
-5. `cloudflared` 单 Pod 重启不会长时间出现 `1033`。
-6. worker 能按角色独立运行。
+**状态**：all-in-one Chart 已完成并用于现有资源接管；独立 worker、独立 migrate Job 和 `APP_ROLE` 模板尚未实现。
 
-演练项：
+Chart 入口：
 
 ```text
-删除一个 api Pod
-删除一个 web Pod
-删除一个 gateway Pod
-删除一个 cloudflared Pod
-滚动重启 api Deployment
-让一个 api Pod readiness 失败
-观察外部 /healthz /readyz
+deploy/helm/messagefeed/
+  Chart.yaml
+  values.yaml
+  values-k3s.yaml
+  values.schema.json
+  files/migrations/
+  files/observability/
+  templates/
+    api.yaml
+    web.yaml
+    gateway.yaml
+    cloudflared.yaml
+    postgresql.yaml
+    migrations-configmap.yaml
+    storageclass.yaml
+    observability-*.yaml
 ```
 
-验收标准：
+当前配置原则：
 
-1. 单个 API Pod 删除后，外部访问仍成功。
-2. 单个 gateway Pod 删除后，外部访问仍成功。
-3. 单个 cloudflared Pod 删除后，不出现长期 `1033`。
-4. worker 日志显示各自只执行对应职责。
-5. API Pod 不再输出 worker tick 日志。
+1. `values.yaml` 提供默认配置，`values-k3s.yaml` 提供 WSL/K3s 覆盖。
+2. 既有数据库、应用、Caddy 和 Tunnel Secret 通过 `existingSecret` 引用，不在 values 中保存明文。
+3. all-in-one API 保持单副本，直到 `APP_ROLE` 和任务幂等验证完成。
+4. 当前 `values-k3s.yaml` 仍将 cloudflared 镜像 tag 覆盖为 `latest`，后续必须固定为版本或 digest。
+5. 数据库迁移当前由 API init container 执行，独立 migrate Job 属于后续目标。
 
-## 8. 后续服务器 Agent 扩展
+Workload 边界：
 
-本章是后续扩展内容，不是当前第一落地阶段的前置条件。
+| Workload | 当前状态 | 目标状态 |
+| --- | --- | --- |
+| API | all-in-one 单副本，同时启动 HTTP 和 worker | `APP_ROLE=api`，只提供 HTTP |
+| source/notification/agent/embedding worker | 未独立部署 | 各自独立 Deployment |
+| migrate | API init container | 独立 Job |
+| Web/Gateway/Tunnel | 已由 Helm 管理，当前单副本 | 按高可用演练逐步扩容 |
+| PostgreSQL/观测栈 | 已由 Helm 管理，PVC 保持原绑定 | 在备份和资源策略稳定后再扩展 |
 
-### 8.1 前提
+Helm 验证命令：
 
-1. WSL 内 K3s single-server 已稳定运行。
-2. Helm chart、镜像 tag、Secret、ConfigMap 已在 WSL 环境验证通过。
-3. 实验室服务器和低配服务器能通过安全网络访问 WSL control-plane，或已决定将 control-plane 迁移到常驻服务器。
-4. 新服务器能访问镜像仓库。
-5. 新服务器能访问 PostgreSQL 所在位置。
-6. 新服务器能出站访问 Cloudflare。
+```bash
+helm lint deploy/helm/messagefeed -f deploy/helm/messagefeed/values-k3s.yaml
 
-建议先用 Tailscale 或 WireGuard 打通内网。
+helm template messagefeed deploy/helm/messagefeed \
+  --namespace messagefeed \
+  -f deploy/helm/messagefeed/values-k3s.yaml
 
-### 8.2 一键加入脚本目标
+helm status messagefeed -n messagefeed
+```
 
-脚本：
+## 8. 环境与资产治理
+
+**状态**：all-in-one Helm 部署、数据库接管、观测栈、入口和基础健康检查已完成；资产治理仍有待办。
+
+当前基线：
+
+| 项目 | 状态 |
+| --- | --- |
+| Helm release | `messagefeed` revision 2，`deployed` |
+| PostgreSQL | 迁移状态 `37,false`，pgvector 可用 |
+| PVC/PV | 5 个 PVC 为 `Bound`，5 个 PV 为 `Retain` |
+| 外部入口 | Cloudflare -> cloudflared -> Caddy -> Web/API，公网 `/healthz` 已通过 |
+| 镜像 | all-in-one 仍使用旧 tag；cloudflared 当前配置仍覆盖为 `latest` |
+| StorageClass | `local-path` 与 `local-path-retain` 同时为默认类 |
+
+实施内容：
+
+1. 将 `local-path` 默认注解设为 `false`，确认 `local-path-retain` 为唯一默认类；不迁移现有 PVC/PV。
+2. 固定 cloudflared 镜像版本或 digest，构建并部署包含 `tini` 的新 API 镜像。
+3. 将 Grafana 管理凭据和其他敏感配置统一纳入 Secret 管理。
+4. 完成 PostgreSQL 备份恢复演练，并记录恢复后的迁移状态和核心数据校验结果。
+
+完成判定：
+
+1. 新 PVC 不再依赖错误的默认 StorageClass。
+2. 生产镜像不使用 `latest`，敏感配置不使用默认值。
+3. 备份可以恢复，恢复后的应用健康检查和数据核验通过。
+
+## 9. 应用运行边界拆分
+
+**状态**：尚未完成。当前 API 仍是 all-in-one 单体进程，同时启动 HTTP API 和后台 worker。
+
+实施内容：
+
+1. 梳理 source、notification、agent scheduler 和 embedding worker 的任务锁、claim、幂等、重试和失败记录。
+2. 实现 `APP_ROLE` 和启动装配层；详细角色定义见第 3、4 节。
+3. 让 API、各类 worker 和 migrate 具备独立启动、停止、日志、指标和优雅退出能力。
+4. 构建并部署包含 `tini` 的新镜像，验证容器 PID 1 能回收孤儿进程。
+
+完成判定：
+
+1. `APP_ROLE=api` 只启动 HTTP，不启动 worker。
+2. 各 worker 只执行自身职责，不监听业务 HTTP。
+3. 多 worker 并发不会重复处理、重复通知或丢失任务。
+4. API 与 worker 可独立扩缩容和回滚。
+
+## 10. Kubernetes 安全与资源治理
+
+**状态**：尚未完成。当前主要工作负载仍使用默认 ServiceAccount，尚未建立完整网络和资源治理边界。
+
+实施内容：
+
+1. 为 API、各类 worker 和 migrate 配置独立 ServiceAccount 与最小 RBAC。
+2. 增加默认拒绝 NetworkPolicy，仅放行 DNS、PostgreSQL、OTel、gateway 和必要的外部访问。
+3. 配置 CPU/内存 requests、limits、ResourceQuota、LimitRange 和 PDB。
+4. 为有状态组件、worker 和入口组件补充节点选择、反亲和性或 topology spread 策略。
+
+完成判定：
+
+1. Pod 只能访问其职责所需的 Kubernetes API 和网络目标。
+2. 缺少权限或网络放行时，失败行为可观测且不会扩大影响范围。
+3. 资源不足、节点维护和 Pod 驱逐时具备明确的恢复边界。
+
+## 11. 迁移、高可用与回滚
+
+**状态**：尚未完成。当前只有探针、Helm 接管和单副本基础，不代表已实现无感升级。
+
+实施顺序：
+
+1. 将 API init container 迁移改为独立 migrate Job，明确数据库锁、失败处理和向后兼容策略。
+2. 完成 API、Web、Gateway、cloudflared 的多副本配置和 RollingUpdate。
+3. 有状态单实例组件继续使用 `Recreate`，避免 RWO PVC 被新旧 Pod 并发写入。
+4. worker 初期保持单副本，完成幂等验证后再扩容。
+5. 完成单 Pod 删除、readiness 失败、滚动发布和 Helm rollback 演练。
+
+完成判定：
+
+1. 新 Pod ready 前旧 Pod 持续接收流量。
+2. 单 Pod 故障不会造成长时间外部不可用。
+3. 发布失败可以回到上一稳定镜像和兼容数据库状态。
+4. WSL 关闭、Windows 关机和本机断网不纳入当前无感升级承诺。
+
+## 12. CI/CD 闭环
+
+**状态**：尚未实现。当前仅完成手动 Helm lint、template、镜像构建和部署验收。
+
+目标流程：
 
 ```text
-scripts/cluster/join-node.sh
+PR 校验
+  -> 后端测试、vet、build
+  -> 前端 install、type-check、build
+  -> Helm lint/template
+  -> 构建 Git SHA 或 SemVer + Git SHA 镜像
+  -> 推送镜像仓库
+  -> 部署 K3s staging
+  -> smoke test
+  -> 人工确认
+  -> Helm upgrade
+  -> 发布后观察和 rollback
 ```
 
-职责：
+完成判定：
 
-1. 安装 K3s agent。
-2. 加入当前集群。
-3. 设置节点名。
-4. 设置节点 labels。
-5. 检查节点 Ready。
+1. 生产镜像和 Chart 版本可追踪，不使用 `latest`。
+2. 独立 migrate Job 成功后才允许发布应用。
+3. smoke test 覆盖首页、`/healthz`、`/readyz`、登录、核心 API 和外部入口。
+4. 发布失败可通过 `helm rollback` 或镜像 tag 回退。
+5. CI/CD 日志记录镜像、Chart、迁移和回滚版本。
 
-### 8.3 节点标签
+## 13. 微服务拆分
 
-WSL：
+**状态**：尚未开始。第 8～12 节全部通过前，不进入真实业务微服务拆分。
 
-```text
-messagefeed/site=wsl
-messagefeed/node-pool=primary
-messagefeed/tunnel=true
-messagefeed/gateway=true
-messagefeed/worker=true
-```
+拆分顺序：
 
-实验室服务器：
+1. `notification-worker` -> `notification-service`
+2. `source-worker` -> `feed-worker-service`
+3. `embedding-worker` -> `embedding-service`
+4. `agent-scheduler-worker` -> `agent-worker-service`
+5. API 中的 Feed 能力 -> `feed-api-service`
+6. 认证能力 -> `auth-service`
+7. 后续新增金融能力 -> `market-service`
 
-```text
-messagefeed/site=lab
-messagefeed/node-pool=restricted
-messagefeed/worker=true
-messagefeed/security=restricted
-```
-
-低配服务器：
-
-```text
-messagefeed/site=vps
-messagefeed/node-pool=fallback
-messagefeed/always-on=true
-```
-
-### 8.4 扩展后调度目标
-
-```text
-WSL:
-  主力 api / web / worker / cloudflared
-
-实验室服务器:
-  高配备份 worker
-  按安全策略决定是否承载 api
-  默认不作为公网入口
-
-低配服务器:
-  后续持续在线兜底
-  是否承载 control-plane 和 PostgreSQL 需要单独迁移方案
-```
-
-通过 nodeAffinity、taints/tolerations、anti-affinity 或 topology spread 控制关键副本分布。
-
-## 9. 外部访问与 Tunnel 稳定性
-
-### 9.1 访问链路
-
-```text
-用户 / 企业微信
-  -> Cloudflare
-  -> Tunnel
-  -> cloudflared Pods
-  -> Caddy gateway
-  -> web/api
-```
-
-### 9.2 `1033` 定位
-
-`1033` 通常表示 Cloudflare 找不到健康 `cloudflared` 连接。
-
-排查顺序：
-
-1. Cloudflare Tunnel 状态。
-2. `cloudflared` Pod 状态。
-3. `cloudflared /ready`。
-4. `cloudflared` 日志。
-5. 当前协议是 `auto/quic/http2`。
-6. 服务器出站网络。
-
-### 9.3 `502/504` 定位
-
-`502/504` 更常见于内部 origin 访问失败。
-
-排查顺序：
-
-1. gateway Pod 状态。
-2. gateway upstream 日志。
-3. API/Web Service endpoints。
-4. API `/readyz`。
-5. 数据库连接。
-
-### 9.4 修复有效性证明
-
-外部探测：
-
-```text
-/
-/healthz
-/readyz
-```
-
-指标：
-
-```text
-1033 次数
-502/504 次数
-cloudflared restart 次数
-gateway upstream error 次数
-api readyz 失败次数
-```
-
-验收建议：
-
-```text
-连续 14 天无 1033 或显著降低
-外部 /healthz 成功率 >= 99.9%
-外部 /readyz 成功率 >= 99.5%
-单 Pod 故障不造成长时间不可用
-```
-
-## 10. CI/CD 实施
-
-### 10.1 PR Workflow
-
-检查：
-
-```text
-go test -count=1 ./...
-go vet ./...
-go build ./cmd/api
-npm --prefix web ci
-npm --prefix web run test
-npm --prefix web run type-check
-npm --prefix web run build
-docker build
-```
-
-### 10.2 Release Workflow
-
-流程：
-
-```text
-构建 api 镜像
-构建 web 镜像
-使用 Git SHA 打 tag
-推送镜像
-部署 staging
-运行 smoke test
-人工审批 production
-部署 production
-发布后观察
-```
-
-### 10.3 Smoke Test
-
-```text
-GET /
-GET /healthz
-GET /readyz
-登录接口
-订阅列表接口
-Agent 创建任务接口
-企业微信 callback 验证
-```
-
-### 10.4 回滚
-
-应用回滚：
-
-```text
-helm rollback messagefeed <revision>
-```
-
-镜像回滚：
-
-```text
-切回上一个 Git SHA tag
-```
-
-worker 回滚：
-
-```text
-缩容 K8s worker 到 0
-恢复旧 worker
-确认 claim/lock/幂等状态
-```
-
-## 11. 无感升级控制
-
-### 11.1 API/Web/Gateway
-
-策略：
-
-```text
-RollingUpdate
-maxUnavailable=0
-maxSurge=1
-readiness 必须通过后才接流量
-```
-
-### 11.2 Worker
-
-策略：
-
-1. 初期单副本。
-2. 确认幂等后再多副本。
-3. 避免旧环境和新环境双跑。
-4. 发布时观察队列 claim、失败重试、重复通知、重复抓取。
-
-### 11.3 数据库迁移
-
-采用 expand/contract：
-
-```text
-expand:
-  新增兼容结构
-
-deploy:
-  发布兼容新旧结构的代码
-
-backfill:
-  后台补数据
-
-contract:
-  下一轮再删除旧结构
-```
-
-## 12. 后续微服务拆分实施思路
-
-拆分前置条件：
-
-1. Kubernetes 多角色部署稳定。
-2. CI/CD 稳定。
-3. 入口和监控稳定。
-4. 数据边界明确。
-5. 接口契约明确。
-
-推荐拆分顺序：
-
-1. `notification-service`
-2. `feed-worker-service`
-3. `embedding-service`
-4. `agent-worker-service`
-5. `feed-api-service`
-6. `auth-service`
-7. `market-service`
-
-拆分方式：
+单服务迁移方式：
 
 ```text
 旧：
-  messagefeed-api 镜像 + APP_ROLE=notification-worker
+  messagefeed-api + APP_ROLE=notification-worker
 
 新：
-  messagefeed-notification 镜像
-
-Kubernetes Deployment 名称和运行边界尽量保持不变。
+  messagefeed-notification
+  独立 Kubernetes Deployment
 ```
 
-这样可以把“部署骨架”保留下来，只替换内部实现，减少返工。
+每次只迁移一个服务：
 
-## 13. 第一轮任务清单
+1. 定义接口、数据访问边界、重试策略、指标和失败处理。
+2. 保留旧角色 Deployment 作为回滚基线。
+3. 新旧实现短期并存，通过配置或流量策略切换。
+4. 新服务稳定后再缩容旧角色。
+5. 验证数据结构、任务状态和回滚路径兼容后，再进入下一项。
 
-1. 固定本机操作入口：`ssh aroen@127.0.0.1`。
-2. 核实 WSL 项目目录、依赖、Docker、kubectl、Helm。
-3. `APP_ROLE` 配置与校验。
-4. `internal/bootstrap` 启动装配层。
-5. API 与 worker 分离启动。
-6. 后端镜像支持多角色。
-7. Helm chart 初版。
-8. `values-wsl.yaml`。
-9. WSL 内 K3s single-server 部署。
-10. WSL 内 PostgreSQL/pgvector 部署或接入。
-11. migrate Job。
-12. Caddy gateway 多副本部署。
-13. API/Web 多副本部署。
-14. worker 独立 Deployment。
-15. cloudflared 多副本部署。
-16. WSL 内应用级高可用演练脚本。
-17. PR CI workflow。
-18. Release workflow。
-19. 外部健康探测脚本。
-20. 后续服务器 join 脚本。
+## 14. 多节点扩展与阶段验收
 
-## 14. 验收总标准
+**状态**：尚未开始，且不是当前微服务化的强制前置条件。
 
-第一轮完成后，应满足：
+扩展内容：
 
-1. `APP_ROLE=api` 不启动 worker。
-2. worker 角色不监听 HTTP。
-3. WSL 内 K3s single-server 可稳定运行。
-4. API/Web/Gateway/cloudflared 可多副本运行。
-5. 删除单个 API/Web/Gateway/cloudflared Pod 不导致长时间不可用。
-6. 外部 `/healthz`、`/readyz` 可持续探测。
-7. worker 可独立运行并正确 claim job。
-8. 发布失败可回滚到上一镜像 tag。
-9. 所有本机部署、排查和发布操作都可以通过 `ssh aroen@127.0.0.1` 进入 WSL 后完成。
-10. 新服务器可通过脚本加入集群并承载副本作为后续扩展验收，不作为第一轮阻塞项。
+1. 使用 Tailscale 或 WireGuard 等安全网络接入实验室服务器和低配常驻服务器。
+2. 准备 K3s agent join、节点 label、taint/toleration、亲和性和多节点 values。
+3. 实验室服务器默认只承载受限 worker，不作为公网入口。
+4. 低配常驻服务器用于持续在线兜底；是否承载 control-plane、PostgreSQL 和入口需单独评估。
+
+阶段验收：
+
+1. 第 8～12 节的必要任务全部通过。
+2. 新节点加入不影响 WSL 当前 Helm release 和数据卷。
+3. 多节点扩展、数据库高可用和 HPA 作为后续增强，不阻塞第一个微服务拆分。
+4. 完成第 13 节首个服务验证后，再决定是否推进多节点和数据库 HA。

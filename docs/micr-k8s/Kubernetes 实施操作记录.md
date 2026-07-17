@@ -3,7 +3,7 @@
 **项目路径**：`/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed`  
 **关联文档**：`docs/micr-k8s/micr-k8s-plan.md`、`docs/micr-k8s/micr-k8s-implement.md`  
 **记录创建日期**：2026-07-06  
-**当前状态**：第一部分环境基线、K3s 安装、K3s 动态网络持久化、Helm 安装、运行方式与敏感配置来源记录已完成；第二部分只读代码职责核查已执行并回填；已完成 Docker Compose PostgreSQL 重复数据清理、唯一索引重建与新逻辑备份；过渡部署方案已调整为同步部署后端 all-in-one、Web、Caddy gateway、Cloudflare Tunnel 与观测组件，并已完成执行前流程核查修正；尚未执行项目级业务部署或代码改造。
+**当前状态**：第一部分环境基线、K3s 安装、K3s 动态网络持久化与 Helm 安装已完成；第二部分只读代码职责核查已执行并回填；第三部分 all-in-one 过渡部署、Cloudflare Tunnel、观测栈与固定本地监控入口已完成；第四部分已建立 `deploy/helm/messagefeed` Helm Chart，并于 2026-07-16 使用 `--take-ownership` 完成现有 K3s 资源接管。当前 Helm release `messagefeed` revision 2 为 `deployed`，现有 5 个 PVC 仍为 `Bound`、对应 PV 均为 `Retain`；2026-07-17 复核发现 `local-path` 与 `local-path-retain` 同时被标记为默认 StorageClass，唯一默认类尚未恢复；尚未实施 `APP_ROLE` 多运行角色拆分。
 
 ### 记录原则
 
@@ -44,6 +44,11 @@
 | 2026-07-06 | 方案修订 | 修订第三部分前置过渡部署方案 | 由“只部署后端单 Pod”调整为“同步部署后端 all-in-one、Web、Caddy gateway、Cloudflare Tunnel 与观测组件”；后端仍保持单副本。 |
 | 2026-07-07 | 执行前核查 | 核查第三部分前置过渡部署流程 | 已修正初始 tracing 顺序、观测组件 PVC 写权限和 port-forward 验收说明；未执行 K8s 资源创建。 |
 | 2026-07-07 | 数据修复与备份 | 清理 Docker PostgreSQL 中 `items(source_id, normalized_url)` 重复数据并重建唯一索引 | 已删除 5 条重复 `items` 记录；唯一索引 `uq_items_source_normalized_url` 已 `REINDEX`；重复组为 0；已生成新备份 `messagefeed-postgres-docker-20260707-201556.dump`。 |
+| 2026-07-16 | Helm Chart 实现 | 建立 all-in-one 阶段 Helm Chart，并补充 `tini`、迁移、Retain StorageClass、核心服务和可选观测栈模板 | Chart lint、template、服务端 dry-run 与镜像构建验证通过；代码提交 `5b77e43` 已推送至 `origin/master`。 |
+| 2026-07-16 | 数据保护 | 在 Helm 接管前生成 PostgreSQL custom dump，并将现有 PV 回收策略改为 `Retain` | 备份大小 7.6 MiB，SHA-256 与 `pg_restore -l` 校验通过；5 个现有 PV 均保持 `Bound` 且回收策略为 `Retain`。 |
+| 2026-07-16 | Helm 接管 | 使用 `--take-ownership` 接管现有 all-in-one、PostgreSQL、Web、gateway、cloudflared 与观测组件 | revision 1 因 StatefulSet 不可变字段失败；修正 `volumeClaimTemplates` 与持久化组件更新策略后，revision 2 成功部署。 |
+| 2026-07-16 | 接管验收 | 验证数据库、PVC/PV、内部服务端点、Cloudflare Tunnel 与公网健康检查 | PostgreSQL `schema_migrations=37,false`、公共表 55；全部 11 个 Pod Ready，核心服务 HTTP 200，公网 `/healthz` HTTP 200。 |
+| 2026-07-17 | 当前状态复核 | 只读复核 Helm release、PVC/PV 与 StorageClass 状态，并同步实施文档 | Helm release 仍为 revision 2/deployed；5 个 PVC 为 `Bound`、5 个 PV 为 `Retain`；`local-path` 与 `local-path-retain` 同时为默认类，已记录为待修正项；本次未修改集群资源。 |
 
 ## 第一部分：固定 WSL 执行入口与项目基线
 
@@ -2254,21 +2259,21 @@ D11 反馈：
 3. Pod 到外部 `api.cloudflare.com:443` 在绕过 DNS 后可成功访问，说明 Pod TCP 443 出站路径可用。
 4. Pod 到多个公共 DNS 的 UDP/TCP 53 均超时，包括 `1.1.1.1`、`8.8.8.8`、`223.5.5.5`、`119.29.29.29`；CoreDNS 日志同步出现 `read udp 10.42.0.2 -> ...:53: i/o timeout`。
 5. Pod 可访问 WSL 本地 DNS stub `10.255.255.254:53`，并可成功解析 `api.cloudflare.com`。
-6. cloudflared 当前协议 Secret 为 `auto`，实际运行日志选择了 `quic`；Pod 到 `region1.v2.argotunnel.com:7844` 超时。当时判断为应固定 `http2`，但该判断已被 D14.1 后续实测修正，当前以 D14.1.6 的 DIRECT 规则复测结论为准。
+6. cloudflared 当前协议 Secret 为 `auto`，实际运行日志选择了 `quic`；Pod 到 `region1.v2.argotunnel.com:7844` 超时。当前网络条件下应固定为 `http2`，走 TCP 443。
 
 最终处理原则：
 
 1. 不添加额外 Pod NAT 规则。
 2. 不把 CoreDNS 上游永久写死为某个临时 IP；CoreDNS 保持 `forward . /etc/resolv.conf`。
 3. 将 WSL 的 `/etc/resolv.conf` 维护为“本机可用 DNS stub”的动态入口，使 CoreDNS 继续通过标准文件发现上游。
-4. 当时计划让 cloudflared 在 WSL 本地 K3s 环境中使用声明式网络 profile 固定为 `http2`；后续 D14.1 实测显示未配置 DIRECT 规则前 HTTP/2/TCP 7844 握手失败，因此当前策略已调整为保持 `hostNetwork + quic` 并让 Cloudflare Tunnel 相关流量走 DIRECT。
+4. cloudflared 在 WSL 本地 K3s 环境中使用声明式网络 profile 固定为 `http2`；真实生产节点若确认 UDP/7844 可用，可切回 `auto` 或 `quic`。
 
 深层原因分析：
 
 1. 当前 WSL 网络不是单一路由出口。主机存在 `eth0 198.18.0.1/30`、下一跳 `198.18.0.2`、策略路由表 `127/128`、`loopback0`、本地 DNS stub `10.255.255.254:53`，并存在本地代理相关进程。主机本机发起的 DNS/HTTPS 流量与 Pod 经 `cni0` 转发、Flannel MASQUERADE 后的流量不完全等价。
 2. `/etc/wsl.conf` 中 `generateResolvConf=false`，当前 `/etc/resolv.conf` 手动列出多个公共 DNS。CoreDNS 默认 `forward . /etc/resolv.conf`，因此 CoreDNS 会从 Pod 网络直接访问公共 DNS，而不是使用 WSL 本地 DNS stub。
 3. 实测 Pod 到 `1.1.1.1`、`8.8.8.8`、`223.5.5.5` 等公共 DNS 的 UDP/TCP 53 均超时；但 Pod 到 `10.255.255.254:53` 可解析成功。这说明 WSL/代理/虚拟网关层对从 Pod 转发出的 DNS 53 流量不放行或不稳定，而 WSL 本地 DNS stub 是当前可用的 DNS 出口。
-4. `cloudflared` 的 `auto` 并不等同于“QUIC 失败后一定自动切换 HTTP/2”。当时日志显示它无法稳定完成协议/特性探测，并选择了 `Initial protocol quic`；随后连接失败时继续重试 QUIC。当时曾依据 Pod 到 `region1.v2.argotunnel.com:7844` 超时、Pod 到 `api.cloudflare.com:443` 成功的现象判断固定 `http2` 是确定性方案；该判断已被 D14.1.3 和 D14.1.6 修正。
+4. `cloudflared` 的 `auto` 并不等同于“QUIC 失败后一定自动切换 HTTP/2”。当前日志显示它无法稳定完成协议/特性探测，并选择了 `Initial protocol quic`；随后连接失败时继续重试 QUIC。由于 Pod 到 `region1.v2.argotunnel.com:7844` 超时，而 Pod 到 `api.cloudflare.com:443` 成功，固定 `http2` 是当前环境下的确定性方案。
 5. 因此可维护修复应把“WSL 当前可用 DNS stub 是什么”交给 systemd 动态发现，把“本地 WSL 网络不保证 UDP/7844”表达为环境 profile，而不是在每次故障时手动改 CoreDNS 或临时添加 iptables 规则。
 
 #### D11.1.1 根治 DNS 入口：动态维护 `/etc/resolv.conf`
@@ -3457,198 +3462,6 @@ D14 反馈：
 5. 处理结果：
 ```
 
-### D14.1. Tunnel 入口整治与 HTTP/3/QUIC 稳定性调查
-
-**执行时间**：2026-07-08  
-**执行性质**：停用旧 Docker Compose 入口栈、清理历史迁移 Job、验证 Cloudflare Tunnel `http2` 固定方案、恢复可用入口，并重新评估 HTTP/3/QUIC 稳定使用条件。  
-**敏感信息处理**：本节不记录 Cloudflare Tunnel token、企业微信密钥、数据库密码或其他 Secret 明文。
-
-#### D14.1.1 旧 Docker Compose 栈停用
-
-处理对象：
-
-```text
-messagefeed-web
-messagefeed-api
-messagefeed-gateway
-messagefeed-postgres
-messagefeed-cloudflared
-```
-
-处理结果：
-
-1. 已停止上述 Docker 容器；当前 `docker ps --filter name=messagefeed` 无运行中容器。
-2. 已将上述现有容器的 Docker restart policy 调整为 `no`，避免 Docker 服务重启后旧栈自动拉起。
-3. 已将 `docker-compose.yml` 中生产态 `postgres`、`api`、`web`、`gateway`、`cloudflared` 以及 `cloudflared-dev` 的 `restart` 调整为 `"no"`。
-4. 未删除 Docker 容器、镜像、卷或网络。
-
-采用原因：
-
-1. Docker Compose 旧 `messagefeed-cloudflared` 与 K8s `cloudflared` 曾同时使用同一 Tunnel，Cloudflare 侧可能把公网请求分配到不同 connector。
-2. 双入口会放大网络抖动影响，并可能造成“Web 显示成功、实际请求链路或记录链路不一致”的诊断复杂度。
-3. 当前过渡阶段以 K8s 栈作为唯一活动入口，Docker Compose 栈仅保留为可手动恢复的旧运行方式。
-
-#### D14.1.2 历史 migrate Job 清理
-
-清理对象：
-
-```text
-messagefeed-migrate-20260707122237
-messagefeed-migrate-20260707123604
-```
-
-处理结果：
-
-1. 已删除失败的历史 Job `messagefeed-migrate-20260707122237`。
-2. 已删除已完成的历史 Job `messagefeed-migrate-20260707123604`。
-3. 由上述 Job 管理的历史 Pod 已随 Job 删除而清理。
-4. 本次清理不涉及 PVC、Secret、ConfigMap、Deployment、StatefulSet 或数据库数据。
-
-#### D14.1.3 固定 `http2` 尝试与失败结论
-
-执行过的变更：
-
-1. 将 `messagefeed-cloudflared-secret` 中 `CLOUDFLARED_PROTOCOL` 从 `quic` 调整为 `http2`。
-2. 将 `messagefeed-network-profile` 中 `cloudflared_protocol` 临时调整为 `http2`。
-3. 重启 `deploy/cloudflared` 使协议生效。
-
-验证结果：
-
-1. cloudflared 日志显示 `Initial protocol http2`，说明配置已实际生效。
-2. Pod 未能 Ready，Deployment 未能 Available。
-3. 关键错误为 `TLS handshake with edge error: EOF`。
-4. cloudflared precheck 显示：
-   - `DNS Resolution region1.v2.argotunnel.com PASS`
-   - `DNS Resolution region2.v2.argotunnel.com PASS`
-   - `UDP Connectivity region1.v2.argotunnel.com PASS`
-   - `UDP Connectivity region2.v2.argotunnel.com PASS`
-   - `TCP Connectivity region1.v2.argotunnel.com FAIL`
-   - `TCP Connectivity region2.v2.argotunnel.com FAIL`
-   - `Cloudflare API api.cloudflare.com:443 PASS`
-5. 移除 `SSL_CERT_FILE=/etc/messagefeed-certs/cloudflared-ca-bundle.crt` 后重试，HTTP/2 edge 握手仍失败，因此本次失败不能归因于该环境变量单点。
-6. 主机侧 `region1.v2.argotunnel.com:7844` 与 `region2.v2.argotunnel.com:7844` TCP 端口可建立连接，但 cloudflared 的 HTTP/2/TLS 握手仍失败。这说明“TCP 端口可连”不等于“Cloudflare Tunnel HTTP/2 transport 可用”。
-
-修正后的判断：
-
-1. 先前“固定 `http2` 走 TCP 443”的表述不适用于当前 cloudflared Tunnel transport 现象；当前日志明确提示 Tunnel HTTP/2 transport 依赖 Cloudflare edge TCP 7844。
-2. 普通 `https://api.cloudflare.com/cdn-cgi/trace` 成功只能说明 Cloudflare API 的 TCP 443 可用，不能证明 `region*.v2.argotunnel.com:7844` 的 HTTP/2 transport 可用。
-3. 当时未配置 DIRECT 规则的环境中，`http2` 不能作为确定性 fallback；强行固定 `http2` 会导致 cloudflared 不 Ready，入口不可用。
-
-#### D14.1.4 当前恢复状态
-
-恢复动作：
-
-1. 将 `messagefeed-cloudflared-secret` 中 `CLOUDFLARED_PROTOCOL` 恢复为 `quic`。
-2. 将 `messagefeed-network-profile` 中 `cloudflared_protocol` 恢复为 `quic`。
-3. 保留 `profile_note=http2-attempt-failed-edge-tls-eof-2026-07-08` 作为审计说明。
-4. 恢复 `SSL_CERT_FILE=/etc/messagefeed-certs/cloudflared-ca-bundle.crt`，保持回源网关证书校验能力。
-5. 重启 `deploy/cloudflared`。
-
-当前验收：
-
-```text
-cloudflared Pod: 1/1 Running
-network profile: hostNetwork + quic
-日志状态: 已注册 4 条 protocol=quic tunnel connection
-Docker 旧栈: 无 messagefeed 运行容器
-历史 migrate Job/Pod: 已清理
-```
-
-当前限制：
-
-1. QUIC 此前能建立连接，但曾存在持续重连与 datagram/stream timeout；后续 Clash DIRECT 规则复测显示该问题已显著改善，仍需扩大观察窗口。
-2. `http2` 在未配置直连规则前无法作为可用回退；直连规则后 Windows 端 quick tunnel 可注册 HTTP/2，但 K8s 当前没有必要再次切换。
-3. 现阶段入口稳定性仍受 WSL、Windows 网络、Clash TUN、策略路由、本地代理或虚拟网关路径影响。
-
-#### D14.1.5 HTTP/3/QUIC 稳定使用分析
-
-概念边界：
-
-1. 用户侧浏览器或企业微信到 Cloudflare 边缘节点的 HTTP/3，和 cloudflared connector 到 Cloudflare edge 的 QUIC transport 是两段链路。
-2. 当前故障主要发生在 cloudflared connector 到 Cloudflare edge 的 transport 层，而不是浏览器是否启用 HTTP/3。
-3. 对企业微信回调而言，入口可靠性的关键是 Cloudflare 能否持续找到健康 connector，并将请求稳定转发到 gateway/API。
-
-当前环境不稳定因素：
-
-1. WSL 网络存在 Clash Verge TUN、镜像网络、虚拟网卡、策略路由和 `198.18.0.2` 代理/虚拟网关路径。
-2. 未配置 DIRECT 规则前，cloudflared 到 Cloudflare edge 的路由可能进入远端代理链路，而不是稳定的普通单出口路径。
-3. QUIC 基于 UDP，对 NAT 映射、UDP idle timeout、丢包、路径 MTU、代理转发能力更敏感。
-4. 当前单节点 WSL 使用 `hostNetwork + metrics 0.0.0.0:2000`，同节点多副本会产生端口冲突，因此不能直接用本机多副本抵消连接器抖动。
-5. 旧 Docker Compose connector 并存已清理，但此前它会增加 Cloudflare 侧连接选择的不确定性。
-
-稳定使用 HTTP/3/QUIC 的必要条件：
-
-1. 入口 connector 单一化：同一 Tunnel 不应同时由 Docker Compose 与 K8s 旧栈共同注册。
-2. 出站路径稳定：若继续使用 WSL，需要让 Cloudflare Tunnel 相关域名和地址走 Clash DIRECT；生产阶段仍优先把 cloudflared 放在真实 Linux 主机、VPS 或长期在线节点上。
-3. UDP 7844 可持续可用：不仅要能短时 precheck PASS，还要观察 30 到 60 分钟内无持续 `timeout: no recent network activity`、`failed to accept QUIC stream`、`datagram manager encountered a failure`。
-4. TCP 7844 也应可用：否则 `http2` fallback 不成立，协议切换不能作为可靠兜底。
-5. 多 connector 高可用：生产阶段至少在两个独立网络节点运行 cloudflared connector，而不是在同一 WSL 节点上堆多个 hostNetwork Pod。
-6. 回源配置与 edge transport 分离：回源网关证书信任应通过 Cloudflare Tunnel 的 originRequest 配置或明确的 origin CA 配置表达，避免用全局环境变量影响 edge transport 判断。
-7. 监控必须覆盖连接层：持续采集 `/ready`、cloudflared metrics、连接注册次数、连接终止次数、QUIC timeout 次数和外部探测结果。
-
-建议路线：
-
-1. 短期：保持 Docker 旧栈停用，只保留 K8s 单 connector；当前继续使用 WSL 时，保持 Clash DIRECT 规则和 K8s `hostNetwork + quic`。
-2. 短期：当前不再回退 `http2`；只有当 QUIC 再次持续抖动，且同一出站路径下 HTTP/2/TCP 7844 长时间验证通过后，才把 `http2` 作为 fallback。
-3. 中期：把公网入口迁移到常驻 Linux/VPS 节点，K8s WSL 环境只作为本地开发或内部服务节点。
-4. 中期：在常驻节点上验证 `quic` 和 `http2` 两种 transport，只有当 UDP 7844 与 TCP 7844 均稳定后，才启用自动切换或多 connector。
-5. 长期：为企业微信 callback 增加应用层快速验签、幂等落库和异步处理，即使入口偶发重试，也能避免消息处理丢失或重复副作用。
-
-#### D14.1.6 Windows Clash DIRECT 规则复测与日志对比
-
-追加背景：
-
-1. Windows 端使用 Clash Verge TUN，WSL2 使用镜像网络。
-2. 早期 Windows 测试中，`api.cloudflare.com:443`、`region1.v2.argotunnel.com:7844` 和 `region2.v2.argotunnel.com:7844` 的 TCP 连接可达，但流量经由 `Meta` 接口，源地址为 `198.18.0.1`。
-3. 未配置直连规则时，Windows `cloudflared --protocol quic` 可短暂注册，但随后出现 `timeout: no recent network activity`；`cloudflared --protocol http2` 出现 `TLS handshake with edge error: EOF`。
-
-处理方式：
-
-```yaml
-prepend-rules:
-  - DOMAIN-SUFFIX,argotunnel.com,DIRECT
-  - DOMAIN-SUFFIX,cftunnel.com,DIRECT
-  - DOMAIN-SUFFIX,trycloudflare.com,DIRECT
-  - DOMAIN,api.cloudflare.com,DIRECT
-  - IP-CIDR,198.41.192.0/20,DIRECT,no-resolve
-```
-
-Windows 端复测结果：
-
-1. `cloudflared --protocol quic`：DNS、UDP、TCP 与 Cloudflare API precheck 均通过；出现一次初始 QUIC dial timeout 后成功注册到 `protocol=quic`。
-2. `cloudflared --protocol http2`：成功注册到 `protocol=http2`；TCP Connectivity 通过。一次 `region2` UDP 检查失败只说明 QUIC 路径仍可能局部退化，不影响该次 HTTP/2 transport 建立。
-
-K8s 日志对比：
-
-统计窗口使用 `kubectl -n messagefeed logs deploy/cloudflared --since=90m`，以 `2026-07-08T10:53:36Z` 作为直连规则生效后的稳定重注册分界。
-
-| 指标 | 直连规则前 | 直连规则后 |
-| --- | ---: | ---: |
-| `Registered tunnel connection` | 57 | 4 |
-| `Failed to dial a quic connection` | 36 | 0 |
-| `failed to accept QUIC stream` | 61 | 1 |
-| `failed to run the datagram handler` | 61 | 1 |
-| `Connection terminated` | 64 | 0 |
-| `TLS handshake with edge error` | 0 | 0 |
-
-最近 10 分钟日志：
-
-```text
-registered=1
-quic_dial_errors=0
-quic_stream_errors=1
-datagram_handler_errors=1
-terminations=0
-tls_handshake_errors=0
-```
-
-复测结论：
-
-1. 直连规则后，K8s connector 的持续 QUIC dial timeout 和连接终止已经消失，稳定性明显改善。
-2. 当前不应从 `quic` 回退到 `http2`；`http2` 仅保留为未来故障时的备用 transport。
-3. 本次根因更接近 Clash TUN/代理规则导致 Cloudflare Tunnel edge transport 进入不稳定路径，而不是 HTTP/3/QUIC 协议本身不可用。
-4. 当前保持 `hostNetwork + quic`，继续观察 30 到 60 分钟，并将 cloudflared 日志与企业微信入站记录对齐。
-
 ### 第三部分前置过渡部署通过标准
 
 1. `messagefeed` namespace 存在。
@@ -3671,3 +3484,533 @@ tls_handshake_errors=0
 3. 不把 all-in-one Deployment 扩容到多副本。
 4. 不启动独立 source-worker、notification-worker、agent-scheduler-worker 或 embedding-worker Pod。
 5. 不删除 Docker Compose 数据卷、K8s PVC、Secret、ConfigMap、Job、Pod 或 namespace；如需回退或清理，另行记录并确认后再执行。
+
+## 第四部分：all-in-one Helm Chart 与现有 K3s 资源接管
+
+**状态**：已完成。Helm release `messagefeed` revision 2 为 `deployed`，all-in-one 过渡部署已由 Helm 管理。  
+**反馈时间**：2026-07-16 17:12 CST  
+**执行性质**：Helm Chart 实现、接管前数据保护、StorageClass/PV 回收策略调整、现有 Kubernetes 资源所有权接管、故障修正与完整链路验收。  
+**实施边界**：本部分继续保持后端 all-in-one 单副本，不实施 `APP_ROLE`，不扩容后台任务进程，不删除 PVC/PV、Secret、namespace 或数据库数据。现有 Secret 只按名称引用，不把 Secret 明文写入 Chart 或本文档。  
+**历史边界说明**：第三部分“暂不创建 Helm Chart”是当时过渡部署阶段的执行边界；本部分由用户明确推进 Helm 化，因此不回改第三部分历史记录，后续状态以本部分为准。
+
+### E1. 建立 all-in-one Helm Chart
+
+实现目标：
+
+1. 将当前 PostgreSQL、后端 all-in-one、Web、Caddy gateway、cloudflared 与观测栈纳入一个 Helm release。
+2. 继续复用当前稳定 Service 名称，包括 `api`、`web`、`gateway`、`gateway-dev`、`messagefeed-postgres`、`prometheus`、`loki`、`tempo`、`otel-collector` 和 `grafana`。
+3. 后端保持单副本和 `Recreate` 策略，避免后台任务重复执行。
+4. 数据库迁移通过后端 Pod 的 init container 在业务进程启动前执行。
+5. 现有敏感配置通过 `existingSecret` 引用，不写入 `values-k3s.yaml`。
+6. 观测栈保持可选，并打包现有 Prometheus、Loki、Tempo、OpenTelemetry Collector 和 Grafana 配置。
+
+新增 Chart 路径：
+
+```text
+deploy/helm/messagefeed/
+  Chart.yaml
+  values.yaml
+  values-k3s.yaml
+  values.schema.json
+  files/
+    migrations/
+    observability/
+  templates/
+    api.yaml
+    cloudflared.yaml
+    config.yaml
+    gateway.yaml
+    migrations-configmap.yaml
+    observability-config.yaml
+    observability-storage.yaml
+    observability-workloads.yaml
+    postgresql.yaml
+    promtail.yaml
+    secrets.yaml
+    storageclass.yaml
+    web.yaml
+```
+
+关键实现结论：
+
+1. Chart 版本为 `0.1.0`，应用版本为 `0.2.0`。
+2. 74 个 SQL migration 文件已打包进 Chart。
+3. `values-k3s.yaml` 继续使用当前镜像：
+   - `messagefeed-api:allinone-0703de0`
+   - `messagefeed-web:allinone-0703de0`
+4. 当前四个敏感配置 Secret 继续由集群外部管理：
+   - `messagefeed-app-secret`
+   - `messagefeed-postgres-secret`
+   - `messagefeed-caddy-certs`
+   - `messagefeed-cloudflared-secret`
+5. Chart 不创建或接管上述四个既有 Secret，避免 Helm 卸载或配置变更影响敏感资产。
+6. `Dockerfile` 已加入 `tini`，镜像 Entrypoint 为 `/sbin/tini -- /app/messagefeed`；本次 K3s 接管仍使用旧镜像 `allinone-0703de0`，因此 `tini` 需要后续构建新镜像并通过 Helm 更新镜像标签后才会在集群实际生效。
+
+验证命令：
+
+```bash
+helm lint deploy/helm/messagefeed \
+  -f deploy/helm/messagefeed/values-k3s.yaml
+
+helm template messagefeed deploy/helm/messagefeed \
+  --namespace messagefeed \
+  -f deploy/helm/messagefeed/values-k3s.yaml
+
+helm upgrade --install messagefeed deploy/helm/messagefeed \
+  --namespace messagefeed \
+  --take-ownership \
+  --dry-run=server \
+  --hide-secret \
+  --timeout 10m \
+  -f deploy/helm/messagefeed/values-k3s.yaml
+```
+
+反馈：
+
+1. `helm lint` 通过，仅提示 Chart icon 为推荐字段，不影响安装。
+2. 完整栈服务端 dry-run 通过。
+3. 完整接管配置在不生成 Secret 时渲染 37 个 Kubernetes 资源。
+4. Web 端 9 项 Vitest 测试通过，`npm run build` 通过。
+5. API 测试镜像 `messagefeed:helm-test` 构建成功，镜像检查确认 Entrypoint 为 `/sbin/tini -- /app/messagefeed`，运行用户为 `appuser`。
+6. Go 全量测试存在既有失败：`TestAuthServiceDefaultOwnerMigrationPasswordHash` 的 bcrypt hash 校验失败；该失败与 Helm/Dockerfile 变更无直接调用关系，本次未修改业务测试和认证代码。
+
+代码提交与推送：
+
+```text
+commit: 5b77e43
+message: deploy: add Helm chart for all-in-one stack
+branch: master
+remote: origin/master
+```
+
+判定：
+
+1. all-in-one 阶段 Helm Chart 已进入主分支。
+2. Chart 不包含私钥、Tunnel token、数据库密码、登录密码或模型 API Key 明文。
+3. `backups/` 已加入项目 `.gitignore`，接管备份保留在本机，不进入 Git。
+
+### E2. 接管前数据库与存储基线核查
+
+核查命令：
+
+```bash
+kubectl -n messagefeed get pod,deploy,statefulset,daemonset -o wide
+kubectl -n messagefeed get pvc -o wide
+kubectl get pv
+kubectl get storageclass
+
+POSTGRES_POD="$(kubectl -n messagefeed get pod \
+  -l app.kubernetes.io/name=messagefeed-postgres \
+  -o jsonpath='{.items[0].metadata.name}')"
+
+kubectl -n messagefeed exec "${POSTGRES_POD}" -- \
+  pg_isready -U messagefeed -d messagefeed
+
+kubectl -n messagefeed exec "${POSTGRES_POD}" -- \
+  psql -U messagefeed -d messagefeed -Atc \
+  "SELECT version::text || ',' || dirty::text FROM schema_migrations LIMIT 1;"
+
+kubectl -n messagefeed exec "${POSTGRES_POD}" -- \
+  psql -U messagefeed -d messagefeed -Atc \
+  "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"
+```
+
+反馈：
+
+1. 接管前全部 11 个主要 Pod 为 `Running` 和 Ready。
+2. PostgreSQL 返回 `accepting connections`。
+3. `schema_migrations=37,false`。
+4. `public` schema 中 base table 数量为 55。
+5. 5 个 PVC 均为 `Bound`：
+   - `postgres-data-messagefeed-postgres-0`：10 Gi
+   - `prometheus-data`：5 Gi
+   - `loki-data`：5 Gi
+   - `tempo-data`：5 Gi
+   - `grafana-data`：5 Gi
+6. 接管前 5 个对应 PV 的回收策略均为 `Delete`。
+7. 接管前默认 StorageClass 为 `local-path`，其回收策略为 `Delete`。
+
+判定：
+
+1. Kubernetes 工作负载和数据库基线正常，可以进入数据备份和回收策略修改。
+2. 在 PV 回收策略仍为 `Delete` 时不执行 Helm 接管或 Helm uninstall。
+
+### E3. 生成并校验 Helm 接管前 PostgreSQL 备份
+
+执行命令：
+
+```bash
+mkdir -p backups/k8s-adoption
+
+TS="$(date +%Y%m%d-%H%M%S)"
+BACKUP="backups/k8s-adoption/messagefeed-before-helm-${TS}.dump"
+POSTGRES_POD="$(kubectl -n messagefeed get pod \
+  -l app.kubernetes.io/name=messagefeed-postgres \
+  -o jsonpath='{.items[0].metadata.name}')"
+
+kubectl -n messagefeed exec "${POSTGRES_POD}" -- \
+  pg_dump -U messagefeed -d messagefeed -Fc > "${BACKUP}"
+
+sha256sum "${BACKUP}" > "${BACKUP}.sha256"
+
+kubectl -n messagefeed exec -i "${POSTGRES_POD}" -- \
+  pg_restore -l < "${BACKUP}" > /tmp/messagefeed-pg-restore-list.txt
+
+sha256sum -c "${BACKUP}.sha256"
+```
+
+反馈：
+
+1. 备份文件：`backups/k8s-adoption/messagefeed-before-helm-20260716-164141.dump`。
+2. 文件大小：7.6 MiB。
+3. SHA-256 校验通过。
+4. 宿主机未安装 `pg_restore`，因此改为使用 PostgreSQL Pod 内的 `pg_restore -l` 读取归档；该操作只读取备份，不写入数据库。
+5. 归档包含 685 个 TOC entries，目录输出 696 行。
+6. 备份来源数据库版本和 `pg_dump` 版本均为 PostgreSQL 15.18。
+
+判定：
+
+1. 接管前逻辑备份可解析，具备后续恢复输入条件。
+2. 备份和校验文件保留在本机项目 `backups/k8s-adoption/` 下，不提交到 Git。
+
+### E4. 创建 Retain StorageClass 并修改现有 PV 回收策略
+
+设计原则：
+
+1. PVC 本身没有 `Retain/Delete` 回收策略，该字段位于 PV 和 StorageClass。
+2. 已有 PVC 的 `storageClassName` 不可原位修改，因此现有 PVC 继续使用 `local-path`。
+3. 新建默认 StorageClass `local-path-retain`，供后续新 PVC 使用。
+4. 先修改现有 PV 为 `Retain`，再执行 Helm 接管。
+
+执行命令：
+
+```bash
+helm template messagefeed ./deploy/helm/messagefeed \
+  -n messagefeed \
+  -f ./deploy/helm/messagefeed/values-k3s.yaml \
+  --show-only templates/storageclass.yaml | kubectl apply -f -
+
+kubectl patch storageclass local-path --type=merge \
+  -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+
+kubectl -n messagefeed get pvc \
+  -o jsonpath='{range .items[*]}{.spec.volumeName}{"\n"}{end}' | \
+xargs -r -n1 kubectl patch pv --type=merge \
+  -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+```
+
+执行结果：
+
+```text
+StorageClass:
+local-path          reclaimPolicy=Delete  default=false
+local-path-retain   reclaimPolicy=Retain  default=true
+
+PersistentVolume:
+pvc-07160768-bfbd-4331-86a6-bf4cf062b9fb  Retain  Bound  messagefeed/loki-data
+pvc-71d8faac-a083-4dd3-8bf2-ac9d83227106  Retain  Bound  messagefeed/postgres-data-messagefeed-postgres-0
+pvc-a90e111c-08b9-4a49-9bc8-93c2cb960d9c  Retain  Bound  messagefeed/prometheus-data
+pvc-d1f44b89-7913-4011-975d-80cd711beff5  Retain  Bound  messagefeed/tempo-data
+pvc-ff6ede65-22b7-494b-9304-a322cfb0bbec  Retain  Bound  messagefeed/grafana-data
+```
+
+补充保护：
+
+1. `local-path-retain` 在 Chart 中包含 `helm.sh/resource-policy: keep`。
+2. Prometheus、Loki、Tempo、Grafana 独立 PVC 模板包含 `helm.sh/resource-policy: keep`。
+3. PostgreSQL PVC 由 StatefulSet `volumeClaimTemplates` 创建，不作为独立 Helm 资源直接删除；对应 PV 已额外改为 `Retain`。
+
+判定：
+
+1. 现有 PVC/PV 名称、UID、容量和绑定关系未变化。
+2. 删除 PVC 后 PV 将进入 `Released` 而不是自动删除底层数据；重新绑定仍需人工处理。
+3. `Retain` 不是数据库备份替代方案，因此保留 E3 逻辑备份。
+
+### E5. 第一次 Helm 接管失败与原因修正
+
+第一次实际执行命令：
+
+```bash
+helm upgrade --install messagefeed ./deploy/helm/messagefeed \
+  -n messagefeed \
+  -f ./deploy/helm/messagefeed/values-k3s.yaml \
+  --take-ownership \
+  --wait \
+  --timeout 10m
+```
+
+本次首次接管明确未使用：
+
+```text
+--atomic
+--force
+--cleanup-on-fail
+```
+
+失败信息：
+
+```text
+Error: cannot patch "messagefeed-postgres" with kind StatefulSet:
+StatefulSet.apps "messagefeed-postgres" is invalid:
+spec: Forbidden: updates to statefulset spec for fields other than
+'replicas', 'ordinals', 'template', 'updateStrategy',
+'revisionHistoryLimit', 'persistentVolumeClaimRetentionPolicy'
+and 'minReadySeconds' are forbidden
+```
+
+原因分析：
+
+1. 初版 Chart 在 PostgreSQL `volumeClaimTemplates.metadata` 中新增了 `helm.sh/resource-policy: keep` 注解。
+2. 对既有 StatefulSet 而言，`volumeClaimTemplates` 属于不可变字段，即使只新增 metadata 注解也不能原位更新。
+3. 第一次安装在 PostgreSQL StatefulSet patch 阶段失败，Helm revision 1 状态为 `failed`。
+4. 由于未使用 `--atomic`、`--force` 或资源删除操作，PostgreSQL PVC/PV 没有被删除或重建，数据库 Pod仍挂载原 PVC。
+
+失败后的附带现象：
+
+1. Helm 在 StatefulSet patch 失败前已经更新部分 Deployment Pod template。
+2. Prometheus、Loki、Tempo 在默认 `RollingUpdate` 下短时间同时存在新旧 Pod，并并发挂载同一节点上的 RWO PVC。
+3. Prometheus 新 Pod 日志显示 TSDB lock 冲突并退出。
+4. Loki 新 Pod曾出现 `init compactor: failed to init delete store: timeout`，旧 Pod退出后恢复。
+5. Prometheus 和 Loki 在该窗口各累计 5 次 restart；后续 30 秒稳定性复查中 restart 数不再增长。
+
+Chart 修正：
+
+1. 移除 PostgreSQL `volumeClaimTemplates` 中新增的 Helm keep 注解，保持不可变字段与现有 StatefulSet 一致。
+2. 将以下有状态单写 Deployment 更新策略改为 `Recreate`：
+   - Prometheus
+   - Loki
+   - Tempo
+   - Grafana
+3. OpenTelemetry Collector 保持无状态 Deployment 更新方式。
+4. 修正后重新执行 `helm lint` 和服务端 upgrade dry-run，结果通过，dry-run 状态为 `pending-upgrade`、revision 2。
+
+判定：
+
+1. 第一次失败属于 Kubernetes 不可变字段与持久卷并发写入策略问题，不是数据库数据丢失。
+2. 后续有状态单实例组件必须使用 `Recreate`，不能在同一 RWO 数据目录上并发启动新旧写实例。
+
+### E6. 第二次 Helm 接管与 release 状态
+
+修正后执行命令：
+
+```bash
+helm upgrade --install messagefeed ./deploy/helm/messagefeed \
+  -n messagefeed \
+  -f ./deploy/helm/messagefeed/values-k3s.yaml \
+  --take-ownership \
+  --wait \
+  --timeout 10m
+```
+
+Helm history：
+
+```text
+REVISION  STATUS      DESCRIPTION
+1         superseded  StatefulSet immutable field patch failed
+2         deployed    Upgrade complete
+```
+
+最终 release：
+
+```text
+NAME: messagefeed
+NAMESPACE: messagefeed
+STATUS: deployed
+REVISION: 2
+CHART: messagefeed-0.1.0
+APP VERSION: 0.2.0
+```
+
+Helm 管理边界：
+
+1. Deployment、StatefulSet、DaemonSet、Service、应用 ConfigMap、观测 ConfigMap、独立观测 PVC 和 `local-path-retain` 已带 Helm ownership metadata。
+2. PostgreSQL StatefulSet 已由 Helm 管理；其生成的 PostgreSQL PVC 不作为独立 Helm manifest 管理。
+3. 四个既有敏感 Secret 没有 Helm ownership metadata，继续独立保留。
+4. Prometheus/Grafana 既有 NodePort 规格在接管后仍保留：
+   - Prometheus：`9090:30909/TCP`
+   - Grafana：`3000:30300/TCP`
+5. gateway 仍为 ClusterIP，宿主机 `127.0.0.1:8443` 没有固定监听；gateway 通过集群内 Service 和 Cloudflare Tunnel 对外提供访问。
+
+判定：
+
+1. 当前 all-in-one 过渡栈已由单一 Helm release 管理。
+2. 后续升级可使用 `helm upgrade`；首次接管完成后，如已完成备份和 dry-run，后续常规升级可以评估使用 `--atomic`。
+3. 不应执行 `helm uninstall messagefeed` 作为普通回退方式；如需卸载，必须先核查 Helm keep 资源、StatefulSet PVC 保留行为和现有 PV `Retain` 状态。
+
+### E7. 接管后数据库、存储与服务验收
+
+数据库验收：
+
+```text
+PostgreSQL readiness: accepting connections
+schema_migrations: 37,false
+public base tables: 55
+pgvector: 0.8.4
+API migrate init container: Completed, exit=0
+```
+
+API `/readyz` 检查：
+
+1. process：ready。
+2. database：ready。
+3. migrations：version 37，ready。
+4. pgvector：version 0.8.4，ready。
+5. agent fact index：`rows=1803`、`embeddings=22`。
+6. agent observability：trace、recall、embedding trace 与 memory 相关检查返回 ready。
+
+存储验收：
+
+1. 5 个 PVC 均保持原名称、容量和 PV 绑定，状态为 `Bound`。
+2. PostgreSQL 继续使用 `postgres-data-messagefeed-postgres-0`，容量 10 Gi。
+3. 5 个 PV 均为 `Retain` 和 `Bound`。
+4. 接管验收时记录 `local-path-retain` 为唯一默认 StorageClass；2026-07-17 复核发现两个 StorageClass 当前均为默认类，详见 E9。
+
+内部服务端点验收：
+
+```text
+http://api:60001/readyz             200
+http://web:8080/                    200
+http://prometheus:9090/-/ready      200
+http://loki:3100/ready              200
+http://tempo:3200/ready             200
+http://otel-collector:8888/metrics  200
+http://grafana:3000/api/health      200
+https://gateway:8443/healthz        200，返回 {"status":"ok"}
+```
+
+Cloudflare Tunnel 与公网验收：
+
+```text
+cloudflared protocol: http2
+cloudflared readyConnections: 3
+https://aroen.eu.cc/healthz: HTTP 200
+response: {"status":"ok"}
+```
+
+cloudflared 补充观察：
+
+1. 启动日志显示 `Initial protocol http2`。
+2. 已注册多条 `Registered tunnel connection ... protocol=http2`。
+3. `connIndex=1` 仍偶发 `already connected to this server, trying another address`、retry 和 connection terminated。
+4. `/ready` 仍返回 3 个 ready connections，公网健康检查持续 HTTP 200，因此本次不将该单连接索引重试判定为接管失败。
+
+接管窗口内 API 日志：
+
+1. PostgreSQL Pod因 Helm 更新 Pod template 重启时，API 短暂记录 `SQLSTATE 57P01` 和 DNS lookup timeout。
+2. PostgreSQL恢复后，API `/readyz` 重新全部 Ready。
+3. 接管完成后最近 90 秒日志未出现新的 error、panic、fatal 或 dirty migration。
+
+最终 Pod 状态：
+
+```text
+cloudflared                 1/1 Running
+gateway                     1/1 Running
+grafana                     1/1 Running
+loki                        1/1 Running
+messagefeed-all-in-one      1/1 Running
+messagefeed-postgres        1/1 Running
+otel-collector              1/1 Running
+prometheus                  1/1 Running
+promtail                    1/1 Running
+tempo                       1/1 Running
+web                         1/1 Running
+```
+
+判定：
+
+1. 接管前后数据库迁移版本和表数量一致，没有发现数据遗失证据。
+2. PVC/PV 绑定关系未变化，PostgreSQL、Prometheus、Loki、Tempo 和 Grafana 均从原卷恢复。
+3. 完整内部链路和公网入口均通过。
+
+### E8. systemd port-forward 接管后恢复观察
+
+背景：
+
+1. Prometheus 与 Grafana 的固定 Windows 回环入口由 D13.2 systemd 服务维护。
+2. Helm 接管替换 Prometheus/Grafana Pod 后，原 port-forward 进程仍短暂引用旧 Pod sandbox。
+
+现象：
+
+```text
+failed to find sandbox ... in store: not found
+error: lost connection to pod
+```
+
+恢复结果：
+
+1. 两个 systemd unit 均配置 `Restart=always`。
+2. 旧 Pod sandbox 消失后，服务自动失败并由 systemd 在 5 秒后重启。
+3. 新进程重新绑定当前 Prometheus/Grafana Pod。
+4. 恢复后验证：
+
+```text
+http://127.0.0.1:9090/-/ready  -> Prometheus Server is Ready.
+http://127.0.0.1:3000/api/health -> database=ok, version=12.3.0
+```
+
+判定：
+
+1. systemd 自动恢复机制有效，不需要人工长期维护 port-forward 终端。
+2. Helm 替换目标 Pod 时可能出现一次连接失败；systemd 重启周期当前为 5 秒。
+3. Windows 侧固定入口仍需在 Windows 浏览器或 PowerShell 中按 D13.2 最终确认。
+
+### 第四部分通过标准
+
+1. `deploy/helm/messagefeed` Chart 已提交并推送。
+2. Helm lint 和服务端 dry-run 通过。
+3. 接管前 PostgreSQL custom dump、SHA-256 和 `pg_restore -l` 校验通过。
+4. 现有 5 个 PV 均为 `Retain`。
+5. `local-path-retain` 应为唯一默认 StorageClass；2026-07-17 复核发现该条件尚未满足。
+6. Helm release `messagefeed` revision 2 为 `deployed`。
+7. PostgreSQL迁移版本为 `37,false`，公共表数量为 55。
+8. 5 个 PVC 均保持 `Bound`，原 PV 绑定关系不变。
+9. 后端 all-in-one 仍为单副本。
+10. 全部主要 Pod Ready，内部服务端点均返回 HTTP 200。
+11. cloudflared Ready，公网 `/healthz` 返回 HTTP 200。
+12. Prometheus/Grafana systemd port-forward 可在 Pod 替换后自动恢复。
+
+### E9. 2026-07-17 当前状态复核与文档一致性修正
+
+本次性质：只读核查和文档同步，不修改 Kubernetes 资源，不删除 PVC/PV、Secret、Pod 或 namespace。
+
+核查命令：
+
+```bash
+kubectl get storageclass
+kubectl get storageclass -o yaml
+kubectl -n messagefeed get pvc \
+  -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,VOLUME:.spec.volumeName,STORAGECLASS:.spec.storageClassName
+kubectl get pv \
+  -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,RECLAIM:.spec.persistentVolumeReclaimPolicy
+helm status messagefeed -n messagefeed --show-desc
+```
+
+当前结果：
+
+```text
+local-path          (default)  Delete  rancher.io/local-path
+local-path-retain   (default)  Retain  rancher.io/local-path
+
+PVC：5 个均为 Bound，现有 PVC 仍使用 local-path。
+PV：5 个均为 Bound，回收策略均为 Retain。
+Helm：messagefeed revision 2，状态 deployed。
+```
+
+判定：
+
+1. 当前集群存在两个默认 StorageClass，不满足“唯一默认 StorageClass”要求。
+2. 现有 PVC/PV 仍为 `Bound`，PV 回收策略仍为 `Retain`，本次未发现数据丢失证据。
+3. E4/E7 中的命令和结果属于历史执行记录予以保留；当前状态以后续 E9 复核结果为准。
+4. 后续应先将 `local-path` 的默认注解设为 `false`，再核验只有 `local-path-retain` 为默认类；完成前不创建依赖默认 StorageClass 的新 PVC。
+5. `values-k3s.yaml` 当前仍将 cloudflared 镜像 tag 覆盖为 `latest`，后续应固定为经过验证的版本或 digest。
+
+### 第四部分后续事项
+
+1. 修正 `local-path` 与 `local-path-retain` 同时为默认类的问题，并复核现有 PVC/PV 绑定关系。
+2. 构建并导入包含 `tini` 的新 API 镜像，然后通过 Helm 更新 `api.image.tag`。
+3. 固定 `cloudflare/cloudflared:latest` 为经过验证的不可变版本或 digest。
+4. 将 Grafana 管理密码迁移到独立 Secret，避免继续使用静态默认值。
+5. 为 Helm Chart 增加 CI lint、template、镜像构建、K3s smoke test 和升级回滚验证。
+6. 建立 PostgreSQL 定期备份、恢复演练和备份保留策略。
+7. 在 all-in-one Helm 闭环稳定后实施 `APP_ROLE`：`api`、`source-worker`、`notification-worker`、`agent-scheduler-worker`、`embedding-worker` 和 `migrate`。
+8. `APP_ROLE` 完成前，`messagefeed-all-in-one` 必须保持单副本。

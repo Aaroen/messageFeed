@@ -1,10 +1,33 @@
 ## messageFeed 微服务化与 Kubernetes 新技术方案
 
-**定位**：当前项目情况与新的技术方案  
-**更新日期**：2026-07-06  
+**定位**：当前项目情况与新的技术方案
+**更新日期**：2026-07-17
 **实施细节文档**：`micr-k8s-implement.md`
 
 本文档只描述当前项目情况、目标技术架构和关键技术决策。具体部署、演练、CI/CD 操作步骤、服务器扩容脚本和故障验证流程，统一放入同级实施文档。
+
+## 当前实施状态（2026-07-17）
+
+当前已经完成 all-in-one 阶段的 Kubernetes 落地：
+
+1. WSL 内 K3s single-server、动态网络维护和 Helm 工具链已完成。
+2. `deploy/helm/messagefeed` Chart 已建立，现有 PostgreSQL、API、Web、Caddy gateway、cloudflared 和观测栈已由 Helm release `messagefeed` 管理。
+3. Helm release 当前为 revision 2、状态 `deployed`；all-in-one API 仍保持单副本。
+4. PostgreSQL 接管前备份已完成校验，5 个现有 PV 均为 `Retain`，PVC/PV 绑定关系保持不变。
+
+当前尚未完成：
+
+1. `APP_ROLE` 多运行角色和独立 worker Deployment。
+2. 独立 migrate Job；当前迁移由 API Pod init container 执行。
+3. 独立 ServiceAccount、最小 RBAC、NetworkPolicy、PDB、资源治理和 CI/CD 发布回滚闭环。
+4. PostgreSQL 完整恢复演练和真实微服务拆分。
+
+当前需要优先修正：
+
+1. `local-path` 与 `local-path-retain` 当前同时被标记为默认 StorageClass；在创建新 PVC 前应恢复唯一默认类。
+2. `values-k3s.yaml` 当前仍将 cloudflared 镜像 tag 覆盖为 `latest`，应固定为版本或 digest。
+
+上述状态是当前事实；后文的多角色、多副本、独立迁移和多节点内容均为目标方案，不代表已经完成。
 
 ## 1. 当前项目情况
 
@@ -29,7 +52,7 @@ cmd/api/main.go
 | 前端 | Vue 3 + Vite 独立前端，当前由静态服务承载 |
 | 数据库 | PostgreSQL + pgvector |
 | 后台任务 | 抓取、通知、Agent 定时任务、Embedding 均在 API 进程内启动 |
-| 容器化 | 已有 `Dockerfile` 与 `docker-compose.yml` |
+| 容器化 | 已有 `Dockerfile`、`docker-compose.yml` 和 all-in-one Helm Chart；当前 K3s 由 Helm 管理 |
 | 当前入口 | Cloudflare Tunnel + Caddy gateway |
 | 可观测性 | 已有 Prometheus、Loki、Tempo、OpenTelemetry、Grafana 设计基础 |
 | 健康检查 | 已有 `/healthz`、`/readyz`、`/metrics`、`/api/runtime/node` |
@@ -40,7 +63,7 @@ cmd/api/main.go
 1. API 和 worker 混在同一个进程内，API 多副本扩容会连带后台任务一起扩容。
 2. 后台任务之间缺少独立运行生命周期，故障和扩容粒度不清晰。
 3. Cloudflare Tunnel 当前存在入口单点或弱高可用风险，偶发 `1033`、`502/504` 时难以定位。
-4. 当前没有 Kubernetes/Helm/Kustomize 清单，不能直接进行标准化集群部署。
+4. 已建立并接管 all-in-one Helm Chart，但 worker、独立 migrate Job 和多角色模板尚未完成。
 5. CI/CD、镜像版本、迁移 Job、回滚策略还没有形成完整发布闭环。
 6. 真正业务微服务边界尚未成熟，直接拆服务会引入认证、接口、数据一致性和链路追踪复杂度。
 
@@ -54,7 +77,7 @@ cmd/api/main.go
 第三步：稳定后再拆业务微服务
 ```
 
-第一阶段不直接拆成多个业务微服务，而是先把当前单二进制拆成多个运行角色：
+第一阶段不直接拆成多个业务微服务，而是先把当前单二进制拆成多个运行角色。以下为目标角色集合，当前集群仍运行 all-in-one：
 
 ```text
 api
@@ -72,13 +95,18 @@ migrate
 3. 让 API、worker、Web、Tunnel、gateway 能独立扩缩容和独立观测。
 4. 为后续微服务拆分提前形成清晰运行边界。
 
-当前落地基线：
+当前已落地基线：
 
 ```text
-先按本机 WSL 长期运行方式推进。
-K3s control-plane、PostgreSQL、gateway、cloudflared 和 messageFeed 各运行角色先部署在 WSL 内。
-后续再把实验室服务器和低配服务器作为 K3s agent 节点加入，或在需要持续在线兜底时迁移 control-plane。
+Windows
+  -> WSL 内 K3s single-server
+  -> Helm release messagefeed
+  -> PostgreSQL/pgvector
+  -> all-in-one API / Web / Caddy gateway / cloudflared
+  -> Prometheus / Loki / Tempo / OTel Collector / Grafana / Promtail
 ```
+
+下一阶段目标：先完成 `APP_ROLE`、独立 worker、独立 migrate Job 和发布回滚闭环，再进入真实业务微服务拆分。
 
 统一连接方式：
 
@@ -96,7 +124,7 @@ cd /home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed
 
 ## 3. 目标技术架构
 
-目标架构：
+目标架构（完成角色化后）：
 
 ```text
 用户 / 企业微信
@@ -120,6 +148,8 @@ cd /home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed
   OpenTelemetry Collector
   Grafana
 ```
+
+当前实际运行形态仍为单副本 all-in-one API；上述独立 worker 和独立 migrate Job 尚未部署。
 
 核心组件职责：
 
@@ -156,8 +186,11 @@ Windows
   -> PostgreSQL/pgvector
   -> Caddy gateway
   -> cloudflared
-  -> api / web / worker Pods
+  -> all-in-one API / web Pods
+  -> Prometheus / Loki / Tempo / OTel Collector / Grafana / Promtail
 ```
+
+角色化完成后的目标形态再增加 `source-worker`、`notification-worker`、`agent-scheduler-worker`、`embedding-worker` 和 `migrate` Job。
 
 采用原因：
 
@@ -193,9 +226,11 @@ WSL 本机：K3s server 或主力节点
 3. 低配服务器后续用于常驻兜底时，可以作为 agent 节点接入；若后续要求 WSL 关机后服务持续运行，再单独规划 control-plane 和数据库迁移。
 4. 后续节点调度仍通过节点标签、亲和性、污点/容忍和副本分层实现。
 
-## 5. 运行角色方案
+## 5. 运行角色方案（目标状态）
 
 后端第一阶段保持一个镜像，通过 `APP_ROLE` 控制运行职责。
+
+当前尚未实现 `APP_ROLE`；现有 all-in-one API 仍同时启动 HTTP API 和后台 worker，必须保持单副本。
 
 | `APP_ROLE` | 职责 | 形态 |
 | --- | --- | --- |
@@ -217,6 +252,8 @@ WSL 本机：K3s server 或主力节点
 ## 6. 外部访问方案
 
 第一阶段继续使用 Cloudflare Tunnel，不直接开放公网 NodePort、LoadBalancer 或服务器 80/443 入站端口。
+
+当前 cloudflared 已纳入 Helm 管理并固定使用 HTTP/2，当前副本数仍为 1；多副本是后续高可用目标。
 
 访问链路：
 
@@ -282,6 +319,8 @@ Cloudflare Tunnel
 
 ## 7. Tunnel 稳定性方案
 
+本节描述目标高可用方案。当前集群已完成单副本 cloudflared、gateway 和 all-in-one API 的入口验收，尚未完成多副本故障演练。
+
 当前 Tunnel 偶发 `1033` 或网关错误时，新的方案把入口链路从单点升级为多副本。
 
 目标链路：
@@ -325,6 +364,8 @@ fallback：低配常驻服务器 Tunnel
 数据库继续使用 PostgreSQL + pgvector。
 
 当前阶段数据库主实例放在 WSL 内 K3s 中，或作为 WSL 内本地 PostgreSQL 服务被 K3s workload 访问。后续如果要求 WSL 关机后服务持续运行，再把 PostgreSQL/pgvector 迁移到低配常驻服务器或托管 PostgreSQL。
+
+当前 Helm 接管阶段由 API init container 执行迁移；独立 migrate Job 是角色化后的目标。现有 5 个 PV 已设置为 `Retain`，但默认 StorageClass 当前存在双默认标记，需先修正。
 
 第一阶段不把数据库复杂高可用作为主目标，而是优先保证：
 
@@ -370,7 +411,7 @@ PR 校验
 
 1. CI/CD 或手动发布均面向 WSL 内 K3s control-plane。
 2. 本地操作统一通过 `ssh aroen@127.0.0.1` 进入 WSL 后执行。
-3. Helm values 先维护 `values-wsl.yaml`，描述 WSL 单节点长期运行的副本数、资源限制、Secret 引用和入口配置。
+3. 当前 Helm values 使用 `values.yaml` 与 `values-k3s.yaml`，描述 WSL 单节点长期运行的副本数、资源限制、Secret 引用和入口配置。
 4. 后续接入服务器时，再新增 `values-lab.yaml`、`values-vps.yaml` 或多节点 values，不推翻当前 Helm 结构。
 
 ## 10. 无感升级方案
@@ -382,6 +423,8 @@ PR 校验
 3. 滚动发布。
 4. 向后兼容数据库迁移。
 5. 可回滚镜像 tag。
+
+当前 all-in-one 阶段已完成 Helm 接管和基础链路验收，但仍为单副本；多副本 RollingUpdate、worker 独立升级和独立迁移顺序属于后续实施内容。
 
 技术决策：
 
@@ -404,7 +447,7 @@ PR 校验
 
 当前阶段无感升级要求：
 
-1. WSL 内 API/Web/Gateway/cloudflared 使用多副本和 RollingUpdate，降低单 Pod 发布或重启的影响。
+1. 目标是使 WSL 内 API/Web/Gateway/cloudflared 使用多副本和 RollingUpdate；当前 all-in-one API 仍为单副本。
 2. readiness 失败的 Pod 不进入 Service endpoints，旧 Pod 在新 Pod ready 前继续接流量。
 3. worker 必须依赖数据库任务锁、job claim 和幂等机制，保证同一 WSL 集群内多副本不会重复处理同一任务。
 4. Windows 关机、WSL 停止、本机断网属于当前阶段不可无感覆盖的故障，后续通过远程服务器扩展解决。
