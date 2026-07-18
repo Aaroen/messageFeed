@@ -4212,3 +4212,125 @@ source、notification、scheduler 三类任务的 `attempt_count` 均为 1；emb
 2. 建立 namespace 默认拒绝 NetworkPolicy，只放行 DNS、PostgreSQL、OTel、gateway 及角色所需外部依赖。
 3. 校准 requests/limits，补充 ResourceQuota、LimitRange、PDB 和节点调度约束。
 4. 对拒绝访问、资源不足、Pod 驱逐和滚动更新执行可观测故障验收。
+
+### E13. 2026-07-18 第十部分 Kubernetes 安全与资源治理
+
+本次执行范围：为 API、四类 worker 和 migrate 建立独立运行身份；在 `messagefeed` 命名空间启用默认拒绝网络边界；增加资源配额、容器默认边界、PDB 和节点调度约束；执行权限、网络、资源、驱逐、扩缩容和不可调度故障验收。未迁移或重建 PVC/PV，未修改生产数据库业务数据。
+
+#### E13.1 ServiceAccount 与 RBAC
+
+新增六个独立身份：
+
+```text
+messagefeed-api
+messagefeed-source-worker
+messagefeed-notification-worker
+messagefeed-agent-scheduler-worker
+messagefeed-embedding-worker
+messagefeed-migrate
+```
+
+每个身份的 Role 均为 `rules=[]`，ServiceAccount 和 Pod 均设置 `automountServiceAccountToken=false`。运行态 `kubectl auth can-i` 验证读取 Pod、Secret、ConfigMap 和创建 Deployment 均返回 `no`；五个业务 Pod 内未挂载 token。Promtail 继续使用独立 ClusterRole，只能读取 Pod、Namespace 和 Node 元数据，读取 Secret 返回 `no`。
+
+migrate 身份使用 `pre-install,pre-upgrade` hook，权重为 `-20`；迁移 Job 权重为 `-10`。Job 增加 `wait-for-postgres` initContainer，并将 `backoffLimit` 调整为 3。
+
+#### E13.2 NetworkPolicy
+
+最终部署 19 条 NetworkPolicy：
+
+1. `messagefeed-default-deny` 默认拒绝所有 ingress/egress，`messagefeed-allow-dns` 只放行 CoreDNS TCP/UDP 53。
+2. API、worker、migrate 只按角色访问 PostgreSQL；API/worker 可访问 OTel。
+3. gateway 只访问 API/Web；API ingress 只接受 gateway/Prometheus；worker 9090 只接受 Prometheus。
+4. Prometheus、Grafana、Loki、Tempo、OTel 和 Promtail 按实际观测调用关系互相放行。
+5. 所有应用角色可访问外部 HTTPS 443；只有 API/source worker 可访问 HTTP 80；只有 API 可访问 Windows LLM 入口 15721。
+
+默认拒绝探针结果：
+
+```text
+DNS                         allowed
+PostgreSQL 5432             denied
+API 60001                   denied
+external 443                denied
+ServiceAccount token        absent
+```
+
+角色拒绝结果：
+
+```text
+API -> Web 8080             denied
+source worker -> API 60001 denied
+Web -> PostgreSQL 5432     denied
+source worker -> LLM 15721 denied
+```
+
+Windows LLM 访问路径经实测固定为：
+
+```text
+LLM_BASE_URL=http://198.18.0.1:15721/v1
+LLM_MODEL=gpt-5.6-sol
+NetworkPolicy=198.18.0.1/32:15721，仅选择 APP_ROLE=api
+```
+
+API Pod 请求 `/health` 返回 HTTP 200。最小 completion 请求已到达 Windows 代理，代理返回 HTTP 503，错误为当前分组下 `gpt-5.6-sol` 无可用渠道；网络连接与角色策略均已验证，模型渠道恢复属于外部依赖事项。
+
+cloudflared 继续使用 `hostNetwork=true`。标准 NetworkPolicy 不保证隔离 hostNetwork 流量，该例外已显式记录，后续多节点阶段评估主机防火墙或支持 host policy 的 CNI。
+
+#### E13.3 资源、PDB 与调度
+
+ResourceQuota：
+
+```text
+pods=32
+requests.cpu=4
+requests.memory=6Gi
+limits.cpu=24
+limits.memory=20Gi
+persistentvolumeclaims=10
+requests.storage=50Gi
+```
+
+LimitRange：默认 request 为 `50m/64Mi`，默认 limit 为 `500m/512Mi`；单容器最小值为 `5m/16Mi`，最大值为 `2 CPU/2Gi`。全部运行容器已有显式 requests/limits。
+
+API、四类 worker、gateway、Web、cloudflared、PostgreSQL 和五个观测组件共 14 个 PDB，统一 `minAvailable=1`。所有工作负载使用节点 `aroen`，并配置 `ScheduleAnyway` topology spread 和权重 50 的 preferred pod anti-affinity。
+
+#### E13.4 故障验收
+
+1. LimitRange 服务端 dry-run 拒绝 3 CPU 单容器，错误明确指出最大值为 2 CPU。
+2. ResourceQuota 服务端 dry-run 拒绝额外 4 CPU requests，错误包含 used、requested 和 limited。
+3. API 单副本的 eviction dry-run 返回 `TooManyRequests`；API/source 临时扩展到 `2/2` 后 PDB `disruptionsAllowed=1`，eviction dry-run 返回 201。
+4. 双副本期间公网 `/readyz` 保持 HTTP 200，随后 API/source 恢复 `1/1`。
+5. 使用不存在节点标签的探针保持 Pending，事件为 `FailedScheduling`，原因是 node affinity/selector 不匹配。
+6. 所有短生命周期验收 Pod 均已清理。
+
+#### E13.5 发布故障与修正
+
+1. revision 8 首次升级因 migrate Job 早于普通 ServiceAccount 创建而失败，atomic 自动生成 revision 9 回滚到 revision 7。
+2. revision 10 暴露初始 quota 未覆盖滚动峰值，PostgreSQL 重建一度被 admission 拒绝；将预算修正为 CPU 24、内存 20Gi 后数据库和应用恢复。
+3. revision 11 的 migrate Pod 在新网络规则传播窗口立即连接数据库并失败，atomic 自动生成 revision 12 回滚；加入数据库就绪 initContainer 和 `backoffLimit=3` 后 revision 13 成功。
+4. revision 14 完成角色化外部 egress；revision 15 验证 `198.18.0.2` 只建立 TCP 而不返回 HTTP；revision 16 固定为可返回 HTTP 的 `198.18.0.1`。
+
+上述失败均由 `--atomic --wait --wait-for-jobs` 控制，最终未遗留 pending release，数据库仍为 `schema_migrations=37,false`。
+
+#### E13.6 最终判定
+
+```text
+Helm Chart：messagefeed-0.3.0
+Helm release：revision 16，STATUS=deployed
+运行 Pod：15 个，全部 Ready
+migrate Job：Complete，1/1
+NetworkPolicy：19
+PDB：14
+Prometheus target：7 个，全部 up
+公网首页、/healthz、/readyz：HTTP 200
+PostgreSQL：schema_migrations=37,false，pgvector=0.8.4，public 表=55
+```
+
+判定：第十部分“Kubernetes 安全与资源治理”完成，可以进入第十一部分“迁移、高可用与回滚”。
+
+### E14. 下一节实施内容：迁移、高可用与回滚
+
+1. 为迁移补充并发锁、失败恢复和 expand/contract 数据库兼容规范。
+2. 将 API、Web、Gateway 和 cloudflared 扩展为多副本，校准 RollingUpdate 与 PDB。
+3. 验证新 Pod 未 Ready 时旧 Pod 持续服务、单 Pod 故障、入口故障和实际节点维护边界。
+4. 验证应用镜像回滚与数据库状态兼容，明确不可回滚迁移的阻断条件。
+5. 保持 WSL 关闭、Windows 关机和本机断网不属于当前单节点可用性承诺。

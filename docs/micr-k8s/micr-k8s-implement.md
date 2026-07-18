@@ -16,17 +16,18 @@
 4. PostgreSQL 备份恢复演练、5 个 PV 设置为 `Retain`、数据库和公网健康检查验收。
 5. 环境与资产治理已完成，`local-path-retain` 为唯一默认 StorageClass，5 个现有 PV 均为 `Retain`。
 6. `APP_ROLE`、`internal/bootstrap`、四类独立 worker Deployment/Service 和独立 migrate Job 已完成并通过验收。
-7. 当前 Helm release `messagefeed` revision 7 为 `deployed`，API 与四类 worker 各为 1 个 Ready 副本。
+7. 当前 Helm release `messagefeed` revision 16 为 `deployed`，Chart 为 `0.3.0`，API 与四类 worker 各为 1 个 Ready 副本。
+8. 独立 ServiceAccount、最小 RBAC、19 条 NetworkPolicy、ResourceQuota、LimitRange、14 个 PDB 和统一调度约束已完成验收。
 
 当前边界：
 
 1. 当前仍为单二进制、多运行角色架构，尚未拆分独立业务代码仓库或数据库边界。
-2. API、worker 和 migrate 尚未配置独立 ServiceAccount、最小 RBAC、NetworkPolicy、PDB、ResourceQuota 或 LimitRange。
+2. API、worker 和 migrate 已建立安全与资源边界；cloudflared 因 WSL 出站约束保留 `hostNetwork=true`，属于明确记录的基础设施例外。
 3. API 与 worker 已验证独立扩缩容和 Helm rollback，但生产声明值仍为单副本；尚未形成完整多副本高可用基线。
 4. 当前未建立 CI/CD 发布闭环，镜像仍由本地构建并导入 K3s containerd。
 5. 集群使用 `messagefeed-api:role9-20260718-8a454cb690ec`；5 个角色均以 `tini` 为 PID 1，现有 PVC/PV 不迁移。
 
-后续实施门槛：第 9 节已通过，下一阶段实施第 10 节 ServiceAccount、最小 RBAC、NetworkPolicy 与资源治理；第 10～12 节完成前不进入真实业务微服务拆分。
+后续实施门槛：第 10 节已通过，下一阶段实施第 11 节迁移、高可用与回滚；第 11～12 节完成前不进入真实业务微服务拆分。
 
 ## 顶部步骤 TODO
 
@@ -116,9 +117,9 @@
 
 ### 第十部分：Kubernetes 安全与资源治理
 
-- [ ] 为 API、worker 和 migrate 配置独立 ServiceAccount 与最小 RBAC。
-- [ ] 增加 NetworkPolicy、资源请求/限制、PDB、ResourceQuota 和 LimitRange。
-- [ ] 验证网络访问、权限边界、资源边界和故障预算。
+- [x] 为 API、worker 和 migrate 配置独立 ServiceAccount 与最小 RBAC。
+- [x] 增加 NetworkPolicy、资源请求/限制、PDB、ResourceQuota 和 LimitRange。
+- [x] 验证网络访问、权限边界、资源边界和故障预算。
 
 ### 第十一部分：迁移、高可用与回滚
 
@@ -478,7 +479,7 @@ helm status messagefeed -n messagefeed
 
 | 项目 | 状态 |
 | --- | --- |
-| Helm release | `messagefeed` revision 7，`deployed` |
+| Helm release | `messagefeed` revision 16，Chart `0.3.0`，`deployed` |
 | PostgreSQL | 生产库与恢复库均为迁移状态 `37,false`，pgvector `0.8.4` 可用 |
 | PVC/PV | 5 个 PVC 为 `Bound`，5 个 PV 为 `Retain` |
 | 外部入口 | Cloudflare -> cloudflared -> Caddy -> Web/API，公网 `/healthz` 与 `/readyz` 均为 HTTP 200 |
@@ -607,24 +608,115 @@ migrate Job：Complete，1/1
 
 ## 10. Kubernetes 安全与资源治理
 
-**状态**：尚未完成。当前主要工作负载仍使用默认 ServiceAccount，尚未建立完整网络和资源治理边界。
+**状态**：已完成（2026-07-18）。Chart `0.3.0` 已部署为 Helm revision 16，权限、网络、资源和自主驱逐边界均通过运行态验收。
 
-实施内容：
+### 10.1 ServiceAccount 与最小 RBAC
 
-1. 为 API、各类 worker 和 migrate 配置独立 ServiceAccount 与最小 RBAC。
-2. 增加默认拒绝 NetworkPolicy，仅放行 DNS、PostgreSQL、OTel、gateway 和必要的外部访问。
-3. 配置 CPU/内存 requests、limits、ResourceQuota、LimitRange 和 PDB。
-4. 为有状态组件、worker 和入口组件补充节点选择、反亲和性或 topology spread 策略。
+API、四类 worker 和 migrate 分别使用以下身份：
 
-完成判定：
+```text
+messagefeed-api
+messagefeed-source-worker
+messagefeed-notification-worker
+messagefeed-agent-scheduler-worker
+messagefeed-embedding-worker
+messagefeed-migrate
+```
 
-1. Pod 只能访问其职责所需的 Kubernetes API 和网络目标。
-2. 缺少权限或网络放行时，失败行为可观测且不会扩大影响范围。
-3. 资源不足、节点维护和 Pod 驱逐时具备明确的恢复边界。
+六个 ServiceAccount 均设置 `automountServiceAccountToken=false`，对应 Role 的 `rules=[]`。`kubectl auth can-i` 已确认这些身份不能读取 Pod、Secret、ConfigMap，也不能创建 Deployment；业务 Pod 内不存在 ServiceAccount token 文件。Promtail 保留独立 ServiceAccount，只能读取 Pod、Namespace 和 Node 元数据，不能读取 Secret。其他不访问 Kubernetes API 的工作负载均显式关闭 token 自动挂载。
+
+migrate 的 ServiceAccount、Role 和 RoleBinding 使用权重 `-20` 的 `pre-install,pre-upgrade` hook，先于权重 `-10` 的迁移 Job 创建。迁移 Job 增加 PostgreSQL 网络就绪 initContainer，`backoffLimit=3`，避免 CNI 或 Endpoint 短暂传播延迟导致迁移立即失败。
+
+### 10.2 NetworkPolicy
+
+命名空间共部署 19 条 NetworkPolicy，`messagefeed-default-deny` 对所有 Pod 同时默认拒绝 ingress 和 egress，再按依赖显式放行：
+
+| 来源 | 允许目标 |
+| --- | --- |
+| 所有 Pod | kube-system CoreDNS，TCP/UDP 53 |
+| API、worker、migrate | PostgreSQL 5432 |
+| API、worker | OTel Collector 4317/4318 |
+| gateway | API 60001、Web 8080 |
+| Prometheus | API 60001、worker 9090、OTel 8888、自身 9090 |
+| Grafana | Prometheus 9090、Loki 3100、Tempo 3200 |
+| Promtail | Loki 3100、Kubernetes API 443/6443 |
+| 所有应用角色 | 外部 HTTPS 443 |
+| API、source worker | 外部 feed HTTP 80 |
+| API | Windows LLM 入口 `198.18.0.1/32:15721` |
+
+API ingress 只接受 gateway 和 Prometheus；worker 的 9090 只接受 Prometheus；PostgreSQL 只接受六个应用角色。gateway、Grafana 和 Prometheus 的节点入口只放行 `192.168.3.40/32`。
+
+LLM 配置已调整为：
+
+```text
+LLM_BASE_URL=http://198.18.0.1:15721/v1
+LLM_MODEL=gpt-5.6-sol
+```
+
+API Pod 访问 Windows 代理 `/health` 返回 HTTP 200，source worker 访问 15721 被拒绝。`gpt-5.6-sol` completion 已到达代理，但代理上游返回 HTTP 503“当前分组无可用渠道”；该结果属于外部模型渠道状态，不属于 Kubernetes 网络失败。
+
+cloudflared 因既有 WSL 出站约束继续使用 `hostNetwork=true`。标准 NetworkPolicy 不保证隔离 hostNetwork 流量，因此它是明确记录的基础设施例外；其 gateway 和 Tunnel 目标仍在 Chart 中声明，后续多节点阶段再评估主机防火墙或支持 host policy 的 CNI。
+
+### 10.3 资源与调度治理
+
+ResourceQuota `messagefeed-compute` 的最终预算为：
+
+| 资源 | 上限 |
+| --- | ---: |
+| Pod | 32 |
+| requests.cpu | 4 |
+| requests.memory | 6Gi |
+| limits.cpu | 24 |
+| limits.memory | 20Gi |
+| PVC | 10 |
+| requests.storage | 50Gi |
+
+CPU/内存 limit 预算包含一次完整滚动发布时旧、新 Pod 并存的峰值。LimitRange 为未声明资源的容器设置 `50m/64Mi` 默认 request、`500m/512Mi` 默认 limit，并限制单容器最大值为 `2 CPU/2Gi`、最小值为 `5m/16Mi`。
+
+API、四类 worker、gateway、Web、cloudflared、PostgreSQL 和五个观测组件共配置 14 个 PDB，`minAvailable=1`。所有运行容器均有显式 requests/limits。
+
+工作负载统一使用：
+
+```text
+nodeSelector: kubernetes.io/hostname=aroen
+topologySpread: kubernetes.io/hostname, ScheduleAnyway, maxSkew=1
+preferred podAntiAffinity: weight=50
+```
+
+`ScheduleAnyway` 保证当前单节点可运行；加入新节点后，同角色副本会优先分散而不会因硬反亲和阻塞发布。
+
+### 10.4 严格验收结果
+
+静态验证：
+
+```text
+go test -count=1 ./...                  PASS
+go vet ./...                            PASS
+go build -o /dev/null ./cmd/api         PASS
+helm lint                               PASS
+helm template                           PASS
+kubectl apply --dry-run=client/server   PASS
+helm upgrade --dry-run=server           PASS
+schema 反向校验                         PASS
+```
+
+运行态验证：
+
+1. 六个应用身份的 Kubernetes API 权限均为 `no`，token 未挂载；Promtail 只保留日志发现所需读取权限。
+2. API 到 PostgreSQL、OTel、HTTPS 和 LLM 入口可达；API 到 Web、source worker 到 API、Web 到 PostgreSQL 均被拒绝。
+3. 无角色探针 Pod 只能访问 DNS，PostgreSQL、API 和公网均被默认拒绝；探针已清理。
+4. LimitRange 服务端 dry-run 拒绝 3 CPU 单容器；ResourceQuota 拒绝新增 4 CPU request。
+5. 单副本 API 的 eviction dry-run 被 PDB 以 `TooManyRequests` 拒绝；临时双副本时 `disruptionsAllowed=1`，eviction dry-run 成功。
+6. API/source worker 临时扩展到 `2/2` 后公网 readiness 保持 200，随后恢复 `1/1`。
+7. 不存在的 nodeSelector 使探针保持 Pending，并产生 `FailedScheduling`；探针已清理。
+8. 15 个运行 Pod 全部 Ready，迁移 Job `1/1 Complete`，7 个 Prometheus target 全部 `up`。
+9. 公网首页、`/healthz`、`/readyz` 均返回 HTTP 200；数据库保持 `schema_migrations=37,false`、pgvector `0.8.4`、public 基础表 55 张。
+
+**第 10 节判定**：应用身份、最小权限、默认拒绝网络、角色化外部访问、资源配额、容器边界、PDB 与调度约束全部完成；可以进入第 11 节“迁移、高可用与回滚”。
 
 ## 11. 迁移、高可用与回滚
 
-**状态**：部分完成。独立 migrate Job、API/worker RollingUpdate、独立扩缩容和 Helm rollback 已验证；入口多副本、PDB、故障注入和数据库兼容回滚闭环尚未完成。
+**状态**：部分完成。独立 migrate Job、API/worker RollingUpdate、独立扩缩容、PDB、资源/调度故障注入和 Helm rollback 已验证；入口多副本和数据库兼容回滚闭环尚未完成。
 
 实施顺序：
 
@@ -632,7 +724,7 @@ migrate Job：Complete，1/1
 2. 完成 API、Web、Gateway、cloudflared 的多副本配置和 RollingUpdate。
 3. 有状态单实例组件继续使用 `Recreate`，避免 RWO PVC 被新旧 Pod 并发写入。
 4. worker 默认保持单副本，已完成 source worker 双副本与四类 claim 并发验证。
-5. 已完成 SIGTERM、独立扩缩容和 Helm rollback；仍需补充 readiness 失败、节点维护和入口故障演练。
+5. 已完成 SIGTERM、独立扩缩容、PDB eviction、不可调度故障和 Helm rollback；仍需补充入口多副本、实际节点维护和入口故障演练。
 
 完成判定：
 

@@ -20,6 +20,8 @@ spec:
         app.kubernetes.io/component: web
         app.kubernetes.io/part-of: messagefeed
     spec:
+      automountServiceAccountToken: false
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "web") | nindent 6 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

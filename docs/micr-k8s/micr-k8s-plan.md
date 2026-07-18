@@ -8,18 +8,18 @@
 
 ## 当前实施状态（2026-07-18）
 
-当前已经完成 Kubernetes 基线与第 9 节应用运行边界拆分：
+当前已经完成 Kubernetes 基线、第 9 节应用运行边界拆分和第 10 节安全资源治理：
 
 1. WSL 内 K3s single-server、动态网络维护和 Helm 工具链已完成。
 2. `deploy/helm/messagefeed` Chart 已建立，现有 PostgreSQL、API、Web、Caddy gateway、cloudflared 和观测栈已由 Helm release `messagefeed` 管理。
-3. Helm release 当前为 revision 7、状态 `deployed`；API 与四类 worker 均为 1 个 Ready 副本。
+3. Helm release 当前为 revision 16、状态 `deployed`；API 与四类 worker 均为 1 个 Ready 副本，独立 migrate Job 为 Complete。
 4. PostgreSQL 完整恢复演练已通过，5 个现有 PV 均为 `Retain`，PVC/PV 绑定关系保持不变。
-5. `local-path-retain` 已是唯一默认 StorageClass；API 和 cloudflared 使用固定版本镜像，Grafana 管理凭据由独立 Secret 提供。
+5. `local-path-retain` 已是唯一默认 StorageClass；Chart `0.3.0` 已建立独立运行身份、默认拒绝 NetworkPolicy、ResourceQuota、LimitRange、PDB 和调度约束。
 
 当前尚未完成：
 
-1. 独立 ServiceAccount、最小 RBAC、NetworkPolicy、PDB、资源治理和 CI/CD 发布回滚闭环。
-2. Web、Gateway、cloudflared 多副本及入口故障演练。
+1. Web、Gateway、cloudflared 多副本及入口故障演练。
+2. 数据库 expand/contract 兼容迁移与 CI/CD 发布回滚闭环。
 3. 真实微服务拆分。
 
 环境与资产治理状态：
@@ -27,8 +27,9 @@
 1. `local-path=false`、`local-path-retain=true`，新 PVC 使用唯一默认类，现有 PVC/PV 不迁移。
 2. API、四类 worker 和 migrate 使用 `messagefeed-api:role9-20260718-8a454cb690ec`，业务 Pod PID 1 均为 `tini`；cloudflared 固定为 `2026.6.1`。
 3. PostgreSQL 恢复库的数据、迁移、pgvector、索引和约束核验通过，公网健康检查通过。
+4. 六个应用角色使用独立零权限 ServiceAccount，19 条 NetworkPolicy 按角色放行，资源配额和 14 个 PDB 已通过故障验收。
 
-上述状态是当前事实；后文的安全治理、入口高可用和真实微服务拆分仍属于后续方案。
+上述状态是当前事实；后文的入口高可用、CI/CD 和真实微服务拆分仍属于后续方案。
 
 ## 1. 当前项目情况
 
@@ -63,10 +64,10 @@
 当前主要问题：
 
 1. 仍为单二进制多运行角色，尚未形成独立业务代码和数据边界。
-2. API、worker 和 migrate 已有独立生命周期，但安全权限和资源边界尚未完成。
+2. API、worker 和 migrate 已有独立生命周期、安全身份、网络与资源边界，但仍共用单二进制和数据库。
 3. Cloudflare Tunnel 当前存在入口单点或弱高可用风险，偶发 `1033`、`502/504` 时难以定位。
 4. 已建立并接管多角色 Helm Chart，API、四类 worker 和独立 migrate Job 已完成。
-5. CI/CD、镜像版本、迁移 Job、回滚策略还没有形成完整发布闭环。
+5. CI/CD、入口多副本和数据库兼容回滚策略还没有形成完整发布闭环。
 6. 真正业务微服务边界尚未成熟，直接拆服务会引入认证、接口、数据一致性和链路追踪复杂度。
 
 ## 2. 总体技术方案
@@ -108,7 +109,7 @@ Windows
   -> Prometheus / Loki / Tempo / OTel Collector / Grafana / Promtail
 ```
 
-下一阶段目标：完成安全资源治理和入口高可用闭环，再进入真实业务微服务拆分。
+下一阶段目标：完成迁移兼容策略、入口高可用和 CI/CD 闭环，再进入真实业务微服务拆分。
 
 统一连接方式：
 

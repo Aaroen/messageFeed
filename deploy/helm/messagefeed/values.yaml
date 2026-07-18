@@ -7,6 +7,21 @@ fullnameOverride: ""
 # 私有镜像仓库认证 Secret 列表，公开或本地镜像无需配置。
 imagePullSecrets: []
 
+# 统一节点调度约束。单节点环境使用 ScheduleAnyway，扩展到多节点后可逐步收紧。
+scheduling:
+  nodeSelector:
+    kubernetes.io/os: linux
+  tolerations: []
+  topologySpread:
+    enabled: true
+    maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+  podAntiAffinity:
+    enabled: true
+    weight: 50
+    topologyKey: kubernetes.io/hostname
+
 # 为新建 PVC 提供默认 Retain StorageClass，避免 PVC 删除时自动清理底层数据。
 storageClass:
   create: true
@@ -152,7 +167,7 @@ postgresql:
 migrations:
   enabled: true
   path: migrations
-  backoffLimit: 1
+  backoffLimit: 3
   activeDeadlineSeconds: 600
   image:
     repository: migrate/migrate
@@ -204,6 +219,64 @@ cloudflared:
     limits:
       cpu: 250m
       memory: 256Mi
+
+# Kubernetes 网络边界。启用后先拒绝命名空间内所有入站和出站，再按服务依赖放行。
+networkPolicy:
+  enabled: true
+  defaultDeny: true
+  gatewayIngressCIDRs:
+    - 0.0.0.0/0
+  observabilityIngressCIDRs: []
+  kubernetesAPI:
+    serviceCIDR: 10.43.0.1/32
+    nodeCIDRs: []
+  httpsEgress:
+    - cidr: 0.0.0.0/0
+      except:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+      ports:
+        - 443
+  feedEgress:
+    - cidr: 0.0.0.0/0
+      except:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+      ports:
+        - 80
+  llmEgress: []
+  cloudflaredEgress:
+    - cidr: 0.0.0.0/0
+      except:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+      ports:
+        - 443
+        - 7844
+
+# 命名空间资源预算、默认容器边界和自主驱逐保护。
+resourceGovernance:
+  enabled: true
+  quota:
+    pods: "32"
+    requestsCPU: "4"
+    requestsMemory: 6Gi
+    limitsCPU: "24"
+    limitsMemory: 20Gi
+    persistentvolumeclaims: "10"
+    requestsStorage: 50Gi
+  limitRange:
+    defaultCPU: 500m
+    defaultMemory: 512Mi
+    defaultRequestCPU: 50m
+    defaultRequestMemory: 64Mi
+    minCPU: 5m
+    minMemory: 16Mi
+    maxCPU: "2"
+    maxMemory: 2Gi
+  pdb:
+    enabled: true
+    minAvailable: 1
 
 # 应用非敏感运行参数，渲染到 messagefeed-app-config ConfigMap。
 appConfig:

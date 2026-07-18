@@ -35,6 +35,8 @@ spec:
         {{- include "messagefeed.selectorLabels" (dict "name" "messagefeed-postgres" "root" .) | nindent 8 }}
         app.kubernetes.io/part-of: messagefeed
     spec:
+      automountServiceAccountToken: false
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "messagefeed-postgres") | nindent 6 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

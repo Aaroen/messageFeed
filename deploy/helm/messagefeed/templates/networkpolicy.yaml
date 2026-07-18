@@ -1,0 +1,548 @@
+{{/* 命名空间采用默认拒绝，仅按实际服务调用关系放行网络流量。 */}}
+{{- if .Values.networkPolicy.enabled }}
+{{- if .Values.networkPolicy.defaultDeny }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-default-deny
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-allow-dns
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-postgres-ingress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: messagefeed-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: messagefeed.io/app-role
+                operator: In
+                values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, migrate]
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-database-egress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: messagefeed.io/app-role
+        operator: In
+        values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, migrate]
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: messagefeed-postgres
+      ports:
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-application-otel-egress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: messagefeed.io/app-role
+        operator: In
+        values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker]
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - {protocol: TCP, port: 4317}
+        - {protocol: TCP, port: 4318}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-application-https-egress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: messagefeed.io/app-role
+        operator: In
+        values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker]
+  policyTypes:
+    - Egress
+  egress:
+    {{- range .Values.networkPolicy.httpsEgress }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr | quote }}
+            {{- with .except }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        {{- range .ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-feed-http-egress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: messagefeed.io/app-role
+        operator: In
+        values: [api, source-worker]
+  policyTypes:
+    - Egress
+  egress:
+    {{- range .Values.networkPolicy.feedEgress }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr | quote }}
+            {{- with .except }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        {{- range .ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-api-llm-egress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      messagefeed.io/app-role: api
+  policyTypes:
+    - Egress
+  {{- if .Values.networkPolicy.llmEgress }}
+  egress:
+    {{- range .Values.networkPolicy.llmEgress }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr | quote }}
+            {{- with .except }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        {{- range .ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+  {{- else }}
+  egress: []
+  {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-api-ingress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: messagefeed-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {protocol: TCP, port: 60001}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-worker-metrics-ingress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: worker
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {protocol: TCP, port: 9090}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-gateway
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.gatewayIngressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 8443}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: messagefeed-api
+      ports:
+        - {protocol: TCP, port: 60001}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: web
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-web-ingress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-cloudflared
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.gatewayIngressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 2000}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - {protocol: TCP, port: 8443}
+    {{- range .Values.networkPolicy.cloudflaredEgress }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr | quote }}
+            {{- with .except }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        {{- range .ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+{{- if .Values.observability.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-otel-collector
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: messagefeed.io/app-role
+                operator: In
+                values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker]
+      ports:
+        - {protocol: TCP, port: 4317}
+        - {protocol: TCP, port: 4318}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {protocol: TCP, port: 8888}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - {protocol: TCP, port: 4317}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-tempo-ingress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - {protocol: TCP, port: 4317}
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - {protocol: TCP, port: 3200}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-loki-ingress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: promtail
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - {protocol: TCP, port: 3100}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-prometheus
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+        {{- range .Values.networkPolicy.observabilityIngressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 9090}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: messagefeed-api
+      ports:
+        - {protocol: TCP, port: 60001}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker
+      ports:
+        - {protocol: TCP, port: 9090}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {protocol: TCP, port: 9090}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - {protocol: TCP, port: 8888}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-grafana
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.observabilityIngressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 3000}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {protocol: TCP, port: 9090}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - {protocol: TCP, port: 3100}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - {protocol: TCP, port: 3200}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-promtail-egress
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: promtail
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - {protocol: TCP, port: 3100}
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.kubernetesAPI.serviceCIDR | quote }}
+      ports:
+        - {protocol: TCP, port: 443}
+    {{- range .Values.networkPolicy.kubernetesAPI.nodeCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - {protocol: TCP, port: 6443}
+    {{- end }}
+{{- end }}
+{{- end }}

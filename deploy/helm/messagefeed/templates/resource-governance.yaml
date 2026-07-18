@@ -1,0 +1,76 @@
+{{/* 约束命名空间资源总量，并为未显式声明资源的容器提供保守默认值。 */}}
+{{- if .Values.resourceGovernance.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: messagefeed-compute
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  hard:
+    pods: {{ .Values.resourceGovernance.quota.pods | quote }}
+    requests.cpu: {{ .Values.resourceGovernance.quota.requestsCPU | quote }}
+    requests.memory: {{ .Values.resourceGovernance.quota.requestsMemory | quote }}
+    limits.cpu: {{ .Values.resourceGovernance.quota.limitsCPU | quote }}
+    limits.memory: {{ .Values.resourceGovernance.quota.limitsMemory | quote }}
+    persistentvolumeclaims: {{ .Values.resourceGovernance.quota.persistentvolumeclaims | quote }}
+    requests.storage: {{ .Values.resourceGovernance.quota.requestsStorage | quote }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: messagefeed-container-limits
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: {{ .Values.resourceGovernance.limitRange.defaultCPU | quote }}
+        memory: {{ .Values.resourceGovernance.limitRange.defaultMemory | quote }}
+      defaultRequest:
+        cpu: {{ .Values.resourceGovernance.limitRange.defaultRequestCPU | quote }}
+        memory: {{ .Values.resourceGovernance.limitRange.defaultRequestMemory | quote }}
+      min:
+        cpu: {{ .Values.resourceGovernance.limitRange.minCPU | quote }}
+        memory: {{ .Values.resourceGovernance.limitRange.minMemory | quote }}
+      max:
+        cpu: {{ .Values.resourceGovernance.limitRange.maxCPU | quote }}
+        memory: {{ .Values.resourceGovernance.limitRange.maxMemory | quote }}
+{{- if .Values.resourceGovernance.pdb.enabled }}
+{{- $root := . }}
+{{- $pdbs := list
+  (dict "name" "messagefeed-api" "enabled" true)
+  (dict "name" "source-worker" "enabled" .Values.workers.source.enabled)
+  (dict "name" "notification-worker" "enabled" .Values.workers.notification.enabled)
+  (dict "name" "agent-scheduler-worker" "enabled" .Values.workers.agentScheduler.enabled)
+  (dict "name" "embedding-worker" "enabled" .Values.workers.embedding.enabled)
+  (dict "name" "gateway" "enabled" .Values.gateway.enabled)
+  (dict "name" "web" "enabled" .Values.web.enabled)
+  (dict "name" "cloudflared" "enabled" .Values.cloudflared.enabled)
+  (dict "name" "messagefeed-postgres" "enabled" .Values.postgresql.enabled)
+  (dict "name" "prometheus" "enabled" .Values.observability.enabled)
+  (dict "name" "loki" "enabled" .Values.observability.enabled)
+  (dict "name" "tempo" "enabled" .Values.observability.enabled)
+  (dict "name" "otel-collector" "enabled" .Values.observability.enabled)
+  (dict "name" "grafana" "enabled" .Values.observability.enabled)
+}}
+{{- range $pdb := $pdbs }}
+{{- if $pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $pdb.name }}
+  labels:
+    {{- include "messagefeed.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: {{ $pdb.name }}
+spec:
+  minAvailable: {{ $root.Values.resourceGovernance.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $pdb.name }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

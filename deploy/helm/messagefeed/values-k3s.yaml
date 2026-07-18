@@ -3,6 +3,49 @@
 # 固定资源名称以接管现有 messagefeed 工作负载。
 fullnameOverride: messagefeed
 
+# 当前单节点地址。网络策略仅允许节点作为 gateway/观测 NodePort 的入口。
+scheduling:
+  nodeSelector:
+    kubernetes.io/hostname: aroen
+  topologySpread:
+    whenUnsatisfiable: ScheduleAnyway
+
+networkPolicy:
+  gatewayIngressCIDRs:
+    - 192.168.3.40/32
+  observabilityIngressCIDRs:
+    - 192.168.3.40/32
+  kubernetesAPI:
+    serviceCIDR: 10.43.0.1/32
+    nodeCIDRs:
+      - 192.168.3.40/32
+  httpsEgress:
+    - cidr: 0.0.0.0/0
+      except:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+      ports:
+        - 443
+  feedEgress:
+    - cidr: 0.0.0.0/0
+      except:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+      ports:
+        - 80
+  llmEgress:
+    - cidr: 198.18.0.1/32
+      ports:
+        - 15721
+  cloudflaredEgress:
+    - cidr: 0.0.0.0/0
+      except:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+      ports:
+        - 443
+        - 7844
+
 # 创建默认 Retain StorageClass；现有 PVC 保持原 local-path，避免修改不可变字段。
 storageClass:
   create: true
@@ -70,8 +113,8 @@ appConfig:
   wechatWorkCorpID: ww8ee8972ac7733fed
   wechatWorkAgentID: "1000002"
   llmProvider: openai_compatible
-  llmBaseURL: http://192.168.3.40:15721/v1
-  llmModel: qwen/qwen3.5-122b-a10b
+  llmBaseURL: http://198.18.0.1:15721/v1
+  llmModel: gpt-5.6-sol
   embeddingProvider: openai_compatible
   embeddingBaseURL: https://ai.hybgzs.com/v1
   embeddingModel: Qwen/Qwen3-Embedding-8B

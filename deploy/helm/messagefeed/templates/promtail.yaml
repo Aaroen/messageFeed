@@ -53,6 +53,7 @@ spec:
         app.kubernetes.io/part-of: messagefeed
     spec:
       serviceAccountName: {{ include "messagefeed.fullname" . }}-promtail
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "promtail") | nindent 6 }}
       containers:
         - name: promtail
           image: {{ .Values.observability.promtail.image }}

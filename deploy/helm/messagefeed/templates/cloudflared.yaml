@@ -22,6 +22,8 @@ spec:
     spec:
       hostNetwork: {{ .Values.cloudflared.hostNetwork }}
       dnsPolicy: {{ ternary "ClusterFirstWithHostNet" "ClusterFirst" .Values.cloudflared.hostNetwork }}
+      automountServiceAccountToken: false
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "cloudflared") | nindent 6 }}
       containers:
         - name: cloudflared
           image: "{{ .Values.cloudflared.image.repository }}:{{ .Values.cloudflared.image.tag }}"

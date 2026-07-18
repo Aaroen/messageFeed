@@ -22,6 +22,8 @@ spec:
         {{- include "messagefeed.selectorLabels" (dict "name" "prometheus" "root" .) | nindent 8 }}
         app.kubernetes.io/part-of: messagefeed
     spec:
+      automountServiceAccountToken: false
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "prometheus") | nindent 6 }}
       securityContext:
         fsGroup: 65534
       containers:
@@ -79,6 +81,8 @@ spec:
         {{- include "messagefeed.selectorLabels" (dict "name" "loki" "root" .) | nindent 8 }}
         app.kubernetes.io/part-of: messagefeed
     spec:
+      automountServiceAccountToken: false
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "loki") | nindent 6 }}
       securityContext:
         fsGroup: 10001
       containers:
@@ -137,6 +141,8 @@ spec:
         {{- include "messagefeed.selectorLabels" (dict "name" "tempo" "root" .) | nindent 8 }}
         app.kubernetes.io/part-of: messagefeed
     spec:
+      automountServiceAccountToken: false
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "tempo") | nindent 6 }}
       securityContext:
         fsGroup: 10001
       containers:
@@ -195,6 +201,8 @@ spec:
         {{- include "messagefeed.selectorLabels" (dict "name" "otel-collector" "root" .) | nindent 8 }}
         app.kubernetes.io/part-of: messagefeed
     spec:
+      automountServiceAccountToken: false
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "otel-collector") | nindent 6 }}
       containers:
         - name: otel-collector
           image: {{ .Values.observability.otelCollector.image }}
@@ -247,6 +255,8 @@ spec:
         {{- include "messagefeed.selectorLabels" (dict "name" "grafana" "root" .) | nindent 8 }}
         app.kubernetes.io/part-of: messagefeed
     spec:
+      automountServiceAccountToken: false
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "grafana") | nindent 6 }}
       securityContext:
         fsGroup: 472
       containers:

@@ -13,5 +13,9 @@
 检查最近一次迁移：
   kubectl -n {{ .Release.Namespace }} get job/messagefeed-migrate
 
+检查安全与资源治理：
+  kubectl -n {{ .Release.Namespace }} get serviceaccount,role,rolebinding
+  kubectl -n {{ .Release.Namespace }} get networkpolicy,resourcequota,limitrange,pdb
+
 本地访问：
   kubectl -n {{ .Release.Namespace }} port-forward service/gateway 8443:8443

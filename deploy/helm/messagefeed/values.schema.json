@@ -3,6 +3,88 @@
   "$comment": "校验 messageFeed Helm values 的关键字段与约束。",
   "type": "object",
   "properties": {
+    "scheduling": {
+      "type": "object",
+      "properties": {
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "topologySpread": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "maxSkew": { "type": "integer", "minimum": 1 },
+            "topologyKey": { "type": "string", "minLength": 1 },
+            "whenUnsatisfiable": { "type": "string", "enum": ["DoNotSchedule", "ScheduleAnyway"] }
+          }
+        },
+        "podAntiAffinity": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "weight": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "topologyKey": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "defaultDeny": { "type": "boolean" },
+        "gatewayIngressCIDRs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "observabilityIngressCIDRs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "kubernetesAPI": {
+          "type": "object",
+          "properties": {
+            "serviceCIDR": { "type": "string", "minLength": 1 },
+            "nodeCIDRs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "httpsEgress": { "type": "array", "items": { "$ref": "#/definitions/egressRule" } },
+        "feedEgress": { "type": "array", "items": { "$ref": "#/definitions/egressRule" } },
+        "llmEgress": { "type": "array", "items": { "$ref": "#/definitions/egressRule" } },
+        "cloudflaredEgress": { "type": "array", "items": { "$ref": "#/definitions/egressRule" } }
+      }
+    },
+    "resourceGovernance": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "quota": {
+          "type": "object",
+          "properties": {
+            "pods": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+            "requestsCPU": { "type": "string", "minLength": 1 },
+            "requestsMemory": { "type": "string", "minLength": 1 },
+            "limitsCPU": { "type": "string", "minLength": 1 },
+            "limitsMemory": { "type": "string", "minLength": 1 },
+            "persistentvolumeclaims": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+            "requestsStorage": { "type": "string", "minLength": 1 }
+          }
+        },
+        "limitRange": {
+          "type": "object",
+          "properties": {
+            "defaultCPU": { "type": "string", "minLength": 1 },
+            "defaultMemory": { "type": "string", "minLength": 1 },
+            "defaultRequestCPU": { "type": "string", "minLength": 1 },
+            "defaultRequestMemory": { "type": "string", "minLength": 1 },
+            "minCPU": { "type": "string", "minLength": 1 },
+            "minMemory": { "type": "string", "minLength": 1 },
+            "maxCPU": { "type": "string", "minLength": 1 },
+            "maxMemory": { "type": "string", "minLength": 1 }
+          }
+        },
+        "pdb": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "minAvailable": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
     "storageClass": {
       "type": "object",
       "properties": {
@@ -108,6 +190,19 @@
     }
   },
   "definitions": {
+    "egressRule": {
+      "type": "object",
+      "required": ["cidr", "ports"],
+      "properties": {
+        "cidr": { "type": "string", "minLength": 1 },
+        "except": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "ports": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        }
+      }
+    },
     "worker": {
       "type": "object",
       "properties": {
