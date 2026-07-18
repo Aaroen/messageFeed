@@ -14,6 +14,8 @@ type NodeInfo struct {
 	// 该字段不决定监听范围，监听地址仍由 BIND_ADDR 控制。
 	DeploymentMode string `json:"deployment_mode"`
 
+	AppRole string `json:"app_role"`
+
 	// PublicBaseURL 是用户或外部入口访问当前服务时使用的公开基址。
 	// 本地、局域网、Tailscale 和后续 Cloudflare 入口都应通过该字段表达。
 	PublicBaseURL string `json:"public_base_url"`
@@ -40,6 +42,8 @@ type NodeOptions struct {
 	// DeploymentMode 对应配置中的 DEPLOYMENT_MODE。
 	DeploymentMode string
 
+	AppRole string
+
 	// PublicBaseURL 对应配置中的 PUBLIC_BASE_URL。
 	PublicBaseURL string
 
@@ -64,6 +68,7 @@ func NewNodeInfo(options NodeOptions) NodeInfo {
 	return NodeInfo{
 		NodeID:            options.NodeID,
 		DeploymentMode:    options.DeploymentMode,
+		AppRole:           options.AppRole,
 		PublicBaseURL:     options.PublicBaseURL,
 		BindAddr:          options.BindAddr,
 		TrustedProxyCIDRs: append([]string(nil), options.TrustedProxyCIDRs...),

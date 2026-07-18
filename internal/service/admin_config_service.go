@@ -106,6 +106,7 @@ type AdminRuntimeConfigStatus struct {
 	ServiceVersion string `json:"service_version"`
 	AppNodeID      string `json:"app_node_id"`
 	DeploymentMode string `json:"deployment_mode"`
+	AppRole        string `json:"app_role"`
 	PublicBaseURL  string `json:"public_base_url"`
 	BindAddr       string `json:"bind_addr"`
 }
@@ -246,6 +247,7 @@ func (s *AdminConfigService) Status(ctx context.Context) (AdminConfigStatus, err
 			ServiceVersion: s.cfg.Observability.ServiceVersion,
 			AppNodeID:      s.cfg.Runtime.AppNodeID,
 			DeploymentMode: s.cfg.Runtime.DeploymentMode,
+			AppRole:        string(s.cfg.Runtime.AppRole),
 			PublicBaseURL:  s.cfg.Runtime.PublicBaseURL,
 			BindAddr:       s.cfg.HTTP.BindAddr,
 		},

@@ -14,7 +14,61 @@
     "api": {
       "type": "object",
       "properties": {
-        "replicaCount": { "type": "integer", "const": 1 }
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "image": {
+          "type": "object",
+          "properties": {
+            "tag": { "type": "string", "minLength": 1, "not": { "const": "latest" } }
+          }
+        }
+      }
+    },
+    "workers": {
+      "type": "object",
+      "properties": {
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "bindAddr": { "type": "string", "pattern": "^[^:]+:[0-9]+$" }
+          }
+        },
+        "source": { "$ref": "#/definitions/worker" },
+        "notification": { "$ref": "#/definitions/worker" },
+        "agentScheduler": { "$ref": "#/definitions/worker" },
+        "embedding": { "$ref": "#/definitions/worker" }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "path": { "type": "string", "const": "migrations" },
+        "backoffLimit": { "type": "integer", "minimum": 0 },
+        "activeDeadlineSeconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "appConfig": {
+      "type": "object",
+      "properties": {
+        "deploymentMode": { "type": "string", "enum": ["single_node", "cluster"] },
+        "defaultAppRole": {
+          "type": "string",
+          "enum": ["all", "api", "source-worker", "notification-worker", "agent-scheduler-worker", "embedding-worker", "migrate"]
+        },
+        "databaseMaxOpenConns": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+        "databaseMaxIdleConns": { "type": "string", "pattern": "^[0-9]+$" }
+      }
+    },
+    "web": {
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "object",
+          "properties": {
+            "tag": { "type": "string", "minLength": 1, "not": { "const": "latest" } }
+          }
+        }
       }
     },
     "postgresql": {
@@ -32,7 +86,39 @@
     "cloudflared": {
       "type": "object",
       "properties": {
-        "protocol": { "type": "string", "enum": ["auto", "quic", "http2"] }
+        "protocol": { "type": "string", "enum": ["auto", "quic", "http2"] },
+        "image": {
+          "type": "object",
+          "properties": {
+            "tag": { "type": "string", "minLength": 1, "not": { "const": "latest" } }
+          }
+        }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "grafana": {
+          "type": "object",
+          "properties": {
+            "existingSecret": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "worker": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "resources": { "type": "object" },
+        "podAnnotations": { "type": "object" },
+        "podLabels": { "type": "object" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
       }
     }
   }

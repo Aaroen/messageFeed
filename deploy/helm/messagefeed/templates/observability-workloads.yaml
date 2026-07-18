@@ -253,8 +253,16 @@ spec:
         - name: grafana
           image: {{ .Values.observability.grafana.image }}
           env:
-            - {name: GF_SECURITY_ADMIN_USER, value: {{ .Values.observability.grafana.adminUser | quote }}}
-            - {name: GF_SECURITY_ADMIN_PASSWORD, value: {{ .Values.observability.grafana.adminPassword | quote }}}
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "observability.grafana.existingSecret is required" .Values.observability.grafana.existingSecret | quote }}
+                  key: GF_SECURITY_ADMIN_USER
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "observability.grafana.existingSecret is required" .Values.observability.grafana.existingSecret | quote }}
+                  key: GF_SECURITY_ADMIN_PASSWORD
             - {name: GF_AUTH_ANONYMOUS_ENABLED, value: {{ .Values.observability.grafana.anonymousEnabled | quote }}}
             - {name: GF_AUTH_ANONYMOUS_ORG_ROLE, value: Admin}
             - {name: GF_USERS_DEFAULT_THEME, value: light}

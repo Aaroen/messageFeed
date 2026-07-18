@@ -1,21 +1,15 @@
 package main
 
 import (
-	"context"
-	"log/slog"
-	"net/http"
+	"strings"
 	"testing"
-	"time"
 )
 
-// TestShutdownWithoutDatabase 验证入口层优雅关闭可以在无数据库配置时完成。
-// 路由行为已经迁移到 internal/handler 包测试，此处仅覆盖进程生命周期辅助函数。
-func TestShutdownWithoutDatabase(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+func TestRunRejectsInvalidApplicationRoleBeforeStarting(t *testing.T) {
+	t.Setenv("APP_ROLE", "invalid-role")
 
-	logger := slog.Default()
-	server := &http.Server{}
-
-	shutdown(ctx, logger, server, nil)
+	err := run()
+	if err == nil || !strings.Contains(err.Error(), "unsupported APP_ROLE") {
+		t.Fatalf("run() error = %v, want unsupported role error", err)
+	}
 }

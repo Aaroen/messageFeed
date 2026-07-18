@@ -1,7 +1,7 @@
-# 定义 messageFeed all-in-one Helm Chart 的元数据与版本。
+# 定义 messageFeed 多角色 Helm Chart 的元数据与版本。
 apiVersion: v2
 name: messagefeed
-description: messageFeed all-in-one Kubernetes deployment
+description: messageFeed multi-role Kubernetes deployment
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.2.0"

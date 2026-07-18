@@ -11,6 +11,47 @@ scrape_configs:
           - api:60001
         labels:
           service: messagefeed-api
+          app_role: api
+          environment: development
+
+  - job_name: messagefeed-source-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - source-worker:9090
+        labels:
+          service: messagefeed-source-worker
+          app_role: source-worker
+          environment: development
+
+  - job_name: messagefeed-notification-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - notification-worker:9090
+        labels:
+          service: messagefeed-notification-worker
+          app_role: notification-worker
+          environment: development
+
+  - job_name: messagefeed-agent-scheduler-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - agent-scheduler-worker:9090
+        labels:
+          service: messagefeed-agent-scheduler-worker
+          app_role: agent-scheduler-worker
+          environment: development
+
+  - job_name: messagefeed-embedding-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - embedding-worker:9090
+        labels:
+          service: messagefeed-embedding-worker
+          app_role: embedding-worker
           environment: development
 
   - job_name: prometheus

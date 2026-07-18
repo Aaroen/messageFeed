@@ -44,6 +44,9 @@ RUN npm ci
 COPY web ./
 RUN npm run build
 
+# 复用既有 golang-migrate CLI，使同一后端镜像可通过 APP_ROLE=migrate 独立执行迁移。
+FROM migrate/migrate:v4.19.1 AS migrate-bin
+
 # ==================== Web 静态服务阶段 ====================
 FROM caddy:2.10.2-alpine AS web
 
@@ -70,26 +73,31 @@ WORKDIR /app
 
 # 从构建阶段复制编译好的二进制文件
 COPY --from=builder /build/messagefeed /app/messagefeed
+COPY --from=migrate-bin /usr/local/bin/migrate /usr/local/bin/migrate
 COPY configs /app/configs
+COPY migrations /app/migrations
 
 # 切换到非 root 用户
 USER appuser
 
-# 暴露服务端口
-# 注意：容器内服务应监听 0.0.0.0，通过 BIND_ADDR 环境变量控制
+# 暴露 API 与 worker 运维端口；实际是否监听由 APP_ROLE 决定。
 EXPOSE 60001
+EXPOSE 9090
 
 # 健康检查
-# 每 30 秒检查一次 /healthz 端点，超时 5 秒，失败 3 次后标记为 unhealthy
+# API/all 检查业务端口，worker 检查独立运维端口。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:60001/healthz || exit 1
+    CMD if [ "$APP_ROLE" = "api" ] || [ "$APP_ROLE" = "all" ]; then wget --no-verbose --tries=1 --spider http://localhost:60001/healthz; else wget --no-verbose --tries=1 --spider http://localhost:9090/healthz; fi
 
 # 设置默认环境变量
 # 实际部署时应通过 docker-compose 或 Kubernetes ConfigMap/Secret 覆盖
 ENV BIND_ADDR=0.0.0.0:60001 \
+    WORKER_METRICS_ADDR=0.0.0.0:9090 \
     PUBLIC_BASE_URL=http://localhost:60001 \
     APP_NODE_ID=docker-node \
     DEPLOYMENT_MODE=single_node \
+    APP_ROLE=all \
+    MIGRATIONS_PATH=migrations \
     LOG_LEVEL=info
 
 # 由 init 进程启动服务，避免孤儿子进程退出后形成僵尸进程

@@ -7,9 +7,22 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+)
+
+type AppRole string
+
+const (
+	AppRoleAll                  AppRole = "all"
+	AppRoleAPI                  AppRole = "api"
+	AppRoleSourceWorker         AppRole = "source-worker"
+	AppRoleNotificationWorker   AppRole = "notification-worker"
+	AppRoleAgentSchedulerWorker AppRole = "agent-scheduler-worker"
+	AppRoleEmbeddingWorker      AppRole = "embedding-worker"
+	AppRoleMigrate              AppRole = "migrate"
 )
 
 const (
@@ -29,6 +42,10 @@ const (
 	// DefaultDeploymentMode 表示第一阶段默认采用单节点部署拓扑。
 	// 该值不应被用于推导监听范围,监听范围始终由 BIND_ADDR 决定。
 	DefaultDeploymentMode = "single_node"
+	DefaultAppRole        = AppRoleAll
+
+	DefaultWorkerMetricsAddr = "127.0.0.1:9090"
+	DefaultMigrationsPath    = "migrations"
 
 	// DefaultLogLevel 是默认日志级别。
 	// 第一阶段使用 info 级别，便于在本地运行时观察启动、请求和关闭行为。
@@ -60,6 +77,7 @@ const (
 type Config struct {
 	HTTP          HTTPConfig
 	Runtime       RuntimeConfig
+	Migrations    MigrationConfig
 	Log           LogConfig
 	Database      DatabaseConfig
 	Observability ObservabilityConfig
@@ -74,6 +92,9 @@ type HTTPConfig struct {
 	// BindAddr 是 HTTP 服务实际监听地址，对应 BIND_ADDR 环境变量。
 	// 示例：127.0.0.1:60001、0.0.0.0:60001、100.x.y.z:60001。
 	BindAddr string
+
+	// WorkerMetricsAddr 仅承载 worker 的健康检查和 Prometheus 指标，不注册业务路由。
+	WorkerMetricsAddr string
 }
 
 // RuntimeConfig 保存运行时身份、部署拓扑和公开访问地址。
@@ -88,9 +109,39 @@ type RuntimeConfig struct {
 	// 当前允许 single_node 和 cluster，第一阶段默认 single_node。
 	DeploymentMode string
 
+	// AppRole 决定当前进程启动 API、指定 worker 或数据库迁移。
+	AppRole AppRole
+
+	// AllowAllRoleInCluster 只用于显式过渡，默认禁止 cluster 使用 all。
+	AllowAllRoleInCluster bool
+
 	// TrustedProxyCIDRs 是可信代理网段列表，对应 TRUSTED_PROXY_CIDRS。
 	// 多个 CIDR 使用英文逗号分隔；第一阶段可以为空。
 	TrustedProxyCIDRs []string
+}
+
+type MigrationConfig struct {
+	// Path 是 migrate CLI 读取迁移文件的相对路径。
+	Path string
+}
+
+func (role AppRole) Valid() bool {
+	switch role {
+	case AppRoleAll, AppRoleAPI, AppRoleSourceWorker, AppRoleNotificationWorker,
+		AppRoleAgentSchedulerWorker, AppRoleEmbeddingWorker, AppRoleMigrate:
+		return true
+	default:
+		return false
+	}
+}
+
+func (role AppRole) IsWorker() bool {
+	switch role {
+	case AppRoleSourceWorker, AppRoleNotificationWorker, AppRoleAgentSchedulerWorker, AppRoleEmbeddingWorker:
+		return true
+	default:
+		return false
+	}
 }
 
 // LogConfig 保存日志相关配置。
@@ -196,10 +247,14 @@ func Load() (Config, error) {
 	cfg := Defaults()
 
 	cfg.HTTP.BindAddr = envString("BIND_ADDR", cfg.HTTP.BindAddr)
+	cfg.HTTP.WorkerMetricsAddr = envString("WORKER_METRICS_ADDR", cfg.HTTP.WorkerMetricsAddr)
 	cfg.Runtime.PublicBaseURL = envString("PUBLIC_BASE_URL", cfg.Runtime.PublicBaseURL)
 	cfg.Runtime.AppNodeID = envString("APP_NODE_ID", cfg.Runtime.AppNodeID)
 	cfg.Runtime.DeploymentMode = envString("DEPLOYMENT_MODE", cfg.Runtime.DeploymentMode)
+	cfg.Runtime.AppRole = AppRole(strings.ToLower(envString("APP_ROLE", string(cfg.Runtime.AppRole))))
+	cfg.Runtime.AllowAllRoleInCluster = envBool("ALLOW_ALL_ROLE_IN_CLUSTER", cfg.Runtime.AllowAllRoleInCluster)
 	cfg.Runtime.TrustedProxyCIDRs = envStringList("TRUSTED_PROXY_CIDRS", cfg.Runtime.TrustedProxyCIDRs)
+	cfg.Migrations.Path = envString("MIGRATIONS_PATH", cfg.Migrations.Path)
 	cfg.Log.Level = strings.ToLower(envString("LOG_LEVEL", cfg.Log.Level))
 
 	cfg.Database.DSN = envString("DATABASE_URL", cfg.Database.DSN)
@@ -253,13 +308,16 @@ func Load() (Config, error) {
 func Defaults() Config {
 	return Config{
 		HTTP: HTTPConfig{
-			BindAddr: DefaultBindAddr,
+			BindAddr:          DefaultBindAddr,
+			WorkerMetricsAddr: DefaultWorkerMetricsAddr,
 		},
 		Runtime: RuntimeConfig{
 			PublicBaseURL:  DefaultPublicBaseURL,
 			AppNodeID:      DefaultAppNodeID,
 			DeploymentMode: DefaultDeploymentMode,
+			AppRole:        DefaultAppRole,
 		},
+		Migrations: MigrationConfig{Path: DefaultMigrationsPath},
 		Log: LogConfig{
 			Level: DefaultLogLevel,
 		},
@@ -299,6 +357,9 @@ func (cfg Config) Validate() error {
 	if err := validateBindAddr(cfg.HTTP.BindAddr); err != nil {
 		return fmt.Errorf("invalid BIND_ADDR %q: %w", cfg.HTTP.BindAddr, err)
 	}
+	if err := validateBindAddr(cfg.HTTP.WorkerMetricsAddr); err != nil {
+		return fmt.Errorf("invalid WORKER_METRICS_ADDR %q: %w", cfg.HTTP.WorkerMetricsAddr, err)
+	}
 
 	publicBaseURL, err := url.Parse(cfg.Runtime.PublicBaseURL)
 	if err != nil {
@@ -316,6 +377,25 @@ func (cfg Config) Validate() error {
 	case "single_node", "cluster":
 	default:
 		return fmt.Errorf("unsupported DEPLOYMENT_MODE %q", cfg.Runtime.DeploymentMode)
+	}
+	if !cfg.Runtime.AppRole.Valid() {
+		return fmt.Errorf("unsupported APP_ROLE %q", cfg.Runtime.AppRole)
+	}
+	if cfg.Runtime.DeploymentMode == "cluster" && cfg.Runtime.AppRole == AppRoleAll && !cfg.Runtime.AllowAllRoleInCluster {
+		return fmt.Errorf("APP_ROLE=all is forbidden when DEPLOYMENT_MODE=cluster unless ALLOW_ALL_ROLE_IN_CLUSTER=true")
+	}
+	if (cfg.Runtime.DeploymentMode == "cluster" || cfg.Runtime.AppRole.IsWorker() || cfg.Runtime.AppRole == AppRoleMigrate) && strings.TrimSpace(cfg.Database.DSN) == "" {
+		return fmt.Errorf("DATABASE_URL must not be empty for APP_ROLE=%s in %s mode", cfg.Runtime.AppRole, cfg.Runtime.DeploymentMode)
+	}
+	if strings.TrimSpace(cfg.Migrations.Path) == "" {
+		return fmt.Errorf("MIGRATIONS_PATH must not be empty")
+	}
+	cleanMigrationsPath := filepath.Clean(cfg.Migrations.Path)
+	if filepath.IsAbs(cleanMigrationsPath) || cleanMigrationsPath == ".." || strings.HasPrefix(cleanMigrationsPath, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("MIGRATIONS_PATH must stay within the application working directory")
+	}
+	if cleanMigrationsPath != DefaultMigrationsPath {
+		return fmt.Errorf("MIGRATIONS_PATH must be %q", DefaultMigrationsPath)
 	}
 
 	if _, ok := slogLevels[cfg.Log.Level]; !ok {

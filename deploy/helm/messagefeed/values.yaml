@@ -1,4 +1,4 @@
-# messageFeed all-in-one Helm Chart 默认配置；敏感值应通过 existingSecret 提供。
+# messageFeed 多角色 Helm Chart 默认配置；敏感值应通过 existingSecret 提供。
 
 # 资源命名覆盖配置，留空时使用 Helm release 与 Chart 名生成名称。
 nameOverride: ""
@@ -16,12 +16,12 @@ storageClass:
   volumeBindingMode: WaitForFirstConsumer
   defaultClass: true
 
-# 后端 all-in-one 服务，同时运行 HTTP API 和后台任务，APP_ROLE 拆分前必须保持单副本。
+# 后端 API 工作负载，仅运行业务 HTTP 服务。
 api:
   replicaCount: 1
   image:
-    repository: messagefeed
-    tag: latest
+    repository: messagefeed-api
+    tag: role9-20260718-8a454cb690ec
     pullPolicy: IfNotPresent
   service:
     port: 60001
@@ -38,13 +38,79 @@ api:
   tolerations: []
   affinity: {}
 
+# 四类独立后台 worker。每个 worker 使用同一后端镜像，通过 APP_ROLE 固定职责。
+workers:
+  metrics:
+    port: 9090
+    bindAddr: 0.0.0.0:9090
+  source:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 96Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  notification:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  agentScheduler:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 96Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  embedding:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+
 # Web 静态资源服务，由独立 Caddy 容器监听 8080 端口。
 web:
   enabled: true
   replicaCount: 1
   image:
     repository: messagefeed-web
-    tag: latest
+    tag: allinone-0703de0
     pullPolicy: IfNotPresent
   service:
     port: 8080
@@ -82,9 +148,12 @@ postgresql:
       cpu: "1"
       memory: 1Gi
 
-# 数据库迁移配置，启用后由 API init container 在业务启动前执行 migrate up。
+# 数据库迁移配置，启用后由独立 Helm pre-install/pre-upgrade Job 执行 APP_ROLE=migrate。
 migrations:
   enabled: true
+  path: migrations
+  backoffLimit: 1
+  activeDeadlineSeconds: 600
   image:
     repository: migrate/migrate
     tag: v4.19.1
@@ -140,11 +209,14 @@ cloudflared:
 appConfig:
   publicBaseURL: https://localhost:8443
   deploymentMode: single_node
+  defaultAppRole: all
+  databaseMaxOpenConns: "10"
+  databaseMaxIdleConns: "2"
   environment: k3s
   logLevel: info
   trustedProxyCIDRs: ""
   observabilityTraceEnabled: true
-  otelServiceName: messagefeed-all-in-one
+  otelServiceName: messagefeed
   otelServiceVersion: 0.2.0
   otelTracesSamplerArg: "1.0"
   authOwnerUsername: aroen
@@ -200,8 +272,7 @@ observability:
   grafana:
     image: grafana/grafana:12.3.0
     storage: 5Gi
-    adminUser: admin
-    adminPassword: admin
+    existingSecret: messagefeed-grafana-secret
     anonymousEnabled: true
   promtail:
     image: grafana/promtail:3.5.8

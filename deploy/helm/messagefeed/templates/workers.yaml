@@ -1,0 +1,143 @@
+{{/* 四类 worker 仅暴露运维端口，不注册业务 HTTP 路由。 */}}
+{{- define "messagefeed.workerWorkload" -}}
+{{- $root := .root -}}
+{{- $cfg := .config -}}
+{{- $name := .name -}}
+{{- $role := .role -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "messagefeed.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/component: worker
+    messagefeed.io/app-role: {{ $role }}
+spec:
+  replicas: {{ $cfg.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "messagefeed.selectorLabels" (dict "name" $name "root" $root) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $root.Template.BasePath "/config.yaml") $root | sha256sum }}
+        {{- with $cfg.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "messagefeed.selectorLabels" (dict "name" $name "root" $root) | nindent 8 }}
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/part-of: messagefeed
+        messagefeed.io/app-role: {{ $role }}
+        {{- with $cfg.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ $root.Values.api.image.repository }}:{{ $root.Values.api.image.tag }}"
+          imagePullPolicy: {{ $root.Values.api.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ $root.Values.workers.metrics.port }}
+          envFrom:
+            - configMapRef:
+                name: messagefeed-app-config
+            - secretRef:
+                name: {{ include "messagefeed.appSecretName" $root }}
+          env:
+            - name: APP_ROLE
+              value: {{ $role | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ printf "messagefeed-%s" $role | quote }}
+            - name: WORKER_METRICS_ADDR
+              value: {{ $root.Values.workers.metrics.bindAddr | quote }}
+            - name: APP_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 2
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 2"]
+          resources:
+            {{- toYaml $cfg.resources | nindent 12 }}
+      {{- with $cfg.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $cfg.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $cfg.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "messagefeed.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/component: worker
+    messagefeed.io/app-role: {{ $role }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "messagefeed.selectorLabels" (dict "name" $name "root" $root) | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ $root.Values.workers.metrics.port }}
+      targetPort: metrics
+{{- end }}
+
+{{- if .Values.workers.source.enabled }}
+{{ include "messagefeed.workerWorkload" (dict "root" . "config" .Values.workers.source "name" "source-worker" "role" "source-worker") }}
+---
+{{- end }}
+{{- if .Values.workers.notification.enabled }}
+{{ include "messagefeed.workerWorkload" (dict "root" . "config" .Values.workers.notification "name" "notification-worker" "role" "notification-worker") }}
+---
+{{- end }}
+{{- if .Values.workers.agentScheduler.enabled }}
+{{ include "messagefeed.workerWorkload" (dict "root" . "config" .Values.workers.agentScheduler "name" "agent-scheduler-worker" "role" "agent-scheduler-worker") }}
+---
+{{- end }}
+{{- if .Values.workers.embedding.enabled }}
+{{ include "messagefeed.workerWorkload" (dict "root" . "config" .Values.workers.embedding "name" "embedding-worker" "role" "embedding-worker") }}
+{{- end }}

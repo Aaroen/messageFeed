@@ -20,6 +20,15 @@ func TestDefaults(t *testing.T) {
 	if cfg.Runtime.DeploymentMode != DefaultDeploymentMode {
 		t.Fatalf("DeploymentMode = %q, want %q", cfg.Runtime.DeploymentMode, DefaultDeploymentMode)
 	}
+	if cfg.Runtime.AppRole != DefaultAppRole {
+		t.Fatalf("AppRole = %q, want %q", cfg.Runtime.AppRole, DefaultAppRole)
+	}
+	if cfg.HTTP.WorkerMetricsAddr != DefaultWorkerMetricsAddr {
+		t.Fatalf("WorkerMetricsAddr = %q, want %q", cfg.HTTP.WorkerMetricsAddr, DefaultWorkerMetricsAddr)
+	}
+	if cfg.Migrations.Path != DefaultMigrationsPath {
+		t.Fatalf("Migrations.Path = %q, want %q", cfg.Migrations.Path, DefaultMigrationsPath)
+	}
 	if cfg.Log.SlogLevel() != slog.LevelInfo {
 		t.Fatalf("SlogLevel = %v, want %v", cfg.Log.SlogLevel(), slog.LevelInfo)
 	}
@@ -45,6 +54,8 @@ func TestLoadFromEnv(t *testing.T) {
 	t.Setenv("PUBLIC_BASE_URL", "http://messagefeed.test:60002")
 	t.Setenv("APP_NODE_ID", "node-a")
 	t.Setenv("DEPLOYMENT_MODE", "cluster")
+	t.Setenv("APP_ROLE", "api")
+	t.Setenv("DATABASE_URL", "postgres://messagefeed:password@localhost:5432/messagefeed?sslmode=disable")
 	t.Setenv("TRUSTED_PROXY_CIDRS", "100.64.0.0/10, 192.168.0.0/16")
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("ENVIRONMENT", "test")
@@ -87,6 +98,9 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.Runtime.DeploymentMode != "cluster" {
 		t.Fatalf("DeploymentMode = %q", cfg.Runtime.DeploymentMode)
+	}
+	if cfg.Runtime.AppRole != AppRoleAPI {
+		t.Fatalf("AppRole = %q", cfg.Runtime.AppRole)
 	}
 	if got, want := len(cfg.Runtime.TrustedProxyCIDRs), 2; got != want {
 		t.Fatalf("TrustedProxyCIDRs length = %d, want %d", got, want)
@@ -154,6 +168,35 @@ func TestLoadRejectsInvalidDeploymentMode(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want invalid DEPLOYMENT_MODE error")
+	}
+}
+
+func TestLoadRejectsAllRoleInCluster(t *testing.T) {
+	t.Setenv("DEPLOYMENT_MODE", "cluster")
+	t.Setenv("DATABASE_URL", "postgres://messagefeed:password@localhost:5432/messagefeed?sslmode=disable")
+	t.Setenv("APP_ROLE", "all")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want cluster all-role rejection")
+	}
+}
+
+func TestLoadAllowsExplicitAllRoleInCluster(t *testing.T) {
+	t.Setenv("DEPLOYMENT_MODE", "cluster")
+	t.Setenv("DATABASE_URL", "postgres://messagefeed:password@localhost:5432/messagefeed?sslmode=disable")
+	t.Setenv("APP_ROLE", "all")
+	t.Setenv("ALLOW_ALL_ROLE_IN_CLUSTER", "true")
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v, want explicit compatibility allowance", err)
+	}
+}
+
+func TestLoadRejectsUnsafeMigrationsPath(t *testing.T) {
+	t.Setenv("MIGRATIONS_PATH", "../migrations")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want unsafe migrations path rejection")
 	}
 }
 

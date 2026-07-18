@@ -38,6 +38,7 @@ func NewLogger(writer io.Writer, level slog.Level, cfg config.Config) *slog.Logg
 		"environment", cfg.Observability.Environment,
 		"node_id", cfg.Runtime.AppNodeID,
 		"deployment_mode", cfg.Runtime.DeploymentMode,
+		"app_role", cfg.Runtime.AppRole,
 	)
 }
 

@@ -2,60 +2,47 @@ package main
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"log/slog"
-	"messagefeed/internal/channel/wechatwork"
+	"messagefeed/internal/bootstrap"
 	"messagefeed/internal/config"
-	"messagefeed/internal/db"
-	"messagefeed/internal/fetcher"
-	"messagefeed/internal/handler"
-	"messagefeed/internal/llm"
-	"messagefeed/internal/metrics"
-	"messagefeed/internal/notifier"
 	"messagefeed/internal/observability"
-	"messagefeed/internal/repository"
-	appRuntime "messagefeed/internal/runtime"
-	"messagefeed/internal/service"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"gorm.io/gorm"
 )
 
 func main() {
-	// 启动初期先使用 info 级别日志，以便在配置加载失败时仍能输出结构化错误。
-	bootstrapLogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	if err := run(); err != nil {
+		slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})).
+			Error("messagefeed stopped with error", "error", err)
+		os.Exit(1)
+	}
+}
 
-	// 配置模块统一负责默认值、环境变量覆盖和基础校验。
-	// 入口层只使用已经校验过的配置，避免各处重复读取环境变量。
+func run() error {
 	cfg, err := config.Load()
 	if err != nil {
-		bootstrapLogger.Error("load config failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("load config: %w", err)
 	}
 
 	logger := observability.NewLogger(os.Stdout, cfg.Log.SlogLevel(), cfg)
-
-	observabilityShutdown, err := observability.InitTracing(context.Background(), cfg.Observability, cfg.Runtime.AppNodeID)
+	tracingShutdown, err := observability.InitTracing(context.Background(), cfg.Observability, cfg.Runtime.AppNodeID)
 	if err != nil {
-		logger.Error("initialize tracing failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("initialize tracing: %w", err)
 	}
 	defer func() {
-		if err := observability.ShutdownWithTimeout(context.Background(), observabilityShutdown, 5*time.Second); err != nil {
-			logger.Error("shutdown tracing failed", "error", err)
+		if shutdownErr := observability.ShutdownWithTimeout(context.Background(), tracingShutdown, 5*time.Second); shutdownErr != nil {
+			logger.Error("shutdown tracing failed", "error", shutdownErr)
 		}
 	}()
 
 	logger.Info(
 		"configuration loaded",
 		"bind_addr", cfg.HTTP.BindAddr,
+		"worker_metrics_addr", cfg.HTTP.WorkerMetricsAddr,
 		"public_base_url", cfg.Runtime.PublicBaseURL,
-		"app_node_id", cfg.Runtime.AppNodeID,
-		"deployment_mode", cfg.Runtime.DeploymentMode,
 		"database_configured", cfg.Database.DSN != "",
 		"wechat_work_configured", cfg.WeChatWork.Enabled(),
 		"llm_configured", cfg.LLM.Enabled(),
@@ -64,492 +51,15 @@ func main() {
 		"otel_endpoint", cfg.Observability.OTLPEndpoint,
 	)
 
-	// 数据库连接（可选）
-	// 当 DATABASE_URL 未配置时，database 为 nil，服务仍可启动但 /readyz 不检查数据库。
-	var database *gorm.DB
-	var sourceService *service.SourceService
-	var timelineService *service.TimelineService
-	var recommendationService *service.RecommendationService
-	var itemService *service.ItemService
-	var feedViewService *service.FeedViewService
-	var sourceSyncService *service.SourceSyncService
-	var weChatWorkAppCallback *wechatwork.AppCallbackCodec
-	var weChatWorkSender *notifier.WeChatWorkAppClient
-	var llmClient llm.Client
-	var embeddingClient llm.EmbeddingClient
-	var agentConversationService *service.AgentConversationService
-	var agentLLMConfigService *service.AgentLLMConfigService
-	var adminConfigService *service.AdminConfigService
-	var authService *service.AuthService
-	var agentApprovalService *service.AgentApprovalService
-	var agentSessionService *service.AgentSessionService
-	var agentScheduleEvalService *service.AgentScheduleEvalService
-	var notificationWorkerService *service.NotificationWorkerService
-	var agentScheduledTaskWorkerService *service.AgentScheduledTaskWorkerService
-	var agentEmbeddingWorkerService *service.AgentEmbeddingWorkerService
-	backgroundCtx, cancelBackground := context.WithCancel(context.Background())
-	defer cancelBackground()
-	if cfg.WeChatWork.Enabled() {
-		weChatWorkAppCallback, err = wechatwork.NewAppCallbackCodec(wechatwork.AppCallbackConfig{
-			CorpID:         cfg.WeChatWork.CorpID,
-			AgentID:        cfg.WeChatWork.AgentID,
-			CallbackToken:  cfg.WeChatWork.CallbackToken,
-			EncodingAESKey: cfg.WeChatWork.EncodingAESKey,
-		})
-		if err != nil {
-			logger.Error("failed to initialize wechat work callback codec", "error", err)
-			os.Exit(1)
-		}
-		logger.Info("wechat work app callback configured", "agent_id", cfg.WeChatWork.AgentID)
-		weChatWorkSender, err = notifier.NewWeChatWorkAppClient(notifier.WeChatWorkAppConfig{
-			CorpID:  cfg.WeChatWork.CorpID,
-			AgentID: cfg.WeChatWork.AgentID,
-			Secret:  cfg.WeChatWork.Secret,
-		})
-		if err != nil {
-			logger.Error("failed to initialize wechat work sender", "error", err)
-			os.Exit(1)
-		}
-	}
-	if cfg.LLM.Enabled() {
-		baseURL := cfg.LLM.BaseURL
-		if cfg.LLM.Provider == "openai" && baseURL == "" {
-			baseURL = "https://api.openai.com/v1"
-		}
-		llmClient, err = llm.NewOpenAICompatibleClient(llm.OpenAICompatibleConfig{
-			Provider: cfg.LLM.Provider,
-			BaseURL:  baseURL,
-			APIKey:   cfg.LLM.APIKey,
-			Model:    cfg.LLM.Model,
-		})
-		if err != nil {
-			logger.Error("failed to initialize llm client", "error", err)
-			os.Exit(1)
-		}
-		logger.Info("llm client configured", "provider", cfg.LLM.Provider, "model", cfg.LLM.Model)
-	}
-	if cfg.Embedding.Enabled() {
-		baseURL := cfg.Embedding.BaseURL
-		if cfg.Embedding.Provider == "openai" && baseURL == "" {
-			baseURL = "https://api.openai.com/v1"
-		}
-		embeddingClient, err = llm.NewOpenAICompatibleEmbeddingClient(llm.OpenAICompatibleEmbeddingConfig{
-			Provider: cfg.Embedding.Provider,
-			BaseURL:  baseURL,
-			APIKey:   cfg.Embedding.APIKey,
-			Model:    cfg.Embedding.Model,
-		})
-		if err != nil {
-			logger.Error("failed to initialize embedding client", "error", err)
-			os.Exit(1)
-		}
-		logger.Info("embedding client configured", "provider", cfg.Embedding.Provider, "model", cfg.Embedding.Model, "dimension", cfg.Embedding.Dimension)
-	}
-	adminConfigService = service.NewAdminConfigService(
-		cfg,
-		service.WithAdminConfigDatabase(database),
-		service.WithAdminConfigLLM(llmClient),
-		service.WithAdminConfigWeChatWorkSender(weChatWorkSender),
-		service.WithAdminConfigWeChatWorkCallbackConfigured(weChatWorkAppCallback != nil),
-	)
-	if cfg.Database.DSN != "" {
-		dbCfg := db.Config{
-			DSN:             cfg.Database.DSN,
-			MaxOpenConns:    cfg.Database.MaxOpenConns,
-			MaxIdleConns:    cfg.Database.MaxIdleConns,
-			ConnMaxLifetime: cfg.Database.ConnMaxLifetime,
-			Logger:          logger,
-		}
-
-		database, err = db.Open(dbCfg)
-		if err != nil {
-			logger.Error("failed to open database", "error", err)
-			os.Exit(1)
-		}
-
-		// 测试数据库连接
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if err := db.Ping(ctx, database); err != nil {
-			cancel()
-			logger.Error("failed to ping database", "error", err)
-			os.Exit(1)
-		}
-		cancel()
-
-		logger.Info("database connected",
-			"max_open_conns", cfg.Database.MaxOpenConns,
-			"max_idle_conns", cfg.Database.MaxIdleConns,
-		)
-
-		sourceRepository := repository.NewSourceRepository(database)
-		sourceCatalogRepository := repository.NewSourceCatalogRepository(database)
-		sourceImportJobRepository := repository.NewSourceImportJobRepository(database)
-		itemRepository := repository.NewItemRepository(database)
-		userItemStateRepository := repository.NewUserItemStateRepository(database)
-		feedViewPreferenceRepository := repository.NewFeedViewPreferenceRepository(database)
-		sourceFetchJobRepository := repository.NewSourceFetchJobRepository(database)
-		itemEventRepository := repository.NewItemEventRepository(database)
-		notificationRepository := repository.NewNotificationRepository(database)
-		taskLockRepository := repository.NewTaskLockRepository(database)
-		agentRepository := repository.NewAgentRepository(database)
-		authRepository := repository.NewAuthRepository(database)
-		agentApprovalRepository := repository.NewAgentApprovalRepository(database)
-		feedFetcher := fetcher.NewClient()
-		sourceService = service.NewSourceService(
-			sourceRepository,
-			service.WithSourceCatalogRepository(sourceCatalogRepository),
-			service.WithSourceImportJobRepository(sourceImportJobRepository),
-			service.WithSourceFetchJobRepository(sourceFetchJobRepository),
-			service.WithItemRepository(itemRepository),
-			service.WithFeedFetcher(feedFetcher),
-		)
-		sourceSyncService = service.NewSourceSyncService(
-			sourceRepository,
-			itemRepository,
-			feedFetcher,
-			sourceFetchJobRepository,
-			itemEventRepository,
-			service.WithSourceSyncTaskLocker(taskLockRepository),
-		)
-		timelineService = service.NewTimelineService(itemRepository)
-		recommendationService = service.NewRecommendationService(sourceCatalogRepository, feedFetcher)
-		recommendationService.SetLocalHistoryRepositories(sourceRepository, itemRepository)
-		itemService = service.NewItemService(userItemStateRepository)
-		feedViewService = service.NewFeedViewService(feedViewPreferenceRepository)
-		var weChatWorkOAuth *service.WeChatWorkOAuthClient
-		if cfg.WeChatWork.Enabled() {
-			weChatWorkOAuth, err = service.NewWeChatWorkOAuthClient(service.WeChatWorkOAuthConfig{
-				CorpID: cfg.WeChatWork.CorpID,
-				Secret: cfg.WeChatWork.Secret,
-			})
-			if err != nil {
-				logger.Error("failed to initialize wechat work oauth client", "error", err)
-				os.Exit(1)
-			}
-		}
-		authService = service.NewAuthService(
-			authRepository,
-			cfg,
-			service.WithAuthWeChatWorkOAuth(weChatWorkOAuth),
-		)
-		agentApprovalService = service.NewAgentApprovalService(agentApprovalRepository)
-		agentSessionService = service.NewAgentSessionService(
-			agentRepository,
-			service.WithAgentSessionEmbeddingClient(embeddingClient, cfg.Embedding.Model),
-		)
-		agentScheduleEvalService = service.NewAgentScheduleEvalService(agentRepository)
-		agentLLMConfigSecret := service.AgentLLMConfigSecretFromConfig(cfg)
-		agentLLMConfigService = service.NewAgentLLMConfigService(
-			agentRepository,
-			service.WithAgentLLMConfigDefaultConfig(cfg.LLM),
-			service.WithAgentLLMConfigSecret(agentLLMConfigSecret),
-		)
-		agentLLMRuntime := service.NewAgentLLMRuntime(
-			agentRepository,
-			service.WithAgentLLMRuntimeDefaultClient(llmClient),
-			service.WithAgentLLMRuntimeSecret(agentLLMConfigSecret),
-		)
-		if weChatWorkSender != nil {
-			notificationWorkerService = service.NewNotificationWorkerService(notificationRepository, weChatWorkSender)
-		}
-		agentConversationService = service.NewAgentConversationService(
-			agentRepository,
-			service.WithAgentConversationLLM(agentLLMRuntime),
-			service.WithAgentConversationSender(weChatWorkSender),
-			service.WithAgentConversationExternalAccountResolver(authService),
-			service.WithAgentConversationUserContextProvider(authService),
-			service.WithAgentConversationRecentItemsProvider(timelineService),
-			service.WithAgentConversationSourceProvider(sourceService),
-			service.WithAgentConversationNotificationJobStore(notificationRepository),
-			service.WithAgentConversationPublicBaseURL(cfg.Runtime.PublicBaseURL),
-			service.WithAgentConversationEmbeddingClient(embeddingClient, cfg.Embedding.Model),
-		)
-		agentScheduledTaskWorkerService = service.NewAgentScheduledTaskWorkerService(agentRepository)
-		agentScheduledTaskWorkerService.SetReportSender(weChatWorkSender)
-		if embeddingClient != nil {
-			agentEmbeddingWorkerService = service.NewAgentEmbeddingWorkerService(agentRepository, embeddingClient, cfg.Embedding.Model, time.Now)
-		}
-
-		// 启动数据库连接池指标采集器
-		go collectDatabaseMetrics(database, logger)
-		go runSourceSyncWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, sourceSyncService)
-		go runNotificationWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, notificationWorkerService)
-		go runAgentScheduledTaskWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, agentScheduledTaskWorkerService)
-		go runAgentEmbeddingWorker(backgroundCtx, logger, cfg.Runtime.AppNodeID, agentEmbeddingWorkerService)
-	} else {
-		logger.Warn("database not configured, running in database-less mode")
+	application, err := bootstrap.New(cfg, logger)
+	if err != nil {
+		return fmt.Errorf("initialize application: %w", err)
 	}
 
-	// 节点信息在启动时构建为快照。
-	// 后续 /api/runtime/node 直接返回该快照，避免每次请求重新读取环境变量。
-	nodeInfo := appRuntime.NewNodeInfo(appRuntime.NodeOptions{
-		NodeID:            cfg.Runtime.AppNodeID,
-		DeploymentMode:    cfg.Runtime.DeploymentMode,
-		PublicBaseURL:     cfg.Runtime.PublicBaseURL,
-		BindAddr:          cfg.HTTP.BindAddr,
-		TrustedProxyCIDRs: cfg.Runtime.TrustedProxyCIDRs,
-		StartedAt:         time.Now().UTC(),
-	})
-
-	router := handler.NewRouter(handler.RouterOptions{
-		Logger:                logger,
-		Database:              database,
-		NodeInfo:              nodeInfo,
-		Now:                   time.Now,
-		AuthService:           authService,
-		SourceService:         sourceService,
-		TimelineService:       timelineService,
-		RecommendationService: recommendationService,
-		ItemService:           itemService,
-		FeedViewService:       feedViewService,
-		WeChatWorkAppCallback: weChatWorkAppCallback,
-		WeChatWorkReceiver:    agentConversationService,
-		AdminConfigService:    adminConfigService,
-		AgentApprovalService:  agentApprovalService,
-		AgentSessionService:   agentSessionService,
-		AgentTaskService:      agentConversationService,
-		AgentEvalService:      agentScheduleEvalService,
-		AgentLLMConfigService: agentLLMConfigService,
-		ServiceName:           cfg.Observability.ServiceName,
-	})
-
-	// ReadHeaderTimeout 用于限制客户端长期占用连接但不完整发送请求头的情况。
-	// Gin 路由树内部已经装配 request id、访问日志、错误恢复和指标中间件。
-	server := &http.Server{
-		Addr:              cfg.HTTP.BindAddr,
-		Handler:           router,
-		ReadHeaderTimeout: 5 * time.Second,
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := application.Run(ctx); err != nil {
+		return fmt.Errorf("run application: %w", err)
 	}
-
-	// ListenAndServe 在独立 goroutine 中运行，使主 goroutine 可以同时监听系统信号。
-	// errCh 使用缓冲通道，避免服务在 select 开始前失败时阻塞错误上报。
-	errCh := make(chan error, 1)
-	go func() {
-		logger.Info("api server starting", "bind_addr", cfg.HTTP.BindAddr)
-		errCh <- server.ListenAndServe()
-	}()
-
-	// 捕获 Ctrl+C 和容器停止信号。
-	// SIGTERM 对后续 Docker Compose 场景尤其重要，因为容器通常先收到该信号，
-	// 随后才会进入强制终止流程。
-	stopCh := make(chan os.Signal, 1)
-	signal.Notify(stopCh, os.Interrupt, syscall.SIGTERM)
-
-	// 当前最小入口只处理两类退出原因：
-	// 一是收到关闭信号，二是服务启动或运行失败。
-	// http.ErrServerClosed 属于优雅关闭的预期结果，不作为异常处理。
-	select {
-	case sig := <-stopCh:
-		logger.Info("api server stopping", "signal", sig.String())
-		cancelBackground()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		shutdown(ctx, logger, server, database)
-	case err := <-errCh:
-		cancelBackground()
-		if !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("api server failed", "error", err)
-			if database != nil {
-				_ = db.Close(database)
-			}
-			os.Exit(1)
-		}
-	}
-}
-
-func runSourceSyncWorker(ctx context.Context, logger *slog.Logger, workerID string, sourceSyncService *service.SourceSyncService) {
-	if sourceSyncService == nil {
-		return
-	}
-	if workerID == "" {
-		workerID = "api"
-	}
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		result, err := sourceSyncService.RunOnce(runCtx, service.RunSourceSyncOnceInput{
-			WorkerID:           workerID,
-			LockName:           "source-sync",
-			LockTTL:            30 * time.Second,
-			EnqueueLimit:       50,
-			ClaimLimit:         50,
-			DefaultMaxAttempts: 3,
-		})
-		cancel()
-		if err != nil && ctx.Err() == nil {
-			logger.Warn("source sync worker run failed", "error", err)
-		} else if result.ClaimedCount > 0 || result.EnqueuedCount > 0 {
-			logger.Info(
-				"source sync worker run completed",
-				"enqueued", result.EnqueuedCount,
-				"claimed", result.ClaimedCount,
-				"success", result.SuccessCount,
-				"failed", result.FailureCount,
-				"retry", result.RetryCount,
-			)
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func runNotificationWorker(ctx context.Context, logger *slog.Logger, workerID string, notificationWorkerService *service.NotificationWorkerService) {
-	if notificationWorkerService == nil {
-		return
-	}
-	if workerID == "" {
-		workerID = "api"
-	}
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		result, err := notificationWorkerService.RunOnce(runCtx, service.RunNotificationWorkerOnceInput{
-			WorkerID: workerID,
-			Limit:    20,
-		})
-		cancel()
-		if err != nil && ctx.Err() == nil {
-			logger.Warn("notification worker run failed", "error", err)
-		} else if result.ClaimedCount > 0 {
-			logger.Info(
-				"notification worker run completed",
-				"claimed", result.ClaimedCount,
-				"success", result.SucceededCount,
-				"failed", result.FailedCount,
-				"retry", result.RetryCount,
-			)
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func runAgentScheduledTaskWorker(ctx context.Context, logger *slog.Logger, workerID string, workerService *service.AgentScheduledTaskWorkerService) {
-	if workerService == nil {
-		return
-	}
-	if workerID == "" {
-		workerID = "api"
-	}
-	workerID = workerID + ":agent-scheduled-task"
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		result, err := workerService.RunDueOnce(runCtx, service.RunDueAgentScheduledTasksInput{
-			WorkerID: workerID,
-			Limit:    20,
-		})
-		cancel()
-		if err != nil && ctx.Err() == nil {
-			logger.Warn("agent scheduled task worker run failed", "error", err)
-		} else if result.Claimed > 0 {
-			logger.Info(
-				"agent scheduled task worker run completed",
-				"claimed", result.Claimed,
-				"succeeded", result.Succeeded,
-				"failed", result.Failed,
-				"report_sent", result.ReportSent,
-				"report_failed", result.ReportFailed,
-				"report_skipped", result.ReportSkipped,
-			)
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func runAgentEmbeddingWorker(ctx context.Context, logger *slog.Logger, workerID string, workerService *service.AgentEmbeddingWorkerService) {
-	if workerService == nil {
-		return
-	}
-	if workerID == "" {
-		workerID = "api"
-	}
-	workerID = workerID + ":agent-embedding"
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		runCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-		result, err := workerService.RunOnce(runCtx, service.RunAgentEmbeddingWorkerOnceInput{
-			WorkerID: workerID,
-			Limit:    10,
-		})
-		cancel()
-		if err != nil && ctx.Err() == nil {
-			logger.Warn("agent embedding worker run failed", "error", err)
-		} else if result.ClaimedCount > 0 {
-			logger.Info(
-				"agent embedding worker run completed",
-				"claimed", result.ClaimedCount,
-				"succeeded", result.SucceededCount,
-				"failed", result.FailedCount,
-				"skipped", result.SkippedCount,
-			)
-		}
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-// shutdown 为正在处理的请求保留一个短暂的完成窗口。
-// 该生命周期模式后续会扩展到数据库连接、调度器和通知发送器等资源清理。
-func shutdown(ctx context.Context, logger *slog.Logger, server *http.Server, database *gorm.DB) {
-	if err := server.Shutdown(ctx); err != nil {
-		logger.Error("api server shutdown failed", "error", err)
-	} else {
-		logger.Info("api server stopped")
-	}
-
-	// 关闭数据库连接池
-	if database != nil {
-		if err := db.Close(database); err != nil {
-			logger.Error("database close failed", "error", err)
-		} else {
-			logger.Info("database closed")
-		}
-	}
-}
-
-// collectDatabaseMetrics 定期采集数据库连接池指标并上报到 Prometheus。
-// 该函数在独立 goroutine 中运行，每 15 秒更新一次指标。
-func collectDatabaseMetrics(database *gorm.DB, logger *slog.Logger) {
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		stats, err := db.GetStats(database)
-		if err != nil {
-			logger.Warn("failed to collect database metrics", "error", err)
-			continue
-		}
-
-		metrics.DatabaseConnections.WithLabelValues("open").Set(float64(stats.OpenConns))
-		metrics.DatabaseConnections.WithLabelValues("in_use").Set(float64(stats.InUse))
-		metrics.DatabaseConnections.WithLabelValues("idle").Set(float64(stats.Idle))
-		metrics.DatabaseWaitCount.Set(float64(stats.WaitCount))
-		metrics.DatabaseWaitDurationSeconds.Set(stats.WaitDuration.Seconds())
-	}
+	return nil
 }

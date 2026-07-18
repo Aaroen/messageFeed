@@ -4,7 +4,14 @@
 
 等待核心组件就绪：
   kubectl -n {{ .Release.Namespace }} rollout status statefulset/messagefeed-postgres --timeout=240s
-  kubectl -n {{ .Release.Namespace }} rollout status deployment/messagefeed-all-in-one --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/messagefeed-api --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/source-worker --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/notification-worker --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/agent-scheduler-worker --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/embedding-worker --timeout=240s
+
+检查最近一次迁移：
+  kubectl -n {{ .Release.Namespace }} get job/messagefeed-migrate
 
 本地访问：
   kubectl -n {{ .Release.Namespace }} port-forward service/gateway 8443:8443

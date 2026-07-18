@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestAuthServiceLocalLoginAndAuthenticateSession(t *testing.T) {
@@ -145,10 +147,14 @@ func TestAuthServiceSuccessfulLoginClearsAttemptWindow(t *testing.T) {
 	}
 }
 
-func TestAuthServiceDefaultOwnerMigrationPasswordHash(t *testing.T) {
+func TestAuthServiceMigrationPasswordHashFormat(t *testing.T) {
 	const migrationHash = "$2a$10$DTKcuvnsad7405UJYtMIxOQDrpO6PN5bQJGgwgJDlJz8AIkcYicYO"
-	if err := verifyPassword(migrationHash, "***REMOVED-FROM-GIT-HISTORY***"); err != nil {
-		t.Fatalf("verifyPassword() error = %v", err)
+	cost, err := bcrypt.Cost([]byte(migrationHash))
+	if err != nil {
+		t.Fatalf("bcrypt.Cost() error = %v", err)
+	}
+	if cost != 10 {
+		t.Fatalf("bcrypt cost = %d, want 10", cost)
 	}
 }
 

@@ -1,0 +1,58 @@
+{{/* 独立执行数据库迁移；后端镜像内置 migrate CLI 与 migrations 目录。 */}}
+{{- if .Values.migrations.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: messagefeed-migrate
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+    app.kubernetes.io/name: messagefeed-migrate
+    app.kubernetes.io/component: migration
+    messagefeed.io/app-role: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "messagefeed.selectorLabels" (dict "name" "messagefeed-migrate" "root" .) | nindent 8 }}
+        app.kubernetes.io/component: migration
+        app.kubernetes.io/part-of: messagefeed
+        messagefeed.io/app-role: migrate
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          env:
+            - name: APP_ROLE
+              value: migrate
+            - name: OTEL_SERVICE_NAME
+              value: messagefeed-migrate
+            - name: DEPLOYMENT_MODE
+              value: {{ .Values.appConfig.deploymentMode | quote }}
+            - name: MIGRATIONS_PATH
+              value: {{ .Values.migrations.path | quote }}
+            - name: APP_NODE_ID
+              value: messagefeed-migrate
+            - name: DATABASE_URL
+              {{- if .Values.appSecret.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "messagefeed.appSecretName" . }}
+                  key: DATABASE_URL
+              {{- else }}
+              value: {{ include "messagefeed.databaseURL" . | quote }}
+              {{- end }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+{{- end }}

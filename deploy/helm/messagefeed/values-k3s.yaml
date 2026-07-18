@@ -1,4 +1,4 @@
-# 当前 WSL2/K3s all-in-one 环境的非敏感覆盖配置，需与 values.yaml 一同使用。
+# 当前 WSL2/K3s 多角色环境的非敏感覆盖配置，需与 values.yaml 一同使用。
 
 # 固定资源名称以接管现有 messagefeed 工作负载。
 fullnameOverride: messagefeed
@@ -9,12 +9,26 @@ storageClass:
   name: local-path-retain
   defaultClass: true
 
-# 复用已导入 K3s containerd 的现有 API 镜像。
+# 使用按 Git SHA 标记且已导入 K3s containerd 的 API 镜像。
 api:
   image:
     repository: messagefeed-api
-    tag: allinone-0703de0
+    tag: role9-20260718-8a454cb690ec
     pullPolicy: IfNotPresent
+
+# 在 K3s 中启用四类独立 worker；副本数可按任务吞吐独立调整。
+workers:
+  metrics:
+    port: 9090
+    bindAddr: 0.0.0.0:9090
+  source:
+    enabled: true
+  notification:
+    enabled: true
+  agentScheduler:
+    enabled: true
+  embedding:
+    enabled: true
 
 # 复用已导入 K3s containerd 的现有 Web 镜像。
 web:
@@ -42,13 +56,15 @@ gateway:
 # cloudflared 复用现有 Tunnel Secret，并使用 WSL 节点网络出站。
 cloudflared:
   image:
-    tag: latest
+    tag: "2026.6.1"
   existingSecret: messagefeed-cloudflared-secret
   hostNetwork: true
 
 # 覆盖当前公网地址、企业微信及模型服务等非敏感应用参数。
 appConfig:
   publicBaseURL: https://aroen.eu.cc
+  deploymentMode: cluster
+  defaultAppRole: all
   environment: wsl-k3s
   authSessionCookieSecure: "false"
   wechatWorkCorpID: ww8ee8972ac7733fed
@@ -64,3 +80,5 @@ appConfig:
 observability:
   enabled: true
   storageClass: local-path
+  grafana:
+    existingSecret: messagefeed-grafana-secret

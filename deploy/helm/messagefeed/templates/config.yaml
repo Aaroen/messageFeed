@@ -7,6 +7,11 @@ metadata:
     {{- include "messagefeed.labels" . | nindent 4 }}
 data:
   BIND_ADDR: "0.0.0.0:60001"
+  WORKER_METRICS_ADDR: {{ .Values.workers.metrics.bindAddr | quote }}
+  APP_ROLE: {{ .Values.appConfig.defaultAppRole | quote }}
+  MIGRATIONS_PATH: {{ .Values.migrations.path | quote }}
+  DATABASE_MAX_OPEN_CONNS: {{ .Values.appConfig.databaseMaxOpenConns | quote }}
+  DATABASE_MAX_IDLE_CONNS: {{ .Values.appConfig.databaseMaxIdleConns | quote }}
   PUBLIC_BASE_URL: {{ .Values.appConfig.publicBaseURL | quote }}
   DEPLOYMENT_MODE: {{ .Values.appConfig.deploymentMode | quote }}
   ENVIRONMENT: {{ .Values.appConfig.environment | quote }}

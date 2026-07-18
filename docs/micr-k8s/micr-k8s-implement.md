@@ -1,30 +1,32 @@
 ## messageFeed Kubernetes 实施文档
 
 **定位**：实施细节、操作步骤、验收口径
-**更新日期**：2026-07-17
+**更新日期**：2026-07-18
 **上位约束**：`micr-k8s-plan.md`
 
 本文档只展开 `micr-k8s-plan.md` 已确定的技术方案，不新增新的架构路线。若本文件与 `micr-k8s-plan.md` 冲突，以 `micr-k8s-plan.md` 为准。
 
-## 当前实施状态（2026-07-17）
+## 当前实施状态（2026-07-18）
 
 已完成：
 
 1. WSL 内 K3s single-server、动态网络维护、Helm 工具链和基础运行环境核验。
 2. all-in-one 阶段 Helm Chart、`values.yaml` 与 `values-k3s.yaml`。
 3. PostgreSQL/pgvector、API、Web、Caddy gateway、cloudflared 和观测栈的 Helm 接管。
-4. PostgreSQL 备份校验、5 个 PV 设置为 `Retain`、数据库和公网健康检查验收。
-5. 当前 Helm release `messagefeed` revision 2 为 `deployed`；all-in-one API 仍保持单副本。
+4. PostgreSQL 备份恢复演练、5 个 PV 设置为 `Retain`、数据库和公网健康检查验收。
+5. 环境与资产治理已完成，`local-path-retain` 为唯一默认 StorageClass，5 个现有 PV 均为 `Retain`。
+6. `APP_ROLE`、`internal/bootstrap`、四类独立 worker Deployment/Service 和独立 migrate Job 已完成并通过验收。
+7. 当前 Helm release `messagefeed` revision 7 为 `deployed`，API 与四类 worker 各为 1 个 Ready 副本。
 
 当前边界：
 
-1. 当前 API 仍由单体进程同时承担 HTTP API、source sync、notification、agent scheduled task 和 embedding worker。
-2. 当前数据库迁移由 API Pod 的 init container 执行，尚未改为独立 migrate Job。
-3. 当前尚未部署独立 worker、独立 ServiceAccount、最小 RBAC、NetworkPolicy、PDB、HPA 或 CI/CD 发布闭环。
-4. `Dockerfile` 已加入 `tini`，但集群仍使用旧的 `messagefeed-api:allinone-0703de0` 镜像，尚未实际启用该改动。
-5. 当前集群中 `local-path` 与 `local-path-retain` 均被标记为默认 StorageClass；该冲突需在创建新 PVC 前修正，现有 PVC/PV 不应因此迁移。
+1. 当前仍为单二进制、多运行角色架构，尚未拆分独立业务代码仓库或数据库边界。
+2. API、worker 和 migrate 尚未配置独立 ServiceAccount、最小 RBAC、NetworkPolicy、PDB、ResourceQuota 或 LimitRange。
+3. API 与 worker 已验证独立扩缩容和 Helm rollback，但生产声明值仍为单副本；尚未形成完整多副本高可用基线。
+4. 当前未建立 CI/CD 发布闭环，镜像仍由本地构建并导入 K3s containerd。
+5. 集群使用 `messagefeed-api:role9-20260718-8a454cb690ec`；5 个角色均以 `tini` 为 PID 1，现有 PVC/PV 不迁移。
 
-后续实施门槛：先完成 StorageClass 默认类校正、Secret 与镜像版本治理，再实施 `APP_ROLE` 和独立迁移 Job；在这些条件完成前不进入真实业务微服务拆分。
+后续实施门槛：第 9 节已通过，下一阶段实施第 10 节 ServiceAccount、最小 RBAC、NetworkPolicy 与资源治理；第 10～12 节完成前不进入真实业务微服务拆分。
 
 ## 顶部步骤 TODO
 
@@ -43,39 +45,39 @@
 
 - [x] 核实 `cmd/api/main.go` 当前同时启动 HTTP API、source sync、notification、agent scheduled task、embedding worker。
 - [x] 核实数据库连接池、健康检查、指标、日志、OpenTelemetry、企业微信、LLM、Embedding 配置读取方式。
-- [ ] 梳理当前 worker 的任务锁、job claim、幂等、重试和失败记录机制。
+- [x] 梳理当前 worker 的任务锁、job claim、幂等、重试和失败记录机制。
 - [x] 确认第一轮不改业务模型、不拆仓库、不直接引入 gRPC/Eino/Nginx Ingress。
 - [x] 确认第一轮重构目标是运行边界，不是业务微服务边界。
 
 ### 第三部分：完成 `APP_ROLE` 启动角色化
 
-- [ ] 新增并校验 `APP_ROLE=api`。
-- [ ] 新增并校验 `APP_ROLE=source-worker`。
-- [ ] 新增并校验 `APP_ROLE=notification-worker`。
-- [ ] 新增并校验 `APP_ROLE=agent-scheduler-worker`。
-- [ ] 新增并校验 `APP_ROLE=embedding-worker`。
-- [ ] 新增并校验 `APP_ROLE=migrate`。
-- [ ] 保留 `APP_ROLE=all` 仅用于本地兼容或过渡。
-- [ ] 在 `DEPLOYMENT_MODE=cluster` 下禁止默认使用 `APP_ROLE=all`。
-- [ ] 验证 `api` 角色只启动 HTTP，不启动 worker。
-- [ ] 验证 worker 角色不监听 HTTP，只执行对应后台职责。
+- [x] 新增并校验 `APP_ROLE=api`。
+- [x] 新增并校验 `APP_ROLE=source-worker`。
+- [x] 新增并校验 `APP_ROLE=notification-worker`。
+- [x] 新增并校验 `APP_ROLE=agent-scheduler-worker`。
+- [x] 新增并校验 `APP_ROLE=embedding-worker`。
+- [x] 新增并校验 `APP_ROLE=migrate`。
+- [x] 保留 `APP_ROLE=all` 仅用于本地兼容或过渡。
+- [x] 在 `DEPLOYMENT_MODE=cluster` 下禁止默认使用 `APP_ROLE=all`。
+- [x] 验证 `api` 角色只启动 HTTP，不启动 worker。
+- [x] 验证 worker 角色不监听业务 HTTP，只执行对应后台职责并暴露独立运维端点。
 
 ### 第四部分：拆出启动装配层
 
-- [ ] 新增或整理 `internal/bootstrap`。
-- [ ] 将配置加载、日志、Tracing、数据库、Repository、Service、Router、Worker 装配拆开。
-- [ ] 将数据库迁移与 API/worker 启动解耦。
-- [ ] 保证每个角色拥有清晰生命周期和优雅退出逻辑。
-- [ ] 保证每个角色拥有可区分的 `APP_NODE_ID`、日志字段和指标标签。
-- [ ] 为角色启动行为增加最小测试或命令级验收脚本。
+- [x] 新增或整理 `internal/bootstrap`。
+- [x] 将配置加载、日志、Tracing、数据库、Repository、Service、Router、Worker 装配拆开。
+- [x] 将数据库迁移与 API/worker 启动解耦。
+- [x] 保证每个角色拥有清晰生命周期和优雅退出逻辑。
+- [x] 保证每个角色拥有可区分的 `APP_NODE_ID`、日志字段和指标标签。
+- [x] 为角色启动行为增加单元测试和命令级验收。
 
 ### 第五部分：完成 all-in-one 镜像与容器化基线
 
-- [x] 后端继续使用一个 all-in-one 镜像：`messagefeed-api:allinone-0703de0`。
+- [x] 后端继续使用一个多角色镜像：`messagefeed-api:role9-20260718-8a454cb690ec`。
 - [x] 前端继续使用独立镜像：`messagefeed-web:allinone-0703de0`。
-- [ ] 禁止生产部署使用 `latest`。
-- [ ] 镜像 tag 使用 Git SHA 或 SemVer + Git SHA。
-- [ ] 构建并部署包含 `tini` 的新后端镜像。
+- [x] 禁止生产部署使用 `latest`。
+- [x] 后端镜像 tag 使用 Git SHA。
+- [x] 构建并部署包含 `tini` 的新后端镜像。
 - [x] 确认当前容器健康检查路径与 K8s 探针一致。
 
 ### 第六部分：搭建 WSL 内 K3s single-server 基线
@@ -83,34 +85,34 @@
 - [x] 通过 SSH 进入 WSL 后或直接在环境内安装或核实 K3s single-server。
 - [x] 确认 `kubectl get nodes` 中 WSL 节点为 `Ready`。
 - [x] 确认 Helm 可在 SSH 会话内操作 WSL 内 K3s。
-- [x] 建立 WSL 内 StorageClass、数据卷、命名空间和 Secret 管理基线；默认 StorageClass 唯一性仍待修正。
+- [x] 建立 WSL 内 StorageClass、数据卷、命名空间和 Secret 管理基线，并确认唯一默认 StorageClass。
 - [x] 部署或接入 WSL 内 PostgreSQL/pgvector。
-- [x] 明确数据库备份落点和归档校验方式；完整恢复演练仍待执行。
+- [x] 明确数据库备份落点和归档校验方式，并完成完整恢复演练。
 
 ### 第七部分：编写并接管 all-in-one Helm Chart
 
 - [x] 创建 `deploy/helm/messagefeed` 目录结构。
 - [x] 编写并接管 API、Web、Caddy gateway 和 cloudflared Deployment/Service。
 - [x] 编写并接管 PostgreSQL、Prometheus、Loki、Tempo、OTel Collector、Grafana 和 Promtail。
-- [ ] 编写 source-worker、notification-worker、agent-scheduler-worker 和 embedding-worker Deployment。
-- [ ] 编写独立 migrate Job；当前仍由 API init container 执行迁移。
+- [x] 编写 source-worker、notification-worker、agent-scheduler-worker 和 embedding-worker Deployment/Service。
+- [x] 编写独立 migrate Job，并移除 API init container 迁移职责。
 - [x] 编写 ConfigMap 与既有 Secret 引用。
-- [x] 使用 `values.yaml` 与 `values-k3s.yaml` 描述 all-in-one WSL/K3s 环境。
-- [x] 建立 `local-path-retain` StorageClass 模板；现有默认类冲突仍待修正。
+- [x] 使用 `values.yaml` 与 `values-k3s.yaml` 描述多角色 WSL/K3s 环境。
+- [x] 建立 `local-path-retain` StorageClass 模板，并将其设为唯一默认类。
 
 ### 第八部分：环境与资产治理
 
 - [x] 完成 all-in-one Helm 部署、namespace、Secret 引用、PVC/PV 和公网健康检查基线。
-- [ ] 修正 `local-path` 与 `local-path-retain` 双默认 StorageClass。
-- [ ] 固定 cloudflared 镜像版本或 digest，完成默认凭据和 Secret 治理。
-- [ ] 完成 PostgreSQL 备份恢复演练。
+- [x] 修正 `local-path` 与 `local-path-retain` 双默认 StorageClass。
+- [x] 固定 cloudflared 镜像版本，完成默认凭据和 Secret 治理。
+- [x] 完成 PostgreSQL 备份恢复演练。
 
 ### 第九部分：应用运行边界拆分
 
-- [ ] 梳理 worker 任务锁、claim、幂等、重试和失败记录。
-- [ ] 实现 `APP_ROLE` 和启动装配层。
-- [ ] 构建并部署包含 `tini` 的新镜像。
-- [ ] 验证 API、各类 worker 和 migrate 可独立启动、停止和观测。
+- [x] 梳理 worker 任务锁、claim、幂等、重试和失败记录。
+- [x] 实现 `APP_ROLE` 和启动装配层。
+- [x] 构建并部署包含 `tini` 的新镜像。
+- [x] 验证 API、各类 worker 和 migrate 可独立启动、停止、扩缩容和观测。
 
 ### 第十部分：Kubernetes 安全与资源治理
 
@@ -120,7 +122,7 @@
 
 ### 第十一部分：迁移、高可用与回滚
 
-- [ ] 将 API init container 迁移改为独立 migrate Job。
+- [x] 将 API init container 迁移改为独立 migrate Job。
 - [ ] 完成 API、Web、Gateway、cloudflared 多副本和滚动发布演练。
 - [ ] 验证 readiness、单 Pod 故障、worker 幂等和 Helm rollback。
 - [ ] 明确 WSL 关闭、Windows 关机和本机断网不属于当前可用性承诺。
@@ -342,7 +344,7 @@ messagefeed-api:<git-sha>
 
 虽然名字叫 `api`，但它通过 `APP_ROLE` 启动不同后端角色。
 
-当前 all-in-one 过渡阶段实际使用 `messagefeed-api:allinone-0703de0`，尚未启用 `APP_ROLE` 角色化。后续构建新镜像时应使用不可变 tag，并验证 `tini` 已作为容器 PID 1 的父进程生效。
+当前多角色阶段实际使用 `messagefeed-api:role9-20260718-8a454cb690ec`；已验证 API、四类 worker 和 migrate 均由 `tini` 作为 PID 1 启动 `/app/messagefeed`。
 
 原因：
 
@@ -385,7 +387,7 @@ Windows
   -> K3s server / control-plane
   -> messagefeed namespace
   -> PostgreSQL/pgvector
-  -> all-in-one API / Web / Caddy gateway / cloudflared
+  -> API / worker / Web / Caddy gateway / cloudflared
   -> Prometheus / Loki / Tempo / OTel Collector / Grafana / Promtail
 ```
 
@@ -406,14 +408,14 @@ helm list -A
 4. PostgreSQL 备份落点和归档校验方式已明确。
 5. 当前阶段不承诺 Windows 关机、WSL 停止或本机断网后的持续在线。
 
-当前遗留项：
+当前约束：
 
-1. `local-path` 与 `local-path-retain` 同时被标记为默认 StorageClass，创建新 PVC 前必须恢复唯一默认类。
-2. 现有 PVC/PV 不迁移；5 个现有 PV 已为 `Retain`，完整恢复演练仍待执行。
+1. `local-path-retain` 是唯一默认 StorageClass，新 PVC 默认使用 `Retain` 回收策略。
+2. 现有 PVC/PV 不迁移；5 个现有 PVC 仍使用 `local-path`，对应 PV 均为 `Retain`。
 
 ## 7. Helm Chart 与 Workload 设计
 
-**状态**：all-in-one Chart 已完成并用于现有资源接管；独立 worker、独立 migrate Job 和 `APP_ROLE` 模板尚未实现。
+**状态**：多角色 Chart 已完成并用于现有资源接管；API、四类 worker、独立 migrate Job 和 `APP_ROLE` 模板均已实现。
 
 Chart 入口：
 
@@ -427,6 +429,8 @@ deploy/helm/messagefeed/
   files/observability/
   templates/
     api.yaml
+    workers.yaml
+    migrate.yaml
     web.yaml
     gateway.yaml
     cloudflared.yaml
@@ -440,17 +444,17 @@ deploy/helm/messagefeed/
 
 1. `values.yaml` 提供默认配置，`values-k3s.yaml` 提供 WSL/K3s 覆盖。
 2. 既有数据库、应用、Caddy 和 Tunnel Secret 通过 `existingSecret` 引用，不在 values 中保存明文。
-3. all-in-one API 保持单副本，直到 `APP_ROLE` 和任务幂等验证完成。
-4. 当前 `values-k3s.yaml` 仍将 cloudflared 镜像 tag 覆盖为 `latest`，后续必须固定为版本或 digest。
-5. 数据库迁移当前由 API init container 执行，独立 migrate Job 属于后续目标。
+3. API 与四类 worker 的副本数可在 values 中独立设置；当前生产声明值保持各 1 副本。
+4. `values-k3s.yaml` 将 cloudflared 固定为 `2026.6.1`，Chart schema 拒绝 `latest`。
+5. 数据库迁移由独立 Helm pre-install/pre-upgrade Job 执行，API 不再包含 migration init container。
 
 Workload 边界：
 
 | Workload | 当前状态 | 目标状态 |
 | --- | --- | --- |
-| API | all-in-one 单副本，同时启动 HTTP 和 worker | `APP_ROLE=api`，只提供 HTTP |
-| source/notification/agent/embedding worker | 未独立部署 | 各自独立 Deployment |
-| migrate | API init container | 独立 Job |
+| API | `messagefeed-api`，`APP_ROLE=api`，只提供 HTTP | 已落地 |
+| source/notification/agent/embedding worker | 各自独立 Deployment/Service，仅提供 `9090` | 已落地 |
+| migrate | 独立 Helm Job，`APP_ROLE=migrate` | 已落地 |
 | Web/Gateway/Tunnel | 已由 Helm 管理，当前单副本 | 按高可用演练逐步扩容 |
 | PostgreSQL/观测栈 | 已由 Helm 管理，PVC 保持原绑定 | 在备份和资源策略稳定后再扩展 |
 
@@ -468,25 +472,28 @@ helm status messagefeed -n messagefeed
 
 ## 8. 环境与资产治理
 
-**状态**：all-in-one Helm 部署、数据库接管、观测栈、入口和基础健康检查已完成；资产治理仍有待办。
+**状态**：已完成。all-in-one Helm 部署、存储治理、镜像版本治理、Grafana Secret 治理和 PostgreSQL 恢复演练均通过验收。
 
 当前基线：
 
 | 项目 | 状态 |
 | --- | --- |
-| Helm release | `messagefeed` revision 2，`deployed` |
-| PostgreSQL | 迁移状态 `37,false`，pgvector 可用 |
+| Helm release | `messagefeed` revision 7，`deployed` |
+| PostgreSQL | 生产库与恢复库均为迁移状态 `37,false`，pgvector `0.8.4` 可用 |
 | PVC/PV | 5 个 PVC 为 `Bound`，5 个 PV 为 `Retain` |
-| 外部入口 | Cloudflare -> cloudflared -> Caddy -> Web/API，公网 `/healthz` 已通过 |
-| 镜像 | all-in-one 仍使用旧 tag；cloudflared 当前配置仍覆盖为 `latest` |
-| StorageClass | `local-path` 与 `local-path-retain` 同时为默认类 |
+| 外部入口 | Cloudflare -> cloudflared -> Caddy -> Web/API，公网 `/healthz` 与 `/readyz` 均为 HTTP 200 |
+| 镜像 | API 为 `messagefeed-api:role9-20260718-8a454cb690ec`；cloudflared 为 `2026.6.1` |
+| Secret | Grafana 管理密码已随机化并由 `messagefeed-grafana-secret` 提供 |
+| StorageClass | `local-path=false`，`local-path-retain=true`，默认类唯一 |
 
-实施内容：
+实施结果：
 
-1. 将 `local-path` 默认注解设为 `false`，确认 `local-path-retain` 为唯一默认类；不迁移现有 PVC/PV。
-2. 固定 cloudflared 镜像版本或 digest，构建并部署包含 `tini` 的新 API 镜像。
-3. 将 Grafana 管理凭据和其他敏感配置统一纳入 Secret 管理。
-4. 完成 PostgreSQL 备份恢复演练，并记录恢复后的迁移状态和核心数据校验结果。
+1. 已将 `local-path` 默认注解设为 `false`，确认 `local-path-retain` 为唯一默认类；现有 PVC/PV 绑定关系未变化。
+2. cloudflared 已固定为 `2026.6.1`，实际 digest 为 `sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283`；API 已切换至按 Git SHA 标记且包含 `tini` 的镜像。
+3. Grafana 管理凭据已迁移至独立 Secret，随机密码长度为 48，持久化管理员密码已轮换，管理 API 验证为 HTTP 200。
+4. 已生成并校验 `backups/k8s-adoption/messagefeed-restore-drill-20260718-144227.dump`，恢复至隔离数据库 `messagefeed_restore_drill_20260718`。
+5. 恢复库为迁移状态 `37,false`、pgvector `0.8.4`、55 张 public 基础表；核心数据包括 4 个用户、145 个源、7933 条内容、8 条用户内容状态、47 条源目录和 28609 条审计记录，与备份前快照一致。
+6. 恢复库重复内容组为 0，`uq_items_source_normalized_url` 的 unique/valid/ready 均为 true，未验证约束为 0；验收后已关闭新连接并保留该恢复库。
 
 完成判定：
 
@@ -496,21 +503,107 @@ helm status messagefeed -n messagefeed
 
 ## 9. 应用运行边界拆分
 
-**状态**：尚未完成。当前 API 仍是 all-in-one 单体进程，同时启动 HTTP API 和后台 worker。
+**状态**：已完成（2026-07-18）。当前 release 已从 all-in-one 过渡为 API、四类 worker 和独立 migrate Job。
 
-实施内容：
+### 9.1 运行角色与启动边界
 
-1. 梳理 source、notification、agent scheduler 和 embedding worker 的任务锁、claim、幂等、重试和失败记录。
-2. 实现 `APP_ROLE` 和启动装配层；详细角色定义见第 3、4 节。
-3. 让 API、各类 worker 和 migrate 具备独立启动、停止、日志、指标和优雅退出能力。
-4. 构建并部署包含 `tini` 的新镜像，验证容器 PID 1 能回收孤儿进程。
+运行角色固定为：
 
-完成判定：
+```text
+all
+api
+source-worker
+notification-worker
+agent-scheduler-worker
+embedding-worker
+migrate
+```
 
-1. `APP_ROLE=api` 只启动 HTTP，不启动 worker。
-2. 各 worker 只执行自身职责，不监听业务 HTTP。
-3. 多 worker 并发不会重复处理、重复通知或丢失任务。
-4. API 与 worker 可独立扩缩容和回滚。
+约束：
+
+1. `DEPLOYMENT_MODE=cluster` 下禁止 `APP_ROLE=all`；只有显式设置 `ALLOW_ALL_ROLE_IN_CLUSTER=true` 才允许兼容运行。
+2. `api` 只构造业务 Router 并监听 `60001`，不启动任何 worker loop。
+3. 四类 worker 只构造自身 service 和 loop，不监听业务端口 `60001`；统一在 `9090` 提供 `/healthz`、`/readyz` 和 `/metrics`。
+4. `migrate` 只调用既有 `golang-migrate` CLI，迁移路径固定为相对路径 `migrations`，不启动 HTTP 或 worker。
+5. `APP_NODE_ID` 使用 Pod 名称，日志基础字段包含 `app_role`，Prometheus target 使用同名 `app_role` 标签。
+
+### 9.2 代码与镜像实现
+
+1. `internal/bootstrap` 汇总角色计划、数据库与 service 装配、worker loop、运维端点和受控关闭；`cmd/api/main.go` 仅负责入口生命周期。
+2. 配置层新增 `APP_ROLE`、`ALLOW_ALL_ROLE_IN_CLUSTER`、`WORKER_METRICS_ADDR` 和 `MIGRATIONS_PATH`，并校验 cluster 数据库、相对迁移路径及角色枚举。
+3. source、notification、agent scheduler 和 embedding claim 复核结果如下：
+
+| 队列 | 一致性实现 | 结果 |
+| --- | --- | --- |
+| source fetch | PostgreSQL `FOR UPDATE SKIP LOCKED` 事务 claim | 保留 attempt、lock、失败与重试字段 |
+| notification | PostgreSQL `FOR UPDATE SKIP LOCKED` 事务 claim | 保留 dedupe key、delivery 与重试字段 |
+| agent scheduled task | PostgreSQL `FOR UPDATE SKIP LOCKED` 事务 claim | 保留 locked_by、attempt 和失败状态 |
+| embedding index | 原子 `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED) RETURNING` | pending 任务不会被两个 claimant 同时取得 |
+
+4. Dockerfile 将 `migrate 4.19.1` 和 `migrations` 复制进同一后端镜像；运行阶段使用非 root `appuser`，入口为 `/sbin/tini -- /app/messagefeed`，并按角色选择健康检查端口。
+
+### 9.3 Helm 拓扑
+
+当前 Chart 渲染并部署以下资源：
+
+| 工作负载 | `APP_ROLE` | 业务端口 | 运维端口 | 副本 |
+| --- | --- | --- | --- | ---: |
+| `messagefeed-api` | `api` | `60001` | `/metrics` 复用 API | 1 |
+| `source-worker` | `source-worker` | 不监听 | `9090` | 1 |
+| `notification-worker` | `notification-worker` | 不监听 | `9090` | 1 |
+| `agent-scheduler-worker` | `agent-scheduler-worker` | 不监听 | `9090` | 1 |
+| `embedding-worker` | `embedding-worker` | 不监听 | `9090` | 1 |
+| `messagefeed-migrate` | `migrate` | 不监听 | 不监听 | Job |
+
+迁移 Job 使用 Helm `pre-install,pre-upgrade` hook；API 不再包含 migration init container。四个 worker Service 只发布 `9090`，Prometheus 配置新增四个独立 scrape target。
+
+### 9.4 严格验收结果
+
+代码与模板：
+
+```text
+go test ./...                         PASS
+go test -race -count=1 ./internal/bootstrap ./internal/config ./cmd/api PASS
+go vet ./...                          PASS
+go build ./cmd/api                    PASS
+helm lint                             PASS
+helm template                         PASS
+kubectl apply --dry-run=client        PASS
+schema 反向校验（latest/副本 0/非法角色/非法迁移路径） PASS
+```
+
+集群发布：
+
+```text
+镜像：messagefeed-api:role9-20260718-8a454cb690ec
+Helm：revision 7，STATUS=deployed
+migrate Job：Complete，1/1
+生产数据库：schema_migrations=37,false，pgvector=0.8.4，public 基础表=55
+```
+
+运行隔离：
+
+1. API `/healthz`、`/readyz` 返回 200，API Pod 日志只有 API server 启动记录，没有 worker loop/tick 记录；API 的 `9090` 连接被拒绝。
+2. 四个 worker 的 `/healthz`、`/readyz`、`/metrics` 均返回成功；四个 worker 的 `60001` 连接均被拒绝。
+3. 五个 messagefeed Prometheus target 全部 `up`：API 使用 `api:60001`，worker 使用各自 Service 的 `9090`。
+4. 五个业务 Pod 的 PID 1 均为 `/sbin/tini -- /app/messagefeed`，运行用户为 UID 1000。
+5. `https://aroen.eu.cc/healthz` 和 `https://aroen.eu.cc/readyz` 均返回 HTTP 200；gateway 内部 `/healthz` 与 Web 首页访问成功。
+
+并发 claim：
+
+在隔离数据库 `messagefeed_role9_acceptance_20260718` 的四张真实队列表中各准备 40 条任务，两个并发 claimant 各处理 20 条。四类队列均得到 40 个不同 ID，重复 claim 行数为 0；source、notification、scheduler 三类任务的 `attempt_count=1`，embedding 队列的任务均由 pending 原子转为 running，未留下 queued/pending 任务；验收库随后设置 `ALLOW_CONNECTIONS=false`，生产库未写入测试任务。
+
+扩缩容与回滚：
+
+1. Helm revision 5 将 API 与 source worker 独立扩展为 2 副本，其他 worker 保持 1 副本，所有 messagefeed Prometheus target 仍为 `up`。
+2. `helm rollback messagefeed 4 --wait --wait-for-jobs` 成功生成 revision 6，并恢复 API/source worker 各 1 副本。
+3. 最终 revision 7 通过 `helm upgrade --atomic --wait --wait-for-jobs` 固化模板标签和声明值。
+
+优雅退出：
+
+对 source worker PID 1 发送 SIGTERM 后，容器重启计数由 0 增至 1；`--previous` 日志依次包含 `worker loop stopped`、`application role stopping` 和 `application role stopped`，无 error/panic，重启后 `/readyz` 恢复为 200。
+
+**第 9 节判定**：API 与 worker 运行边界、独立迁移、日志/指标、claim 并发、容器 PID 1、独立扩缩容、rollback 和 SIGTERM 优雅退出均通过；下一阶段进入第 10 节 Kubernetes 安全与资源治理。
 
 ## 10. Kubernetes 安全与资源治理
 
@@ -531,15 +624,15 @@ helm status messagefeed -n messagefeed
 
 ## 11. 迁移、高可用与回滚
 
-**状态**：尚未完成。当前只有探针、Helm 接管和单副本基础，不代表已实现无感升级。
+**状态**：部分完成。独立 migrate Job、API/worker RollingUpdate、独立扩缩容和 Helm rollback 已验证；入口多副本、PDB、故障注入和数据库兼容回滚闭环尚未完成。
 
 实施顺序：
 
-1. 将 API init container 迁移改为独立 migrate Job，明确数据库锁、失败处理和向后兼容策略。
+1. 独立 migrate Job 已落地；下一步补充数据库迁移锁、失败处理和 expand/contract 兼容策略。
 2. 完成 API、Web、Gateway、cloudflared 的多副本配置和 RollingUpdate。
 3. 有状态单实例组件继续使用 `Recreate`，避免 RWO PVC 被新旧 Pod 并发写入。
-4. worker 初期保持单副本，完成幂等验证后再扩容。
-5. 完成单 Pod 删除、readiness 失败、滚动发布和 Helm rollback 演练。
+4. worker 默认保持单副本，已完成 source worker 双副本与四类 claim 并发验证。
+5. 已完成 SIGTERM、独立扩缩容和 Helm rollback；仍需补充 readiness 失败、节点维护和入口故障演练。
 
 完成判定：
 
