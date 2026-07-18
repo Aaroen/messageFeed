@@ -16,18 +16,19 @@
 4. PostgreSQL 备份恢复演练、5 个 PV 设置为 `Retain`、数据库和公网健康检查验收。
 5. 环境与资产治理已完成，`local-path-retain` 为唯一默认 StorageClass，5 个现有 PV 均为 `Retain`。
 6. `APP_ROLE`、`internal/bootstrap`、四类独立 worker Deployment/Service 和独立 migrate Job 已完成并通过验收。
-7. 当前 Helm release `messagefeed` revision 16 为 `deployed`，Chart 为 `0.3.0`，API 与四类 worker 各为 1 个 Ready 副本。
+7. 当前 Helm release `messagefeed` revision 30 为 `deployed`，Chart 为 `0.4.0`；API、Web、Gateway 各为 2 个 Ready 副本，cloudflared 为 3 个 Ready 连接器，四类 worker 各为 1 个 Ready 副本。
 8. 独立 ServiceAccount、最小 RBAC、19 条 NetworkPolicy、ResourceQuota、LimitRange、14 个 PDB 和统一调度约束已完成验收。
+9. 数据库迁移锁、expand/contract 门禁、入口多副本、无崩溃滚动、Pod 故障、节点 cordon 和 Helm rollback 已完成验收。
 
 当前边界：
 
 1. 当前仍为单二进制、多运行角色架构，尚未拆分独立业务代码仓库或数据库边界。
-2. API、worker 和 migrate 已建立安全与资源边界；cloudflared 因 WSL 出站约束保留 `hostNetwork=true`，属于明确记录的基础设施例外。
-3. API 与 worker 已验证独立扩缩容和 Helm rollback，但生产声明值仍为单副本；尚未形成完整多副本高可用基线。
+2. API、worker 和 migrate 已建立安全与资源边界；cloudflared 因 WSL 出站约束保留 `hostNetwork=true`，并通过独立 ordinal 指标端口和兼容连接器降低单进程故障风险。
+3. 当前已形成单节点内的入口多副本基线，但 PostgreSQL、K3s server、WSL 和 Windows 宿主机仍是共同故障域。
 4. 当前未建立 CI/CD 发布闭环，镜像仍由本地构建并导入 K3s containerd。
-5. 集群使用 `messagefeed-api:role9-20260718-8a454cb690ec`；5 个角色均以 `tini` 为 PID 1，现有 PVC/PV 不迁移。
+5. 集群使用 `messagefeed-api:ha11-20260718-6c86f3721986`；5 个角色均以 `tini` 为 PID 1，现有 PVC/PV 不迁移。
 
-后续实施门槛：第 10 节已通过，下一阶段实施第 11 节迁移、高可用与回滚；第 11～12 节完成前不进入真实业务微服务拆分。
+后续实施门槛：第 11 节已通过，下一阶段实施第 12 节 CI/CD 闭环；第 12 节完成前不进入真实业务微服务拆分。
 
 ## 顶部步骤 TODO
 
@@ -74,10 +75,10 @@
 
 ### 第五部分：完成 all-in-one 镜像与容器化基线
 
-- [x] 后端继续使用一个多角色镜像：`messagefeed-api:role9-20260718-8a454cb690ec`。
+- [x] 后端继续使用一个多角色镜像：`messagefeed-api:ha11-20260718-6c86f3721986`。
 - [x] 前端继续使用独立镜像：`messagefeed-web:allinone-0703de0`。
 - [x] 禁止生产部署使用 `latest`。
-- [x] 后端镜像 tag 使用 Git SHA。
+- [x] 后端镜像 tag 使用固定内容哈希；第 12 节改由 CI 使用 Git SHA。
 - [x] 构建并部署包含 `tini` 的新后端镜像。
 - [x] 确认当前容器健康检查路径与 K8s 探针一致。
 
@@ -124,9 +125,9 @@
 ### 第十一部分：迁移、高可用与回滚
 
 - [x] 将 API init container 迁移改为独立 migrate Job。
-- [ ] 完成 API、Web、Gateway、cloudflared 多副本和滚动发布演练。
-- [ ] 验证 readiness、单 Pod 故障、worker 幂等和 Helm rollback。
-- [ ] 明确 WSL 关闭、Windows 关机和本机断网不属于当前可用性承诺。
+- [x] 完成 API、Web、Gateway、cloudflared 多副本和滚动发布演练。
+- [x] 验证 readiness、单 Pod 故障、worker 幂等和 Helm rollback。
+- [x] 明确 WSL 关闭、Windows 关机和本机断网不属于当前可用性承诺。
 
 ### 第十二部分：CI/CD 闭环
 
@@ -340,12 +341,12 @@ APP_ROLE=embedding-worker go run ./cmd/api
 第一阶段仍使用一个后端镜像：
 
 ```text
-messagefeed-api:<git-sha>
+messagefeed-api:<release>-<content-hash>
 ```
 
 虽然名字叫 `api`，但它通过 `APP_ROLE` 启动不同后端角色。
 
-当前多角色阶段实际使用 `messagefeed-api:role9-20260718-8a454cb690ec`；已验证 API、四类 worker 和 migrate 均由 `tini` 作为 PID 1 启动 `/app/messagefeed`。
+当前多角色阶段实际使用 `messagefeed-api:ha11-20260718-6c86f3721986`；已验证 API、四类 worker 和 migrate 均由 `tini` 作为 PID 1 启动 `/app/messagefeed`。
 
 原因：
 
@@ -456,7 +457,7 @@ Workload 边界：
 | API | `messagefeed-api`，`APP_ROLE=api`，只提供 HTTP | 已落地 |
 | source/notification/agent/embedding worker | 各自独立 Deployment/Service，仅提供 `9090` | 已落地 |
 | migrate | 独立 Helm Job，`APP_ROLE=migrate` | 已落地 |
-| Web/Gateway/Tunnel | 已由 Helm 管理，当前单副本 | 按高可用演练逐步扩容 |
+| Web/Gateway/Tunnel | Web/Gateway 各 2 副本，Tunnel 3 个连接器 | 已完成单节点内高可用演练 |
 | PostgreSQL/观测栈 | 已由 Helm 管理，PVC 保持原绑定 | 在备份和资源策略稳定后再扩展 |
 
 Helm 验证命令：
@@ -479,11 +480,11 @@ helm status messagefeed -n messagefeed
 
 | 项目 | 状态 |
 | --- | --- |
-| Helm release | `messagefeed` revision 16，Chart `0.3.0`，`deployed` |
+| Helm release | `messagefeed` revision 30，Chart `0.4.0`，`deployed` |
 | PostgreSQL | 生产库与恢复库均为迁移状态 `37,false`，pgvector `0.8.4` 可用 |
 | PVC/PV | 5 个 PVC 为 `Bound`，5 个 PV 为 `Retain` |
 | 外部入口 | Cloudflare -> cloudflared -> Caddy -> Web/API，公网 `/healthz` 与 `/readyz` 均为 HTTP 200 |
-| 镜像 | API 为 `messagefeed-api:role9-20260718-8a454cb690ec`；cloudflared 为 `2026.6.1` |
+| 镜像 | API 为 `messagefeed-api:ha11-20260718-6c86f3721986`；cloudflared 为 `2026.6.1` |
 | Secret | Grafana 管理密码已随机化并由 `messagefeed-grafana-secret` 提供 |
 | StorageClass | `local-path=false`，`local-path-retain=true`，默认类唯一 |
 
@@ -716,22 +717,109 @@ schema 反向校验                         PASS
 
 ## 11. 迁移、高可用与回滚
 
-**状态**：部分完成。独立 migrate Job、API/worker RollingUpdate、独立扩缩容、PDB、资源/调度故障注入和 Helm rollback 已验证；入口多副本和数据库兼容回滚闭环尚未完成。
+**状态**：已完成。数据库迁移锁、expand/contract 门禁、入口多副本、RollingUpdate、单 Pod 故障、节点维护边界、失败发布和 Helm rollback 均已完成严格验收。
 
-实施顺序：
+### 11.1 数据库迁移与兼容门禁
 
-1. 独立 migrate Job 已落地；下一步补充数据库迁移锁、失败处理和 expand/contract 兼容策略。
-2. 完成 API、Web、Gateway、cloudflared 的多副本配置和 RollingUpdate。
-3. 有状态单实例组件继续使用 `Recreate`，避免 RWO PVC 被新旧 Pod 并发写入。
-4. worker 默认保持单副本，已完成 source worker 双副本与四类 claim 并发验证。
-5. 已完成 SIGTERM、独立扩缩容、PDB eviction、不可调度故障和 Helm rollback；仍需补充入口多副本、实际节点维护和入口故障演练。
+迁移进程先用独立 PostgreSQL session 获取 advisory lock，再在同一临界区内读取当前版本、执行策略预检和调用 `golang-migrate up`。锁 key 为 `5567948131356067142`，默认等待 60 秒；`golang-migrate` 自身数据库锁继续作为第二层保护。
 
-完成判定：
+从迁移版本 38 起强制执行以下规则：
 
-1. 新 Pod ready 前旧 Pod 持续接收流量。
-2. 单 Pod 故障不会造成长时间外部不可用。
-3. 发布失败可以回到上一稳定镜像和兼容数据库状态。
-4. WSL 关闭、Windows 关机和本机断网不纳入当前无感升级承诺。
+1. 文件名必须包含 `_expand_` 或 `_contract_`。
+2. 常规发布固定 `MIGRATION_PHASE=expand`；待执行 contract 文件会在执行 SQL 前阻断发布。
+3. expand 文件默认拒绝 `DROP`、`RENAME`、列类型收紧、`SET NOT NULL`、`TRUNCATE` 和 `DELETE FROM` 等破坏性操作。
+4. contract 只能在兼容版本已经部署、旧应用不再读取旧结构后，通过显式 `MIGRATION_PHASE=contract` 执行。
+5. dirty schema 直接失败并要求人工恢复，不自动 force。
+
+兼容发布顺序固定为：
+
+```text
+release N：expand，加新表/列/索引，旧应用与新应用均可运行
+release N+1：应用停止读取旧结构，仍保留旧结构
+观察窗口：验证回滚、指标和业务数据
+release N+2：显式 contract，删除旧结构
+```
+
+migrate Job 配置 `podFailurePolicy=FailJob`：迁移容器非零退出时只生成 1 个失败 Pod，不重试确定性 SQL 或策略错误；网络传播由 `wait-for-postgres` initContainer 处理。API 与四类 worker 也使用同一网络等待机制，revision 30 的全部新业务 Pod 均为 init exit 0、业务容器 restart 0。
+
+### 11.2 入口多副本与更新策略
+
+| 工作负载 | 生产副本 | 更新策略 | 可用性约束 |
+| --- | ---: | --- | --- |
+| API | 2 | RollingUpdate | `maxUnavailable=0`、`maxSurge=1`、`minReadySeconds=10` |
+| Web | 2 | RollingUpdate | `maxUnavailable=0`、`maxSurge=1`、`minReadySeconds=10` |
+| Gateway | 2 | RollingUpdate | `maxUnavailable=0`、`maxSurge=1`、`minReadySeconds=10` |
+| cloudflared StatefulSet | 2 | OrderedReady RollingUpdate | ordinal 端口 `2010/2011`，逐个替换 |
+| cloudflared 兼容 Deployment | 1 | Recreate | 保留 0.3.x 控制器升级路径，指标端口 `2000` |
+| 四类 worker | 各 1 | RollingUpdate | 依赖任务锁、claim 与幂等；生产默认不扩容 |
+| PostgreSQL | 1 | StatefulSet `OnDelete` | 人工确认后重建，避免 RWO 数据卷并发写入 |
+
+cloudflared 在当前 WSL 环境必须使用 `hostNetwork=true`。StatefulSet 通过 `apps.kubernetes.io/pod-index` 派生独立指标端口，解决同节点固定端口冲突；兼容 Deployment 在从 Chart 0.3.x 升级时持续提供旧连接，避免先删除旧控制器再建立新连接器。三个连接器最终 readiness 均为 HTTP 200，并分别建立 3、3、4 条 Tunnel 连接。
+
+API、Web、Gateway 的 `preStop` 摘流等待为 10 秒，终止宽限期为 45 秒。新 Pod Ready 并稳定 10 秒前，Deployment 不减少旧副本。
+
+### 11.3 严格验收结果
+
+发布前备份：
+
+```text
+/mnt/disk_A/Notes/gogogo/Go_Pro/messageFeed/micr-k8s/backups/postgres/messagefeed-postgres-k3s-pre-section11-20260718-191146.dump
+SHA-256=ea0e202f5250e37da54eaf1d676ee6d1e3dae9fb9ab900786b5b88444eb2f7da
+TOC entries=685
+```
+
+自动化与模板验收：
+
+```text
+go test -count=1 ./...                 PASS
+go vet ./...                           PASS
+go build -o /dev/null ./cmd/api        PASS
+npm run type-check                     PASS
+npm run build                          PASS
+helm lint                              PASS
+helm template                          PASS
+kubectl dry-run client/server          PASS
+helm upgrade --dry-run=server          PASS
+10 组 values schema 反向校验          PASS
+git diff --check                       PASS
+```
+
+迁移隔离验收：
+
+1. 完整测试库从空库迁移到 `37,false`，共 55 张 public 表。
+2. 持有相同 advisory lock 时，3 秒竞争 Job 按时失败，错误为 `context deadline exceeded`，只产生 1 个失败 Pod，释放后无残留 advisory lock。
+3. 测试库的 v38/v39 expand 成功；v40 contract 在 expand 阶段被阻断且表仍存在，显式 contract 后成功移除。
+4. revision 16 的旧 API 镜像在 v39 additive schema 上 `/healthz`、`/readyz` 均成功，证明应用可回滚而无需数据库 down。
+5. 生产失败演练 revision 22 被 `PodFailurePolicy` 阻断并自动回滚为 revision 23；生产库保持 `37,false`，API 镜像未切换。
+6. 所有临时 Job、Pod、Secret 和隔离数据库均已清理。
+
+可用性与故障验收：
+
+1. 最终无崩溃滚动发布期间，公网和集群内各 180 次探测均成功。
+2. 长窗口滚动探测集群内 `300/300` 成功；公网 `298/300`，两次为无内部对应错误的孤立外部 TLS/HTTP 超时，最大连续失败为 1。
+3. 依次删除 API、Web、Gateway、StatefulSet cloudflared 和兼容 cloudflared Pod，集群内健康与首页均为 `300/300`；各控制器恢复目标副本。
+4. 节点 cordon 后删除一个 API Pod，API 保持 1 个 Ready endpoint，替代 Pod 明确因节点不可调度而 Pending；uncordon 后恢复 `2/2`，集群内探测 `160/160`。
+5. drain 服务端 dry-run 允许双副本入口一次 eviction，并由 PDB 阻止 PostgreSQL、worker 和单副本观测组件被整体驱逐。
+6. revision 28 完整回滚至 revision 16，旧 API 镜像、单副本入口和 `37,false` 数据库可用；revision 29 从真实旧状态恢复最终 Chart。联合窗口无持续中断，但记录到 1 次孤立内部超时，因此不把跨旧单副本拓扑回滚声明为逐请求零损失。
+7. WSL 停止、Windows 关机、本机断网和单节点整体失效仍不属于当前无感升级承诺。
+
+最终运行状态：
+
+```text
+Helm Chart：messagefeed-0.4.0，appVersion=0.3.0
+Helm release：revision 30，STATUS=deployed
+后端镜像：messagefeed-api:ha11-20260718-6c86f3721986
+运行 Pod：20 个，全部 Ready
+migrate Job：Complete，1/1
+API/Web/Gateway endpoints：2/2/2
+cloudflared：3 个 Ready 连接器
+PDB：14；入口 disruptionsAllowed=1/1/1/2
+Prometheus target：7 个，全部 up
+PostgreSQL：schema_migrations=37,false，pgvector=0.8.4，public 表=55
+核心数据：users=4，sources=145，items=8010
+```
+
+**第 11 节判定**：新 Pod 就绪前旧副本持续服务；单 Pod 故障不会形成持续外部不可用；失败发布可回到上一稳定镜像和兼容数据库状态。第 11 节完成，可以进入第 12 节“CI/CD 闭环”。
 
 ## 12. CI/CD 闭环
 

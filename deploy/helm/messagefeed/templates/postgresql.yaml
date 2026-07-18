@@ -26,6 +26,9 @@ metadata:
 spec:
   serviceName: messagefeed-postgres
   replicas: 1
+  updateStrategy:
+    type: OnDelete
+    rollingUpdate: null
   selector:
     matchLabels:
       {{- include "messagefeed.selectorLabels" (dict "name" "messagefeed-postgres" "root" .) | nindent 6 }}

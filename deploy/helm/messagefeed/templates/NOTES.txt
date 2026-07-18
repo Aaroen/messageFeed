@@ -5,6 +5,10 @@
 等待核心组件就绪：
   kubectl -n {{ .Release.Namespace }} rollout status statefulset/messagefeed-postgres --timeout=240s
   kubectl -n {{ .Release.Namespace }} rollout status deployment/messagefeed-api --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/web --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/gateway --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/cloudflared --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/cloudflared --timeout=240s
   kubectl -n {{ .Release.Namespace }} rollout status deployment/source-worker --timeout=240s
   kubectl -n {{ .Release.Namespace }} rollout status deployment/notification-worker --timeout=240s
   kubectl -n {{ .Release.Namespace }} rollout status deployment/agent-scheduler-worker --timeout=240s
@@ -12,6 +16,7 @@
 
 检查最近一次迁移：
   kubectl -n {{ .Release.Namespace }} get job/messagefeed-migrate
+  kubectl -n {{ .Release.Namespace }} logs job/messagefeed-migrate -c migrate
 
 检查安全与资源治理：
   kubectl -n {{ .Release.Namespace }} get serviceaccount,role,rolebinding

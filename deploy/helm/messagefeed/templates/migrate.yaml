@@ -16,6 +16,14 @@ metadata:
 spec:
   backoffLimit: {{ .Values.migrations.backoffLimit }}
   activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  podFailurePolicy:
+    rules:
+      - action: FailJob
+        onExitCodes:
+          containerName: migrate
+          operator: NotIn
+          values:
+            - 0
   template:
     metadata:
       labels:
@@ -63,6 +71,10 @@ spec:
               value: {{ .Values.appConfig.deploymentMode | quote }}
             - name: MIGRATIONS_PATH
               value: {{ .Values.migrations.path | quote }}
+            - name: MIGRATION_PHASE
+              value: {{ .Values.migrations.phase | quote }}
+            - name: MIGRATION_LOCK_TIMEOUT
+              value: {{ .Values.migrations.lockTimeoutSeconds | quote }}
             - name: APP_NODE_ID
               value: messagefeed-migrate
             - name: DATABASE_URL

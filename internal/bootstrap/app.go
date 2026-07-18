@@ -48,7 +48,15 @@ func New(cfg config.Config, logger *slog.Logger, options ...Option) (*Applicatio
 	if err != nil {
 		return nil, err
 	}
-	application := &Application{cfg: cfg, logger: logger, plan: plan, migrations: commandMigrationRunner{}}
+	application := &Application{
+		cfg:    cfg,
+		logger: logger,
+		plan:   plan,
+		migrations: commandMigrationRunner{
+			lockTimeout: cfg.Migrations.LockTimeout,
+			phase:       cfg.Migrations.Phase,
+		},
+	}
 	for _, option := range options {
 		option(application)
 	}
@@ -115,7 +123,12 @@ func (application *Application) Run(ctx context.Context) error {
 		if application.migrations == nil {
 			return fmt.Errorf("migration runner is not configured")
 		}
-		application.logger.Info("migration role starting", "migrations_path", application.cfg.Migrations.Path)
+		application.logger.Info(
+			"migration role starting",
+			"migrations_path", application.cfg.Migrations.Path,
+			"migration_phase", application.cfg.Migrations.Phase,
+			"lock_timeout", application.cfg.Migrations.LockTimeout,
+		)
 		if err := application.migrations.Run(ctx, application.cfg.Database.DSN, application.cfg.Migrations.Path); err != nil {
 			return err
 		}

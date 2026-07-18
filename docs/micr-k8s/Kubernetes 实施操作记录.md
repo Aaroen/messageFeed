@@ -4334,3 +4334,135 @@ PostgreSQL：schema_migrations=37,false，pgvector=0.8.4，public 表=55
 3. 验证新 Pod 未 Ready 时旧 Pod 持续服务、单 Pod 故障、入口故障和实际节点维护边界。
 4. 验证应用镜像回滚与数据库状态兼容，明确不可回滚迁移的阻断条件。
 5. 保持 WSL 关闭、Windows 关机和本机断网不属于当前单节点可用性承诺。
+
+### E15. 2026-07-18 第十一部分迁移、高可用与回滚
+
+本次执行范围：补充数据库迁移并发锁、失败阻断和 expand/contract 门禁；将 API、Web、Gateway 和 cloudflared 建立为单节点内多副本入口；验证滚动发布、单 Pod 故障、节点 cordon、失败发布和完整 Helm rollback。生产 PVC/PV 未迁移或重建，生产业务 schema 保持版本 37。
+
+#### E15.1 发布前备份与代码实现
+
+发布前备份：
+
+```text
+文件：micr-k8s/backups/postgres/messagefeed-postgres-k3s-pre-section11-20260718-191146.dump
+大小：8.0 MiB
+SHA-256：ea0e202f5250e37da54eaf1d676ee6d1e3dae9fb9ab900786b5b88444eb2f7da
+TOC entries：685
+PostgreSQL：15.18
+```
+
+迁移代码：
+
+1. `internal/bootstrap/migrate.go` 使用独立 pgx session 获取 PostgreSQL advisory lock；key 为 `5567948131356067142`。
+2. 锁覆盖版本读取、迁移策略检查和 `golang-migrate up` 整个临界区，默认超时 60 秒；`golang-migrate` 内置锁保留为第二层保护。
+3. 从版本 38 起，迁移文件必须标记 `_expand_` 或 `_contract_`。
+4. `MIGRATION_PHASE=expand` 默认拒绝待执行 contract 文件和破坏性 SQL；contract 必须显式启用。
+5. dirty schema 直接失败，不自动 force；错误输出限制为 2000 字节。
+6. 新增正式 Go 单元测试，覆盖版本解析、dirty 状态、阶段不匹配、破坏性 SQL、注释/字符串和历史基线兼容。
+
+Helm 迁移 Job：
+
+1. `MIGRATION_PHASE=expand`、`MIGRATION_LOCK_TIMEOUT=60`。
+2. `podFailurePolicy` 对 migrate 容器非零退出执行 `FailJob`，避免确定性错误被 `backoffLimit=3` 重复执行。
+3. API、四类 worker 和 migrate 均增加 `wait-for-postgres` initContainer，处理 CNI/Service 传播窗口。
+4. revision 30 的 API 与四类 worker initContainer 均 exit 0，业务容器 restart 0。
+
+#### E15.2 入口拓扑与更新策略
+
+```text
+API                         2 replicas  RollingUpdate  maxUnavailable=0/maxSurge=1
+Web                         2 replicas  RollingUpdate  maxUnavailable=0/maxSurge=1
+Gateway                     2 replicas  RollingUpdate  maxUnavailable=0/maxSurge=1
+cloudflared StatefulSet     2 replicas  OrderedReady RollingUpdate
+cloudflared Deployment      1 replica   Recreate，0.3.x 兼容连接器
+source/notification/
+agent-scheduler/embedding   各 1 replica，默认不扩容
+PostgreSQL                  1 replica   StatefulSet OnDelete
+```
+
+API、Web 和 Gateway 使用 `minReadySeconds=10`、`preStop=10s` 和 `terminationGracePeriodSeconds=45`。cloudflared 因 WSL 出站限制继续使用 `hostNetwork=true`；StatefulSet 通过 Pod ordinal 派生 `127.0.0.1:2010/2011` 指标地址，兼容 Deployment 使用端口 2000，避免同节点端口冲突。
+
+兼容 Deployment 保留与 Chart 0.3.x 相同的 Pod 模板。其目的不是增加新的路由层，而是在 Helm 从 Deployment 转换到 StatefulSet 时原地保留已有 Tunnel 连接，待两个有序副本就绪后形成三连接器基线。
+
+#### E15.3 发布时间线与失败处理
+
+1. revision 17 首次直接将 cloudflared Deployment 替换为 StatefulSet；最终 2/2 Ready，但公网探测出现 9 次连续失败，未通过无感迁移口径。
+2. revision 18 增加同名兼容 Deployment；最终三个连接器分别监听 2000、2010、2011。
+3. revision 19 的滚动测试命令因 Helm 注解键转义错误被 Kubernetes 拒绝，`--atomic` 自动生成 revision 20 回滚；失败窗口内公网和集群内各 180 次探测均成功。
+4. revision 21 完成 API/Web/Gateway/StatefulSet cloudflared 的常规滚动；据此将摘流等待从 2 秒提高到 10 秒。
+5. revision 22 使用包含待执行 contract 文件的测试镜像发起 expand 发布，pre-upgrade Job 由 `PodFailurePolicy` 失败；revision 23 自动回滚到 revision 21，生产 schema 和工作负载镜像未变化。
+6. revision 24 发布最终后端镜像 `messagefeed-api:ha11-20260718-6c86f3721986` 和应用版本 0.3.0。
+7. revision 25 首次切换 PostgreSQL `OnDelete` 时因 Helm 三方补丁残留 `rollingUpdate.partition` 被拒绝，revision 26 自动回滚；模板显式设置 `rollingUpdate: null` 后 revision 27 成功，数据库 Pod 未重启。
+8. revision 28 完整回滚至 revision 16，恢复旧后端镜像与单副本入口；revision 29 从真实旧状态恢复 Chart 0.4.0。
+9. revision 30 增加 API/worker PostgreSQL 网络等待 initContainer，为最终 `deployed` revision。
+
+全部失败发布均保留可诊断 Job/Helm 状态，并由 `--atomic --wait` 回到稳定 release；不存在 pending release。
+
+#### E15.4 expand/contract 隔离验收
+
+隔离数据库 `messagefeed_section11_20260718` 从空库完整迁移至 `37,false`，共 55 张 public 表。验收过程：
+
+1. 手工 session 持有同一 advisory lock 后，3 秒超时的迁移 Job 在约 3 秒失败，错误为 `acquire database migration lock within 3s: context deadline exceeded`。
+2. 竞争 Job 只有 1 个失败 Pod，证明 `FailJob` 生效；释放 session 后 advisory lock 数量为 0。
+3. v38/v39 expand 创建两张 additive 探针表，数据库为 `39,false`。
+4. v40 contract 在 `MIGRATION_PHASE=expand` 下于 SQL 执行前失败，两张表和版本 39 保持不变。
+5. revision 16 使用的旧 API 镜像连接 v39 数据库后 `/healthz` 与 `/readyz` 均成功，readiness 明确报告 migrations version 39。
+6. 旧 API 测试 Pod 退出后，以 `MIGRATION_PHASE=contract` 执行 v40，探针表被移除，数据库为 `40,false`。
+7. 验收结束后，全部测试 Job、Pod、Secret 和隔离数据库已清理；生产数据库始终为 `37,false`。
+
+#### E15.5 可用性、故障与节点边界
+
+滚动发布：
+
+1. 最终无崩溃滚动发布：公网 `180/180`，集群内 `180/180`。
+2. 长窗口滚动：集群内 `300/300`；公网 `298/300`，两次均为孤立外部 TLS/HTTP 超时，最大连续失败为 1，内部无对应错误。
+3. StatefulSet cloudflared 按 ordinal 1、0 顺序更新；兼容连接器持续 Ready。
+
+单 Pod 故障：
+
+1. 依次删除 API、Web、Gateway、cloudflared StatefulSet 和兼容 cloudflared Pod。
+2. API、Web、Gateway、兼容 cloudflared 分别约 6、13、12、14 秒恢复目标 Ready 数；StatefulSet 同名 Pod 使用新 UID 重建并 Ready。
+3. 全窗口集群内 `/healthz` 与首页均为 `300/300`；公网 `297/300`，三次为孤立外部超时。
+
+节点维护：
+
+1. drain server dry-run 允许 API/Web/Gateway/cloudflared 多副本组件发生一次 eviction。
+2. PostgreSQL、四类 worker 和单副本观测组件由 PDB 拒绝 eviction，证明单节点不能执行整体无感 drain。
+3. 实际 cordon 后删除一个 API Pod，API 保持 1 个 Ready endpoint；替代 Pod 因 `node(s) were unschedulable` 保持 Pending。
+4. uncordon 后 API 恢复 `2/2`；窗口内集群探测 `160/160`，公网 `159/160`。
+
+完整回滚：
+
+1. revision 28 回滚到 revision 16 后，API 使用 `messagefeed-api:role9-20260718-8a454cb690ec`，API/Web/Gateway/cloudflared 均为 1 副本。
+2. 生产库保持 `37,false`、55 张表，公网首页、`/healthz`、`/readyz` 均为 HTTP 200。
+3. revision 29 恢复最终 Chart；联合回滚/恢复窗口公网 `238/240`、集群内 `239/240`，没有连续故障，但记录到 1 次孤立内部超时，因此跨旧单副本拓扑不声明逐请求零损失。
+
+#### E15.6 最终状态与判定
+
+```text
+Helm Chart：messagefeed-0.4.0
+appVersion：0.3.0
+Helm release：revision 30，STATUS=deployed
+后端镜像：messagefeed-api:ha11-20260718-6c86f3721986
+运行 Pod：20，Ready containers：20
+migrate Job：Complete，1/1
+API/Web/Gateway Ready endpoints：2/2/2
+cloudflared：3 个 Ready 连接器，readiness 200
+NetworkPolicy：19
+PDB：14
+ResourceQuota used：pods=20，requests.cpu=850m，requests.memory=1600Mi
+Prometheus targets：7/7 up
+PostgreSQL：37,false；pgvector=0.8.4；public 表=55
+数据基线：users=4，sources=145，items=8010
+LLM：http://198.18.0.1:15721/v1，gpt-5.6-sol
+```
+
+判定：第十一部分“迁移、高可用与回滚”完成。当前承诺范围是单 WSL/K3s 节点内的 Pod 级容错和滚动发布；WSL 停止、Windows 关机、本机断网、K3s server 故障和 PostgreSQL 单实例故障仍会造成整体不可用。
+
+### E16. 下一节实施内容：CI/CD 闭环
+
+1. 在 PR 阶段自动执行 Go test/vet/build、前端 type-check/build 和 Helm lint/template。
+2. 使用 Git SHA 或 SemVer + Git SHA 构建并推送不可变后端、前端镜像。
+3. 部署 K3s staging，执行首页、健康、登录、核心 API、迁移门禁和入口 smoke test。
+4. 生产发布前保留人工审批；发布后采集版本、迁移 Job、Pod rollout 和 Prometheus 状态。
+5. 任一检查失败时自动停止发布，并保留 `helm rollback` 与上一镜像 tag 的恢复路径。

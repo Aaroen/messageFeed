@@ -8,28 +8,30 @@
 
 ## 当前实施状态（2026-07-18）
 
-当前已经完成 Kubernetes 基线、第 9 节应用运行边界拆分和第 10 节安全资源治理：
+当前已经完成 Kubernetes 基线、第 9 节应用运行边界拆分、第 10 节安全资源治理和实施文档第 11 节迁移、高可用与回滚：
 
 1. WSL 内 K3s single-server、动态网络维护和 Helm 工具链已完成。
 2. `deploy/helm/messagefeed` Chart 已建立，现有 PostgreSQL、API、Web、Caddy gateway、cloudflared 和观测栈已由 Helm release `messagefeed` 管理。
-3. Helm release 当前为 revision 16、状态 `deployed`；API 与四类 worker 均为 1 个 Ready 副本，独立 migrate Job 为 Complete。
+3. Helm release 当前为 revision 30、状态 `deployed`；API、Web、Gateway 各为 2 个 Ready 副本，cloudflared 为 3 个 Ready 连接器，四类 worker 各为 1 个 Ready 副本，独立 migrate Job 为 Complete。
 4. PostgreSQL 完整恢复演练已通过，5 个现有 PV 均为 `Retain`，PVC/PV 绑定关系保持不变。
-5. `local-path-retain` 已是唯一默认 StorageClass；Chart `0.3.0` 已建立独立运行身份、默认拒绝 NetworkPolicy、ResourceQuota、LimitRange、PDB 和调度约束。
+5. `local-path-retain` 已是唯一默认 StorageClass；Chart `0.4.0` 已建立独立运行身份、默认拒绝 NetworkPolicy、资源治理、迁移门禁和入口多副本策略。
 
 当前尚未完成：
 
-1. Web、Gateway、cloudflared 多副本及入口故障演练。
-2. 数据库 expand/contract 兼容迁移与 CI/CD 发布回滚闭环。
-3. 真实微服务拆分。
+1. CI/CD 自动发布、staging、人工审批和持续发布观察闭环。
+2. 真实微服务拆分。
+3. 多节点容错和数据库高可用；两者不属于当前单节点阶段承诺。
 
 环境与资产治理状态：
 
 1. `local-path=false`、`local-path-retain=true`，新 PVC 使用唯一默认类，现有 PVC/PV 不迁移。
-2. API、四类 worker 和 migrate 使用 `messagefeed-api:role9-20260718-8a454cb690ec`，业务 Pod PID 1 均为 `tini`；cloudflared 固定为 `2026.6.1`。
+2. API、四类 worker 和 migrate 使用 `messagefeed-api:ha11-20260718-6c86f3721986`，业务 Pod PID 1 均为 `tini`；cloudflared 固定为 `2026.6.1`。
 3. PostgreSQL 恢复库的数据、迁移、pgvector、索引和约束核验通过，公网健康检查通过。
 4. 六个应用角色使用独立零权限 ServiceAccount，19 条 NetworkPolicy 按角色放行，资源配额和 14 个 PDB 已通过故障验收。
+5. 迁移使用 PostgreSQL advisory lock、expand/contract 门禁和失败即终止策略；生产库保持 `37,false`。
+6. 单 Pod 故障和节点 cordon 演练通过；WSL、Windows 和单节点整体故障仍是明确边界。
 
-上述状态是当前事实；后文的入口高可用、CI/CD 和真实微服务拆分仍属于后续方案。
+上述状态是当前事实；后文的 CI/CD、真实微服务拆分和多节点扩展仍属于后续方案。
 
 ## 1. 当前项目情况
 
@@ -65,9 +67,9 @@
 
 1. 仍为单二进制多运行角色，尚未形成独立业务代码和数据边界。
 2. API、worker 和 migrate 已有独立生命周期、安全身份、网络与资源边界，但仍共用单二进制和数据库。
-3. Cloudflare Tunnel 当前存在入口单点或弱高可用风险，偶发 `1033`、`502/504` 时难以定位。
+3. Cloudflare Tunnel 已消除单 Pod 故障点，但全部连接器仍位于同一 WSL 节点，节点或宿主机故障会造成整体不可用。
 4. 已建立并接管多角色 Helm Chart，API、四类 worker 和独立 migrate Job 已完成。
-5. CI/CD、入口多副本和数据库兼容回滚策略还没有形成完整发布闭环。
+5. 数据库兼容回滚已形成手动闭环，CI/CD 自动发布闭环尚未建立。
 6. 真正业务微服务边界尚未成熟，直接拆服务会引入认证、接口、数据一致性和链路追踪复杂度。
 
 ## 2. 总体技术方案
@@ -256,7 +258,7 @@ WSL 本机：K3s server 或主力节点
 
 第一阶段继续使用 Cloudflare Tunnel，不直接开放公网 NodePort、LoadBalancer 或服务器 80/443 入站端口。
 
-当前 cloudflared 已纳入 Helm 管理并固定使用 HTTP/2，当前副本数仍为 1；多副本是后续高可用目标。
+当前 cloudflared 已纳入 Helm 管理并固定使用 HTTP/2。WSL 的 `hostNetwork` 约束下运行 2 副本 OrderedReady StatefulSet，并保留 1 个兼容 Deployment 连接器；三个连接器分别使用指标端口 2010、2011 和 2000。
 
 访问链路：
 
@@ -298,11 +300,11 @@ WSL 本机：K3s server 或主力节点
 
 | 形态 | 方案 | 适用情况 |
 | --- | --- | --- |
-| WSL 单入口 | 只有 WSL 内 `cloudflared` 承载入口 | 当前阶段采用 |
+| WSL 多连接器入口 | 同一 WSL 内 3 个 `cloudflared` 连接器承载入口 | 当前阶段采用 |
 | 严格安全扩展 | 低配常驻服务器承载公网入口，实验室服务器只作为内部 worker 节点 | 后续要求 WSL 关机后仍可访问，且实验室服务器安全要求最高时采用 |
 | 优先级入口扩展 | WSL、实验室服务器、低配服务器分别运行 Tunnel 连接器，通过 Cloudflare 健康检查做优先级切换 | 后续明确要求外部流量也按 WSL > 实验室 > 低配服务器 切换时采用 |
 
-当前阶段只实现 WSL 单入口。WSL 关闭、Windows 关机或本机网络中断时，服务不可用属于当前阶段已知边界；后续持续在线能力通过接入低配常驻服务器和实验室服务器解决。
+当前阶段只实现 WSL 单节点内的多连接器入口。WSL 关闭、Windows 关机或本机网络中断时，服务不可用属于当前阶段已知边界；后续持续在线能力通过接入低配常驻服务器和实验室服务器解决。
 
 暂不引入 Nginx Ingress 的原因：
 
@@ -322,14 +324,14 @@ Cloudflare Tunnel
 
 ## 7. Tunnel 稳定性方案
 
-本节描述目标高可用方案。当前集群已完成单副本 cloudflared、gateway 和独立 API 的入口验收，尚未完成入口多副本故障演练。
+本节所述单节点内高可用方案已经完成。当前集群运行 3 个 cloudflared 连接器，gateway、API 和 Web 各 2 副本，并已完成滚动发布和逐 Pod 故障演练。
 
 当前 Tunnel 偶发 `1033` 或网关错误时，新的方案把入口链路从单点升级为多副本。
 
 目标链路：
 
 ```text
-多节点 cloudflared
+多个 cloudflared 连接器
   -> 多 gateway
   -> 多 api/web
 ```
@@ -338,7 +340,7 @@ Cloudflare Tunnel
 
 | 问题 | 方案 |
 | --- | --- |
-| `cloudflared` 进程单点 | WSL 内 `cloudflared` 至少 2 副本 |
+| `cloudflared` 进程单点 | WSL 内 2 副本有序 StatefulSet + 1 个兼容 Deployment |
 | gateway/API 单点 | WSL 内 Caddy gateway、api、web 均多副本 |
 | 单 Pod 故障 | 通过 Deployment 自恢复、readiness 和 Service endpoint 切换处理 |
 | WSL 关机 | 当前阶段不承诺持续在线，后续由低配常驻服务器和实验室服务器扩展解决 |
@@ -385,6 +387,8 @@ fallback：低配常驻服务器 Tunnel
 3. 对个人项目和小型集群而言，先保证备份、恢复和兼容迁移比立即搭建数据库 HA 更重要。
 4. 当前先以 WSL 长期运行为目标，数据库与应用部署在同一 K3s 环境内，能最小化跨机器网络和权限复杂度。
 
+当前迁移治理已落地：迁移进程在版本读取和 SQL 执行前获取 PostgreSQL advisory lock；从版本 38 起，文件必须标记 `_expand_` 或 `_contract_`。常规发布只允许 expand，并拒绝破坏性 SQL；contract 必须在旧应用停止读取旧结构后显式启用。迁移失败通过 Job `PodFailurePolicy` 立即阻断发布，dirty schema 不自动 force。
+
 ## 9. CI/CD 技术方案
 
 第一阶段采用 GitHub Actions + 镜像仓库 + Helm。
@@ -427,19 +431,21 @@ PR 校验
 4. 向后兼容数据库迁移。
 5. 可回滚镜像 tag。
 
-当前多角色阶段已完成 Helm 接管和基础链路验收；API/source worker 双副本、worker 独立升级、独立迁移和 Helm rollback 已验证，Web/Gateway/cloudflared 仍为单副本。
+当前多角色阶段已完成无感升级基线：API、Web、Gateway 各 2 副本；cloudflared 为 3 个连接器；四类 worker 生产默认各 1 副本，并由数据库 claim/幂等保护短暂双跑；独立迁移和 Helm rollback 已验证。
 
 技术决策：
 
 | 事项 | 方案 |
 | --- | --- |
-| API/Web/Gateway 发布 | RollingUpdate |
+| API/Web/Gateway 发布 | RollingUpdate，`minReadySeconds=10`，`preStop=10s` |
 | 最大不可用 | `maxUnavailable=0` |
 | 最大增量 | `maxSurge=1` |
 | API readiness | `/readyz` |
 | API liveness | `/healthz` |
 | 数据库迁移 | expand/contract |
 | 应用回滚 | Helm rollback 或镜像 tag 回退 |
+| PostgreSQL 更新 | StatefulSet `OnDelete`，人工确认后重建 |
+| cloudflared 更新 | OrderedReady StatefulSet；兼容 Deployment 使用 Recreate |
 
 采用原因：
 
@@ -450,7 +456,7 @@ PR 校验
 
 当前阶段无感升级要求：
 
-1. API 和 worker 已使用 RollingUpdate 并完成双副本演练；Web/Gateway/cloudflared 多副本仍是后续目标。
+1. API、Web、Gateway 和 cloudflared 已完成多副本滚动与单 Pod 故障演练。
 2. readiness 失败的 Pod 不进入 Service endpoints，旧 Pod 在新 Pod ready 前继续接流量。
 3. worker 必须依赖数据库任务锁、job claim 和幂等机制，保证同一 WSL 集群内多副本不会重复处理同一任务。
 4. Windows 关机、WSL 停止、本机断网属于当前阶段不可无感覆盖的故障，后续通过远程服务器扩展解决。

@@ -44,8 +44,10 @@ const (
 	DefaultDeploymentMode = "single_node"
 	DefaultAppRole        = AppRoleAll
 
-	DefaultWorkerMetricsAddr = "127.0.0.1:9090"
-	DefaultMigrationsPath    = "migrations"
+	DefaultWorkerMetricsAddr    = "127.0.0.1:9090"
+	DefaultMigrationsPath       = "migrations"
+	DefaultMigrationPhase       = "expand"
+	DefaultMigrationLockTimeout = 60 * time.Second
 
 	// DefaultLogLevel 是默认日志级别。
 	// 第一阶段使用 info 级别，便于在本地运行时观察启动、请求和关闭行为。
@@ -62,7 +64,7 @@ const (
 
 	DefaultEnvironment          = "development"
 	DefaultObservabilityService = "messagefeed-api"
-	DefaultServiceVersion       = "0.2.0"
+	DefaultServiceVersion       = "0.3.0"
 	DefaultTraceSampleRatio     = 1.0
 
 	DefaultAuthOwnerUsername    = "aroen"
@@ -123,6 +125,12 @@ type RuntimeConfig struct {
 type MigrationConfig struct {
 	// Path 是 migrate CLI 读取迁移文件的相对路径。
 	Path string
+
+	// Phase 决定本次发布只允许 expand 或 contract 类型迁移。
+	Phase string
+
+	// LockTimeout 是 golang-migrate 等待 PostgreSQL 迁移锁的最长时间。
+	LockTimeout time.Duration
 }
 
 func (role AppRole) Valid() bool {
@@ -255,6 +263,8 @@ func Load() (Config, error) {
 	cfg.Runtime.AllowAllRoleInCluster = envBool("ALLOW_ALL_ROLE_IN_CLUSTER", cfg.Runtime.AllowAllRoleInCluster)
 	cfg.Runtime.TrustedProxyCIDRs = envStringList("TRUSTED_PROXY_CIDRS", cfg.Runtime.TrustedProxyCIDRs)
 	cfg.Migrations.Path = envString("MIGRATIONS_PATH", cfg.Migrations.Path)
+	cfg.Migrations.Phase = strings.ToLower(envString("MIGRATION_PHASE", cfg.Migrations.Phase))
+	cfg.Migrations.LockTimeout = envDuration("MIGRATION_LOCK_TIMEOUT", cfg.Migrations.LockTimeout)
 	cfg.Log.Level = strings.ToLower(envString("LOG_LEVEL", cfg.Log.Level))
 
 	cfg.Database.DSN = envString("DATABASE_URL", cfg.Database.DSN)
@@ -317,7 +327,11 @@ func Defaults() Config {
 			DeploymentMode: DefaultDeploymentMode,
 			AppRole:        DefaultAppRole,
 		},
-		Migrations: MigrationConfig{Path: DefaultMigrationsPath},
+		Migrations: MigrationConfig{
+			Path:        DefaultMigrationsPath,
+			Phase:       DefaultMigrationPhase,
+			LockTimeout: DefaultMigrationLockTimeout,
+		},
 		Log: LogConfig{
 			Level: DefaultLogLevel,
 		},
@@ -396,6 +410,14 @@ func (cfg Config) Validate() error {
 	}
 	if cleanMigrationsPath != DefaultMigrationsPath {
 		return fmt.Errorf("MIGRATIONS_PATH must be %q", DefaultMigrationsPath)
+	}
+	switch cfg.Migrations.Phase {
+	case "expand", "contract":
+	default:
+		return fmt.Errorf("unsupported MIGRATION_PHASE %q", cfg.Migrations.Phase)
+	}
+	if cfg.Migrations.LockTimeout < time.Second || cfg.Migrations.LockTimeout > 10*time.Minute {
+		return fmt.Errorf("MIGRATION_LOCK_TIMEOUT must be between 1 and 600 seconds")
 	}
 
 	if _, ok := slogLevels[cfg.Log.Level]; !ok {

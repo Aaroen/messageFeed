@@ -46,6 +46,25 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        - name: wait-for-postgres
+          image: "{{ $root.Values.api.image.repository }}:{{ $root.Values.api.image.tag }}"
+          imagePullPolicy: {{ $root.Values.api.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until nc -z -w 2 messagefeed-postgres 5432; do
+                echo "waiting for PostgreSQL network readiness"
+                sleep 2
+              done
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
       containers:
         - name: worker
           image: "{{ $root.Values.api.image.repository }}:{{ $root.Values.api.image.tag }}"

@@ -29,6 +29,12 @@ func TestDefaults(t *testing.T) {
 	if cfg.Migrations.Path != DefaultMigrationsPath {
 		t.Fatalf("Migrations.Path = %q, want %q", cfg.Migrations.Path, DefaultMigrationsPath)
 	}
+	if cfg.Migrations.Phase != DefaultMigrationPhase {
+		t.Fatalf("Migrations.Phase = %q, want %q", cfg.Migrations.Phase, DefaultMigrationPhase)
+	}
+	if cfg.Migrations.LockTimeout != DefaultMigrationLockTimeout {
+		t.Fatalf("Migrations.LockTimeout = %s, want %s", cfg.Migrations.LockTimeout, DefaultMigrationLockTimeout)
+	}
 	if cfg.Log.SlogLevel() != slog.LevelInfo {
 		t.Fatalf("SlogLevel = %v, want %v", cfg.Log.SlogLevel(), slog.LevelInfo)
 	}
@@ -197,6 +203,41 @@ func TestLoadRejectsUnsafeMigrationsPath(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want unsafe migrations path rejection")
+	}
+}
+
+func TestLoadMigrationPolicySettings(t *testing.T) {
+	t.Setenv("MIGRATION_PHASE", "contract")
+	t.Setenv("MIGRATION_LOCK_TIMEOUT", "120")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Migrations.Phase != "contract" {
+		t.Fatalf("Migrations.Phase = %q", cfg.Migrations.Phase)
+	}
+	if cfg.Migrations.LockTimeout.Seconds() != 120 {
+		t.Fatalf("Migrations.LockTimeout = %s", cfg.Migrations.LockTimeout)
+	}
+}
+
+func TestLoadRejectsInvalidMigrationPolicySettings(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "phase", key: "MIGRATION_PHASE", value: "mixed"},
+		{name: "zero lock timeout", key: "MIGRATION_LOCK_TIMEOUT", value: "0"},
+		{name: "excessive lock timeout", key: "MIGRATION_LOCK_TIMEOUT", value: "601"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(test.key, test.value)
+			if _, err := Load(); err == nil {
+				t.Fatalf("Load() error = nil for %s=%s", test.key, test.value)
+			}
+		})
 	}
 }
 

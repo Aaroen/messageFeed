@@ -1,5 +1,118 @@
-{{/* 部署 Cloudflare Tunnel 连接器及其 readiness 探针。 */}}
+{{/* 使用有序滚动 StatefulSet 部署 Tunnel；ordinal 为 hostNetwork 副本分配独立指标端口。 */}}
 {{- if .Values.cloudflared.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cloudflared
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/component: tunnel
+spec:
+  serviceName: cloudflared-headless
+  replicas: {{ .Values.cloudflared.replicaCount }}
+  podManagementPolicy: OrderedReady
+  minReadySeconds: {{ .Values.cloudflared.minReadySeconds }}
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "messagefeed.selectorLabels" (dict "name" "cloudflared" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.cloudflared.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "messagefeed.selectorLabels" (dict "name" "cloudflared" "root" .) | nindent 8 }}
+        app.kubernetes.io/component: tunnel
+        app.kubernetes.io/part-of: messagefeed
+    spec:
+      hostNetwork: {{ .Values.cloudflared.hostNetwork }}
+      dnsPolicy: {{ ternary "ClusterFirstWithHostNet" "ClusterFirst" .Values.cloudflared.hostNetwork }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      {{- include "messagefeed.podScheduling" (dict "root" . "name" "cloudflared") | nindent 6 }}
+      containers:
+        - name: cloudflared
+          image: "{{ .Values.cloudflared.image.repository }}:{{ .Values.cloudflared.image.tag }}"
+          imagePullPolicy: {{ .Values.cloudflared.image.pullPolicy }}
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --protocol
+            - $(CLOUDFLARED_PROTOCOL)
+            - --grace-period
+            - {{ .Values.cloudflared.gracePeriod | quote }}
+            - run
+            - --token
+            - $(CLOUDFLARED_TUNNEL_TOKEN)
+          env:
+            - name: POD_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: "metadata.labels['apps.kubernetes.io/pod-index']"
+            - name: CLOUDFLARED_METRICS_ADDR
+              value: "127.0.0.1:{{ .Values.cloudflared.metricsPortPrefix }}$(POD_INDEX)"
+            - name: TUNNEL_METRICS
+              value: "$(CLOUDFLARED_METRICS_ADDR)"
+            - name: SSL_CERT_FILE
+              value: /etc/messagefeed-certs/cloudflared-ca-bundle.crt
+            - name: CLOUDFLARED_TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "messagefeed.cloudflaredSecretName" . }}
+                  key: CLOUDFLARED_TUNNEL_TOKEN
+            - name: CLOUDFLARED_PROTOCOL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "messagefeed.cloudflaredSecretName" . }}
+                  key: CLOUDFLARED_PROTOCOL
+          startupProbe:
+            exec:
+              command:
+                - cloudflared
+                - tunnel
+                - ready
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          readinessProbe:
+            exec:
+              command:
+                - cloudflared
+                - tunnel
+                - ready
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.cloudflared.resources | nindent 12 }}
+          volumeMounts:
+            - name: caddy-certs
+              mountPath: /etc/messagefeed-certs
+              readOnly: true
+      volumes:
+        - name: caddy-certs
+          secret:
+            secretName: {{ include "messagefeed.caddySecretName" . }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudflared-headless
+  labels:
+    {{- include "messagefeed.labels" . | nindent 4 }}
+    app.kubernetes.io/name: cloudflared
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "messagefeed.selectorLabels" (dict "name" "cloudflared" "root" .) | nindent 4 }}
+{{- if .Values.cloudflared.compatibilityConnector.enabled }}
+---
+{{/* 保留 0.3.x Deployment 作为控制器迁移和 StatefulSet 滚动期间的兼容连接器。 */}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,7 +122,9 @@ metadata:
     app.kubernetes.io/name: cloudflared
     app.kubernetes.io/component: tunnel
 spec:
-  replicas: {{ .Values.cloudflared.replicaCount }}
+  replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "messagefeed.selectorLabels" (dict "name" "cloudflared" "root" .) | nindent 6 }}
@@ -71,4 +186,5 @@ spec:
         - name: caddy-certs
           secret:
             secretName: {{ include "messagefeed.caddySecretName" . }}
+{{- end }}
 {{- end }}

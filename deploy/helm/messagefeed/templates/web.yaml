@@ -10,17 +10,29 @@ metadata:
     app.kubernetes.io/component: web
 spec:
   replicas: {{ .Values.web.replicaCount }}
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       {{- include "messagefeed.selectorLabels" (dict "name" "web" "root" .) | nindent 6 }}
   template:
     metadata:
+      {{- with .Values.web.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
         {{- include "messagefeed.selectorLabels" (dict "name" "web" "root" .) | nindent 8 }}
         app.kubernetes.io/component: web
         app.kubernetes.io/part-of: messagefeed
     spec:
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
       {{- include "messagefeed.podScheduling" (dict "root" . "name" "web") | nindent 6 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -47,6 +59,10 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 30
             timeoutSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
           resources:
             {{- toYaml .Values.web.resources | nindent 12 }}
 ---

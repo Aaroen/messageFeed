@@ -10,6 +10,13 @@ metadata:
     app.kubernetes.io/component: gateway
 spec:
   replicas: {{ .Values.gateway.replicaCount }}
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       {{- include "messagefeed.selectorLabels" (dict "name" "gateway" "root" .) | nindent 6 }}
@@ -17,12 +24,16 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+        {{- with .Values.gateway.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "messagefeed.selectorLabels" (dict "name" "gateway" "root" .) | nindent 8 }}
         app.kubernetes.io/component: gateway
         app.kubernetes.io/part-of: messagefeed
     spec:
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
       {{- include "messagefeed.podScheduling" (dict "root" . "name" "gateway") | nindent 6 }}
       containers:
         - name: caddy
@@ -46,6 +57,10 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 30
             timeoutSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
           resources:
             {{- toYaml .Values.gateway.resources | nindent 12 }}
           volumeMounts:

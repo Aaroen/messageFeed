@@ -52,11 +52,12 @@ storageClass:
   name: local-path-retain
   defaultClass: true
 
-# 使用按 Git SHA 标记且已导入 K3s containerd 的 API 镜像。
+# 使用按后端内容哈希标记且已导入 K3s containerd 的 API 镜像。
 api:
+  replicaCount: 2
   image:
     repository: messagefeed-api
-    tag: role9-20260718-8a454cb690ec
+    tag: ha11-20260718-6c86f3721986
     pullPolicy: IfNotPresent
 
 # 在 K3s 中启用四类独立 worker；副本数可按任务吞吐独立调整。
@@ -75,6 +76,7 @@ workers:
 
 # 复用已导入 K3s containerd 的现有 Web 镜像。
 web:
+  replicaCount: 2
   image:
     repository: messagefeed-web
     tag: allinone-0703de0
@@ -93,15 +95,18 @@ appSecret:
 
 # gateway 继续引用现有 Caddy 证书和 CA bundle Secret。
 gateway:
+  replicaCount: 2
   tls:
     existingSecret: messagefeed-caddy-certs
 
 # cloudflared 复用现有 Tunnel Secret，并使用 WSL 节点网络出站。
 cloudflared:
+  replicaCount: 2
   image:
     tag: "2026.6.1"
   existingSecret: messagefeed-cloudflared-secret
   hostNetwork: true
+  metricsPortPrefix: "201"
 
 # 覆盖当前公网地址、企业微信及模型服务等非敏感应用参数。
 appConfig:
