@@ -4,7 +4,7 @@ messageFeed 是一个面向个人及小规模用户的信息聚合与可控 AI �
 
 系统以 RSS、Atom 和 JSON Feed 为主要信息入口，提供订阅管理、内容同步、时间线阅读、推荐 Feed、阅读状态管理和来源导入；同时通过 Web 与企业微信接入 AI Agent，为信息查询、内容处理、定时任务和受控操作提供统一执行入口。
 
-> 当前状态：项目处于持续开发阶段，信息聚合、Web 阅读、账户体系、企业微信 Agent、长期记忆和可观测性主链路已经建立；金融行情、更多通知通道和推荐算法仍待完善。
+> 当前状态：项目处于持续开发阶段，信息聚合、Web 阅读、账户体系、企业微信 Agent、长期记忆和可观测性主链路已经建立；K3s 环境已完成应用角色拆分、安全与资源治理、单节点内 Pod 级高可用、滚动发布和 Helm 回滚验证。金融行情、更多通知通道、推荐算法和 CI/CD 闭环仍待完善。
 
 ## 已实现能力
 
@@ -42,13 +42,15 @@ messageFeed 是一个面向个人及小规模用户的信息聚合与可控 AI �
 
 ### 工程与运维
 
-- PostgreSQL、GORM、pgvector 和版本化数据库迁移
-- 后台来源同步、通知、定时任务和 Embedding Worker
-- 健康检查、就绪检查、任务锁和通知幂等
+- PostgreSQL、GORM、pgvector 和带 advisory lock、expand/contract 门禁的版本化迁移
+- API、来源同步、通知、定时任务、Embedding 和迁移等独立运行角色
+- API 与 Worker 独立健康、就绪和指标端点，以及任务锁和通知幂等
 - Prometheus 指标、Loki 日志和 Tempo 链路追踪
 - Grafana 预置数据源与 messageFeed Dashboard
 - Docker 多阶段构建、Docker Compose 和 Caddy HTTPS 统一入口
-- Cloudflare Tunnel 配置及 K3s 部署材料
+- Helm 管理的 K3s 部署、Cloudflare Tunnel 和单节点内多副本入口
+- 独立 ServiceAccount、最小 RBAC、默认拒绝 NetworkPolicy、资源配额和 PDB
+- 原子升级、失败发布自动回滚及完整 Helm rollback 验证
 - Go 单元测试、集成测试、竞态检测和统一验收命令
 
 ## 系统结构
@@ -57,24 +59,25 @@ messageFeed 是一个面向个人及小规模用户的信息聚合与可控 AI �
 Browser / WeChat Work
           |
           v
-    Caddy / Cloudflare
+ Cloudflare Tunnel / Caddy Gateway
           |
     +-----+-----+
     |           |
  Vue Web     Gin API
                 |
-       +--------+---------+
-       |        |         |
-   Feed/Item   Agent    Workers
-       |        |         |
-       +--------+---------+
+         Feed / Item / Agent
                 |
        PostgreSQL + pgvector
+                ^
+                |
+ Source / Notification / Scheduler / Embedding Workers
                 |
  Prometheus / Loki / Tempo / Grafana
 ```
 
-后端采用 Handler、Service、Repository 和 Domain 分层。业务数据、Agent 会话、计划、审计、记忆及追踪记录统一持久化至 PostgreSQL；后台 Worker 当前与 API 运行于同一进程，并通过任务锁保留多节点扩展边界。
+后端采用 Handler、Service、Repository 和 Domain 分层。业务数据、Agent 会话、计划、审计、记忆及追踪记录统一持久化至 PostgreSQL。本地与 Docker Compose 默认使用 `APP_ROLE=all`；集群模式将 API、四类 Worker 和迁移拆分为独立进程，Worker 仅在 `9090` 提供健康、就绪和指标端点。
+
+Helm 安装和升级通过独立 `APP_ROLE=migrate` Job 执行数据库迁移。迁移使用 PostgreSQL advisory lock 串行化，并默认以 `MIGRATION_PHASE=expand` 拒绝 contract 文件和破坏性 SQL；contract 迁移必须显式启用。
 
 ## 快速启动
 
@@ -130,6 +133,18 @@ make compose-down
 make compose-dev
 make compose-dev-watch
 ```
+
+## Kubernetes 部署
+
+仓库提供 [`deploy/helm/messagefeed`](deploy/helm/messagefeed) Helm Chart。当前 Chart 版本为 `0.4.0`，应用版本为 `0.3.0`；当前 K3s 配置与验收范围包括：
+
+- API、Web 和 Gateway 各 2 副本，cloudflared 使用 2 副本 StatefulSet 并保留兼容连接器
+- 来源同步、通知、Agent 定时任务和 Embedding 各 1 个独立 Worker
+- 独立 pre-install/pre-upgrade 迁移 Job、PostgreSQL 就绪等待和迁移失败阻断
+- 最小 RBAC、默认拒绝网络策略、ResourceQuota、LimitRange、PDB 和拓扑分散配置
+- `RollingUpdate`、`--atomic --wait --wait-for-jobs` 发布和 `helm rollback` 恢复路径
+
+[`values-k3s.yaml`](deploy/helm/messagefeed/values-k3s.yaml) 包含当前 WSL2/K3s 环境覆盖值，使用前需要按目标集群调整节点、网段、镜像和 existing Secret。完整实施与验收过程见 [K3s 实施材料](docs/micr-k8s/micr-k8s-implement.md)。
 
 ## 可选集成配置
 
@@ -203,7 +218,9 @@ npm run build
 - 推荐 Feed 仍属于原型实现，尚未形成完整的个性化排序与反馈训练闭环。
 - 金融行情采集、指标计算、告警解释和面向用户的管理界面尚未形成完整闭环。
 - ntfy 等企业微信以外的通知通道尚未正式接入主链路。
-- 当前部署重点为本地单节点与 Cloudflare Tunnel；多节点模式保留了任务锁和幂等边界，但仍需生产级验证。
+- 当前高可用范围限于单 WSL2/K3s 节点内的入口多副本、Pod 故障恢复和滚动发布；节点、K3s server、网络及单实例 PostgreSQL 故障仍会导致整体不可用。
+- 四类 Worker、PostgreSQL 和部分可观测组件仍为单副本，完整节点维护、数据库高可用和多节点调度尚未实现。
+- CI/CD 尚未形成从自动验证、不可变镜像构建到 staging 冒烟、人工审批和生产回滚的完整链路。
 - AI 与 Embedding 能力依赖外部模型服务；未配置时不影响基础 Feed 服务启动。
 
 ## 后续方向
@@ -212,5 +229,5 @@ npm run build
 2. 建立金融标的、行情快照、规则告警与 AI 解读闭环。
 3. 扩充通知通道并完善用户级通知偏好。
 4. 完成 Agent 主从执行重构、长期记忆质量评测和成本治理。
-5. 加强生产部署、安全策略、备份恢复与多节点验收。
+5. 建立 CI/CD 发布闭环，并推进数据库高可用、备份恢复和多节点验收。
 6. 持续校准 OpenAPI、运行配置和用户界面之间的契约。
