@@ -11,13 +11,14 @@ type RolePlan struct {
 	NotificationWorker   bool
 	AgentSchedulerWorker bool
 	EmbeddingWorker      bool
+	ItemEventWorker      bool
 	Migrate              bool
 }
 
 func PlanForRole(role config.AppRole) (RolePlan, error) {
 	switch role {
 	case config.AppRoleAll:
-		return RolePlan{API: true, SourceWorker: true, NotificationWorker: true, AgentSchedulerWorker: true, EmbeddingWorker: true}, nil
+		return RolePlan{API: true, SourceWorker: true, NotificationWorker: true, AgentSchedulerWorker: true, EmbeddingWorker: true, ItemEventWorker: true}, nil
 	case config.AppRoleAPI:
 		return RolePlan{API: true}, nil
 	case config.AppRoleSourceWorker:
@@ -28,6 +29,8 @@ func PlanForRole(role config.AppRole) (RolePlan, error) {
 		return RolePlan{AgentSchedulerWorker: true}, nil
 	case config.AppRoleEmbeddingWorker:
 		return RolePlan{EmbeddingWorker: true}, nil
+	case config.AppRoleItemEventWorker:
+		return RolePlan{ItemEventWorker: true}, nil
 	case config.AppRoleMigrate:
 		return RolePlan{Migrate: true}, nil
 	default:
@@ -36,5 +39,5 @@ func PlanForRole(role config.AppRole) (RolePlan, error) {
 }
 
 func (plan RolePlan) HasWorkers() bool {
-	return plan.SourceWorker || plan.NotificationWorker || plan.AgentSchedulerWorker || plan.EmbeddingWorker
+	return plan.SourceWorker || plan.NotificationWorker || plan.AgentSchedulerWorker || plan.EmbeddingWorker || plan.ItemEventWorker
 }

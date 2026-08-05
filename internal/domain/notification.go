@@ -79,6 +79,7 @@ type NotificationJob struct {
 	MaxAttempts      int
 	LockedBy         string
 	LockedAt         *time.Time
+	LeaseUntil       *time.Time
 	LastError        string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -102,9 +103,10 @@ type NotificationDelivery struct {
 }
 
 type NotificationJobClaimInput struct {
-	Now      time.Time
-	WorkerID string
-	Limit    int
+	Now           time.Time
+	WorkerID      string
+	Limit         int
+	LeaseDuration time.Duration
 }
 
 type NotificationJobListOptions struct {

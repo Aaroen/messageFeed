@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ const (
 	maxAgentEvalCaseListLimit           = 200
 	defaultAgentEvalRunListLimit        = 20
 	maxAgentEvalRunListLimit            = 100
+	defaultAgentScheduledTaskLease      = 2 * time.Minute
+	agentScheduledTaskQueueName         = "agent_scheduled"
 )
 
 type agentScheduledTaskModel struct {
@@ -46,6 +49,7 @@ type agentScheduledTaskModel struct {
 	MaxAttempts          int
 	LockedBy             string
 	LockedAt             *time.Time
+	LeaseUntil           *time.Time
 	LastError            string
 	NextRunAt            *time.Time
 	CompletedAt          *time.Time
@@ -196,13 +200,17 @@ func (r *AgentRepository) ClaimDueAgentScheduledTasks(ctx context.Context, input
 	defer func() { finish(opErr) }()
 
 	input = normalizeAgentScheduledTaskClaimInput(input)
+	claimStarted := time.Now()
 	var models []agentScheduledTaskModel
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := recoverExpiredAgentScheduledTasks(tx, input); err != nil {
+			return err
+		}
 		var ids []int64
 		if err := tx.WithContext(ctx).
 			Model(&agentScheduledTaskModel{}).
 			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("status = ? AND scheduled_at <= ?", string(domain.AgentScheduledTaskStatusQueued), input.Now).
+			Where("status = ? AND scheduled_at <= ? AND (next_run_at IS NULL OR next_run_at <= ?)", string(domain.AgentScheduledTaskStatusQueued), input.Now, input.Now).
 			Order("scheduled_at ASC, id ASC").
 			Limit(input.Limit).
 			Pluck("id", &ids).Error; err != nil {
@@ -215,6 +223,7 @@ func (r *AgentRepository) ClaimDueAgentScheduledTasks(ctx context.Context, input
 			"status":        string(domain.AgentScheduledTaskStatusRunning),
 			"locked_by":     input.WorkerID,
 			"locked_at":     input.Now,
+			"lease_until":   input.Now.Add(input.LeaseDuration),
 			"attempt_count": gorm.Expr("attempt_count + ?", 1),
 			"updated_at":    input.Now,
 		}
@@ -225,8 +234,11 @@ func (r *AgentRepository) ClaimDueAgentScheduledTasks(ctx context.Context, input
 	})
 	if err != nil {
 		opErr = mapRepositoryError(err)
+		metrics.TaskQueueClaimDuration.WithLabelValues(agentScheduledTaskQueueName).Observe(time.Since(claimStarted).Seconds())
 		return nil, opErr
 	}
+	metrics.TaskQueueClaimDuration.WithLabelValues(agentScheduledTaskQueueName).Observe(time.Since(claimStarted).Seconds())
+	r.observeAgentScheduledTaskQueueState(ctx, input.Now)
 	tasks := make([]domain.AgentScheduledTask, 0, len(models))
 	for _, model := range models {
 		tasks = append(tasks, agentScheduledTaskModelToDomain(model))
@@ -235,6 +247,14 @@ func (r *AgentRepository) ClaimDueAgentScheduledTasks(ctx context.Context, input
 }
 
 func (r *AgentRepository) UpdateAgentScheduledTask(ctx context.Context, task domain.AgentScheduledTask) (domain.AgentScheduledTask, error) {
+	return r.updateAgentScheduledTask(ctx, task, "")
+}
+
+func (r *AgentRepository) UpdateAgentScheduledTaskIfOwned(ctx context.Context, task domain.AgentScheduledTask, workerID string) (domain.AgentScheduledTask, error) {
+	return r.updateAgentScheduledTask(ctx, task, strings.TrimSpace(workerID))
+}
+
+func (r *AgentRepository) updateAgentScheduledTask(ctx context.Context, task domain.AgentScheduledTask, workerID string) (domain.AgentScheduledTask, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_scheduled_task.update", "update", "agent_scheduled_tasks")
 	var opErr error
 	defer func() { finish(opErr) }()
@@ -243,8 +263,12 @@ func (r *AgentRepository) UpdateAgentScheduledTask(ctx context.Context, task dom
 	model := agentScheduledTaskModelFromDomain(task)
 	result := r.db.WithContext(ctx).
 		Model(&agentScheduledTaskModel{}).
-		Where("id = ? AND user_id = ?", task.ID, task.UserID).
-		Select("SourceRunID", "Status", "Goal", "TargetChannel", "TargetRef", "ExecutionWindowStart", "ExecutionWindowEnd", "ScheduledAt", "DeliverAt", "FreshnessPolicy", "AllowedCapabilities", "ModelPolicy", "FailurePolicy", "Payload", "AttemptCount", "MaxAttempts", "LockedBy", "LockedAt", "LastError", "NextRunAt", "CompletedAt").
+		Where("id = ? AND user_id = ?", task.ID, task.UserID)
+	if workerID != "" {
+		result = result.Where("locked_by = ? AND status = ?", workerID, string(domain.AgentScheduledTaskStatusRunning))
+	}
+	result = result.
+		Select("SourceRunID", "Status", "Goal", "TargetChannel", "TargetRef", "ExecutionWindowStart", "ExecutionWindowEnd", "ScheduledAt", "DeliverAt", "FreshnessPolicy", "AllowedCapabilities", "ModelPolicy", "FailurePolicy", "Payload", "AttemptCount", "MaxAttempts", "LockedBy", "LockedAt", "LeaseUntil", "LastError", "NextRunAt", "CompletedAt").
 		Updates(&model)
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
@@ -518,7 +542,67 @@ func normalizeAgentScheduledTaskClaimInput(input domain.AgentScheduledTaskClaimI
 	if input.Limit > maxAgentScheduledTaskClaimLimit {
 		input.Limit = maxAgentScheduledTaskClaimLimit
 	}
+	if input.LeaseDuration <= 0 {
+		input.LeaseDuration = defaultAgentScheduledTaskLease
+	}
 	return input
+}
+
+func recoverExpiredAgentScheduledTasks(tx *gorm.DB, input domain.AgentScheduledTaskClaimInput) error {
+	base := tx.Model(&agentScheduledTaskModel{}).
+		Where("status = ? AND lease_until IS NOT NULL AND lease_until <= ?", string(domain.AgentScheduledTaskStatusRunning), input.Now)
+	requeued := base.Where("attempt_count < max_attempts").Updates(map[string]interface{}{
+		"status":       string(domain.AgentScheduledTaskStatusQueued),
+		"scheduled_at": input.Now,
+		"completed_at": nil,
+		"locked_by":    "",
+		"locked_at":    nil,
+		"lease_until":  nil,
+		"next_run_at":  input.Now,
+		"last_error":   gorm.Expr("CASE WHEN COALESCE(last_error, '') = '' THEN ? ELSE last_error END", "worker lease expired"),
+		"updated_at":   input.Now,
+	})
+	if requeued.Error != nil {
+		return requeued.Error
+	}
+	failed := base.Where("attempt_count >= max_attempts").Updates(map[string]interface{}{
+		"status":       string(domain.AgentScheduledTaskStatusFailed),
+		"completed_at": input.Now,
+		"locked_by":    "",
+		"locked_at":    nil,
+		"lease_until":  nil,
+		"last_error":   gorm.Expr("CASE WHEN COALESCE(last_error, '') = '' THEN ? ELSE last_error END", "worker lease expired"),
+		"updated_at":   input.Now,
+	})
+	if failed.Error != nil {
+		return failed.Error
+	}
+	recovered := requeued.RowsAffected + failed.RowsAffected
+	if recovered > 0 {
+		metrics.TaskQueueLeaseRecoveriesTotal.WithLabelValues(agentScheduledTaskQueueName).Add(float64(recovered))
+	}
+	if failed.RowsAffected > 0 {
+		metrics.TaskQueueDeadLettersTotal.WithLabelValues(agentScheduledTaskQueueName).Add(float64(failed.RowsAffected))
+	}
+	return nil
+}
+
+func (r *AgentRepository) observeAgentScheduledTaskQueueState(ctx context.Context, now time.Time) {
+	var depth int64
+	if err := r.db.WithContext(ctx).Model(&agentScheduledTaskModel{}).
+		Where("status = ?", string(domain.AgentScheduledTaskStatusQueued)).Count(&depth).Error; err != nil {
+		return
+	}
+	var oldest time.Time
+	if err := r.db.WithContext(ctx).Model(&agentScheduledTaskModel{}).
+		Where("status = ?", string(domain.AgentScheduledTaskStatusQueued)).Select("MIN(scheduled_at)").Scan(&oldest).Error; err != nil {
+		return
+	}
+	var oldestPtr *time.Time
+	if !oldest.IsZero() {
+		oldestPtr = &oldest
+	}
+	metrics.ObserveTaskQueueState(agentScheduledTaskQueueName, depth, oldestPtr, now)
 }
 
 func normalizeAgentScheduledTaskListOptions(options domain.AgentScheduledTaskListOptions) domain.AgentScheduledTaskListOptions {
@@ -634,6 +718,7 @@ func agentScheduledTaskModelFromDomain(task domain.AgentScheduledTask) agentSche
 		MaxAttempts:          task.MaxAttempts,
 		LockedBy:             task.LockedBy,
 		LockedAt:             task.LockedAt,
+		LeaseUntil:           task.LeaseUntil,
 		LastError:            task.LastError,
 		NextRunAt:            task.NextRunAt,
 		CompletedAt:          task.CompletedAt,
@@ -668,6 +753,7 @@ func agentScheduledTaskModelToDomain(model agentScheduledTaskModel) domain.Agent
 		MaxAttempts:          model.MaxAttempts,
 		LockedBy:             model.LockedBy,
 		LockedAt:             model.LockedAt,
+		LeaseUntil:           model.LeaseUntil,
 		LastError:            model.LastError,
 		NextRunAt:            model.NextRunAt,
 		CompletedAt:          model.CompletedAt,

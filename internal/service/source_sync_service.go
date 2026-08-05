@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
 	"messagefeed/internal/observability"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +21,10 @@ type SourceFetchJobStore interface {
 	ClaimDueJobs(ctx context.Context, input domain.SourceFetchJobClaimInput) ([]domain.SourceFetchJob, error)
 	UpdateJob(ctx context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error)
 	CreateAttempt(ctx context.Context, attempt domain.SourceFetchAttempt) (domain.SourceFetchAttempt, error)
+}
+
+type ownedSourceFetchJobStore interface {
+	UpdateJobIfOwned(ctx context.Context, job domain.SourceFetchJob, workerID string) (domain.SourceFetchJob, error)
 }
 
 type SourceSyncTaskLocker interface {
@@ -106,6 +112,7 @@ type RunSourceSyncOnceInput struct {
 	EnqueueLimit       int
 	ClaimLimit         int
 	DefaultMaxAttempts int
+	LeaseDuration      time.Duration
 }
 
 type RunSourceSyncOnceResult struct {
@@ -141,35 +148,39 @@ func (s *SourceSyncService) RunOnce(ctx context.Context, input RunSourceSyncOnce
 		input.LockTTL = time.Minute
 	}
 
-	var result RunSourceSyncOnceResult
-	run := func(runCtx context.Context) error {
+	if s == nil || s.fetchJobRepository == nil {
+		return RunSourceSyncOnceResult{}, fmt.Errorf("source sync service is not configured")
+	}
+	if s.taskLocker == nil {
+		return s.runOnceUnlocked(ctx, input)
+	}
+
+	now := input.Now
+	if now.IsZero() {
+		now = s.now().UTC()
+	} else {
+		now = now.UTC()
+	}
+	maxAttempts := input.DefaultMaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	var enqueued EnqueueDueSourcesResult
+	if err := s.taskLocker.WithLock(ctx, input.LockName, input.LockTTL, func(lockCtx context.Context) error {
 		var err error
-		result, err = s.runOnceUnlocked(runCtx, input)
+		enqueued, err = s.EnqueueDueSources(lockCtx, EnqueueDueSourcesInput{
+			Now: now, Limit: input.EnqueueLimit, MaxAttempts: maxAttempts,
+		})
 		return err
-	}
-	if s != nil && s.taskLocker != nil {
-		if err := s.taskLocker.WithLock(ctx, input.LockName, input.LockTTL, run); err != nil {
-			return RunSourceSyncOnceResult{}, err
-		}
-		return result, nil
-	}
-	if err := run(ctx); err != nil {
+	}); err != nil {
 		return RunSourceSyncOnceResult{}, err
 	}
-	return result, nil
+	return s.runOnceAfterEnqueue(ctx, input, enqueued, now)
 }
 
 func (s *SourceSyncService) runOnceUnlocked(ctx context.Context, input RunSourceSyncOnceInput) (RunSourceSyncOnceResult, error) {
-	ctx, span := observability.StartSpan(ctx, "service.source_sync.run_once",
-		attribute.String("worker.id", input.WorkerID),
-		attribute.Int("claim.limit", input.ClaimLimit),
-	)
-	var opErr error
-	defer func() { observability.EndSpan(span, opErr) }()
-
 	if s == nil || s.fetchJobRepository == nil {
-		opErr = fmt.Errorf("source sync service is not configured")
-		return RunSourceSyncOnceResult{}, opErr
+		return RunSourceSyncOnceResult{}, fmt.Errorf("source sync service is not configured")
 	}
 	now := input.Now
 	if now.IsZero() {
@@ -188,14 +199,24 @@ func (s *SourceSyncService) runOnceUnlocked(ctx context.Context, input RunSource
 		MaxAttempts: defaultMaxAttempts,
 	})
 	if err != nil {
-		opErr = err
-		return RunSourceSyncOnceResult{}, opErr
+		return RunSourceSyncOnceResult{}, err
 	}
+	return s.runOnceAfterEnqueue(ctx, input, enqueued, now)
+}
+
+func (s *SourceSyncService) runOnceAfterEnqueue(ctx context.Context, input RunSourceSyncOnceInput, enqueued EnqueueDueSourcesResult, now time.Time) (RunSourceSyncOnceResult, error) {
+	ctx, span := observability.StartSpan(ctx, "service.source_sync.run_once",
+		attribute.String("worker.id", input.WorkerID),
+		attribute.Int("claim.limit", input.ClaimLimit),
+	)
+	var opErr error
+	defer func() { observability.EndSpan(span, opErr) }()
 
 	jobs, err := s.fetchJobRepository.ClaimDueJobs(ctx, domain.SourceFetchJobClaimInput{
-		Now:      now,
-		WorkerID: input.WorkerID,
-		Limit:    input.ClaimLimit,
+		Now:           now,
+		WorkerID:      input.WorkerID,
+		Limit:         input.ClaimLimit,
+		LeaseDuration: input.LeaseDuration,
 	})
 	if err != nil {
 		opErr = err
@@ -390,10 +411,14 @@ func (s *SourceSyncService) ExecuteFetchJob(ctx context.Context, input ExecuteSo
 	}
 
 	job := input.Job
+	workerID := job.LockedBy
 	job.Status = domain.SourceFetchJobStatusSucceeded
 	job.FinishedAt = timePtr(s.now().UTC())
 	job.LastError = ""
-	updatedJob, err := s.fetchJobRepository.UpdateJob(ctx, job)
+	job.LockedBy = ""
+	job.LockedAt = nil
+	job.LeaseUntil = nil
+	updatedJob, err := s.updateFetchJobOwned(ctx, job, workerID)
 	if err != nil {
 		opErr = err
 		return ExecuteSourceFetchJobResult{}, opErr
@@ -452,6 +477,7 @@ func (s *SourceSyncService) recordFetchJobFailure(
 		return ExecuteSourceFetchJobResult{}, attemptErr
 	}
 
+	workerID := job.LockedBy
 	job.Status = domain.SourceFetchJobStatusFailed
 	if shouldRetrySourceFetchJob(job) {
 		job.Status = domain.SourceFetchJobStatusQueued
@@ -465,9 +491,15 @@ func (s *SourceSyncService) recordFetchJobFailure(
 		job.FinishedAt = timePtr(s.now().UTC())
 	}
 	job.LastError = message
-	updatedJob, jobErr := s.fetchJobRepository.UpdateJob(ctx, job)
+	job.LeaseUntil = nil
+	updatedJob, jobErr := s.updateFetchJobOwned(ctx, job, workerID)
 	if jobErr != nil {
 		return ExecuteSourceFetchJobResult{}, jobErr
+	}
+	if updatedJob.Status == domain.SourceFetchJobStatusQueued {
+		metrics.TaskQueueRetriesTotal.WithLabelValues("source_fetch").Inc()
+	} else if updatedJob.Status == domain.SourceFetchJobStatusFailed {
+		metrics.TaskQueueDeadLettersTotal.WithLabelValues("source_fetch").Inc()
 	}
 
 	return ExecuteSourceFetchJobResult{
@@ -475,6 +507,13 @@ func (s *SourceSyncService) recordFetchJobFailure(
 		Attempt: attempt,
 		Source:  updatedSource,
 	}, nil
+}
+
+func (s *SourceSyncService) updateFetchJobOwned(ctx context.Context, job domain.SourceFetchJob, workerID string) (domain.SourceFetchJob, error) {
+	if owned, ok := s.fetchJobRepository.(ownedSourceFetchJobStore); ok && strings.TrimSpace(workerID) != "" {
+		return owned.UpdateJobIfOwned(ctx, job, workerID)
+	}
+	return s.fetchJobRepository.UpdateJob(ctx, job)
 }
 
 func (s *SourceSyncService) recordSourceFetchSuccess(ctx context.Context, source domain.Source, durationMS int, itemCount int) (domain.Source, error) {

@@ -763,9 +763,11 @@ func fakeProgressPhaseExists(phases []AgentProgressPhaseResponse, key string) bo
 
 func TestAgentSessionServiceCancelScheduledTaskWritesAuditAndProgressEvent(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	lockedAt := now.Add(-time.Second)
+	leaseUntil := now.Add(time.Minute)
 	repository := &fakeAgentProgressRepository{
 		tasks: []domain.AgentScheduledTask{
-			{ID: 20, UserID: 1, SessionID: 2, TurnID: 3, Status: domain.AgentScheduledTaskStatusQueued, Goal: "定时摘要", UpdatedAt: now.Add(-time.Minute)},
+			{ID: 20, UserID: 1, SessionID: 2, TurnID: 3, Status: domain.AgentScheduledTaskStatusQueued, Goal: "定时摘要", LockedBy: "worker-1", LockedAt: &lockedAt, LeaseUntil: &leaseUntil, UpdatedAt: now.Add(-time.Minute)},
 		},
 	}
 	service := NewAgentSessionService(repository, WithAgentSessionNow(func() time.Time { return now }))
@@ -776,6 +778,9 @@ func TestAgentSessionServiceCancelScheduledTaskWritesAuditAndProgressEvent(t *te
 	}
 	if result.Task.Status != string(domain.AgentScheduledTaskStatusCanceled) {
 		t.Fatalf("task = %#v", result.Task)
+	}
+	if repository.tasks[0].LockedBy != "" || repository.tasks[0].LockedAt != nil || repository.tasks[0].LeaseUntil != nil {
+		t.Fatalf("cancelled task lease = %#v", repository.tasks[0])
 	}
 	if len(repository.audits) != 1 || repository.audits[0].EventType != "agent.scheduled_task_canceled" {
 		t.Fatalf("audits = %#v", repository.audits)

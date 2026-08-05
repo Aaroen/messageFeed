@@ -3835,6 +3835,9 @@ func (s *AgentSessionService) CancelScheduledTask(ctx context.Context, auth Curr
 	}
 	now := s.now().UTC()
 	task.Status = domain.AgentScheduledTaskStatusCanceled
+	task.LockedBy = ""
+	task.LockedAt = nil
+	task.LeaseUntil = nil
 	task.LastError = ""
 	task.NextRunAt = nil
 	task.CompletedAt = &now

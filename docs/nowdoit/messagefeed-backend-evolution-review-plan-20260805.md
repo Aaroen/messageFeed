@@ -1,6 +1,7 @@
 ---
 type: technical-note
-status: planned
+status: in_progress
+p0_status: implemented
 project: messageFeed
 language: go
 framework:
@@ -46,17 +47,17 @@ updated: 2026-08-05
 
 | 项目 | 当前事实 | 直接影响 |
 | --- | --- | --- |
-| 后端 | 同一 Go 二进制通过 `APP_ROLE` 运行 API、四类 worker 和 migrate | 已有进程级角色拆分，仍不是独立代码库和独立数据边界的微服务 |
+| 后端 | 同一 Go 二进制通过 `APP_ROLE` 运行 API、五类 worker 和 migrate | 已有进程级角色拆分，仍不是独立代码库和独立数据边界的微服务 |
 | 异步任务 | PostgreSQL 任务表、`FOR UPDATE SKIP LOCKED`、定时轮询 | 当前规模足够，暂不需要 MQ |
 | Redis/MQ | 主项目未部署 Redis、RabbitMQ 或 Kafka | 只能通过专项实验补齐理论与实践证据 |
 | Agent | Web 请求同步执行，企业微信请求在 API goroutine 中异步执行 | Pod 重启可能中断任务；取消和会话锁依赖单 Pod 内存 |
-| K3s | 单节点；API/Web/Gateway 各 2 副本，四类 worker 各 1 副本 | 具备 Pod 级冗余，不具备节点级高可用 |
+| K3s | 单节点；API/Web/Gateway 各 2 副本，五类 worker 各 1 副本 | 具备 Pod 级冗余，不具备节点级高可用 |
 | PostgreSQL | 单副本、节点本地 RWO 卷 | 数据库和节点是整体可用性的主要单点 |
 | 运行数据 | 数据库约 61 MB、活跃连接 7 个、队列压力较低 | 当前优先级是可靠性和可解释性，不是容量扩展 |
 
 已经发现的具体边界：
 
-1. `item_events` 存在 6 条长期 `pending` 记录，但当前启动计划没有对应消费角色。
+1. P0 实施前 `item_events` 存在长期 `pending` 记录且没有对应消费角色；现已接入 `item-event-worker`，历史数据仍需按业务语义处理。
 2. 抓取 worker 的全局锁覆盖入队、领取和执行整个批次，增加副本后仍会被串行化。
 3. 各队列没有统一的租约续期、过期重入和故障恢复协议。
 4. Agent 的 `sessionLocks`、活动进程索引和取消信号位于 API 进程内。
@@ -82,6 +83,21 @@ P0：修复 PostgreSQL 任务可靠性
 ### 目标
 
 让 worker 在正常完成、超时、进程重启、重复领取和旧 worker 恢复五种情况下都能得到可解释结果。
+
+### 当前实现
+
+截至 2026-08-05，P0 已完成以下代码闭环：
+
+1. `source_fetch_jobs`、`notification_jobs`、`ai_analysis_jobs`、`agent_scheduled_tasks`、`agent_fact_index_jobs` 和 `item_events` 均支持租约字段；领取使用 `FOR UPDATE SKIP LOCKED`，领取前回收过期任务。
+2. 任务达到 `max_attempts` 后进入失败终态；未达到上限时按重试时间重新入队，并清除旧 worker 的锁和租约。
+3. 任务完成更新支持 owner 条件，旧 worker 在租约失效后不能覆盖新 worker 的状态。
+4. Source Worker 的分布式锁仅覆盖到期来源扫描和入队，领取及抓取执行位于锁外。
+5. `item_events` 已接入独立 `item-event-worker` 角色、告警规则处理器、启动计划、Helm Deployment、RBAC、NetworkPolicy 和指标抓取。
+6. 统一提供队列深度、最老任务年龄、领取耗时、重试、租约回收和死信指标。
+
+未完成项：数据库中的历史 `item_events` pending 记录尚未在当前环境执行业务清理；Redis、RabbitMQ 和双节点 K3s 仍属于后续专项实验，不计入 P0 已落地能力。
+
+验证记录：`go test ./...`、`go vet ./...` 和 `helm lint deploy/helm/messagefeed -f deploy/helm/messagefeed/values-k3s.yaml` 已通过。`go test -race ./...` 仍会命中既有 Agent 异步测试替身的数据竞争，未将其归因于本次队列改动。
 
 ### 实施顺序
 
@@ -214,8 +230,8 @@ producer -> durable exchange -> durable queue -> consumer
 ## 执行清单
 
 - [ ] 盘点并处理长期 `item_events` pending 记录，先确认业务语义，不直接删除数据。
-- [ ] 统一任务租约、超时回收、重试和幂等字段及指标。
-- [ ] 缩小 source worker 全局锁范围，验证双副本并行执行。
+- [x] 统一任务租约、超时回收、重试和幂等字段及指标。
+- [x] 缩小 source worker 全局锁范围，接入 item-event-worker 消费角色。
 - [ ] 设计并实现持久化 Agent execution job 和 `agent-worker` 角色。
 - [ ] 完成隔离环境双节点 K3s 实验并保留命令、日志和故障现象。
 - [ ] 在独立实验环境完成 Redis cache-aside 和故障降级验证。

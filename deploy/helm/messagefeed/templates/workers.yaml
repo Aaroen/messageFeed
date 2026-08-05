@@ -150,4 +150,10 @@ spec:
 {{- end }}
 {{- if .Values.workers.embedding.enabled }}
 {{ include "messagefeed.workerWorkload" (dict "root" . "config" .Values.workers.embedding "name" "embedding-worker" "role" "embedding-worker") }}
+{{- if .Values.workers.itemEvent.enabled }}
+---
+{{- end }}
+{{- end }}
+{{- if .Values.workers.itemEvent.enabled }}
+{{ include "messagefeed.workerWorkload" (dict "root" . "config" .Values.workers.itemEvent "name" "item-event-worker" "role" "item-event-worker") }}
 {{- end }}

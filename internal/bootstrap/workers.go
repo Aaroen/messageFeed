@@ -22,6 +22,7 @@ type workerSet struct {
 	notification   *service.NotificationWorkerService
 	agentScheduler *service.AgentScheduledTaskWorkerService
 	embedding      *service.AgentEmbeddingWorkerService
+	itemEvent      *service.ItemEventWorkerService
 }
 
 func (workers workerSet) validate(role config.AppRole, plan RolePlan) error {
@@ -36,6 +37,9 @@ func (workers workerSet) validate(role config.AppRole, plan RolePlan) error {
 	}
 	if plan.EmbeddingWorker && workers.embedding == nil && role != config.AppRoleAll {
 		return fmt.Errorf("embedding worker dependencies are not configured")
+	}
+	if plan.ItemEventWorker && workers.itemEvent == nil && role != config.AppRoleAll {
+		return fmt.Errorf("item event worker dependencies are not configured")
 	}
 	return nil
 }
@@ -66,6 +70,11 @@ func startWorkerLoops(ctx context.Context, logger *slog.Logger, nodeID string, p
 	if plan.EmbeddingWorker && workers.embedding != nil {
 		start(config.AppRoleEmbeddingWorker, func() {
 			runAgentEmbeddingWorker(ctx, logger, workerID(nodeID, config.AppRoleEmbeddingWorker), workers.embedding)
+		})
+	}
+	if plan.ItemEventWorker && workers.itemEvent != nil {
+		start(config.AppRoleItemEventWorker, func() {
+			runItemEventWorker(ctx, logger, workerID(nodeID, config.AppRoleItemEventWorker), workers.itemEvent)
 		})
 	}
 }
@@ -151,6 +160,26 @@ func runAgentEmbeddingWorker(ctx context.Context, logger *slog.Logger, workerID 
 			logger.Warn("agent embedding worker run failed", "error", err)
 		} else if result.ClaimedCount > 0 {
 			logger.Info("agent embedding worker run completed", "claimed", result.ClaimedCount, "succeeded", result.SucceededCount, "failed", result.FailedCount, "skipped", result.SkippedCount)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func runItemEventWorker(ctx context.Context, logger *slog.Logger, workerID string, workerService *service.ItemEventWorkerService) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		runCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		result, err := workerService.RunOnce(runCtx, service.RunItemEventWorkerOnceInput{WorkerID: workerID, Limit: 20})
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			logger.Warn("item event worker run failed", "error", err)
+		} else if result.ClaimedCount > 0 {
+			logger.Info("item event worker run completed", "claimed", result.ClaimedCount, "processed", result.ProcessedCount, "failed", result.FailureCount, "candidates", result.CandidateCount)
 		}
 		select {
 		case <-ctx.Done():

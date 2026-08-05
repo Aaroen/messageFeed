@@ -54,6 +54,16 @@ scrape_configs:
           app_role: embedding-worker
           environment: development
 
+  - job_name: messagefeed-item-event-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - item-event-worker:9090
+        labels:
+          service: messagefeed-item-event-worker
+          app_role: item-event-worker
+          environment: development
+
   - job_name: prometheus
     static_configs:
       - targets:

@@ -5,11 +5,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
 	"strconv"
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+)
+
+const (
+	defaultAgentFactIndexJobLease = 2 * time.Minute
+	agentFactIndexJobQueueName    = "agent_fact_index"
 )
 
 type agentFactEmbeddingModel struct {
@@ -36,6 +43,12 @@ type agentFactIndexJobModel struct {
 	ProcessedCount int
 	FailedCount    int
 	ErrorMessage   string
+	AttemptCount   int
+	MaxAttempts    int
+	LockedBy       string
+	LockedAt       *time.Time
+	LeaseUntil     *time.Time
+	NextRunAt      *time.Time
 	StartedAt      *time.Time
 	FinishedAt     *time.Time
 	CreatedAt      time.Time
@@ -252,14 +265,30 @@ func (r *AgentRepository) CreateAgentFactIndexJob(ctx context.Context, job domai
 }
 
 func (r *AgentRepository) UpdateAgentFactIndexJob(ctx context.Context, job domain.AgentFactIndexJob) (domain.AgentFactIndexJob, error) {
+	return r.updateAgentFactIndexJob(ctx, job, "")
+}
+
+func (r *AgentRepository) UpdateAgentFactIndexJobIfOwned(ctx context.Context, job domain.AgentFactIndexJob, workerID string) (domain.AgentFactIndexJob, error) {
+	return r.updateAgentFactIndexJob(ctx, job, strings.TrimSpace(workerID))
+}
+
+func (r *AgentRepository) updateAgentFactIndexJob(ctx context.Context, job domain.AgentFactIndexJob, workerID string) (domain.AgentFactIndexJob, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.agent_fact_index_job.update", "update", "agent_fact_index_jobs")
 	var opErr error
 	defer func() { finish(opErr) }()
 
 	model := agentFactIndexJobModelFromDomain(normalizeAgentFactIndexJob(job))
+	model.UpdatedAt = job.UpdatedAt
+	if model.UpdatedAt.IsZero() {
+		model.UpdatedAt = time.Now().UTC()
+	}
 	result := r.db.WithContext(ctx).
 		Model(&agentFactIndexJobModel{}).
-		Where("id = ?", job.ID).
+		Where("id = ?", job.ID)
+	if workerID != "" {
+		result = result.Where("locked_by = ? AND status = ?", workerID, string(domain.AgentFactIndexJobRunning))
+	}
+	result = result.
 		Updates(map[string]any{
 			"status":          model.Status,
 			"cursor_json":     model.Cursor,
@@ -267,9 +296,15 @@ func (r *AgentRepository) UpdateAgentFactIndexJob(ctx context.Context, job domai
 			"processed_count": model.ProcessedCount,
 			"failed_count":    model.FailedCount,
 			"error_message":   model.ErrorMessage,
+			"attempt_count":   model.AttemptCount,
+			"max_attempts":    model.MaxAttempts,
+			"locked_by":       model.LockedBy,
+			"locked_at":       model.LockedAt,
+			"lease_until":     model.LeaseUntil,
+			"next_run_at":     model.NextRunAt,
 			"started_at":      model.StartedAt,
 			"finished_at":     model.FinishedAt,
-			"updated_at":      time.Now().UTC(),
+			"updated_at":      model.UpdatedAt,
 		})
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
@@ -293,34 +328,44 @@ func (r *AgentRepository) ClaimPendingAgentFactIndexJobs(ctx context.Context, in
 	defer func() { finish(opErr) }()
 
 	input = normalizeAgentFactIndexJobClaimInput(input)
+	claimStarted := time.Now()
 	var models []agentFactIndexJobModel
-	err := r.db.WithContext(ctx).Raw(`
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := recoverExpiredAgentFactIndexJobs(tx, input); err != nil {
+			return err
+		}
+		return tx.WithContext(ctx).Raw(`
 		UPDATE agent_fact_index_jobs
 		SET
 			status = ?,
 			started_at = COALESCE(started_at, ?),
+			locked_by = ?,
+			locked_at = ?,
+			lease_until = ?,
+			attempt_count = attempt_count + 1,
+			next_run_at = NULL,
 			updated_at = ?
 		WHERE id IN (
 			SELECT id
 			FROM agent_fact_index_jobs
-			WHERE job_type = ? AND status = ?
+			WHERE job_type = ? AND status = ? AND (next_run_at IS NULL OR next_run_at <= ?)
 			ORDER BY created_at ASC, id ASC
 			LIMIT ?
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING *
-	`, string(domain.AgentFactIndexJobRunning), input.Now, input.Now, string(input.JobType), string(domain.AgentFactIndexJobPending), input.Limit).Scan(&models).Error
+		`, string(domain.AgentFactIndexJobRunning), input.Now, input.WorkerID, input.Now, input.Now.Add(input.LeaseDuration), input.Now, string(input.JobType), string(domain.AgentFactIndexJobPending), input.Now, input.Limit).Scan(&models).Error
+	})
 	if err != nil {
 		opErr = mapRepositoryError(err)
+		metrics.TaskQueueClaimDuration.WithLabelValues(agentFactIndexJobQueueName).Observe(time.Since(claimStarted).Seconds())
 		return nil, opErr
 	}
+	metrics.TaskQueueClaimDuration.WithLabelValues(agentFactIndexJobQueueName).Observe(time.Since(claimStarted).Seconds())
+	r.observeAgentFactIndexQueueState(ctx, input.Now)
 	jobs := make([]domain.AgentFactIndexJob, 0, len(models))
 	for _, model := range models {
 		job := agentFactIndexJobModelToDomain(model)
-		if job.Cursor == nil {
-			job.Cursor = domain.AgentJSON{}
-		}
-		job.Cursor["worker_id"] = input.WorkerID
 		jobs = append(jobs, job)
 	}
 	return jobs, nil
@@ -487,6 +532,9 @@ func normalizeAgentFactIndexJob(job domain.AgentFactIndexJob) domain.AgentFactIn
 		job.Cursor = domain.AgentJSON{}
 	}
 	job.ErrorMessage = strings.TrimSpace(job.ErrorMessage)
+	if job.MaxAttempts < 1 {
+		job.MaxAttempts = 3
+	}
 	return job
 }
 
@@ -509,7 +557,67 @@ func normalizeAgentFactIndexJobClaimInput(input domain.AgentFactIndexJobClaimInp
 	} else {
 		input.Now = input.Now.UTC()
 	}
+	if input.LeaseDuration <= 0 {
+		input.LeaseDuration = defaultAgentFactIndexJobLease
+	}
 	return input
+}
+
+func recoverExpiredAgentFactIndexJobs(tx *gorm.DB, input domain.AgentFactIndexJobClaimInput) error {
+	base := tx.Model(&agentFactIndexJobModel{}).
+		Where("job_type = ? AND status = ? AND lease_until IS NOT NULL AND lease_until <= ?", string(input.JobType), string(domain.AgentFactIndexJobRunning), input.Now)
+	requeued := base.Where("attempt_count < max_attempts").Updates(map[string]interface{}{
+		"status":        string(domain.AgentFactIndexJobPending),
+		"started_at":    nil,
+		"finished_at":   nil,
+		"locked_by":     "",
+		"locked_at":     nil,
+		"lease_until":   nil,
+		"next_run_at":   input.Now,
+		"error_message": gorm.Expr("CASE WHEN COALESCE(error_message, '') = '' THEN ? ELSE error_message END", "worker lease expired"),
+		"updated_at":    input.Now,
+	})
+	if requeued.Error != nil {
+		return requeued.Error
+	}
+	failed := base.Where("attempt_count >= max_attempts").Updates(map[string]interface{}{
+		"status":        string(domain.AgentFactIndexJobFailed),
+		"finished_at":   input.Now,
+		"locked_by":     "",
+		"locked_at":     nil,
+		"lease_until":   nil,
+		"error_message": gorm.Expr("CASE WHEN COALESCE(error_message, '') = '' THEN ? ELSE error_message END", "worker lease expired"),
+		"updated_at":    input.Now,
+	})
+	if failed.Error != nil {
+		return failed.Error
+	}
+	recovered := requeued.RowsAffected + failed.RowsAffected
+	if recovered > 0 {
+		metrics.TaskQueueLeaseRecoveriesTotal.WithLabelValues(agentFactIndexJobQueueName).Add(float64(recovered))
+	}
+	if failed.RowsAffected > 0 {
+		metrics.TaskQueueDeadLettersTotal.WithLabelValues(agentFactIndexJobQueueName).Add(float64(failed.RowsAffected))
+	}
+	return nil
+}
+
+func (r *AgentRepository) observeAgentFactIndexQueueState(ctx context.Context, now time.Time) {
+	var depth int64
+	if err := r.db.WithContext(ctx).Model(&agentFactIndexJobModel{}).
+		Where("job_type = ? AND status = ?", string(domain.AgentFactIndexJobEmbed), string(domain.AgentFactIndexJobPending)).Count(&depth).Error; err != nil {
+		return
+	}
+	var oldest time.Time
+	if err := r.db.WithContext(ctx).Model(&agentFactIndexJobModel{}).
+		Where("job_type = ? AND status = ?", string(domain.AgentFactIndexJobEmbed), string(domain.AgentFactIndexJobPending)).Select("MIN(COALESCE(next_run_at, created_at))").Scan(&oldest).Error; err != nil {
+		return
+	}
+	var oldestPtr *time.Time
+	if !oldest.IsZero() {
+		oldestPtr = &oldest
+	}
+	metrics.ObserveTaskQueueState(agentFactIndexJobQueueName, depth, oldestPtr, now)
 }
 
 func agentFactIndexJobModelFromDomain(job domain.AgentFactIndexJob) agentFactIndexJobModel {
@@ -523,6 +631,12 @@ func agentFactIndexJobModelFromDomain(job domain.AgentFactIndexJob) agentFactInd
 		ProcessedCount: job.ProcessedCount,
 		FailedCount:    job.FailedCount,
 		ErrorMessage:   job.ErrorMessage,
+		AttemptCount:   job.AttemptCount,
+		MaxAttempts:    job.MaxAttempts,
+		LockedBy:       job.LockedBy,
+		LockedAt:       job.LockedAt,
+		LeaseUntil:     job.LeaseUntil,
+		NextRunAt:      job.NextRunAt,
 		StartedAt:      job.StartedAt,
 		FinishedAt:     job.FinishedAt,
 		CreatedAt:      job.CreatedAt,
@@ -541,6 +655,12 @@ func agentFactIndexJobModelToDomain(model agentFactIndexJobModel) domain.AgentFa
 		ProcessedCount: model.ProcessedCount,
 		FailedCount:    model.FailedCount,
 		ErrorMessage:   model.ErrorMessage,
+		AttemptCount:   model.AttemptCount,
+		MaxAttempts:    model.MaxAttempts,
+		LockedBy:       model.LockedBy,
+		LockedAt:       model.LockedAt,
+		LeaseUntil:     model.LeaseUntil,
+		NextRunAt:      model.NextRunAt,
 		StartedAt:      model.StartedAt,
 		FinishedAt:     model.FinishedAt,
 		CreatedAt:      model.CreatedAt,

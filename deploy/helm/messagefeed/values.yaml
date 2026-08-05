@@ -118,6 +118,21 @@ workers:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+  itemEvent:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
 
 # Web 静态资源服务，由独立 Caddy 容器监听 8080 端口。
 web:

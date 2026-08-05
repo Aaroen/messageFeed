@@ -18,6 +18,11 @@ type ItemEventQueueStore interface {
 	MarkFailed(ctx context.Context, userID int64, id int64, message string, now time.Time) (domain.ItemEvent, error)
 }
 
+type ownedItemEventQueueStore interface {
+	MarkProcessedOwned(ctx context.Context, userID int64, id int64, now time.Time, workerID string) (domain.ItemEvent, error)
+	MarkFailedOwned(ctx context.Context, userID int64, id int64, message string, now time.Time, workerID string) (domain.ItemEvent, error)
+}
+
 type ItemEventProcessor interface {
 	ProcessItemEvent(ctx context.Context, input ProcessItemEventInput) (ProcessItemEventResult, error)
 }
@@ -66,10 +71,12 @@ func NewItemEventWorkerService(
 }
 
 type RunItemEventWorkerOnceInput struct {
-	Now      time.Time
-	Limit    int
-	LockName string
-	LockTTL  time.Duration
+	Now           time.Time
+	WorkerID      string
+	Limit         int
+	LeaseDuration time.Duration
+	LockName      string
+	LockTTL       time.Duration
 }
 
 type RunItemEventWorkerOnceResult struct {
@@ -129,10 +136,16 @@ func (s *ItemEventWorkerService) runOnceUnlocked(ctx context.Context, input RunI
 	} else {
 		now = now.UTC()
 	}
+	workerID := input.WorkerID
+	if workerID == "" {
+		workerID = "item-event-worker"
+	}
 
 	events, err := s.eventStore.ClaimPending(ctx, domain.ItemEventClaimInput{
-		Now:   now,
-		Limit: input.Limit,
+		Now:           now,
+		WorkerID:      workerID,
+		Limit:         input.Limit,
+		LeaseDuration: input.LeaseDuration,
 	})
 	if err != nil {
 		opErr = err
@@ -147,7 +160,7 @@ func (s *ItemEventWorkerService) runOnceUnlocked(ctx context.Context, input RunI
 		processing, err := s.processor.ProcessItemEvent(ctx, ProcessItemEventInput{Event: event})
 		if err != nil {
 			message := truncateError(err.Error(), itemEventLastErrorMaxLength)
-			if _, markErr := s.eventStore.MarkFailed(ctx, event.UserID, event.ID, message, now); markErr != nil {
+			if _, markErr := s.markFailed(ctx, event, message, now, workerID); markErr != nil {
 				opErr = markErr
 				return result, opErr
 			}
@@ -159,7 +172,7 @@ func (s *ItemEventWorkerService) runOnceUnlocked(ctx context.Context, input RunI
 			})
 			continue
 		}
-		if _, err := s.eventStore.MarkProcessed(ctx, event.UserID, event.ID, now); err != nil {
+		if _, err := s.markProcessed(ctx, event, now, workerID); err != nil {
 			opErr = err
 			return result, opErr
 		}
@@ -173,4 +186,18 @@ func (s *ItemEventWorkerService) runOnceUnlocked(ctx context.Context, input RunI
 		attribute.Int("alert_candidate.created", result.CandidateCount),
 	)
 	return result, nil
+}
+
+func (s *ItemEventWorkerService) markProcessed(ctx context.Context, event domain.ItemEvent, now time.Time, workerID string) (domain.ItemEvent, error) {
+	if owned, ok := s.eventStore.(ownedItemEventQueueStore); ok {
+		return owned.MarkProcessedOwned(ctx, event.UserID, event.ID, now, workerID)
+	}
+	return s.eventStore.MarkProcessed(ctx, event.UserID, event.ID, now)
+}
+
+func (s *ItemEventWorkerService) markFailed(ctx context.Context, event domain.ItemEvent, message string, now time.Time, workerID string) (domain.ItemEvent, error) {
+	if owned, ok := s.eventStore.(ownedItemEventQueueStore); ok {
+		return owned.MarkFailedOwned(ctx, event.UserID, event.ID, message, now, workerID)
+	}
+	return s.eventStore.MarkFailed(ctx, event.UserID, event.ID, message, now)
 }

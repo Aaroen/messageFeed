@@ -27,6 +27,7 @@ func TestPlanForRoleSeparatesRuntimeBoundaries(t *testing.T) {
 		{role: config.AppRoleNotificationWorker, workers: true, workerRole: config.AppRoleNotificationWorker},
 		{role: config.AppRoleAgentSchedulerWorker, workers: true, workerRole: config.AppRoleAgentSchedulerWorker},
 		{role: config.AppRoleEmbeddingWorker, workers: true, workerRole: config.AppRoleEmbeddingWorker},
+		{role: config.AppRoleItemEventWorker, workers: true, workerRole: config.AppRoleItemEventWorker},
 		{role: config.AppRoleMigrate, migration: true},
 	}
 	for _, test := range tests {

@@ -365,6 +365,12 @@ type AgentFactIndexJob struct {
 	ProcessedCount int
 	FailedCount    int
 	ErrorMessage   string
+	AttemptCount   int
+	MaxAttempts    int
+	LockedBy       string
+	LockedAt       *time.Time
+	LeaseUntil     *time.Time
+	NextRunAt      *time.Time
 	StartedAt      *time.Time
 	FinishedAt     *time.Time
 	CreatedAt      time.Time
@@ -372,10 +378,11 @@ type AgentFactIndexJob struct {
 }
 
 type AgentFactIndexJobClaimInput struct {
-	JobType  AgentFactIndexJobType
-	WorkerID string
-	Limit    int
-	Now      time.Time
+	JobType       AgentFactIndexJobType
+	WorkerID      string
+	Limit         int
+	Now           time.Time
+	LeaseDuration time.Duration
 }
 
 type AgentFactBackfillResult struct {

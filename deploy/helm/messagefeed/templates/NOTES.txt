@@ -13,6 +13,7 @@
   kubectl -n {{ .Release.Namespace }} rollout status deployment/notification-worker --timeout=240s
   kubectl -n {{ .Release.Namespace }} rollout status deployment/agent-scheduler-worker --timeout=240s
   kubectl -n {{ .Release.Namespace }} rollout status deployment/embedding-worker --timeout=240s
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/item-event-worker --timeout=240s
 
 检查最近一次迁移：
   kubectl -n {{ .Release.Namespace }} get job/messagefeed-migrate

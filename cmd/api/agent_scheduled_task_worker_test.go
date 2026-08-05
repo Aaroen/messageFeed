@@ -17,6 +17,7 @@ func TestEntrypointRolePlansAreExplicit(t *testing.T) {
 		{role: config.AppRoleNotificationWorker, wantWorker: true},
 		{role: config.AppRoleAgentSchedulerWorker, wantWorker: true},
 		{role: config.AppRoleEmbeddingWorker, wantWorker: true},
+		{role: config.AppRoleItemEventWorker, wantWorker: true},
 		{role: config.AppRoleMigrate},
 	}
 	for _, test := range tests {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
 	"messagefeed/internal/notifier"
 	"messagefeed/internal/observability"
 	"strings"
@@ -18,6 +19,10 @@ type NotificationWorkerStore interface {
 	ClaimDueJobs(ctx context.Context, input domain.NotificationJobClaimInput) ([]domain.NotificationJob, error)
 	UpdateJob(ctx context.Context, job domain.NotificationJob) (domain.NotificationJob, error)
 	CreateDelivery(ctx context.Context, delivery domain.NotificationDelivery) (domain.NotificationDelivery, error)
+}
+
+type ownedNotificationWorkerStore interface {
+	UpdateJobIfOwned(ctx context.Context, job domain.NotificationJob, workerID string) (domain.NotificationJob, error)
 }
 
 type NotificationSender interface {
@@ -53,9 +58,10 @@ func NewNotificationWorkerService(store NotificationWorkerStore, sender Notifica
 }
 
 type RunNotificationWorkerOnceInput struct {
-	Now      time.Time
-	WorkerID string
-	Limit    int
+	Now           time.Time
+	WorkerID      string
+	Limit         int
+	LeaseDuration time.Duration
 }
 
 type RunNotificationWorkerOnceResult struct {
@@ -88,9 +94,10 @@ func (s *NotificationWorkerService) RunOnce(ctx context.Context, input RunNotifi
 		workerID = "notification-worker"
 	}
 	jobs, err := s.store.ClaimDueJobs(ctx, domain.NotificationJobClaimInput{
-		Now:      now,
-		WorkerID: workerID,
-		Limit:    input.Limit,
+		Now:           now,
+		WorkerID:      workerID,
+		Limit:         input.Limit,
+		LeaseDuration: input.LeaseDuration,
 	})
 	if err != nil {
 		opErr = err
@@ -125,11 +132,18 @@ func (s *NotificationWorkerService) processJob(ctx context.Context, job domain.N
 	content := notificationPayloadString(job.Payload, "content")
 	toUser := notificationPayloadString(job.Payload, "to_user")
 	if content == "" || toUser == "" || job.Channel != domain.NotificationChannelWeChatWork {
+		workerID := job.LockedBy
 		job.Status = domain.NotificationJobStatusFailed
 		job.LastError = "unsupported or incomplete notification job"
 		finishedAt := now.UTC()
 		job.FinishedAt = &finishedAt
-		_, err := s.store.UpdateJob(ctx, job)
+		job.LockedBy = ""
+		job.LockedAt = nil
+		job.LeaseUntil = nil
+		_, err := s.updateJob(ctx, job, workerID)
+		if err == nil {
+			metrics.TaskQueueDeadLettersTotal.WithLabelValues("notification").Inc()
+		}
 		return job.Status, err
 	}
 	sendResult, err := s.sender.SendText(ctx, notifier.WeChatWorkTextMessage{
@@ -162,20 +176,44 @@ func (s *NotificationWorkerService) processJob(ctx context.Context, job domain.N
 		job.LastError = ""
 		finishedAt := now.UTC()
 		job.FinishedAt = &finishedAt
-		_, updateErr := s.store.UpdateJob(ctx, job)
+		workerID := job.LockedBy
+		job.LockedBy = ""
+		job.LockedAt = nil
+		job.LeaseUntil = nil
+		_, updateErr := s.updateJob(ctx, job, workerID)
 		return job.Status, updateErr
 	}
+	workerID := job.LockedBy
 	job.LastError = errorMessage
 	if job.AttemptCount < job.MaxAttempts {
 		job.Status = domain.NotificationJobStatusQueued
 		job.ScheduledAt = now.Add(notificationRetryDelay(job.AttemptCount)).UTC()
+		job.StartedAt = nil
+		job.FinishedAt = nil
 	} else {
 		job.Status = domain.NotificationJobStatusFailed
 		finishedAt := now.UTC()
 		job.FinishedAt = &finishedAt
 	}
-	_, updateErr := s.store.UpdateJob(ctx, job)
+	job.LockedBy = ""
+	job.LockedAt = nil
+	job.LeaseUntil = nil
+	_, updateErr := s.updateJob(ctx, job, workerID)
+	if updateErr == nil {
+		if job.Status == domain.NotificationJobStatusQueued {
+			metrics.TaskQueueRetriesTotal.WithLabelValues("notification").Inc()
+		} else {
+			metrics.TaskQueueDeadLettersTotal.WithLabelValues("notification").Inc()
+		}
+	}
 	return job.Status, updateErr
+}
+
+func (s *NotificationWorkerService) updateJob(ctx context.Context, job domain.NotificationJob, workerID string) (domain.NotificationJob, error) {
+	if owned, ok := s.store.(ownedNotificationWorkerStore); ok && strings.TrimSpace(workerID) != "" {
+		return owned.UpdateJobIfOwned(ctx, job, workerID)
+	}
+	return s.store.UpdateJob(ctx, job)
 }
 
 func notificationRetryDelay(attemptCount int) time.Duration {

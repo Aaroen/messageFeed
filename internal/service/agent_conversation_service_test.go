@@ -1001,11 +1001,13 @@ func TestAgentConversationServiceButtonCallbackRetriesFailedPlan(t *testing.T) {
 
 func TestAgentConversationServiceButtonCallbackCancelsScheduledTask(t *testing.T) {
 	now := time.Date(2026, 6, 24, 17, 50, 0, 0, time.UTC)
+	lockedAt := now.Add(-time.Second)
+	leaseUntil := now.Add(time.Minute)
 	repository := newFakeAgentConversationRepository()
 	repository.session = domain.AgentSession{ID: 2, UserID: 1, ExternalAccountID: 10, Provider: domain.AgentProviderWeChatWorkApp, Status: domain.AgentSessionStatusActive, StartedAt: now.Add(-time.Hour), LastActiveAt: now.Add(-time.Minute)}
 	repository.plans = []domain.AgentPlan{{ID: 9, UserID: 1, SessionID: 2, Status: domain.AgentPlanStatusExecuting, Summary: "执行定时任务", CreatedAt: now.Add(-time.Minute), UpdatedAt: now.Add(-time.Minute)}}
 	repository.scheduledTasks = []domain.AgentScheduledTask{
-		{ID: 30, UserID: 1, SessionID: 2, PlanID: 9, Status: domain.AgentScheduledTaskStatusQueued, Goal: "日报", ScheduledAt: now.Add(time.Hour), UpdatedAt: now.Add(-time.Minute)},
+		{ID: 30, UserID: 1, SessionID: 2, PlanID: 9, Status: domain.AgentScheduledTaskStatusQueued, Goal: "日报", ScheduledAt: now.Add(time.Hour), LockedBy: "worker-1", LockedAt: &lockedAt, LeaseUntil: &leaseUntil, UpdatedAt: now.Add(-time.Minute)},
 	}
 	account := testAgentExternalAccount(now)
 	account.ActiveAgentSessionID = 2
@@ -1033,7 +1035,10 @@ func TestAgentConversationServiceButtonCallbackCancelsScheduledTask(t *testing.T
 	}
 	if !strings.Contains(result.Reply, "feedback:button_callback") ||
 		!strings.Contains(result.Reply, "task:30") ||
-		repository.scheduledTasks[0].Status != domain.AgentScheduledTaskStatusCanceled {
+		repository.scheduledTasks[0].Status != domain.AgentScheduledTaskStatusCanceled ||
+		repository.scheduledTasks[0].LockedBy != "" ||
+		repository.scheduledTasks[0].LockedAt != nil ||
+		repository.scheduledTasks[0].LeaseUntil != nil {
 		t.Fatalf("result = %#v task = %#v", result, repository.scheduledTasks[0])
 	}
 	if !fakeAuditContains(repository.audits, "agent.button_direct_control") {

@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -99,6 +101,74 @@ var DatabaseQueryDuration = promauto.NewHistogramVec(
 	},
 	[]string{"operation", "table"},
 )
+
+// TaskQueueDepth 记录待处理任务数量。
+var TaskQueueDepth = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "messagefeed_task_queue_depth",
+		Help: "任务队列当前待处理深度，按队列分类",
+	},
+	[]string{"queue"},
+)
+
+// TaskQueueOldestAgeSeconds 记录队列中最老待处理任务年龄。
+var TaskQueueOldestAgeSeconds = promauto.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "messagefeed_task_queue_oldest_age_seconds",
+		Help: "任务队列中最老待处理任务年龄（秒），按队列分类",
+	},
+	[]string{"queue"},
+)
+
+// TaskQueueClaimDuration 记录任务领取事务耗时。
+var TaskQueueClaimDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "messagefeed_task_queue_claim_duration_seconds",
+		Help:    "任务队列领取事务耗时分布，按队列分类",
+		Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0},
+	},
+	[]string{"queue"},
+)
+
+// TaskQueueRetriesTotal 记录任务重新入队次数。
+var TaskQueueRetriesTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_task_queue_retries_total",
+		Help: "任务重新入队总数，按队列分类",
+	},
+	[]string{"queue"},
+)
+
+// TaskQueueLeaseRecoveriesTotal 记录租约过期回收次数。
+var TaskQueueLeaseRecoveriesTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_task_queue_lease_recoveries_total",
+		Help: "任务租约过期回收总数，按队列分类",
+	},
+	[]string{"queue"},
+)
+
+// TaskQueueDeadLettersTotal 记录达到最大尝试次数后进入失败终态的任务数。
+var TaskQueueDeadLettersTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "messagefeed_task_queue_dead_letters_total",
+		Help: "任务进入失败终态总数，按队列分类",
+	},
+	[]string{"queue"},
+)
+
+// ObserveTaskQueueState 写入统一的队列深度与最老任务年龄指标。
+func ObserveTaskQueueState(queue string, depth int64, oldest *time.Time, now time.Time) {
+	TaskQueueDepth.WithLabelValues(queue).Set(float64(depth))
+	oldestAge := 0.0
+	if oldest != nil && !oldest.IsZero() {
+		oldestAge = now.UTC().Sub(oldest.UTC()).Seconds()
+		if oldestAge < 0 {
+			oldestAge = 0
+		}
+	}
+	TaskQueueOldestAgeSeconds.WithLabelValues(queue).Set(oldestAge)
+}
 
 // ==================== 应用级指标（预留，后续阶段填充）====================
 

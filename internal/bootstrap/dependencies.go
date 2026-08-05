@@ -90,6 +90,8 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	feedViewPreferenceRepository := repository.NewFeedViewPreferenceRepository(database)
 	sourceFetchJobRepository := repository.NewSourceFetchJobRepository(database)
 	itemEventRepository := repository.NewItemEventRepository(database)
+	alertRuleRepository := repository.NewAlertRuleRepository(database)
+	alertCandidateRepository := repository.NewAlertCandidateRepository(database)
 	notificationRepository := repository.NewNotificationRepository(database)
 	taskLockRepository := repository.NewTaskLockRepository(database)
 	agentRepository := repository.NewAgentRepository(database)
@@ -116,6 +118,10 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	}
 	if plan.EmbeddingWorker && embeddingClient != nil {
 		result.workers.embedding = service.NewAgentEmbeddingWorkerService(agentRepository, embeddingClient, cfg.Embedding.Model, time.Now)
+	}
+	if plan.ItemEventWorker {
+		alertRuleService := service.NewAlertRuleService(alertRuleRepository, alertCandidateRepository)
+		result.workers.itemEvent = service.NewItemEventWorkerService(itemEventRepository, alertRuleService)
 	}
 
 	if !plan.API {

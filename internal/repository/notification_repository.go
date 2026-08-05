@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
 	"strings"
 	"time"
 
@@ -15,6 +16,8 @@ const (
 	maxNotificationJobClaimLimit     = 100
 	defaultNotificationListLimit     = 20
 	maxNotificationListLimit         = 100
+	defaultNotificationJobLease      = 2 * time.Minute
+	notificationJobQueueName         = "notification"
 )
 
 type NotificationRepository struct {
@@ -47,6 +50,7 @@ type notificationJobModel struct {
 	MaxAttempts      int
 	LockedBy         string
 	LockedAt         *time.Time
+	LeaseUntil       *time.Time
 	LastError        string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
@@ -96,8 +100,12 @@ func (r *NotificationRepository) ClaimDueJobs(ctx context.Context, input domain.
 	defer func() { finish(opErr) }()
 
 	input = normalizeNotificationJobClaimInput(input)
+	claimStarted := time.Now()
 	var models []notificationJobModel
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := recoverExpiredNotificationJobs(tx, input); err != nil {
+			return err
+		}
 		var ids []int64
 		if err := tx.WithContext(ctx).
 			Model(&notificationJobModel{}).
@@ -117,6 +125,7 @@ func (r *NotificationRepository) ClaimDueJobs(ctx context.Context, input domain.
 			"started_at":    input.Now,
 			"locked_at":     input.Now,
 			"locked_by":     input.WorkerID,
+			"lease_until":   input.Now.Add(input.LeaseDuration),
 			"attempt_count": gorm.Expr("attempt_count + ?", 1),
 			"updated_at":    input.Now,
 		}
@@ -134,8 +143,11 @@ func (r *NotificationRepository) ClaimDueJobs(ctx context.Context, input domain.
 	})
 	if err != nil {
 		opErr = mapRepositoryError(err)
+		metrics.TaskQueueClaimDuration.WithLabelValues(notificationJobQueueName).Observe(time.Since(claimStarted).Seconds())
 		return nil, opErr
 	}
+	metrics.TaskQueueClaimDuration.WithLabelValues(notificationJobQueueName).Observe(time.Since(claimStarted).Seconds())
+	r.observeNotificationQueueState(ctx, input.Now)
 
 	jobs := make([]domain.NotificationJob, 0, len(models))
 	for _, model := range models {
@@ -145,6 +157,14 @@ func (r *NotificationRepository) ClaimDueJobs(ctx context.Context, input domain.
 }
 
 func (r *NotificationRepository) UpdateJob(ctx context.Context, job domain.NotificationJob) (domain.NotificationJob, error) {
+	return r.updateJob(ctx, job, "")
+}
+
+func (r *NotificationRepository) UpdateJobIfOwned(ctx context.Context, job domain.NotificationJob, workerID string) (domain.NotificationJob, error) {
+	return r.updateJob(ctx, job, strings.TrimSpace(workerID))
+}
+
+func (r *NotificationRepository) updateJob(ctx context.Context, job domain.NotificationJob, workerID string) (domain.NotificationJob, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.notification_job.update", "update", "notification_jobs")
 	var opErr error
 	defer func() { finish(opErr) }()
@@ -152,8 +172,12 @@ func (r *NotificationRepository) UpdateJob(ctx context.Context, job domain.Notif
 	model := notificationJobModelFromDomain(job)
 	result := r.db.WithContext(ctx).
 		Model(&notificationJobModel{}).
-		Where("user_id = ? AND id = ?", job.UserID, job.ID).
-		Select("Status", "Channel", "PolicyDecision", "Payload", "RequestID", "TraceID", "ScheduledAt", "StartedAt", "FinishedAt", "AttemptCount", "MaxAttempts", "LockedBy", "LockedAt", "LastError").
+		Where("user_id = ? AND id = ?", job.UserID, job.ID)
+	if workerID != "" {
+		result = result.Where("locked_by = ? AND status = ?", workerID, string(domain.NotificationJobStatusRunning))
+	}
+	result = result.
+		Select("Status", "Channel", "PolicyDecision", "Payload", "RequestID", "TraceID", "ScheduledAt", "StartedAt", "FinishedAt", "AttemptCount", "MaxAttempts", "LockedBy", "LockedAt", "LeaseUntil", "LastError").
 		Updates(&model)
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
@@ -277,7 +301,67 @@ func normalizeNotificationJobClaimInput(input domain.NotificationJobClaimInput) 
 	if input.Limit > maxNotificationJobClaimLimit {
 		input.Limit = maxNotificationJobClaimLimit
 	}
+	if input.LeaseDuration <= 0 {
+		input.LeaseDuration = defaultNotificationJobLease
+	}
 	return input
+}
+
+func recoverExpiredNotificationJobs(tx *gorm.DB, input domain.NotificationJobClaimInput) error {
+	base := tx.Model(&notificationJobModel{}).
+		Where("status = ? AND lease_until IS NOT NULL AND lease_until <= ?", string(domain.NotificationJobStatusRunning), input.Now)
+	requeued := base.Where("attempt_count < max_attempts").Updates(map[string]interface{}{
+		"status":       string(domain.NotificationJobStatusQueued),
+		"scheduled_at": input.Now,
+		"started_at":   nil,
+		"finished_at":  nil,
+		"locked_by":    "",
+		"locked_at":    nil,
+		"lease_until":  nil,
+		"last_error":   gorm.Expr("CASE WHEN COALESCE(last_error, '') = '' THEN ? ELSE last_error END", "worker lease expired"),
+		"updated_at":   input.Now,
+	})
+	if requeued.Error != nil {
+		return requeued.Error
+	}
+	failed := base.Where("attempt_count >= max_attempts").Updates(map[string]interface{}{
+		"status":      string(domain.NotificationJobStatusFailed),
+		"finished_at": input.Now,
+		"locked_by":   "",
+		"locked_at":   nil,
+		"lease_until": nil,
+		"last_error":  gorm.Expr("CASE WHEN COALESCE(last_error, '') = '' THEN ? ELSE last_error END", "worker lease expired"),
+		"updated_at":  input.Now,
+	})
+	if failed.Error != nil {
+		return failed.Error
+	}
+	recovered := requeued.RowsAffected + failed.RowsAffected
+	if recovered > 0 {
+		metrics.TaskQueueLeaseRecoveriesTotal.WithLabelValues(notificationJobQueueName).Add(float64(recovered))
+	}
+	if failed.RowsAffected > 0 {
+		metrics.TaskQueueDeadLettersTotal.WithLabelValues(notificationJobQueueName).Add(float64(failed.RowsAffected))
+	}
+	return nil
+}
+
+func (r *NotificationRepository) observeNotificationQueueState(ctx context.Context, now time.Time) {
+	var depth int64
+	if err := r.db.WithContext(ctx).Model(&notificationJobModel{}).
+		Where("status = ?", string(domain.NotificationJobStatusQueued)).Count(&depth).Error; err != nil {
+		return
+	}
+	var oldest time.Time
+	if err := r.db.WithContext(ctx).Model(&notificationJobModel{}).
+		Where("status = ?", string(domain.NotificationJobStatusQueued)).Select("MIN(scheduled_at)").Scan(&oldest).Error; err != nil {
+		return
+	}
+	var oldestPtr *time.Time
+	if !oldest.IsZero() {
+		oldestPtr = &oldest
+	}
+	metrics.ObserveTaskQueueState(notificationJobQueueName, depth, oldestPtr, now)
 }
 
 func normalizeNotificationJobListOptions(options domain.NotificationJobListOptions) domain.NotificationJobListOptions {
@@ -329,6 +413,7 @@ func notificationJobModelFromDomain(job domain.NotificationJob) notificationJobM
 		MaxAttempts:      job.MaxAttempts,
 		LockedBy:         job.LockedBy,
 		LockedAt:         job.LockedAt,
+		LeaseUntil:       job.LeaseUntil,
 		LastError:        job.LastError,
 		CreatedAt:        job.CreatedAt,
 		UpdatedAt:        job.UpdatedAt,
@@ -358,6 +443,7 @@ func notificationJobModelToDomain(model notificationJobModel) domain.Notificatio
 		MaxAttempts:      model.MaxAttempts,
 		LockedBy:         model.LockedBy,
 		LockedAt:         model.LockedAt,
+		LeaseUntil:       model.LeaseUntil,
 		LastError:        model.LastError,
 		CreatedAt:        model.CreatedAt,
 		UpdatedAt:        model.UpdatedAt,

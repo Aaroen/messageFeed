@@ -22,6 +22,10 @@ type AgentEmbeddingWorkerRepository interface {
 	CreateAgentTraceEvent(ctx context.Context, event domain.AgentTraceEvent) (domain.AgentTraceEvent, error)
 }
 
+type ownedAgentEmbeddingWorkerRepository interface {
+	UpdateAgentFactIndexJobIfOwned(ctx context.Context, job domain.AgentFactIndexJob, workerID string) (domain.AgentFactIndexJob, error)
+}
+
 type AgentEmbeddingWorkerService struct {
 	repository     AgentEmbeddingWorkerRepository
 	embedding      llm.EmbeddingClient
@@ -31,8 +35,9 @@ type AgentEmbeddingWorkerService struct {
 }
 
 type RunAgentEmbeddingWorkerOnceInput struct {
-	WorkerID string
-	Limit    int
+	WorkerID      string
+	Limit         int
+	LeaseDuration time.Duration
 }
 
 type AgentEmbeddingWorkerResult struct {
@@ -71,10 +76,11 @@ func (s *AgentEmbeddingWorkerService) RunOnce(ctx context.Context, input RunAgen
 		limit = 10
 	}
 	jobs, err := s.repository.ClaimPendingAgentFactIndexJobs(ctx, domain.AgentFactIndexJobClaimInput{
-		JobType:  domain.AgentFactIndexJobEmbed,
-		WorkerID: workerID,
-		Limit:    limit,
-		Now:      s.now().UTC(),
+		JobType:       domain.AgentFactIndexJobEmbed,
+		WorkerID:      workerID,
+		Limit:         limit,
+		Now:           s.now().UTC(),
+		LeaseDuration: input.LeaseDuration,
 	})
 	if err != nil {
 		return AgentEmbeddingWorkerResult{}, err
@@ -133,26 +139,45 @@ func (s *AgentEmbeddingWorkerService) runJob(ctx context.Context, workerID strin
 
 func (s *AgentEmbeddingWorkerService) finishJob(ctx context.Context, workerID string, job domain.AgentFactIndexJob, status domain.AgentFactIndexJobStatus, processed int, failed int, err error, startedAt time.Time) error {
 	now := s.now().UTC()
+	if err != nil && status == domain.AgentFactIndexJobFailed && job.AttemptCount < job.MaxAttempts {
+		status = domain.AgentFactIndexJobPending
+		nextRunAt := now.Add(agentEmbeddingRetryDelay(job.AttemptCount))
+		job.NextRunAt = &nextRunAt
+		job.FinishedAt = nil
+		job.StartedAt = nil
+	} else {
+		job.FinishedAt = &now
+	}
 	job.Status = status
 	job.ProcessedCount += processed
 	job.FailedCount += failed
-	job.FinishedAt = &now
 	job.UpdatedAt = now
 	if job.Cursor == nil {
 		job.Cursor = domain.AgentJSON{}
 	}
 	job.Cursor["worker_id"] = workerID
+	job.LockedBy = ""
+	job.LockedAt = nil
+	job.LeaseUntil = nil
 	if err != nil {
 		job.ErrorMessage = safeSummary(err.Error(), 1000)
+	} else {
+		job.ErrorMessage = ""
 	}
-	_, updateErr := s.repository.UpdateAgentFactIndexJob(ctx, job)
+	var updated domain.AgentFactIndexJob
+	var updateErr error
+	if owned, ok := s.repository.(ownedAgentEmbeddingWorkerRepository); ok {
+		updated, updateErr = owned.UpdateAgentFactIndexJobIfOwned(ctx, job, workerID)
+	} else {
+		updated, updateErr = s.repository.UpdateAgentFactIndexJob(ctx, job)
+	}
 	duration := now.Sub(startedAt)
 	statusLabel := string(status)
 	reason := embeddingJobReason(job.Scope)
 	metrics.AgentEmbeddingJobsTotal.WithLabelValues(statusLabel, reason).Inc()
 	metrics.AgentEmbeddingJobDuration.WithLabelValues(statusLabel).Observe(duration.Seconds())
 	eventStatus := domain.AgentTraceEventSucceeded
-	if status == domain.AgentFactIndexJobFailed {
+	if err != nil {
 		eventStatus = domain.AgentTraceEventFailed
 	}
 	event := domain.AgentTraceEvent{
@@ -182,7 +207,22 @@ func (s *AgentEmbeddingWorkerService) finishJob(ctx context.Context, workerID st
 	if updateErr != nil {
 		return updateErr
 	}
+	if updated.Status == domain.AgentFactIndexJobPending {
+		metrics.TaskQueueRetriesTotal.WithLabelValues("agent_fact_index").Inc()
+	} else if updated.Status == domain.AgentFactIndexJobFailed {
+		metrics.TaskQueueDeadLettersTotal.WithLabelValues("agent_fact_index").Inc()
+	}
 	return err
+}
+
+func agentEmbeddingRetryDelay(attemptCount int) time.Duration {
+	if attemptCount < 1 {
+		attemptCount = 1
+	}
+	if attemptCount > 5 {
+		attemptCount = 5
+	}
+	return time.Duration(attemptCount*attemptCount) * time.Minute
 }
 
 func embeddingJobCanonicalRefs(scope domain.AgentJSON) []string {

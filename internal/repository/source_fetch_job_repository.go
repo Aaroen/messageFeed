@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
 	"strings"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 const (
 	defaultSourceFetchJobClaimLimit = 20
 	maxSourceFetchJobClaimLimit     = 100
+	defaultSourceFetchJobLease      = 2 * time.Minute
+	sourceFetchJobQueueName         = "source_fetch"
 	defaultSourceFetchJobListLimit  = 20
 	maxSourceFetchJobListLimit      = 100
 )
@@ -40,6 +43,7 @@ type sourceFetchJobModel struct {
 	Priority     int
 	LockedBy     string
 	LockedAt     *time.Time
+	LeaseUntil   *time.Time
 	LastError    string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
@@ -106,8 +110,12 @@ func (r *SourceFetchJobRepository) ClaimDueJobs(ctx context.Context, input domai
 	defer func() { finish(opErr) }()
 
 	input = normalizeSourceFetchJobClaimInput(input)
+	claimStarted := time.Now()
 	var models []sourceFetchJobModel
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := recoverExpiredSourceFetchJobs(tx, input); err != nil {
+			return err
+		}
 		var ids []int64
 		if err := tx.WithContext(ctx).
 			Model(&sourceFetchJobModel{}).
@@ -127,6 +135,7 @@ func (r *SourceFetchJobRepository) ClaimDueJobs(ctx context.Context, input domai
 			"started_at":    input.Now,
 			"locked_at":     input.Now,
 			"locked_by":     input.WorkerID,
+			"lease_until":   input.Now.Add(input.LeaseDuration),
 			"attempt_count": gorm.Expr("attempt_count + ?", 1),
 			"updated_at":    input.Now,
 		}
@@ -144,8 +153,11 @@ func (r *SourceFetchJobRepository) ClaimDueJobs(ctx context.Context, input domai
 	})
 	if err != nil {
 		opErr = mapRepositoryError(err)
+		metrics.TaskQueueClaimDuration.WithLabelValues(sourceFetchJobQueueName).Observe(time.Since(claimStarted).Seconds())
 		return nil, opErr
 	}
+	metrics.TaskQueueClaimDuration.WithLabelValues(sourceFetchJobQueueName).Observe(time.Since(claimStarted).Seconds())
+	r.observeSourceFetchQueueState(ctx, input.Now)
 
 	jobs := make([]domain.SourceFetchJob, 0, len(models))
 	for _, model := range models {
@@ -155,6 +167,14 @@ func (r *SourceFetchJobRepository) ClaimDueJobs(ctx context.Context, input domai
 }
 
 func (r *SourceFetchJobRepository) UpdateJob(ctx context.Context, job domain.SourceFetchJob) (domain.SourceFetchJob, error) {
+	return r.updateJob(ctx, job, "")
+}
+
+func (r *SourceFetchJobRepository) UpdateJobIfOwned(ctx context.Context, job domain.SourceFetchJob, workerID string) (domain.SourceFetchJob, error) {
+	return r.updateJob(ctx, job, strings.TrimSpace(workerID))
+}
+
+func (r *SourceFetchJobRepository) updateJob(ctx context.Context, job domain.SourceFetchJob, workerID string) (domain.SourceFetchJob, error) {
 	ctx, finish := traceRepositoryOperation(ctx, "repository.source_fetch_job.update", "update", "source_fetch_jobs")
 	var opErr error
 	defer func() { finish(opErr) }()
@@ -163,7 +183,11 @@ func (r *SourceFetchJobRepository) UpdateJob(ctx context.Context, job domain.Sou
 	result := r.db.WithContext(ctx).
 		Model(&sourceFetchJobModel{}).
 		Where("user_id = ? AND id = ?", job.UserID, job.ID).
-		Select("Status", "TriggerType", "ScheduledAt", "StartedAt", "FinishedAt", "AttemptCount", "MaxAttempts", "Priority", "LockedBy", "LockedAt", "LastError").
+		Select("Status", "TriggerType", "ScheduledAt", "StartedAt", "FinishedAt", "AttemptCount", "MaxAttempts", "Priority", "LockedBy", "LockedAt", "LeaseUntil", "LastError")
+	if workerID != "" {
+		result = result.Where("locked_by = ? AND status = ?", workerID, string(domain.SourceFetchJobStatusRunning))
+	}
+	result = result.
 		Updates(&model)
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
@@ -330,7 +354,67 @@ func normalizeSourceFetchJobClaimInput(input domain.SourceFetchJobClaimInput) do
 	if input.Limit > maxSourceFetchJobClaimLimit {
 		input.Limit = maxSourceFetchJobClaimLimit
 	}
+	if input.LeaseDuration <= 0 {
+		input.LeaseDuration = defaultSourceFetchJobLease
+	}
 	return input
+}
+
+func recoverExpiredSourceFetchJobs(tx *gorm.DB, input domain.SourceFetchJobClaimInput) error {
+	base := tx.Model(&sourceFetchJobModel{}).
+		Where("status = ? AND lease_until IS NOT NULL AND lease_until <= ?", string(domain.SourceFetchJobStatusRunning), input.Now)
+	requeued := base.Where("attempt_count < max_attempts").Updates(map[string]interface{}{
+		"status":      string(domain.SourceFetchJobStatusQueued),
+		"scheduled_at": input.Now,
+		"started_at":  nil,
+		"finished_at": nil,
+		"locked_by":   "",
+		"locked_at":   nil,
+		"lease_until": nil,
+		"last_error":  gorm.Expr("CASE WHEN COALESCE(last_error, '') = '' THEN ? ELSE last_error END", "worker lease expired"),
+		"updated_at":  input.Now,
+	})
+	if requeued.Error != nil {
+		return requeued.Error
+	}
+	failed := base.Where("attempt_count >= max_attempts").Updates(map[string]interface{}{
+		"status":      string(domain.SourceFetchJobStatusFailed),
+		"finished_at": input.Now,
+		"locked_by":   "",
+		"locked_at":   nil,
+		"lease_until": nil,
+		"last_error":  gorm.Expr("CASE WHEN COALESCE(last_error, '') = '' THEN ? ELSE last_error END", "worker lease expired"),
+		"updated_at":  input.Now,
+	})
+	if failed.Error != nil {
+		return failed.Error
+	}
+	recovered := requeued.RowsAffected + failed.RowsAffected
+	if recovered > 0 {
+		metrics.TaskQueueLeaseRecoveriesTotal.WithLabelValues(sourceFetchJobQueueName).Add(float64(recovered))
+	}
+	if failed.RowsAffected > 0 {
+		metrics.TaskQueueDeadLettersTotal.WithLabelValues(sourceFetchJobQueueName).Add(float64(failed.RowsAffected))
+	}
+	return nil
+}
+
+func (r *SourceFetchJobRepository) observeSourceFetchQueueState(ctx context.Context, now time.Time) {
+	var depth int64
+	if err := r.db.WithContext(ctx).Model(&sourceFetchJobModel{}).
+		Where("status = ?", string(domain.SourceFetchJobStatusQueued)).Count(&depth).Error; err != nil {
+		return
+	}
+	var oldest time.Time
+	if err := r.db.WithContext(ctx).Model(&sourceFetchJobModel{}).
+		Where("status = ?", string(domain.SourceFetchJobStatusQueued)).Select("MIN(scheduled_at)").Scan(&oldest).Error; err != nil {
+		return
+	}
+	var oldestPtr *time.Time
+	if !oldest.IsZero() {
+		oldestPtr = &oldest
+	}
+	metrics.ObserveTaskQueueState(sourceFetchJobQueueName, depth, oldestPtr, now)
 }
 
 func normalizeSourceFetchJobListOptions(options domain.SourceFetchJobListOptions) domain.SourceFetchJobListOptions {
@@ -374,6 +458,7 @@ func sourceFetchJobModelFromDomain(job domain.SourceFetchJob) sourceFetchJobMode
 		Priority:     job.Priority,
 		LockedBy:     job.LockedBy,
 		LockedAt:     job.LockedAt,
+		LeaseUntil:   job.LeaseUntil,
 		LastError:    job.LastError,
 		CreatedAt:    job.CreatedAt,
 		UpdatedAt:    job.UpdatedAt,
@@ -395,6 +480,7 @@ func sourceFetchJobModelToDomain(model sourceFetchJobModel) domain.SourceFetchJo
 		Priority:     model.Priority,
 		LockedBy:     model.LockedBy,
 		LockedAt:     model.LockedAt,
+		LeaseUntil:   model.LeaseUntil,
 		LastError:    model.LastError,
 		CreatedAt:    model.CreatedAt,
 		UpdatedAt:    model.UpdatedAt,

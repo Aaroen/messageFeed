@@ -50,12 +50,18 @@ type ItemEvent struct {
 	AvailableAt  time.Time
 	ProcessedAt  *time.Time
 	AttemptCount int
+	MaxAttempts  int
+	LockedBy     string
+	LockedAt     *time.Time
+	LeaseUntil   *time.Time
 	LastError    string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
 
 type ItemEventClaimInput struct {
-	Now   time.Time
-	Limit int
+	Now           time.Time
+	WorkerID      string
+	Limit         int
+	LeaseDuration time.Duration
 }

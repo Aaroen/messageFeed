@@ -73,6 +73,8 @@ workers:
     enabled: true
   embedding:
     enabled: true
+  itemEvent:
+    enabled: true
 
 # 复用已导入 K3s containerd 的现有 Web 镜像。
 web:

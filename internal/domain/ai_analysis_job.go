@@ -67,15 +67,17 @@ type AIAnalysisJob struct {
 	MaxAttempts      int
 	LockedBy         string
 	LockedAt         *time.Time
+	LeaseUntil       *time.Time
 	LastError        string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
 
 type AIAnalysisJobClaimInput struct {
-	Now      time.Time
-	WorkerID string
-	Limit    int
+	Now           time.Time
+	WorkerID      string
+	Limit         int
+	LeaseDuration time.Duration
 }
 
 type AIAnalysisJobListOptions struct {

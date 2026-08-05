@@ -22,6 +22,7 @@ const (
 	AppRoleNotificationWorker   AppRole = "notification-worker"
 	AppRoleAgentSchedulerWorker AppRole = "agent-scheduler-worker"
 	AppRoleEmbeddingWorker      AppRole = "embedding-worker"
+	AppRoleItemEventWorker      AppRole = "item-event-worker"
 	AppRoleMigrate              AppRole = "migrate"
 )
 
@@ -136,7 +137,7 @@ type MigrationConfig struct {
 func (role AppRole) Valid() bool {
 	switch role {
 	case AppRoleAll, AppRoleAPI, AppRoleSourceWorker, AppRoleNotificationWorker,
-		AppRoleAgentSchedulerWorker, AppRoleEmbeddingWorker, AppRoleMigrate:
+		AppRoleAgentSchedulerWorker, AppRoleEmbeddingWorker, AppRoleItemEventWorker, AppRoleMigrate:
 		return true
 	default:
 		return false
@@ -145,7 +146,7 @@ func (role AppRole) Valid() bool {
 
 func (role AppRole) IsWorker() bool {
 	switch role {
-	case AppRoleSourceWorker, AppRoleNotificationWorker, AppRoleAgentSchedulerWorker, AppRoleEmbeddingWorker:
+	case AppRoleSourceWorker, AppRoleNotificationWorker, AppRoleAgentSchedulerWorker, AppRoleEmbeddingWorker, AppRoleItemEventWorker:
 		return true
 	default:
 		return false

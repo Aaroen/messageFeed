@@ -54,6 +54,7 @@ type AgentScheduledTask struct {
 	MaxAttempts          int
 	LockedBy             string
 	LockedAt             *time.Time
+	LeaseUntil           *time.Time
 	LastError            string
 	NextRunAt            *time.Time
 	CompletedAt          *time.Time
@@ -62,9 +63,10 @@ type AgentScheduledTask struct {
 }
 
 type AgentScheduledTaskClaimInput struct {
-	Now      time.Time
-	WorkerID string
-	Limit    int
+	Now           time.Time
+	WorkerID      string
+	Limit         int
+	LeaseDuration time.Duration
 }
 
 type AgentScheduledTaskListOptions struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
 	"messagefeed/internal/notifier"
 	"sort"
 	"strings"
@@ -22,6 +23,10 @@ type AgentScheduleEvalRepository interface {
 	CreateAgentEvalRun(ctx context.Context, run domain.AgentEvalRun) (domain.AgentEvalRun, error)
 	CreateAgentEvalResult(ctx context.Context, result domain.AgentEvalResult) (domain.AgentEvalResult, error)
 	GetAgentEvalRunDetail(ctx context.Context, runID int64) (domain.AgentEvalRun, error)
+}
+
+type ownedAgentScheduledTaskRepository interface {
+	UpdateAgentScheduledTaskIfOwned(ctx context.Context, task domain.AgentScheduledTask, workerID string) (domain.AgentScheduledTask, error)
 }
 
 type AgentEvalControlRepository interface {
@@ -175,14 +180,16 @@ func (s *AgentScheduledTaskWorkerService) scheduledTaskAdmissionDecision(ctx con
 
 func (s *AgentScheduledTaskWorkerService) deferScheduledTaskForAdmission(ctx context.Context, task domain.AgentScheduledTask, admission agentTaskAdmissionDecision) AgentScheduledTaskWorkerItemResult {
 	now := s.now().UTC()
+	workerID := task.LockedBy
 	nextRunAt := now.Add(time.Minute)
 	task.Status = domain.AgentScheduledTaskStatusQueued
 	task.LockedBy = ""
 	task.LockedAt = nil
+	task.LeaseUntil = nil
 	task.LastError = admission.Reason
 	task.NextRunAt = &nextRunAt
 	task.UpdatedAt = now
-	updated, err := s.repository.UpdateAgentScheduledTask(ctx, task)
+	updated, err := updateAgentScheduledTask(ctx, s.repository, task, workerID)
 	if err != nil {
 		return AgentScheduledTaskWorkerItemResult{TaskID: task.ID, Status: string(domain.AgentScheduledTaskStatusFailed), ReportStatus: "skipped", Error: err.Error()}
 	}
@@ -461,15 +468,28 @@ func (s *AgentScheduleEvalService) FailScheduledTask(ctx context.Context, task d
 	}
 	task.LastError = strings.TrimSpace(message)
 	task.NextRunAt = nextRunAt
+	workerID := task.LockedBy
 	if task.AttemptCount < task.MaxAttempts && nextRunAt != nil {
 		task.Status = domain.AgentScheduledTaskStatusQueued
+		task.CompletedAt = nil
 	} else {
 		task.Status = domain.AgentScheduledTaskStatusFailed
 		completedAt := s.now().UTC()
 		task.CompletedAt = &completedAt
 	}
+	task.LockedBy = ""
+	task.LockedAt = nil
+	task.LeaseUntil = nil
 	task.UpdatedAt = s.now().UTC()
-	return s.repository.UpdateAgentScheduledTask(ctx, task)
+	updated, err := updateAgentScheduledTask(ctx, s.repository, task, workerID)
+	if err == nil {
+		if updated.Status == domain.AgentScheduledTaskStatusQueued {
+			metrics.TaskQueueRetriesTotal.WithLabelValues("agent_scheduled").Inc()
+		} else if updated.Status == domain.AgentScheduledTaskStatusFailed {
+			metrics.TaskQueueDeadLettersTotal.WithLabelValues("agent_scheduled").Inc()
+		}
+	}
+	return updated, err
 }
 
 func (s *AgentScheduleEvalService) updateScheduledTaskTerminal(ctx context.Context, task domain.AgentScheduledTask, status domain.AgentScheduledTaskStatus, message string) (domain.AgentScheduledTask, error) {
@@ -477,11 +497,22 @@ func (s *AgentScheduleEvalService) updateScheduledTaskTerminal(ctx context.Conte
 		return domain.AgentScheduledTask{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_schedule_repository_unavailable", "agent schedule repository is unavailable", "service.agent_schedule.update_terminal", true, nil)
 	}
 	completedAt := s.now().UTC()
+	workerID := task.LockedBy
 	task.Status = status
 	task.LastError = strings.TrimSpace(message)
 	task.CompletedAt = &completedAt
+	task.LockedBy = ""
+	task.LockedAt = nil
+	task.LeaseUntil = nil
 	task.UpdatedAt = completedAt
-	return s.repository.UpdateAgentScheduledTask(ctx, task)
+	return updateAgentScheduledTask(ctx, s.repository, task, workerID)
+}
+
+func updateAgentScheduledTask(ctx context.Context, repository AgentScheduleEvalRepository, task domain.AgentScheduledTask, workerID string) (domain.AgentScheduledTask, error) {
+	if owned, ok := repository.(ownedAgentScheduledTaskRepository); ok && strings.TrimSpace(workerID) != "" {
+		return owned.UpdateAgentScheduledTaskIfOwned(ctx, task, workerID)
+	}
+	return repository.UpdateAgentScheduledTask(ctx, task)
 }
 
 type CreateAgentEvalCaseInput struct {
@@ -1124,6 +1155,7 @@ func (s *AgentScheduleEvalService) RecoverScheduledTask(ctx context.Context, aut
 	task.Status = domain.AgentScheduledTaskStatusQueued
 	task.LockedBy = ""
 	task.LockedAt = nil
+	task.LeaseUntil = nil
 	task.LastError = ""
 	task.NextRunAt = &now
 	task.CompletedAt = nil

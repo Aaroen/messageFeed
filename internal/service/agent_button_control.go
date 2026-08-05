@@ -217,6 +217,9 @@ func (s *AgentConversationService) applyAgentButtonDirectControl(ctx context.Con
 				continue
 			}
 			task.Status = domain.AgentScheduledTaskStatusCanceled
+			task.LockedBy = ""
+			task.LockedAt = nil
+			task.LeaseUntil = nil
 			task.LastError = ""
 			task.NextRunAt = nil
 			task.CompletedAt = &now
