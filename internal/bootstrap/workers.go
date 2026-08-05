@@ -23,6 +23,7 @@ type workerSet struct {
 	agentScheduler *service.AgentScheduledTaskWorkerService
 	embedding      *service.AgentEmbeddingWorkerService
 	itemEvent      *service.ItemEventWorkerService
+	agent          *service.AgentConversationService
 }
 
 func (workers workerSet) validate(role config.AppRole, plan RolePlan) error {
@@ -40,6 +41,9 @@ func (workers workerSet) validate(role config.AppRole, plan RolePlan) error {
 	}
 	if plan.ItemEventWorker && workers.itemEvent == nil && role != config.AppRoleAll {
 		return fmt.Errorf("item event worker dependencies are not configured")
+	}
+	if plan.AgentWorker && workers.agent == nil && role != config.AppRoleAll {
+		return fmt.Errorf("agent worker dependencies are not configured")
 	}
 	return nil
 }
@@ -75,6 +79,11 @@ func startWorkerLoops(ctx context.Context, logger *slog.Logger, nodeID string, p
 	if plan.ItemEventWorker && workers.itemEvent != nil {
 		start(config.AppRoleItemEventWorker, func() {
 			runItemEventWorker(ctx, logger, workerID(nodeID, config.AppRoleItemEventWorker), workers.itemEvent)
+		})
+	}
+	if plan.AgentWorker && workers.agent != nil {
+		start(config.AppRoleAgentWorker, func() {
+			runAgentWorker(ctx, logger, workerID(nodeID, config.AppRoleAgentWorker), workers.agent)
 		})
 	}
 }
@@ -180,6 +189,26 @@ func runItemEventWorker(ctx context.Context, logger *slog.Logger, workerID strin
 			logger.Warn("item event worker run failed", "error", err)
 		} else if result.ClaimedCount > 0 {
 			logger.Info("item event worker run completed", "claimed", result.ClaimedCount, "processed", result.ProcessedCount, "failed", result.FailureCount, "candidates", result.CandidateCount)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func runAgentWorker(ctx context.Context, logger *slog.Logger, workerID string, workerService *service.AgentConversationService) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		runCtx, cancel := context.WithTimeout(ctx, 12*time.Minute)
+		result, err := workerService.RunAgentWorkerOnce(runCtx, service.RunAgentWorkerOnceInput{WorkerID: workerID, Limit: 10, LeaseDuration: 2 * time.Minute})
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			logger.Warn("agent worker run failed", "error", err)
+		} else if result.ClaimedCount > 0 {
+			logger.Info("agent worker run completed", "claimed", result.ClaimedCount, "succeeded", result.Succeeded, "failed", result.Failed, "canceled", result.Canceled, "skipped", result.Skipped)
 		}
 		select {
 		case <-ctx.Done():

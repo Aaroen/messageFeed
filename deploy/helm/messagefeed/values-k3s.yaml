@@ -60,7 +60,7 @@ api:
     tag: ha11-20260718-6c86f3721986
     pullPolicy: IfNotPresent
 
-# 在 K3s 中启用四类独立 worker；副本数可按任务吞吐独立调整。
+# 在 K3s 中启用各类独立 worker；副本数可按任务吞吐独立调整。
 workers:
   metrics:
     port: 9090
@@ -74,6 +74,8 @@ workers:
   embedding:
     enabled: true
   itemEvent:
+    enabled: true
+  agent:
     enabled: true
 
 # 复用已导入 K3s containerd 的现有 Web 镜像。

@@ -120,7 +120,8 @@
         "notification": { "$ref": "#/definitions/worker" },
         "agentScheduler": { "$ref": "#/definitions/worker" },
         "embedding": { "$ref": "#/definitions/worker" },
-        "itemEvent": { "$ref": "#/definitions/worker" }
+        "itemEvent": { "$ref": "#/definitions/worker" },
+        "agent": { "$ref": "#/definitions/worker" }
       }
     },
     "migrations": {
@@ -140,7 +141,7 @@
         "deploymentMode": { "type": "string", "enum": ["single_node", "cluster"] },
         "defaultAppRole": {
           "type": "string",
-          "enum": ["all", "api", "source-worker", "notification-worker", "agent-scheduler-worker", "embedding-worker", "item-event-worker", "migrate"]
+          "enum": ["all", "api", "source-worker", "notification-worker", "agent-scheduler-worker", "embedding-worker", "item-event-worker", "agent-worker", "migrate"]
         },
         "databaseMaxOpenConns": { "type": "string", "pattern": "^[1-9][0-9]*$" },
         "databaseMaxIdleConns": { "type": "string", "pattern": "^[0-9]+$" }

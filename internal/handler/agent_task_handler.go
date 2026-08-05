@@ -63,6 +63,10 @@ func (h agentTaskHandler) create(c *gin.Context) {
 		RenderError(c, err, "create agent task failed")
 		return
 	}
+	if result.ProcessingAsync {
+		Accepted(c, result)
+		return
+	}
 	Created(c, result)
 }
 

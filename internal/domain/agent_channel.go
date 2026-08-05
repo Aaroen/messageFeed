@@ -59,6 +59,7 @@ func (s AgentSessionStatus) Valid() bool {
 type AgentTurnStatus string
 
 const (
+	AgentTurnStatusQueued    AgentTurnStatus = "queued"
 	AgentTurnStatusRunning   AgentTurnStatus = "running"
 	AgentTurnStatusSucceeded AgentTurnStatus = "succeeded"
 	AgentTurnStatusFailed    AgentTurnStatus = "failed"
@@ -66,7 +67,7 @@ const (
 
 func (s AgentTurnStatus) Valid() bool {
 	switch s {
-	case AgentTurnStatusRunning, AgentTurnStatusSucceeded, AgentTurnStatusFailed:
+	case AgentTurnStatusQueued, AgentTurnStatusRunning, AgentTurnStatusSucceeded, AgentTurnStatusFailed:
 		return true
 	default:
 		return false
@@ -169,10 +170,24 @@ type AgentTurn struct {
 	ModelProvider    string
 	Model            string
 	ErrorMessage     string
+	AttemptCount     int
+	MaxAttempts      int
+	LockedBy         string
+	LockedAt         *time.Time
+	LeaseUntil       *time.Time
+	CancelRequested  bool
+	CancelReason     string
 	StartedAt        time.Time
 	FinishedAt       *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+type AgentTurnClaimInput struct {
+	Now           time.Time
+	WorkerID      string
+	Limit         int
+	LeaseDuration time.Duration
 }
 
 type AgentTranscriptEntry struct {

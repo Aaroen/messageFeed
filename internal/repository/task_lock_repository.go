@@ -80,10 +80,33 @@ func (r *TaskLockRepository) WithLock(ctx context.Context, name string, ttl time
 	if lock.Owner != owner {
 		return domain.NewAppError(domain.ErrorKindUnavailable, "TASK_LOCK_BUSY", "task lock is busy", "repository.task_lock.acquire", true, nil)
 	}
+	renewCtx, cancelRenew := context.WithCancel(context.Background())
+	renewDone := make(chan struct{})
+	go r.renewLoop(renewCtx, renewDone, name, owner, ttl)
 	defer func() {
+		cancelRenew()
+		<-renewDone
 		_ = r.release(context.Background(), name, owner)
 	}()
 	return run(ctx)
+}
+
+func (r *TaskLockRepository) renewLoop(ctx context.Context, done chan<- struct{}, name string, owner string, ttl time.Duration) {
+	defer close(done)
+	interval := ttl / 3
+	if interval < time.Second {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			_ = r.renew(context.Background(), name, owner, now, ttl)
+		}
+	}
 }
 
 func (r *TaskLockRepository) acquire(ctx context.Context, name string, owner string, now time.Time, ttl time.Duration) (domain.TaskLock, error) {
@@ -129,6 +152,28 @@ func (r *TaskLockRepository) release(ctx context.Context, name string, owner str
 		}).Error
 	if err != nil {
 		opErr = mapRepositoryError(err)
+		return opErr
+	}
+	return nil
+}
+
+func (r *TaskLockRepository) renew(ctx context.Context, name string, owner string, now time.Time, ttl time.Duration) error {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.task_lock.renew", "update", "task_locks")
+	var opErr error
+	defer func() { finish(opErr) }()
+	result := r.db.WithContext(ctx).
+		Model(&taskLockModel{}).
+		Where("name = ? AND owner = ?", name, owner).
+		Updates(map[string]interface{}{
+			"locked_until": now.Add(ttl),
+			"updated_at":   now,
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
 		return opErr
 	}
 	return nil

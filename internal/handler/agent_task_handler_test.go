@@ -77,6 +77,36 @@ func TestAgentTaskRouteCreatesWebTask(t *testing.T) {
 	}
 }
 
+func TestAgentTaskRouteAcceptsQueuedTask(t *testing.T) {
+	fakeService := &fakeAgentTaskService{result: service.ReceiveWebAgentTaskResult{
+		Turn:            service.AgentTurnResponse{ID: 17, Status: string(domain.AgentTurnStatusQueued)},
+		ProgressURL:     "/agent/progress?turn_id=17",
+		ProcessingAsync: true,
+	}}
+	router := newTestRouter(t, RouterOptions{
+		AuthService:      fakeAuthEndpointService{auth: service.CurrentAuth{Authenticated: true, User: domain.User{ID: 9}}},
+		AgentTaskService: fakeService,
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/agent/tasks", bytes.NewBufferString(`{"message":"排队执行","channel":"web"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(&http.Cookie{Name: "messagefeed_session", Value: "token"})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("status code = %d, want %d, body = %s", recorder.Code, http.StatusAccepted, recorder.Body.String())
+	}
+	var response struct {
+		Data service.ReceiveWebAgentTaskResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.Turn.ID != 17 || !response.Data.ProcessingAsync || response.Data.ProgressURL == "" {
+		t.Fatalf("response data = %#v", response.Data)
+	}
+}
+
 func TestAgentTaskRouteStopsPlan(t *testing.T) {
 	fakeService := &fakeAgentTaskService{
 		stopResult: service.StopAgentPlanResult{

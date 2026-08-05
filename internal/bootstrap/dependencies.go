@@ -28,7 +28,7 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 
 	var callback *wechatwork.AppCallbackCodec
 	var sender *notifier.WeChatWorkAppClient
-	if (plan.API || plan.NotificationWorker || plan.AgentSchedulerWorker) && cfg.WeChatWork.Enabled() {
+	if (plan.API || plan.NotificationWorker || plan.AgentSchedulerWorker || plan.AgentWorker) && cfg.WeChatWork.Enabled() {
 		var err error
 		sender, err = notifier.NewWeChatWorkAppClient(notifier.WeChatWorkAppConfig{CorpID: cfg.WeChatWork.CorpID, AgentID: cfg.WeChatWork.AgentID, Secret: cfg.WeChatWork.Secret})
 		if err != nil {
@@ -44,9 +44,12 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	if plan.NotificationWorker && sender == nil {
 		return dependencies{}, fmt.Errorf("notification worker requires WeChat Work sender configuration")
 	}
+	if plan.AgentWorker && sender == nil && cfg.WeChatWork.Enabled() {
+		return dependencies{}, fmt.Errorf("agent worker requires WeChat Work sender configuration when WeChat Work is enabled")
+	}
 
 	var llmClient llm.Client
-	if plan.API && cfg.LLM.Enabled() {
+	if (plan.API || plan.AgentWorker) && cfg.LLM.Enabled() {
 		baseURL := cfg.LLM.BaseURL
 		if cfg.LLM.Provider == "openai" && baseURL == "" {
 			baseURL = "https://api.openai.com/v1"
@@ -57,9 +60,12 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 		}
 		llmClient = client
 	}
+	if plan.AgentWorker && llmClient == nil {
+		return dependencies{}, fmt.Errorf("agent worker requires LLM configuration")
+	}
 
 	var embeddingClient llm.EmbeddingClient
-	if (plan.API || plan.EmbeddingWorker) && cfg.Embedding.Enabled() {
+	if (plan.API || plan.EmbeddingWorker || plan.AgentWorker) && cfg.Embedding.Enabled() {
 		baseURL := cfg.Embedding.BaseURL
 		if cfg.Embedding.Provider == "openai" && baseURL == "" {
 			baseURL = "https://api.openai.com/v1"
@@ -124,7 +130,7 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 		result.workers.itemEvent = service.NewItemEventWorkerService(itemEventRepository, alertRuleService)
 	}
 
-	if !plan.API {
+	if !plan.API && !plan.AgentWorker {
 		return result, nil
 	}
 
@@ -150,9 +156,31 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 		service.WithAgentConversationRecentItemsProvider(timelineService),
 		service.WithAgentConversationSourceProvider(sourceService),
 		service.WithAgentConversationNotificationJobStore(notificationRepository),
+		service.WithAgentConversationSessionTaskLocker(taskLockRepository),
 		service.WithAgentConversationPublicBaseURL(cfg.Runtime.PublicBaseURL),
 		service.WithAgentConversationEmbeddingClient(embeddingClient, cfg.Embedding.Model),
 	)
+	if plan.API {
+		agentConversationService = service.NewAgentConversationService(agentRepository,
+			service.WithAgentConversationLLM(agentLLMRuntime),
+			service.WithAgentConversationSender(sender),
+			service.WithAgentConversationExternalAccountResolver(authService),
+			service.WithAgentConversationUserContextProvider(authService),
+			service.WithAgentConversationRecentItemsProvider(timelineService),
+			service.WithAgentConversationSourceProvider(sourceService),
+			service.WithAgentConversationNotificationJobStore(notificationRepository),
+			service.WithAgentConversationSessionTaskLocker(taskLockRepository),
+			service.WithAgentConversationPublicBaseURL(cfg.Runtime.PublicBaseURL),
+			service.WithAgentConversationEmbeddingClient(embeddingClient, cfg.Embedding.Model),
+			service.WithAgentConversationPersistentQueue(true),
+		)
+	}
+	if plan.AgentWorker {
+		result.workers.agent = agentConversationService
+	}
+	if !plan.API {
+		return result, nil
+	}
 	services := apiServices{
 		auth: authService, source: sourceService, timeline: timelineService,
 		recommendation:    recommendationService,

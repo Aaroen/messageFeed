@@ -46,6 +46,7 @@ spec:
   (dict "name" "agent-scheduler-worker" "enabled" .Values.workers.agentScheduler.enabled)
   (dict "name" "embedding-worker" "enabled" .Values.workers.embedding.enabled)
   (dict "name" "item-event-worker" "enabled" .Values.workers.itemEvent.enabled)
+  (dict "name" "agent-worker" "enabled" .Values.workers.agent.enabled)
   (dict "name" "gateway" "enabled" .Values.gateway.enabled)
   (dict "name" "web" "enabled" .Values.web.enabled)
   (dict "name" "cloudflared" "enabled" .Values.cloudflared.enabled)

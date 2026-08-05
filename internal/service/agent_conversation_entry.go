@@ -148,11 +148,15 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	}
 	span.SetAttributes(attribute.Int64("agent.session_id", session.ID))
 
+	turnStatus := domain.AgentTurnStatusRunning
+	if s.persistentQueue && !s.processInline {
+		turnStatus = domain.AgentTurnStatusQueued
+	}
 	turn, err := s.repository.CreateTurn(ctx, domain.AgentTurn{
 		SessionID:        session.ID,
 		InboundMessageID: inbound.ID,
 		UserID:           account.UserID,
-		Status:           domain.AgentTurnStatusRunning,
+		Status:           turnStatus,
 		InputText:        input.TextContent,
 		StartedAt:        now,
 	})
@@ -233,6 +237,9 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 			return processed, err
 		}
 		return processed, nil
+	}
+	if s.persistentQueue {
+		return result, nil
 	}
 
 	processCtx := context.WithoutCancel(ctx)
@@ -349,11 +356,15 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 	if err != nil {
 		return ReceiveWebAgentTaskResult{}, err
 	}
+	turnStatus := domain.AgentTurnStatusRunning
+	if s.persistentQueue && !s.processInline {
+		turnStatus = domain.AgentTurnStatusQueued
+	}
 	turn, err := s.repository.CreateTurn(ctx, domain.AgentTurn{
 		SessionID:        session.ID,
 		InboundMessageID: inbound.ID,
 		UserID:           account.UserID,
-		Status:           domain.AgentTurnStatusRunning,
+		Status:           turnStatus,
 		InputText:        input.Message,
 		StartedAt:        now,
 	})
@@ -389,6 +400,14 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 		TraceID:   traceID,
 		CreatedAt: now,
 	})
+	if s.persistentQueue && !s.processInline {
+		return ReceiveWebAgentTaskResult{
+			Session:         agentSessionResponse(session, domain.AgentSessionStats{}, false),
+			Turn:            agentTurnResponse(turn),
+			ProgressURL:     s.agentTurnProgressURL(turn.ID),
+			ProcessingAsync: true,
+		}, nil
+	}
 
 	if handled, handledResult, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, ReceiveWeChatWorkAppMessageInput{
 		Provider:          domain.AgentProviderWeb,

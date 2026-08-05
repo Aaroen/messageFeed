@@ -44,6 +44,7 @@ type AgentConversationService struct {
 	sourceProvider         AgentSourceProvider
 	notificationJobs       AgentNotificationJobStore
 	scheduledTasks         AgentScheduleEvalRepository
+	sessionTaskLocker      AgentSessionTaskLocker
 	webFetcher             agentWebFetcher
 	turnRunner             *agent.TurnRunner
 	runManager             *agent.RunManager
@@ -54,6 +55,8 @@ type AgentConversationService struct {
 	ownerID                int64
 	publicBaseURL          string
 	processInline          bool
+	persistentQueue        bool
+	workerID               string
 	processTimeout         time.Duration
 	notificationTimeout    time.Duration
 	progressNotifyInterval time.Duration
@@ -122,6 +125,12 @@ func WithAgentConversationScheduledTaskStore(store AgentScheduleEvalRepository) 
 	}
 }
 
+func WithAgentConversationSessionTaskLocker(locker AgentSessionTaskLocker) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.sessionTaskLocker = locker
+	}
+}
+
 func WithAgentConversationWebFetcher(fetcher func(context.Context, string) ([]byte, string, int, string, error)) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		service.webFetcher = agentWebFetcher(fetcher)
@@ -131,6 +140,18 @@ func WithAgentConversationWebFetcher(fetcher func(context.Context, string) ([]by
 func WithAgentConversationInlineProcessing(enabled bool) AgentConversationServiceOption {
 	return func(service *AgentConversationService) {
 		service.processInline = enabled
+	}
+}
+
+func WithAgentConversationPersistentQueue(enabled bool) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.persistentQueue = enabled
+	}
+}
+
+func WithAgentConversationWorkerID(workerID string) AgentConversationServiceOption {
+	return func(service *AgentConversationService) {
+		service.workerID = strings.TrimSpace(workerID)
 	}
 }
 
@@ -209,6 +230,14 @@ func NewAgentConversationService(repository AgentConversationRepository, options
 	return service
 }
 
+func (s *AgentConversationService) SetWorkerID(workerID string) {
+	if s == nil {
+		return
+	}
+	s.workerID = strings.TrimSpace(workerID)
+	s.rebuildTurnRunner()
+}
+
 func (s *AgentConversationService) rebuildTurnRunner() {
 	if s == nil {
 		return
@@ -229,7 +258,7 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 		Now:      s.now,
 	})
 	s.turnRunner = agent.NewTurnRunner(agent.TurnRunnerOptions{
-		Store:          s.repository,
+		Store:          newAgentTurnStoreAdapter(s.repository, s.workerID),
 		AuditLogger:    s,
 		ContextBuilder: contextBuilder,
 		ToolExecutor:   s.agentCapabilityExecutor(),

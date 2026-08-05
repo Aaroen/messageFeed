@@ -2,6 +2,7 @@
 type: technical-note
 status: in_progress
 p0_status: implemented
+p1_status: implemented
 project: messageFeed
 language: go
 framework:
@@ -21,7 +22,7 @@ tags:
   - middleware/rabbitmq
   - kubernetes
 created: 2026-08-05
-updated: 2026-08-05
+updated: 2026-08-06
 ---
 
 # messageFeed 后端演进与面试专项落地方案
@@ -130,6 +131,19 @@ API 接收请求时只完成以下事务：
 
 第一版不要求立刻拆仓库或引入内部 gRPC；同一代码库和镜像增加独立运行角色即可获得主要收益。
 
+### P1 实施记录
+
+截至 2026-08-06，P1 已在 `messageFeed` 子仓库完成：
+
+1. API 生产模式将 Web 和企业微信 Agent turn 写入 `queued` 状态，返回 `202 Accepted`、`turn_id` 和进度 URL；默认构造行为仍保留内联/进程内异步模式，以兼容现有本地调用。
+2. 复用 `agent_turns` 作为执行队列，新增尝试次数、最大尝试次数、worker owner、租约和持久化取消请求字段，并提供 `000039` 迁移及 Helm 内置迁移副本。
+3. 新增 `agent-worker` 运行角色，使用 `FOR UPDATE SKIP LOCKED` 领取任务；租约过期任务可恢复，owner 条件更新阻止旧 worker 覆盖新状态。
+4. 取消请求在 API 副本与 worker 之间通过数据库同步；执行中的 worker 轮询取消状态，模型/工具流程使用 context 取消，已取消任务不会因租约过期重新入队。
+5. Worker 领取后持续续租，并复用 PostgreSQL `task_locks` 对会话加分布式租约锁；锁在执行期间自动续租，进程内互斥只作为同一 Pod 内的补充，锁竞争时任务重新入队。
+6. Helm 增加 `agent-worker` Deployment、RBAC、PDB、NetworkPolicy、资源配置和 Prometheus 抓取目标，支持通过 `APP_ROLE=agent-worker` 独立水平扩展。
+
+验证记录：`go test ./...`、`go vet ./...`、P1 Worker 的 `go test -race ./internal/service -run TestAgentWorkerProcessesQueuedTurnAndReleasesLease -count=1`、两个 Helm values 组合的 `helm lint`、迁移文件与 Helm 副本一致性校验及 `git diff --check` 均已通过。全仓库 `go test -race ./...` 仍会命中既有 Agent 异步测试替身的数据竞争，未将其归因于本次队列改动。
+
 ### P0/P1 验收
 
 P0 队列可靠性：
@@ -232,7 +246,7 @@ producer -> durable exchange -> durable queue -> consumer
 - [ ] 盘点并处理长期 `item_events` pending 记录，先确认业务语义，不直接删除数据。
 - [x] 统一任务租约、超时回收、重试和幂等字段及指标。
 - [x] 缩小 source worker 全局锁范围，接入 item-event-worker 消费角色。
-- [ ] 设计并实现持久化 Agent execution job 和 `agent-worker` 角色。
+- [x] 设计并实现持久化 Agent execution job 和 `agent-worker` 角色。
 - [ ] 完成隔离环境双节点 K3s 实验并保留命令、日志和故障现象。
 - [ ] 在独立实验环境完成 Redis cache-aside 和故障降级验证。
 - [ ] 在独立实验环境完成 RabbitMQ confirm、ack、重试、DLQ 和幂等验证。

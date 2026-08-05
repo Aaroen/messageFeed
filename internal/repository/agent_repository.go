@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/metrics"
 	"strings"
 	"time"
 
@@ -13,6 +14,12 @@ import (
 type AgentRepository struct {
 	db *gorm.DB
 }
+
+const (
+	defaultAgentTurnLease  = 2 * time.Minute
+	maxAgentTurnClaimLimit = 50
+	agentTurnQueueName     = "agent_turn"
+)
 
 func NewAgentRepository(db *gorm.DB) *AgentRepository {
 	return &AgentRepository{db: db}
@@ -85,6 +92,13 @@ type agentTurnModel struct {
 	ModelProvider    string
 	Model            string
 	ErrorMessage     string
+	AttemptCount     int
+	MaxAttempts      int
+	LockedBy         string
+	LockedAt         *time.Time
+	LeaseUntil       *time.Time
+	CancelRequested  bool
+	CancelReason     string
 	StartedAt        time.Time
 	FinishedAt       *time.Time
 	CreatedAt        time.Time
@@ -253,6 +267,19 @@ func (r *AgentRepository) UpdateInboundMessageStatus(ctx context.Context, userID
 		return domain.AgentInboundMessage{}, opErr
 	}
 	return agentInboundMessageModelToDomain(updated), nil
+}
+
+func (r *AgentRepository) GetInboundMessage(ctx context.Context, userID int64, id int64) (domain.AgentInboundMessage, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.inbound_message.get", "select", "agent_inbound_messages")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model agentInboundMessageModel
+	if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", id, userID).First(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentInboundMessage{}, opErr
+	}
+	return agentInboundMessageModelToDomain(model), nil
 }
 
 func (r *AgentRepository) GetOrCreateSession(ctx context.Context, session domain.AgentSession) (domain.AgentSession, error) {
@@ -447,7 +474,7 @@ func (r *AgentRepository) UpdateTurn(ctx context.Context, turn domain.AgentTurn)
 	result := r.db.WithContext(ctx).
 		Model(&agentTurnModel{}).
 		Where("id = ? AND user_id = ?", turn.ID, turn.UserID).
-		Select("Status", "OutputText", "ModelProvider", "Model", "ErrorMessage", "FinishedAt").
+		Select("Status", "OutputText", "ModelProvider", "Model", "ErrorMessage", "FinishedAt", "CancelRequested", "CancelReason").
 		Updates(&model)
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
@@ -464,6 +491,231 @@ func (r *AgentRepository) UpdateTurn(ctx context.Context, turn domain.AgentTurn)
 		return domain.AgentTurn{}, opErr
 	}
 	return agentTurnModelToDomain(updated), nil
+}
+
+func (r *AgentRepository) GetAgentTurn(ctx context.Context, userID int64, turnID int64) (domain.AgentTurn, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.turn.get", "select", "agent_turns")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	var model agentTurnModel
+	if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", turnID, userID).First(&model).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentTurn{}, opErr
+	}
+	return agentTurnModelToDomain(model), nil
+}
+
+func (r *AgentRepository) UpdateTurnIfOwned(ctx context.Context, turn domain.AgentTurn, workerID string) (domain.AgentTurn, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.turn.update_owned", "update", "agent_turns")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	workerID = strings.TrimSpace(workerID)
+	if workerID == "" {
+		return domain.AgentTurn{}, domain.ErrInvalidInput
+	}
+	model := agentTurnModelFromDomain(normalizeAgentTurn(turn))
+	result := r.db.WithContext(ctx).
+		Model(&agentTurnModel{}).
+		Where("id = ? AND user_id = ? AND locked_by = ?", turn.ID, turn.UserID, workerID).
+		Select("Status", "OutputText", "ModelProvider", "Model", "ErrorMessage", "FinishedAt", "AttemptCount", "MaxAttempts", "LockedBy", "LockedAt", "LeaseUntil", "CancelRequested", "CancelReason").
+		Updates(&model)
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.AgentTurn{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		opErr = domain.ErrNotFound
+		return domain.AgentTurn{}, opErr
+	}
+	var updated agentTurnModel
+	if err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", turn.ID, turn.UserID).First(&updated).Error; err != nil {
+		opErr = mapRepositoryError(err)
+		return domain.AgentTurn{}, opErr
+	}
+	return agentTurnModelToDomain(updated), nil
+}
+
+func (r *AgentRepository) RequestAgentTurnCancel(ctx context.Context, userID int64, turnID int64, reason string, now time.Time) (domain.AgentTurn, error) {
+	ctx, finish := traceRepositoryOperation(ctx, "repository.agent.turn.request_cancel", "update", "agent_turns")
+	var opErr error
+	defer func() { finish(opErr) }()
+
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "用户停止执行"
+	}
+	result := r.db.WithContext(ctx).
+		Model(&agentTurnModel{}).
+		Where("id = ? AND user_id = ? AND status IN ?", turnID, userID, []string{string(domain.AgentTurnStatusQueued), string(domain.AgentTurnStatusRunning)}).
+		Updates(map[string]any{
+			"cancel_requested": true,
+			"cancel_reason":    reason,
+			"updated_at":       now.UTC(),
+		})
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
+		return domain.AgentTurn{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		return r.GetAgentTurn(ctx, userID, turnID)
+	}
+	return r.GetAgentTurn(ctx, userID, turnID)
+}
+
+func (r *AgentRepository) RenewAgentTurnLease(ctx context.Context, userID int64, turnID int64, workerID string, leaseUntil time.Time, now time.Time) error {
+	workerID = strings.TrimSpace(workerID)
+	if workerID == "" {
+		return domain.ErrInvalidInput
+	}
+	result := r.db.WithContext(ctx).
+		Model(&agentTurnModel{}).
+		Where("id = ? AND user_id = ? AND locked_by = ? AND status = ?", turnID, userID, workerID, string(domain.AgentTurnStatusRunning)).
+		Updates(map[string]any{"lease_until": leaseUntil.UTC(), "updated_at": now.UTC()})
+	if result.Error != nil {
+		return mapRepositoryError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *AgentRepository) ClaimQueuedAgentTurns(ctx context.Context, input domain.AgentTurnClaimInput) ([]domain.AgentTurn, error) {
+	input = normalizeAgentTurnClaimInput(input)
+	claimStarted := time.Now()
+	var models []agentTurnModel
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := recoverExpiredAgentTurns(tx, input); err != nil {
+			return err
+		}
+		var ids []int64
+		if err := tx.WithContext(ctx).
+			Model(&agentTurnModel{}).
+			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("status = ?", string(domain.AgentTurnStatusQueued)).
+			Order("created_at ASC, id ASC").
+			Limit(input.Limit).
+			Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := tx.WithContext(ctx).
+			Model(&agentTurnModel{}).
+			Where("id IN ?", ids).
+			Updates(map[string]any{
+				"status":        string(domain.AgentTurnStatusRunning),
+				"started_at":    input.Now,
+				"locked_by":     input.WorkerID,
+				"locked_at":     input.Now,
+				"lease_until":   input.Now.Add(input.LeaseDuration),
+				"attempt_count": gorm.Expr("attempt_count + ?", 1),
+				"updated_at":    input.Now,
+			}).Error; err != nil {
+			return err
+		}
+		return tx.WithContext(ctx).Where("id IN ?", ids).Order("created_at ASC, id ASC").Find(&models).Error
+	})
+	metrics.TaskQueueClaimDuration.WithLabelValues(agentTurnQueueName).Observe(time.Since(claimStarted).Seconds())
+	if err != nil {
+		return nil, mapRepositoryError(err)
+	}
+	r.observeAgentTurnQueueState(ctx, input.Now)
+	turns := make([]domain.AgentTurn, 0, len(models))
+	for _, model := range models {
+		turns = append(turns, agentTurnModelToDomain(model))
+	}
+	return turns, nil
+}
+
+func normalizeAgentTurnClaimInput(input domain.AgentTurnClaimInput) domain.AgentTurnClaimInput {
+	input.WorkerID = strings.TrimSpace(input.WorkerID)
+	if input.WorkerID == "" {
+		input.WorkerID = "agent-worker"
+	}
+	if input.Now.IsZero() {
+		input.Now = time.Now().UTC()
+	}
+	if input.Limit < 1 {
+		input.Limit = 10
+	}
+	if input.Limit > maxAgentTurnClaimLimit {
+		input.Limit = maxAgentTurnClaimLimit
+	}
+	if input.LeaseDuration <= 0 {
+		input.LeaseDuration = defaultAgentTurnLease
+	}
+	return input
+}
+
+func recoverExpiredAgentTurns(tx *gorm.DB, input domain.AgentTurnClaimInput) error {
+	base := tx.Model(&agentTurnModel{}).
+		Where("status = ? AND lease_until IS NOT NULL AND lease_until <= ?", string(domain.AgentTurnStatusRunning), input.Now)
+	// A persisted cancellation must survive worker loss; canceled turns are terminal
+	// instead of being requeued for another worker.
+	queuedCanceled := tx.Model(&agentTurnModel{}).
+		Where("status = ? AND cancel_requested = TRUE", string(domain.AgentTurnStatusQueued)).
+		Updates(map[string]any{
+			"status":        string(domain.AgentTurnStatusFailed),
+			"finished_at":   input.Now,
+			"locked_by":     "",
+			"locked_at":     nil,
+			"lease_until":   nil,
+			"error_message": gorm.Expr("CASE WHEN COALESCE(NULLIF(cancel_reason, ''), '') = '' THEN ? ELSE cancel_reason END", "agent turn canceled"),
+			"updated_at":    input.Now,
+		})
+	if queuedCanceled.Error != nil {
+		return queuedCanceled.Error
+	}
+	requeued := base.Where("cancel_requested = FALSE AND attempt_count < max_attempts").Updates(map[string]any{
+		"status":        string(domain.AgentTurnStatusQueued),
+		"locked_by":     "",
+		"locked_at":     nil,
+		"lease_until":   nil,
+		"error_message": gorm.Expr("CASE WHEN COALESCE(error_message, '') = '' THEN ? ELSE error_message END", "worker lease expired"),
+		"updated_at":    input.Now,
+	})
+	if requeued.Error != nil {
+		return requeued.Error
+	}
+	failed := base.Where("cancel_requested = TRUE OR attempt_count >= max_attempts").Updates(map[string]any{
+		"status":        string(domain.AgentTurnStatusFailed),
+		"finished_at":   input.Now,
+		"locked_by":     "",
+		"locked_at":     nil,
+		"lease_until":   nil,
+		"error_message": gorm.Expr("CASE WHEN cancel_requested AND COALESCE(NULLIF(cancel_reason, ''), '') <> '' THEN cancel_reason WHEN COALESCE(error_message, '') = '' THEN ? ELSE error_message END", "worker lease expired"),
+		"updated_at":    input.Now,
+	})
+	if failed.Error != nil {
+		return failed.Error
+	}
+	if recovered := requeued.RowsAffected + failed.RowsAffected; recovered > 0 {
+		metrics.TaskQueueLeaseRecoveriesTotal.WithLabelValues(agentTurnQueueName).Add(float64(recovered))
+	}
+	if failed.RowsAffected > 0 {
+		metrics.TaskQueueDeadLettersTotal.WithLabelValues(agentTurnQueueName).Add(float64(failed.RowsAffected))
+	}
+	return nil
+}
+
+func (r *AgentRepository) observeAgentTurnQueueState(ctx context.Context, now time.Time) {
+	var depth int64
+	if err := r.db.WithContext(ctx).Model(&agentTurnModel{}).Where("status = ?", string(domain.AgentTurnStatusQueued)).Count(&depth).Error; err != nil {
+		return
+	}
+	var oldest time.Time
+	if err := r.db.WithContext(ctx).Model(&agentTurnModel{}).Where("status = ?", string(domain.AgentTurnStatusQueued)).Select("MIN(created_at)").Scan(&oldest).Error; err != nil {
+		return
+	}
+	var oldestPtr *time.Time
+	if !oldest.IsZero() {
+		oldestPtr = &oldest
+	}
+	metrics.ObserveTaskQueueState(agentTurnQueueName, depth, oldestPtr, now)
 }
 
 func (r *AgentRepository) AppendTranscriptEntry(ctx context.Context, entry domain.AgentTranscriptEntry) (domain.AgentTranscriptEntry, error) {
@@ -834,8 +1086,16 @@ func normalizeAgentTurn(turn domain.AgentTurn) domain.AgentTurn {
 	turn.ModelProvider = strings.TrimSpace(turn.ModelProvider)
 	turn.Model = strings.TrimSpace(turn.Model)
 	turn.ErrorMessage = strings.TrimSpace(turn.ErrorMessage)
+	turn.LockedBy = strings.TrimSpace(turn.LockedBy)
+	turn.CancelReason = strings.TrimSpace(turn.CancelReason)
+	if turn.AttemptCount < 0 {
+		turn.AttemptCount = 0
+	}
+	if turn.MaxAttempts < 1 {
+		turn.MaxAttempts = 3
+	}
 	if !turn.Status.Valid() {
-		turn.Status = domain.AgentTurnStatusRunning
+		turn.Status = domain.AgentTurnStatusQueued
 	}
 	return turn
 }
@@ -1063,6 +1323,13 @@ func agentTurnModelFromDomain(turn domain.AgentTurn) agentTurnModel {
 		ModelProvider:    turn.ModelProvider,
 		Model:            turn.Model,
 		ErrorMessage:     turn.ErrorMessage,
+		AttemptCount:     turn.AttemptCount,
+		MaxAttempts:      turn.MaxAttempts,
+		LockedBy:         turn.LockedBy,
+		LockedAt:         turn.LockedAt,
+		LeaseUntil:       turn.LeaseUntil,
+		CancelRequested:  turn.CancelRequested,
+		CancelReason:     turn.CancelReason,
 		StartedAt:        turn.StartedAt,
 		FinishedAt:       turn.FinishedAt,
 		CreatedAt:        turn.CreatedAt,
@@ -1082,6 +1349,13 @@ func agentTurnModelToDomain(model agentTurnModel) domain.AgentTurn {
 		ModelProvider:    model.ModelProvider,
 		Model:            model.Model,
 		ErrorMessage:     model.ErrorMessage,
+		AttemptCount:     model.AttemptCount,
+		MaxAttempts:      model.MaxAttempts,
+		LockedBy:         model.LockedBy,
+		LockedAt:         model.LockedAt,
+		LeaseUntil:       model.LeaseUntil,
+		CancelRequested:  model.CancelRequested,
+		CancelReason:     model.CancelReason,
 		StartedAt:        model.StartedAt,
 		FinishedAt:       model.FinishedAt,
 		CreatedAt:        model.CreatedAt,

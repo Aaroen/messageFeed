@@ -44,6 +44,20 @@ type AgentConversationTurnStore interface {
 	AppendTranscriptEntry(ctx context.Context, entry domain.AgentTranscriptEntry) (domain.AgentTranscriptEntry, error)
 }
 
+type AgentTurnWorkerRepository interface {
+	AgentConversationRepository
+	ClaimQueuedAgentTurns(ctx context.Context, input domain.AgentTurnClaimInput) ([]domain.AgentTurn, error)
+	GetAgentTurn(ctx context.Context, userID int64, turnID int64) (domain.AgentTurn, error)
+	GetInboundMessage(ctx context.Context, userID int64, id int64) (domain.AgentInboundMessage, error)
+	UpdateTurnIfOwned(ctx context.Context, turn domain.AgentTurn, workerID string) (domain.AgentTurn, error)
+	RenewAgentTurnLease(ctx context.Context, userID int64, turnID int64, workerID string, leaseUntil time.Time, now time.Time) error
+	RequestAgentTurnCancel(ctx context.Context, userID int64, turnID int64, reason string, now time.Time) (domain.AgentTurn, error)
+}
+
+type AgentSessionTaskLocker interface {
+	WithLock(ctx context.Context, name string, ttl time.Duration, run func(context.Context) error) error
+}
+
 type AgentConversationMemoryStore interface {
 	ListRecentTranscriptEntries(ctx context.Context, options domain.AgentTranscriptListOptions) ([]domain.AgentTranscriptEntry, error)
 	QueryTranscriptEntries(ctx context.Context, options domain.AgentTranscriptQueryOptions) ([]domain.AgentTranscriptEntry, error)
@@ -174,10 +188,11 @@ type AgentTurnResponse struct {
 }
 
 type ReceiveWebAgentTaskResult struct {
-	Session     AgentSessionResponse `json:"session"`
-	Turn        AgentTurnResponse    `json:"turn"`
-	Plan        AgentPlanResponse    `json:"plan"`
-	Reply       string               `json:"reply"`
-	ProgressURL string               `json:"progress_url"`
-	Duplicate   bool                 `json:"duplicate"`
+	Session         AgentSessionResponse `json:"session"`
+	Turn            AgentTurnResponse    `json:"turn"`
+	Plan            AgentPlanResponse    `json:"plan"`
+	Reply           string               `json:"reply"`
+	ProgressURL     string               `json:"progress_url"`
+	Duplicate       bool                 `json:"duplicate"`
+	ProcessingAsync bool                 `json:"processing_async"`
 }

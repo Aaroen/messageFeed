@@ -54,7 +54,7 @@ spec:
             matchExpressions:
               - key: messagefeed.io/app-role
                 operator: In
-                values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker, migrate]
+                values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker, agent-worker, migrate]
       ports:
         - {protocol: TCP, port: 5432}
 ---
@@ -69,7 +69,7 @@ spec:
     matchExpressions:
       - key: messagefeed.io/app-role
         operator: In
-        values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker, migrate]
+        values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker, agent-worker, migrate]
   policyTypes:
     - Egress
   egress:
@@ -91,7 +91,7 @@ spec:
     matchExpressions:
       - key: messagefeed.io/app-role
         operator: In
-        values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker]
+        values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker, agent-worker]
   policyTypes:
     - Egress
   egress:
@@ -114,7 +114,7 @@ spec:
     matchExpressions:
       - key: messagefeed.io/app-role
         operator: In
-        values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker]
+        values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker, agent-worker]
   policyTypes:
     - Egress
   egress:
@@ -169,8 +169,10 @@ metadata:
     {{- include "messagefeed.labels" . | nindent 4 }}
 spec:
   podSelector:
-    matchLabels:
-      messagefeed.io/app-role: api
+    matchExpressions:
+      - key: messagefeed.io/app-role
+        operator: In
+        values: [api, agent-worker]
   policyTypes:
     - Egress
   {{- if .Values.networkPolicy.llmEgress }}
@@ -352,7 +354,7 @@ spec:
             matchExpressions:
               - key: messagefeed.io/app-role
                 operator: In
-                values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker]
+                values: [api, source-worker, notification-worker, agent-scheduler-worker, embedding-worker, item-event-worker, agent-worker]
       ports:
         - {protocol: TCP, port: 4317}
         - {protocol: TCP, port: 4318}

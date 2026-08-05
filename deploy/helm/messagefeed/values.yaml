@@ -133,6 +133,21 @@ workers:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+  agent:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    podAnnotations: {}
+    podLabels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
 
 # Web 静态资源服务，由独立 Caddy 容器监听 8080 端口。
 web:

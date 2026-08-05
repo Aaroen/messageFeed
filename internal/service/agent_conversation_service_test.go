@@ -2160,6 +2160,87 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	}
 }
 
+func TestAgentWorkerProcessesQueuedTurnAndReleasesLease(t *testing.T) {
+	now := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	repository.account = testAgentExternalAccount(now)
+	repository.session = domain.AgentSession{
+		ID:                12,
+		UserID:            1,
+		ExternalAccountID: repository.account.ID,
+		Provider:          domain.AgentProviderWeChatWorkApp,
+		ChannelSessionKey: "corp-a:1000002:zhangsan",
+		Status:            domain.AgentSessionStatusActive,
+		StartedAt:         now,
+		LastActiveAt:      now,
+	}
+	repository.inbound = domain.AgentInboundMessage{
+		ID:                11,
+		UserID:            1,
+		ExternalAccountID: repository.account.ID,
+		Provider:          domain.AgentProviderWeChatWorkApp,
+		ProviderMessageID: "worker-msg-1",
+		CorpID:            "corp-a",
+		AgentID:           "1000002",
+		ExternalUserID:    "zhangsan",
+		MsgType:           "text",
+		TextContent:       "后台任务",
+		Status:            domain.AgentInboundMessageStatusReceived,
+		CreatedAt:         now,
+	}
+	repository.turns = []domain.AgentTurn{{
+		ID:               13,
+		SessionID:        repository.session.ID,
+		InboundMessageID: repository.inbound.ID,
+		UserID:           1,
+		Status:           domain.AgentTurnStatusQueued,
+		InputText:        repository.inbound.TextContent,
+		MaxAttempts:      3,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}}
+	repository.transcripts = []domain.AgentTranscriptEntry{{
+		SessionID: repository.session.ID,
+		TurnID:    repository.turns[0].ID,
+		UserID:    1,
+		Role:      domain.AgentTranscriptRoleUser,
+		Content:   repository.inbound.TextContent,
+	}}
+	service := NewAgentConversationService(
+		repository,
+		WithAgentConversationLLM(&fakeAgentConversationLLM{response: llm.ChatResponse{
+			Provider: "openai_compatible",
+			Model:    "worker-model",
+			Content:  "Worker 已完成任务",
+		}}),
+		WithAgentConversationSender(&fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "worker-reply-1"}}),
+		WithAgentConversationNow(func() time.Time { return now }),
+		WithAgentConversationPublicBaseURL("https://messagefeed.example"),
+	)
+
+	result, err := service.RunAgentWorkerOnce(context.Background(), RunAgentWorkerOnceInput{
+		WorkerID:      "worker-a",
+		Limit:         1,
+		LeaseDuration: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("RunAgentWorkerOnce() error = %v", err)
+	}
+	if result.ClaimedCount != 1 || result.Succeeded != 1 || result.Failed != 0 {
+		t.Fatalf("worker result = %#v", result)
+	}
+	turn := repository.turns[0]
+	if turn.Status != domain.AgentTurnStatusSucceeded || turn.AttemptCount != 1 {
+		t.Fatalf("turn = %#v", turn)
+	}
+	if turn.LockedBy != "" || turn.LockedAt != nil || turn.LeaseUntil != nil {
+		t.Fatalf("worker lease was not released: %#v", turn)
+	}
+	if repository.inbound.Status != domain.AgentInboundMessageStatusSucceeded {
+		t.Fatalf("inbound status = %q", repository.inbound.Status)
+	}
+}
+
 func TestAgentConversationServiceSendsWeChatProgressNotificationWithAudit(t *testing.T) {
 	repository := newFakeAgentConversationRepository()
 	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-progress-1"}}
@@ -3562,6 +3643,95 @@ func (r *fakeAgentConversationRepository) UpdateTurn(_ context.Context, turn dom
 	}
 	r.turns = append(r.turns, turn)
 	return turn, nil
+}
+
+func (r *fakeAgentConversationRepository) GetInboundMessage(_ context.Context, userID int64, id int64) (domain.AgentInboundMessage, error) {
+	if r.inbound.ID == id && r.inbound.UserID == userID {
+		return r.inbound, nil
+	}
+	return domain.AgentInboundMessage{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) GetAgentTurn(_ context.Context, userID int64, turnID int64) (domain.AgentTurn, error) {
+	for _, turn := range r.turns {
+		if turn.ID == turnID && turn.UserID == userID {
+			return turn, nil
+		}
+	}
+	return domain.AgentTurn{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) ClaimQueuedAgentTurns(_ context.Context, input domain.AgentTurnClaimInput) ([]domain.AgentTurn, error) {
+	if input.WorkerID == "" {
+		input.WorkerID = "agent-worker"
+	}
+	if input.Now.IsZero() {
+		input.Now = time.Now().UTC()
+	}
+	if input.Limit <= 0 {
+		input.Limit = 10
+	}
+	claimed := make([]domain.AgentTurn, 0, input.Limit)
+	for index := range r.turns {
+		turn := &r.turns[index]
+		if len(claimed) >= input.Limit || turn.Status != domain.AgentTurnStatusQueued || turn.CancelRequested {
+			continue
+		}
+		if turn.MaxAttempts < 1 {
+			turn.MaxAttempts = 3
+		}
+		if turn.AttemptCount >= turn.MaxAttempts {
+			turn.Status = domain.AgentTurnStatusFailed
+			turn.FinishedAt = &input.Now
+			continue
+		}
+		turn.Status = domain.AgentTurnStatusRunning
+		turn.AttemptCount++
+		turn.LockedBy = input.WorkerID
+		turn.LockedAt = &input.Now
+		turn.LeaseUntil = timePtr(input.Now.Add(input.LeaseDuration))
+		turn.StartedAt = input.Now
+		claimed = append(claimed, *turn)
+	}
+	return claimed, nil
+}
+
+func (r *fakeAgentConversationRepository) UpdateTurnIfOwned(_ context.Context, turn domain.AgentTurn, workerID string) (domain.AgentTurn, error) {
+	for index := range r.turns {
+		if r.turns[index].ID != turn.ID || r.turns[index].UserID != turn.UserID || r.turns[index].LockedBy != workerID {
+			continue
+		}
+		r.turns[index] = turn
+		return turn, nil
+	}
+	return domain.AgentTurn{}, domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) RenewAgentTurnLease(_ context.Context, userID int64, turnID int64, workerID string, leaseUntil time.Time, now time.Time) error {
+	for index := range r.turns {
+		if r.turns[index].ID == turnID && r.turns[index].UserID == userID && r.turns[index].LockedBy == workerID && r.turns[index].Status == domain.AgentTurnStatusRunning {
+			r.turns[index].LeaseUntil = &leaseUntil
+			r.turns[index].UpdatedAt = now
+			return nil
+		}
+	}
+	return domain.ErrNotFound
+}
+
+func (r *fakeAgentConversationRepository) RequestAgentTurnCancel(_ context.Context, userID int64, turnID int64, reason string, now time.Time) (domain.AgentTurn, error) {
+	for index := range r.turns {
+		turn := &r.turns[index]
+		if turn.ID != turnID || turn.UserID != userID {
+			continue
+		}
+		if turn.Status == domain.AgentTurnStatusQueued || turn.Status == domain.AgentTurnStatusRunning {
+			turn.CancelRequested = true
+			turn.CancelReason = reason
+			turn.UpdatedAt = now
+		}
+		return *turn, nil
+	}
+	return domain.AgentTurn{}, domain.ErrNotFound
 }
 
 func (r *fakeAgentConversationRepository) AppendTranscriptEntry(_ context.Context, entry domain.AgentTranscriptEntry) (domain.AgentTranscriptEntry, error) {

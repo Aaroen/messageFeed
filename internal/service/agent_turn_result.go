@@ -42,7 +42,7 @@ func (s *AgentConversationService) finishTurnWithReply(
 	turn.Status = domain.AgentTurnStatusSucceeded
 	turn.OutputText = reply
 	turn.FinishedAt = &finishedAt
-	turn, _ = s.repository.UpdateTurn(ctx, turn)
+	turn, _ = updateAgentTurn(ctx, s.repository, turn, s.workerID)
 
 	sendResult := notifier.WeChatWorkSendResult{}
 	sendCount := 0
@@ -108,7 +108,7 @@ func (s *AgentConversationService) failTurnWithFeedback(
 	failedTurn.ErrorMessage = cause.Error()
 	failedTurn.FinishedAt = &now
 	if failedTurn.ID > 0 {
-		if updated, err := s.repository.UpdateTurn(ctx, failedTurn); err == nil {
+		if updated, err := updateAgentTurn(ctx, s.repository, failedTurn, s.workerID); err == nil {
 			failedTurn = updated
 		}
 	}
@@ -232,7 +232,7 @@ func (s *AgentConversationService) failTurn(ctx context.Context, userID int64, s
 	turn.ErrorMessage = cause.Error()
 	turn.FinishedAt = &now
 	if turn.ID > 0 {
-		_, _ = s.repository.UpdateTurn(ctx, turn)
+		_, _ = updateAgentTurn(ctx, s.repository, turn, s.workerID)
 	}
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: sessionID,

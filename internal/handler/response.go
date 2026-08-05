@@ -46,6 +46,16 @@ func Created(c *gin.Context, data any) {
 	})
 }
 
+func Accepted(c *gin.Context, data any) {
+	c.JSON(http.StatusAccepted, APIResponse{
+		Code:      0,
+		Message:   "accepted",
+		Data:      data,
+		RequestID: requestID(c),
+		TraceID:   observability.TraceID(c.Request.Context()),
+	})
+}
+
 // Error 返回业务错误响应。
 func Error(c *gin.Context, statusCode int, code int, message string) {
 	c.Set(errorCodeKey, code)

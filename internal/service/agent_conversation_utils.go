@@ -239,6 +239,14 @@ func webAgentSessionKey(userID int64, channel string) string {
 	return fmt.Sprintf("web:user:%d:%s", userID, normalizeWebAgentChannel(channel))
 }
 
+func (s *AgentConversationService) agentTurnProgressURL(turnID int64) string {
+	path := fmt.Sprintf("/agent/progress?turn_id=%d", turnID)
+	if s == nil || s.publicBaseURL == "" {
+		return path
+	}
+	return s.publicBaseURL + path
+}
+
 func agentTurnResponse(turn domain.AgentTurn) AgentTurnResponse {
 	return AgentTurnResponse{
 		ID:               turn.ID,

@@ -1,4 +1,4 @@
-{{/* 四类 worker 仅暴露运维端口，不注册业务 HTTP 路由。 */}}
+{{/* 各类 worker 仅暴露运维端口，不注册业务 HTTP 路由。 */}}
 {{- define "messagefeed.workerWorkload" -}}
 {{- $root := .root -}}
 {{- $cfg := .config -}}
@@ -156,4 +156,8 @@ spec:
 {{- end }}
 {{- if .Values.workers.itemEvent.enabled }}
 {{ include "messagefeed.workerWorkload" (dict "root" . "config" .Values.workers.itemEvent "name" "item-event-worker" "role" "item-event-worker") }}
+{{- end }}
+{{- if .Values.workers.agent.enabled }}
+---
+{{ include "messagefeed.workerWorkload" (dict "root" . "config" .Values.workers.agent "name" "agent-worker" "role" "agent-worker") }}
 {{- end }}

@@ -28,6 +28,8 @@ func (s *AgentConversationService) processTurn(
 	activeProcess := s.registerAgentProcess(turn.ID, cancelProcess)
 	defer cancelProcess()
 	defer s.unregisterAgentProcess(activeProcess)
+	stopCancellationWatch := s.watchAgentTurnCancellation(ctx, turn, activeProcess)
+	defer stopCancellationWatch()
 
 	lock := s.sessionLock(session.ID)
 	lock.Lock()
