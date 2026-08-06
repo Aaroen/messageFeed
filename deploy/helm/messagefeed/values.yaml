@@ -76,6 +76,10 @@ workers:
   notification:
     enabled: true
     replicaCount: 1
+    image:
+      repository: messagefeed-notification
+      tag: ""
+      pullPolicy: IfNotPresent
     resources:
       requests:
         cpu: 25m

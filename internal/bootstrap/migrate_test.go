@@ -54,10 +54,24 @@ func TestValidatePendingMigrationsEnforcesExpandContract(t *testing.T) {
 		{
 			name:           "procedural destructive schema is rejected",
 			filename:       "000038_expand_procedural_drop.up.sql",
-			sql:            "DO $$ BEGIN ALTER TABLE migration_probe DROP CONSTRAINT old_constraint; END $$;",
+			sql:            "DO $$ BEGIN DROP TABLE migration_probe; END $$;",
 			currentVersion: 37,
 			phase:          "expand",
 			wantError:      "destructive operation DROP",
+		},
+		{
+			name:           "expand permits replacing a constraint",
+			filename:       "000038_expand_replace_constraint.up.sql",
+			sql:            "ALTER TABLE migration_probe DROP CONSTRAINT IF EXISTS old_constraint; ALTER TABLE migration_probe ADD CONSTRAINT new_constraint CHECK (id > 0);",
+			currentVersion: 37,
+			phase:          "expand",
+		},
+		{
+			name:           "legacy agent turn migration is treated as expand",
+			filename:       "000039_add_agent_turn_queue.up.sql",
+			sql:            "ALTER TABLE agent_turns ADD COLUMN IF NOT EXISTS lease_until TIMESTAMP WITH TIME ZONE;",
+			currentVersion: 37,
+			phase:          "expand",
 		},
 		{
 			name:           "contract accepts explicit destructive schema",

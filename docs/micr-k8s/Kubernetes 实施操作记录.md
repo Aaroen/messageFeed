@@ -1,9 +1,9 @@
 ## messageFeed Kubernetes 实施操作记录
 
-**项目路径**：`/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed`  
+**项目路径**：`/home/aroen/projects/Amoney/go_st/Go_Pro/messageFeed`
 **关联文档**：`docs/micr-k8s/micr-k8s-plan.md`、`docs/micr-k8s/micr-k8s-implement.md`  
 **记录创建日期**：2026-07-06  
-**当前状态**：第一部分环境基线、K3s 安装、K3s 动态网络持久化与 Helm 安装已完成；第二部分只读代码职责核查已执行并回填；第三部分 all-in-one 过渡部署、Cloudflare Tunnel、观测栈与固定本地监控入口已完成；第四部分已建立 `deploy/helm/messagefeed` Helm Chart，并于 2026-07-16 使用 `--take-ownership` 完成现有 K3s 资源接管；第八部分环境与资产治理已于 2026-07-18 完成。当前 Helm release `messagefeed` revision 3 为 `deployed`，5 个 PVC 均为 `Bound`、对应 PV 均为 `Retain`，`local-path-retain` 为唯一默认 StorageClass；固定镜像、Grafana Secret 和 PostgreSQL 完整恢复演练均已通过，尚未实施 `APP_ROLE` 多运行角色拆分。
+**当前状态**：单节点 K3s、Helm 接管、多运行角色、安全治理、迁移与入口多副本已完成；P0 任务可靠性、P1 持久化 Agent worker 与首个 `notification-service` 生产拆分已完成。Helm release `messagefeed` revision 36 为 `deployed`，PostgreSQL 为 `39,false`；P2 目标已调整为实体 Linux `100.106.96.110` 承载 K3s server、PostgreSQL 和热备用，WSL 迁移为主应用 agent，`100.72.246.82` 已排除。当前仍是 WSL single-server，P2 尚未实施。
 
 ### 记录原则
 
@@ -19,16 +19,18 @@
 | --- | --- | --- |
 | 2026-07-06 | `docs/micr-k8s/micr-k8s-plan.md` | 当前方案为 WSL 内 K3s single-server 基线，先进行单体多运行角色、Kubernetes 分布式部署与入口高可用，再考虑业务微服务拆分。 |
 | 2026-07-06 | `docs/micr-k8s/micr-k8s-implement.md` | 实施顺序为固定 WSL 执行入口与项目基线、核实现有代码职责、`APP_ROLE` 角色化、启动装配拆分、镜像与 Helm、K3s、部署与高可用演练、CI/CD 和后续服务器扩展。 |
+| 2026-08-06 | `docs/nowdoit/messagefeed-backend-evolution-review-plan-20260805.md` | P0/P1 已实现；P2 收敛为 WSL K3s server 与实体 Linux `100.106.96.110` agent/GPU 计算节点，其他后续专项不进入本阶段。 |
+| 2026-08-06 | `docs/micr-k8s/micr-k8s-plan.md`、`docs/micr-k8s/micr-k8s-implement.md` | 新增 WSL 故障接管要求后，P2 调整为 110 K3s server/PostgreSQL/热备用、WSL 主应用 agent，以及两个独立 Tunnel 和 Cloudflare Public Load Balancer。 |
 
 ### 当前约束摘要
 
-1. 当前阶段采用 WSL 内 K3s single-server 长期运行方案，不使用 K3d 作为主线。
+1. 当前实际仍采用 WSL 内 K3s single-server；P2 目标是先建立 110 K3s server 和 PostgreSQL，再将 WSL 迁移为主应用 agent。
 2. 统一执行入口为 Linux/WSL 环境；若不在 Linux 内，则通过 `ssh aroen@127.0.0.1` 进入 WSL。
-3. 项目目录为 `/home/aroen/projects/Amoney/_Astu/go/go_st/Go_Pro/messageFeed`。
-4. 第一阶段不直接拆业务微服务，不引入 Nginx Ingress，不把数据库复杂高可用作为主目标。
-5. 第一阶段目标是运行边界清晰化，包括 `api`、`source-worker`、`notification-worker`、`agent-scheduler-worker`、`embedding-worker`、`migrate`。
-6. 当前阶段不承诺 Windows 关机、WSL 停止或本机断网后持续在线。
-7. Cloudflare Tunnel、Caddy gateway、API、Web 后续应纳入 K3s 管理，并通过多副本和探针降低单 Pod 故障影响。
+3. 项目目录为 `/home/aroen/projects/Amoney/go_st/Go_Pro/messageFeed`。
+4. 首个 `notification-service` 已拆为独立入口、镜像和 Deployment，但仍共享代码模块与 PostgreSQL；当前不引入 Nginx Ingress，不建设两 server etcd 或 PostgreSQL 多主。
+5. 已完成的运行边界包括 `api`、`source-worker`、`notification-worker`、`agent-scheduler-worker`、`embedding-worker`、`item-event-worker`、`agent-worker` 和 `migrate`。
+6. P2 完成前不承诺 Windows 关机、WSL 停止或本机断网后持续在线；完成 110 与 Cloudflare 主备验收后，只声明已经实际测试的故障范围。
+7. 当前 WSL Tunnel、Caddy gateway、API、Web 已通过多副本和探针降低单 Pod 故障影响；110 的 `messageFeed_fallback` Tunnel 和 Public Load Balancer 尚未配置。
 
 ### 操作记录
 
@@ -50,6 +52,12 @@
 | 2026-07-16 | 接管验收 | 验证数据库、PVC/PV、内部服务端点、Cloudflare Tunnel 与公网健康检查 | PostgreSQL `schema_migrations=37,false`、公共表 55；全部 11 个 Pod Ready，核心服务 HTTP 200，公网 `/healthz` HTTP 200。 |
 | 2026-07-17 | 当前状态复核 | 只读复核 Helm release、PVC/PV 与 StorageClass 状态，并同步实施文档 | Helm release 仍为 revision 2/deployed；5 个 PVC 为 `Bound`、5 个 PV 为 `Retain`；`local-path` 与 `local-path-retain` 同时为默认类，已记录为待修正项；本次未修改集群资源。 |
 | 2026-07-18 | 环境与资产治理 | 完成唯一默认 StorageClass、固定镜像、Grafana Secret、API `tini` 和 PostgreSQL 恢复演练 | Helm revision 3/deployed；全部主要 Pod Ready；公网健康检查通过；隔离恢复库的数据、迁移、扩展、索引和约束核验通过。 |
+| 2026-08-06 | P0/P1 状态同步 | 核对任务可靠性、`item-event-worker`、持久化 `agent-worker`、Helm 角色配置和验证记录 | P0/P1 已实现；子仓库提交 `f126257` 已推送。 |
+| 2026-08-06 | P2 部署前检查 | 通过 SSH 只读检查 `100.106.96.110` 和 `100.72.246.82` 的权限、运行时、网络和 GPU | 110 为 80 vCPU、251 GiB、2×RTX 4090 实体机，系统 Docker/NVIDIA runtime 可用且能访问 WSL K3s API；82 的 SSH 入口实际为外部 Kubernetes Pod，不具备加入当前 K3s 的宿主机条件。 |
+| 2026-08-06 | P2 范围收敛 | 根据实际环境重新确定节点边界 | 排除 `100.72.246.82`；只推进本机 WSL `100.78.141.120` server 与实体 Linux `100.106.96.110` agent/GPU 节点。本文档更新未修改集群或远程主机。 |
+| 2026-08-06 | 发布前数据保护 | 对生产 PostgreSQL 执行 custom-format 逻辑备份并校验摘要 | 生成 `/tmp/messagefeed-pre-split-20260806.dump`，大小 8.8 MiB，SHA-256 为 `721848d4939c10ef9f3de1aeea3279578d74afae38be2c835d8642f32f7a037f`。 |
+| 2026-08-06 | CI/CD 基线 | 实现 PR/push 校验、GHCR 镜像发布和受保护 staging 手动发布工作流 | `.github/workflows/ci.yml` 已完成；`messagefeed-staging` 自托管 Runner、staging Secret 和首次实际流水线运行尚未完成。 |
+| 2026-08-06 | 首个微服务拆分 | 构建并部署独立 `notification-service`，完成迁移门禁修复与空队列指标修复 | revision 35 完成迁移和服务切换，revision 36 修复通知空队列 NULL 扫描；最终工作负载、健康检查和 Prometheus target 均正常。 |
 
 ## 第一部分：固定 WSL 执行入口与项目基线
 
@@ -4466,3 +4474,191 @@ LLM：http://198.18.0.1:15721/v1，gpt-5.6-sol
 3. 部署 K3s staging，执行首页、健康、登录、核心 API、迁移门禁和入口 smoke test。
 4. 生产发布前保留人工审批；发布后采集版本、迁移 Job、Pod rollout 和 Prometheus 状态。
 5. 任一检查失败时自动停止发布，并保留 `helm rollback` 与上一镜像 tag 的恢复路径。
+
+## 2026-08-06 P0/P1 实现同步记录
+
+本节记录发布前的代码实现时点；后续生产部署状态以第六部分为准：
+
+1. P0 已统一任务领取、租约、超时回收、有限重试、owner 条件更新和指标，并接入 `item-event-worker`。
+2. P1 已新增 `000039_add_agent_turn_queue` 迁移，API 写入 `queued` turn 并返回 `202`；独立 `agent-worker` 已实现领取、续租、取消、恢复和会话级 PostgreSQL 分布式锁。
+3. Helm Chart 已增加 `item-event-worker`、`agent-worker`、RBAC、PDB、NetworkPolicy、资源配置和 Prometheus 抓取目标。
+4. `go test ./...`、`go vet ./...`、P1 worker 定向 race 测试、Helm lint、迁移副本一致性和 `git diff --check` 已通过；全仓库 race 的既有异步测试替身竞争另行处理。
+5. P1 子仓库提交为 `f126257`，已经推送到 `origin/master`；本节只同步事实，未对现有 K3s release 执行升级。
+
+## 第五部分：P2 远程环境前置检查（2026-08-06）
+
+### 目标与节点职责
+
+本阶段只核查并准备以下固定部署边界，不执行未授权的系统安装或资源覆盖：
+
+| 节点 | 地址 | 目标职责 |
+| --- | --- | --- |
+| 实体 Linux 节点 | `100.106.96.110` | 候选 K3s agent、通用计算、2×RTX 4090 训练/推理 |
+| 外部 Kubernetes Pod | `100.72.246.82` | 只核查既有环境，不加入当前 K3s |
+
+### 只读检查命令与结果
+
+执行方式：
+
+```bash
+ssh -o BatchMode=yes -o ConnectTimeout=8 aroen@100.106.96.110 'hostname; id -u; command -v docker; sudo -n true'
+ssh -o BatchMode=yes -o ConnectTimeout=8 aroen@100.72.246.82 'hostname; id -u; command -v docker; command -v nvidia-smi; nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader; sudo -n true'
+```
+
+结果：
+
+1. `100.106.96.110` SSH 登录成功；主机为 Ubuntu 22.04、80 vCPU、251 GiB 内存和 2×RTX 4090，NVIDIA 驱动 570.211.01、NVIDIA Container Toolkit 1.13.5、Docker Engine 28.3.1、NVIDIA runtime 和 CDI 可用。
+2. 110 的 Docker CLI 默认 context 指向失效的 rootless Podman socket，但 `/var/run/docker.sock` 对 docker 组可用，显式使用 `default` context 可正常访问系统 Docker daemon。该主机可以访问 WSL K3s API `100.78.141.120:6443`，尚未安装 K3s agent。
+3. 110 的根分区使用率为 93%、可用约 3.5 GiB；`/data` 可用约 6.7 TiB、`/home` 可用约 11 TiB，K3s 数据和训练缓存不能使用根分区。
+4. `100.72.246.82` SSH 登录成功并可见两张 RTX 4090，但 `systemd-detect-virt` 为 Docker，文件系统和挂载显示其为外部 Kubernetes Pod；Pod 内无宿主机 Docker socket、K3s 或到当前集群的应用网络。
+5. 当前 WSL K3s 只有本机一个节点，未部署 NVIDIA device plugin，节点没有 `nvidia.com/gpu` capacity/allocatable。
+
+### 判定与停止条件
+
+P2 尚未进入部署阶段。110 已具备系统 Docker 与 NVIDIA 前置，但 K3s agent、K3s containerd NVIDIA 配置、device plugin、节点网络和调度隔离尚未实施。82 不具备当前集群节点条件并退出本阶段。未执行以下操作：安装 K3s、修改防火墙、修改 SSH、创建节点 taint、启动训练容器、导入镜像、修改现有容器或清理资源。
+
+后续按 `micr-k8s-implement.md` 第 14 节继续：先核验并配置 110 的 K3s 数据目录和节点网络，再安装匹配版本的 agent、配置 K3s containerd NVIDIA runtime 和 device plugin，最后验证 CPU/GPU Job、调度隔离、节点故障与无状态服务扩展。
+
+## 第六部分：CI/CD 基线与 notification-service 首次拆分（2026-08-06）
+
+### 实施范围
+
+本次将通知 worker 拆为独立入口、独立镜像和独立 Kubernetes Deployment，同时保持现有通知业务逻辑、租约、重试、幂等与 PostgreSQL 数据边界不变。其他 API 和 worker 继续使用多角色后端镜像，未拆分代码仓库或独立数据库。
+
+### 发布前备份
+
+生产升级前生成 PostgreSQL custom-format 逻辑备份：
+
+```text
+文件：/tmp/messagefeed-pre-split-20260806.dump
+大小：8.8 MiB
+SHA-256：721848d4939c10ef9f3de1aeea3279578d74afae38be2c835d8642f32f7a037f
+```
+
+备份文件及摘要校验完成后才进入 Helm 发布阶段；文档未记录数据库口令或其他敏感值。
+
+### CI/CD 实现状态
+
+`.github/workflows/ci.yml` 已实现以下链路：
+
+1. Go test、vet、build，前端 type-check、build，以及 Helm lint 校验。
+2. 使用 Git SHA 构建 API 与 notification 独立镜像并推送 GHCR。
+3. 通过受保护环境触发 staging 手动部署。
+
+当前仍缺少 `messagefeed-staging` 自托管 Runner、staging namespace Secret 和首次实际流水线运行，因此 CI/CD 状态为“工作流代码完成、外部激活未完成”，不视为完整发布闭环。
+
+### notification-service 拆分与发布过程
+
+1. 新增 `cmd/notification` 独立 Go 入口，固定执行通知 worker 职责，并复用现有 bootstrap、service 和 repository。
+2. Dockerfile 增加 `notification` 构建 target；Helm 为 notification Deployment 单独配置镜像，其他角色继续使用 API 多角色镜像。
+3. revision 31 的 expand 门禁将 `DROP CONSTRAINT` 误判为 contract 操作，`--atomic` 自动回滚。
+4. revision 33 因迁移 `000039_add_agent_turn_queue` 缺少 phase 文件名标记而被门禁阻断，`--atomic` 自动回滚。
+5. 修复迁移门禁与 phase 标记后，revision 35 发布成功，生产数据库升级为 `39,false`，`item-event-worker`、`agent-worker` 与独立 notification Deployment 均进入 WSL 集群。
+6. notification 空队列时 `MIN(scheduled_at)` 返回 NULL，扫描到非空时间类型导致指标查询失败；修复 NULL 扫描后由 revision 36 完成发布。
+
+### 最终状态与验收
+
+```text
+Helm release：messagefeed revision 36，STATUS=deployed
+PostgreSQL：schema_migrations=39,false
+API 镜像：messagefeed-api:split-20260806
+Notification 镜像：messagefeed-notification:split-20260806-2
+Notification PID 1：/sbin/tini -- /app/messagefeed-notification
+API/Web/Gateway Ready endpoints：2/2/2
+notification/item-event/agent worker：Ready
+公网 /healthz、/readyz：HTTP 200
+Prometheus notification target：up
+```
+
+代码与部署配置验证结果：`go test ./...`、`go vet ./...`、`go build ./cmd/api ./cmd/notification`、`npm run type-check`、`npm run build`、`helm lint` 和 `git diff --check` 均通过。
+
+### 当前边界与后续门槛
+
+1. 首个微服务已形成独立进程、镜像与 Deployment 边界，但仍共享 Go 模块、内部包和 PostgreSQL 数据库。
+2. revision 31、33 的失败均由 Helm 原子发布自动回滚，未形成 pending release；revision 35、36 为成功发布。
+3. 第二个微服务拆分前，应先完成 GHCR、staging Runner、Secret、smoke test、人工审批、发布观察与 rollback 的首次实际闭环。
+4. P2 只推进本机 WSL 与 `100.106.96.110` 的双节点 K3s；`100.72.246.82` 不进入当前节点或调度配置。
+
+## 第七部分：P2 双节点 K3s 范围与实施基线（2026-08-06）
+
+### 范围决策
+
+1. 本机 WSL `100.78.141.120` 保持 K3s server、PostgreSQL、现有 local-path PVC 和当前 messageFeed 工作负载。
+2. 实体 Linux `100.106.96.110` 作为唯一新增 K3s agent，承载通用 CPU 计算、2×RTX 4090 训练/推理，以及完成验收后的无状态服务副本。
+3. `100.72.246.82` 是外部 Kubernetes Pod，退出本阶段；不在 Pod 内嵌套安装 K3s，不配置当前集群 token、label、taint 或工作负载。
+4. 本阶段不迁移 PostgreSQL、不实施数据库 HA、不引入跨集群调度平台。
+
+### 待执行顺序
+
+1. 记录现有 Helm、节点、PVC/PV、数据库、StorageClass 和公网健康基线。
+2. 在 110 的大容量 ext4 数据盘准备专用 K3s 数据目录，确保不使用仅余约 3.5 GiB 的根分区。
+3. 核验 110 到 WSL 的 TCP 6443，以及节点双向 TCP 10250、UDP 8472；禁止向非 Tailscale 来源暴露 Flannel VXLAN。
+4. 安装与 server `v1.36.2+k3s1` 匹配的 K3s agent，固定 node name 和 `100.106.96.110` node IP；敏感 token 仅在执行环境引用，不写入文档或仓库。
+5. 为 K3s containerd 配置 NVIDIA runtime 并部署 NVIDIA device plugin，验收节点 `nvidia.com/gpu=2`。
+6. 先添加 compute taint，仅运行 CPU canary、单卡 GPU Job 和单机双卡 GPU Job；完成断连、重启、失败清理和资源回收后，再逐项扩展无状态服务。
+
+### 当前停止点
+
+本次仅完成调研、实际环境核查和三份文档更新。未安装 K3s agent，未修改 110 Docker context、系统服务、防火墙或磁盘，未修改本机 Kubernetes 资源。
+
+## 第八部分：双节点角色调整、存储与 Cloudflare 主备决策（2026-08-06）
+
+### 决策变更
+
+本节取代第七部分中“WSL server + 110 agent、PostgreSQL 留在 WSL”的待实施方案，但保留第七部分作为当时调研记录。变更原因是新增了“主服务位于 WSL，WSL 服务或节点停止后仍由 110 接管”的明确要求；仅增加 K3s agent 无法在 WSL 停止后提供持续控制面和数据库。
+
+目标职责调整为：
+
+| 节点 | 地址 | 目标职责 |
+| --- | --- | --- |
+| 实体 Linux K3s server | `100.106.96.110` | 持续在线 control-plane、PostgreSQL、110 热备用入口、通用 CPU 和 2×RTX 4090 计算 |
+| WSL K3s agent | `100.78.141.120` | 主用 API/Web/gateway/cloudflared、主要 worker 和本机计算 |
+
+当前仍是 WSL K3s single-server，数据库和 5 个 local-path PV 仍绑定 WSL；上述目标尚未实施。当前阶段不建设两 server embedded-etcd。110 单 server 可覆盖 WSL 故障，但不能覆盖 110 自身故障；后续需要该能力时，应增加两个持续在线 server 形成奇数 embedded-etcd 集群。
+
+### 存储核实与目录决策
+
+2026-08-06 只读核实结果：
+
+1. 110 `/home` 位于 `/dev/sdc2`，文件系统为 ext4，容量约 14.4 TiB、可用约 10.6 TiB。
+2. `/data/disk_d` 位于 `/dev/sdd2`，文件系统为 NTFS/fuseblk，容量约 14.6 TiB、可用约 14.3 TiB。
+3. 110 尚未安装 K3s 和 cloudflared，`/home/aroen/messagefeed` 与 `/data/disk_d/messagefeed` 均不存在。
+4. 110 Tailscale 接口为 `tailscale0`，地址为 `100.106.96.110`。
+
+运行数据统一规划到 `/home/aroen/messagefeed`，包括 K3s data-dir、containerd、local-path、PostgreSQL、runtime、models 和 checkpoints。K3s systemd unit、二进制和 `/etc/rancher/k3s/config.yaml` 仍使用标准系统路径。
+
+`/data/disk_d/messagefeed/backups` 只保存 PostgreSQL custom dump、K3s etcd snapshot、非敏感 manifests、模型/checkpoint 归档和 SHA-256。由于该盘为 NTFS，不承载 PostgreSQL 实时目录、K3s datastore 或 containerd overlayfs，也不把 `rsync -a` 的 live-directory 副本作为一致性备份。同机备份仍需补充一份加密异机副本。
+
+### Cloudflare 凭据与主备入口
+
+1. 现有 WSL Tunnel 继续作为 primary，使用当前 `messagefeed-cloudflared-secret`。
+2. 用户确认新凭据属于独立 Tunnel `messageFeed_fallback`，该 Tunnel 只用于 110 fallback。
+3. 备用 token 的目标 Secret 为 `messagefeed-cloudflared-standby-secret`，键名为 `CLOUDFLARED_TUNNEL_TOKEN`；token 不写入文档、Git、values 或镜像。
+4. 用户曾在对话中提供该 token，按暴露凭据处理；正式部署前在 Cloudflare 轮换，再通过交互环境变量直接创建 Kubernetes Secret。
+5. 用户给出的 `docker run cloudflare/cloudflared:latest tunnel --no-autoupdate run --token ...` 形式只保留为一次性连通性验证，token 改由交互环境变量提供；正式 Kubernetes 工作负载固定使用已验证的 `cloudflare/cloudflared:2026.6.1`。
+6. 通过 Dashboard 配置时不需要 Global API Key；只有 API 自动化才使用最小权限的 Load Balancer API token，运行节点不保存该 API token。
+
+目标入口：
+
+```text
+aroen.eu.cc
+  -> Cloudflare Public Load Balancer
+  -> primary pool：WSL Tunnel
+       -> origin-wsl.aroen.eu.cc -> gateway-wsl
+  -> fallback pool：messageFeed_fallback Tunnel
+       -> origin-110.aroen.eu.cc -> gateway-110
+```
+
+两个 pool 分别使用 `<TUNNEL_UUID>.cfargotunnel.com` endpoint 和对应 origin Host header，traffic steering 设置为 `Off`，HTTPS monitor 检查 `/readyz`、443 和 HTTP 200。当前 `/readyz` 已实际返回 ready，并检查 API、PostgreSQL、迁移、pgvector 和 Agent 数据结构，不能用固定 `HTTP_STATUS=200` 替代。
+
+WSL 与 110 必须分别使用带 `messagefeed.io/site` selector 的 API/Web/Gateway Service。两个 Tunnel 不得同时回源当前统一 `gateway` Service，否则正常请求可能经 Kubernetes Service 跨节点分发，无法证明 WSL 主用和 110 仅故障接管。
+
+### 后续执行和停止点
+
+1. 先建立 110 目录、K3s server、secrets encryption 和 etcd snapshot，再恢复 PostgreSQL。
+2. PostgreSQL 完整核验后部署 110 热备用 API/Web/gateway/cloudflared，并验证本地 `/readyz`。
+3. 轮换 `messageFeed_fallback` token，通过交互环境变量注入备用 Secret；文档不保存 token 本体。
+4. 只有 110 控制面、数据库和备用链路均通过后，才在维护窗口将 WSL 迁移为 agent。
+5. 配置 Cloudflare Load Balancer 后，按要求不停止 WSL 本身，只停止 WSL cloudflared 或 `gateway-wsl`，验证切换和自动回切。
+
+本次仅更新三份文档中的目标方案、实施顺序和安全边界。未创建目录，未安装 K3s/cloudflared，未迁移 PostgreSQL，未修改 Kubernetes 或 Cloudflare；用户提供的 token 未写入任何仓库文件。

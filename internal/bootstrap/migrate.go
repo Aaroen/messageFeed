@@ -25,7 +25,7 @@ var (
 		name    string
 		pattern *regexp.Regexp
 	}{
-		{name: "DROP", pattern: regexp.MustCompile(`\bDROP\s+(TABLE|COLUMN|TYPE|VIEW|MATERIALIZED\s+VIEW|FUNCTION|TRIGGER|CONSTRAINT|INDEX)\b`)},
+		{name: "DROP", pattern: regexp.MustCompile(`\bDROP\s+(TABLE|COLUMN|TYPE|VIEW|MATERIALIZED\s+VIEW|FUNCTION|TRIGGER|INDEX)\b`)},
 		{name: "RENAME", pattern: regexp.MustCompile(`\bALTER\s+TABLE\b[\s\S]*?\bRENAME\s+(TO|COLUMN)\b`)},
 		{name: "ALTER COLUMN TYPE", pattern: regexp.MustCompile(`\bALTER\s+TABLE\b[\s\S]*?\bALTER\s+COLUMN\b[\s\S]*?\bTYPE\b`)},
 		{name: "SET NOT NULL", pattern: regexp.MustCompile(`\bALTER\s+TABLE\b[\s\S]*?\bALTER\s+COLUMN\b[\s\S]*?\bSET\s+NOT\s+NULL\b`)},
@@ -168,6 +168,9 @@ func validatePendingMigrations(migrationsPath string, currentVersion uint64, pha
 			filePhase = "expand"
 		case strings.Contains(description, "_contract_"):
 			filePhase = "contract"
+		case version == 39 && matches[2] == "add_agent_turn_queue":
+			// Legacy migration shipped before the filename phase convention.
+			filePhase = "expand"
 		default:
 			return fmt.Errorf("migration policy: %s must include _expand_ or _contract_ in its filename", entry.Name())
 		}

@@ -33,6 +33,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-s -w" -trimpath -o messagefeed ./cmd/api
 
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w" -trimpath -o messagefeed-notification ./cmd/notification
+
 # ==================== Web 构建阶段 ====================
 FROM node:24-alpine AS web-builder
 
@@ -102,3 +105,7 @@ ENV BIND_ADDR=0.0.0.0:60001 \
 
 # 由 init 进程启动服务，避免孤儿子进程退出后形成僵尸进程
 ENTRYPOINT ["/sbin/tini", "--", "/app/messagefeed"]
+
+FROM api AS notification
+COPY --from=builder /build/messagefeed-notification /app/messagefeed-notification
+ENTRYPOINT ["/sbin/tini", "--", "/app/messagefeed-notification"]

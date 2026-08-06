@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
 	"strings"
@@ -352,14 +353,14 @@ func (r *NotificationRepository) observeNotificationQueueState(ctx context.Conte
 		Where("status = ?", string(domain.NotificationJobStatusQueued)).Count(&depth).Error; err != nil {
 		return
 	}
-	var oldest time.Time
+	var oldest sql.NullTime
 	if err := r.db.WithContext(ctx).Model(&notificationJobModel{}).
 		Where("status = ?", string(domain.NotificationJobStatusQueued)).Select("MIN(scheduled_at)").Scan(&oldest).Error; err != nil {
 		return
 	}
 	var oldestPtr *time.Time
-	if !oldest.IsZero() {
-		oldestPtr = &oldest
+	if oldest.Valid {
+		oldestPtr = &oldest.Time
 	}
 	metrics.ObserveTaskQueueState(notificationJobQueueName, depth, oldestPtr, now)
 }

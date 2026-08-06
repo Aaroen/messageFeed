@@ -4,6 +4,10 @@
 {{- $cfg := .config -}}
 {{- $name := .name -}}
 {{- $role := .role -}}
+{{- $image := $root.Values.api.image -}}
+{{- if and (eq $role "notification-worker") (hasKey $cfg "image") (index $cfg.image "tag") }}
+{{- $image = $cfg.image -}}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -48,8 +52,8 @@ spec:
       {{- end }}
       initContainers:
         - name: wait-for-postgres
-          image: "{{ $root.Values.api.image.repository }}:{{ $root.Values.api.image.tag }}"
-          imagePullPolicy: {{ $root.Values.api.image.pullPolicy }}
+          image: "{{ $image.repository }}:{{ $image.tag | default $root.Values.api.image.tag }}"
+          imagePullPolicy: {{ $image.pullPolicy | default $root.Values.api.image.pullPolicy }}
           command:
             - /bin/sh
             - -ec
@@ -67,8 +71,8 @@ spec:
               memory: 32Mi
       containers:
         - name: worker
-          image: "{{ $root.Values.api.image.repository }}:{{ $root.Values.api.image.tag }}"
-          imagePullPolicy: {{ $root.Values.api.image.pullPolicy }}
+          image: "{{ $image.repository }}:{{ $image.tag | default $root.Values.api.image.tag }}"
+          imagePullPolicy: {{ $image.pullPolicy | default $root.Values.api.image.pullPolicy }}
           ports:
             - name: metrics
               containerPort: {{ $root.Values.workers.metrics.port }}

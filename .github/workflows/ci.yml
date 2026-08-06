@@ -1,0 +1,84 @@
+name: messagefeed
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: go test ./...
+      - run: go vet ./...
+      - run: go build ./cmd/api ./cmd/notification
+      - run: npm ci --prefix web
+      - run: npm run type-check --prefix web
+      - run: npm run build --prefix web
+      - run: helm lint deploy/helm/messagefeed -f deploy/helm/messagefeed/values-k3s.yaml
+      - run: helm template messagefeed deploy/helm/messagefeed --namespace messagefeed -f deploy/helm/messagefeed/values-k3s.yaml >/dev/null
+
+  publish:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: api
+          push: true
+          tags: ${{ env.IMAGE_REGISTRY }}/messagefeed-api:${{ env.IMAGE_TAG }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: notification
+          push: true
+          tags: ${{ env.IMAGE_REGISTRY }}/messagefeed-notification:${{ env.IMAGE_TAG }}
+
+  deploy-staging:
+    if: github.event_name == 'workflow_dispatch'
+    needs: [validate, publish]
+    runs-on: [self-hosted, messagefeed-staging]
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          helm upgrade --install messagefeed-staging deploy/helm/messagefeed \
+            --namespace messagefeed-staging --create-namespace \
+            -f deploy/helm/messagefeed/values-k3s.yaml \
+            --set api.image.repository="$IMAGE_REGISTRY/messagefeed-api" \
+            --set api.image.tag="$IMAGE_TAG" \
+            --set workers.notification.image.repository="$IMAGE_REGISTRY/messagefeed-notification" \
+            --set workers.notification.image.tag="$IMAGE_TAG" \
+            --atomic --wait --wait-for-jobs --timeout 10m
+      - run: |
+          kubectl -n messagefeed-staging rollout status deployment/messagefeed-api --timeout=240s
+          kubectl -n messagefeed-staging rollout status deployment/notification-worker --timeout=240s
+          kubectl -n messagefeed-staging get pods

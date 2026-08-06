@@ -57,7 +57,7 @@ api:
   replicaCount: 2
   image:
     repository: messagefeed-api
-    tag: ha11-20260718-6c86f3721986
+    tag: split-20260806
     pullPolicy: IfNotPresent
 
 # 在 K3s 中启用各类独立 worker；副本数可按任务吞吐独立调整。
@@ -69,6 +69,10 @@ workers:
     enabled: true
   notification:
     enabled: true
+    image:
+      repository: messagefeed-notification
+      tag: split-20260806-2
+      pullPolicy: IfNotPresent
   agentScheduler:
     enabled: true
   embedding:
