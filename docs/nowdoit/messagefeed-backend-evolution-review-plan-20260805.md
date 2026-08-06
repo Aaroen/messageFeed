@@ -3,6 +3,7 @@ type: technical-note
 status: in_progress
 p0_status: implemented
 p1_status: implemented
+p2_status: planned
 project: messageFeed
 language: go
 framework:
@@ -71,13 +72,10 @@ updated: 2026-08-06
 ```text
 P0：修复 PostgreSQL 任务可靠性
   -> P1：把 Agent 执行改为持久化任务 + 独立 worker
-  -> P2：隔离环境完成双节点 K3s 实验
-  -> P3：单独完成 Redis cache-aside 实验
-  -> P4：单独完成 RabbitMQ 可靠投递实验
-  -> 只有出现明确指标压力后，才接入主项目
+  -> P2：主服务节点水平拓展 + GPU 节点保底推理
 ```
 
-主项目当前继续使用 PostgreSQL 作为事实来源和任务存储。Redis 先作为缓存或跨实例限流实验，RabbitMQ 先作为可靠投递实验；不同时把两者接入主链路，也不以中间件数量作为微服务化指标。
+主项目继续使用 PostgreSQL 作为事实来源和任务存储。本阶段只实施双节点定向部署、资源隔离和安全控制，不增加其他专项范围。
 
 ## P0：任务可靠性闭环
 
@@ -157,114 +155,46 @@ P1 Agent 角色化：
 - API 重启后，已入库但未执行的 Agent 任务仍能被 worker 继续处理。
 - 任意 API 副本收到停止请求后，执行中的 Agent worker 都能观察到取消状态。
 
-## P2：隔离环境 K3s 双节点实验
+## P2：双节点定向部署与资源安全
 
-### 范围
+### 节点职责
 
-使用本地虚拟机或其他隔离环境完成一台 server 加一台 agent 的 K3s 实验。该实验用于补齐部署与排障证据，不表述为生产级控制面高可用；真正的 K3s 控制面高可用通常需要三个 server 节点和可靠存储。
+| 节点 | 地址 | 仅允许承载的工作负载 |
+| --- | --- | --- |
+| 主服务节点 | 100.106.96.110 | API、Web、普通 CPU worker 及其水平副本 |
+| GPU 推理节点 | 100.72.246.82 | GPU 密集型任务、本地 LLM 保底推理 worker |
 
-### 实验清单
+两台机器通过节点标签与 taint 做硬隔离。主服务 Deployment 使用 nodeSelector 和拓扑分布约束固定到主服务节点；GPU worker 使用 GPU 节点 taint 容忍和 GPU 资源限制，禁止普通服务占用 GPU 节点。
 
-1. 节点加入、token 管理、节点标签和集群 DNS。
-2. API Deployment、Service、滚动更新、资源限制、readiness/liveness 探针。
-3. ConfigMap、Secret、最小 RBAC、NetworkPolicy 和日志查看。
-4. Pod 重建、节点 cordon/drain、镜像拉取失败、PVC 不可用和滚动发布失败。
-5. 移除固定 hostname 约束，验证 topology spread 和 anti-affinity 在两个节点上生效。
+### 主服务水平拓展
 
-主项目的 PostgreSQL 仍应优先迁移到支持 pgvector 的托管实例；若自建，则需要 CloudNativePG 或等价方案、跨节点存储、WAL 归档、备份和恢复演练。单节点本地卷不能作为数据库高可用证据。
+1. 在 100.106.96.110 部署主服务多副本，配置 readiness/liveness 探针、滚动更新和 PodDisruptionBudget。
+2. 所有容器必须声明 CPU、内存 requests/limits；副本数、并发度和队列 worker 数量以节点可用容量为上限，不预留未使用的固定资源。
+3. 使用 topology spread、反亲和和优雅终止，保证扩缩容及单 Pod 故障时服务仍可用。
+4. 通过 API、队列深度、最老任务年龄、CPU/内存和重启次数指标确定扩容，空闲时缩回最低副本数。
 
-## P3：Redis cache-aside 专项实验
+### GPU 保底推理
 
-### 设计
+1. 在 100.72.246.82 仅部署独立 agent-worker / 本地 LLM 推理进程，主服务通过持久化 Agent 任务队列投递保底任务。
+2. GPU 使用 resources.limits.nvidia.com/gpu 明确上限；同时设置 CPU、内存和临时存储上限，禁止无界批处理、常驻调试进程和未声明的模型副本。
+3. 保底推理只在上游模型不可用或超时达到阈值时触发；任务完成后释放上下文、临时文件和显存缓存，空闲 worker 缩容至零或停止调度。
+4. GPU 节点不承载数据库、入口流量或普通 worker，避免推理资源被非目标任务保留。
 
-只选择 Feed 列表或条目详情作为缓存场景：
+### 两节点安全基线
 
-```text
-读取：Redis 命中 -> 返回
-      未命中 -> PostgreSQL 查询 -> 写入带抖动 TTL 的 Redis -> 返回
+1. SSH 仅允许密钥认证和最小管理来源，禁用密码登录；不在仓库、镜像或 Helm values 中保存私钥、模型凭据和数据库密码。
+2. 使用最小 RBAC、独立 ServiceAccount、NetworkPolicy 和 Pod Security；容器以非 root 用户运行，启用 seccomp，根文件系统只读并禁止特权模式。
+3. 不使用未审计的 hostPath、Docker socket 或主机网络；镜像固定版本并执行漏洞扫描，节点和 GPU 驱动保持安全更新。
+4. 对 API、worker、模型服务分别限制出口地址和端口；管理面、监控面和推理面不直接暴露公网。
+5. 设置 ResourceQuota、LimitRange、进程数限制和日志轮转；定期检查孤儿 Pod、Job、PVC、模型缓存和临时文件，发现闲置资源立即回收。
+6. 部署前执行节点备份、变更记录和回滚演练；部署后审计登录、容器创建、GPU 使用和异常出网事件。
 
-写入：先提交 PostgreSQL -> 删除对应缓存
-      删除失败时数据库仍是事实来源，业务允许回源
-```
+### P2 执行与验收
 
-建议使用稳定 key，例如 `feed:item:{user_id}:{item_id}:v1`，并记录命中率、回源耗时和缓存错误。实验不把 Session、权限事实或唯一任务状态放入 Redis。
+当前检查（2026-08-06）：主服务节点 Docker daemon 可用；GPU 节点已确认 RTX 4090 与 NVIDIA 驱动，但未发现可用 Docker/K3s 运行时，当前账号也没有免密 sudo。GPU 节点需先由管理员完成运行时和 NVIDIA Container Toolkit 配置，再继续部署。
 
-### 必须验证
-
-- 缓存穿透：不存在的 ID 是否有短期负缓存或限流。
-- 缓存击穿：热点 key 同时过期时是否限制回源并发。
-- 缓存雪崩：批量 TTL 是否有随机抖动，Redis 不可用时是否降级到 PostgreSQL。
-- 热 key、大 key、缓存删除失败和旧值回填竞态。
-- RDB/AOF、主从、Sentinel 和 Cluster 的差异只按实验范围记录，不扩展为未验证的生产经验。
-
-### 主项目接入门槛
-
-只有当 API 多副本导致本地缓存命中率不稳定，或全局限流无法由 Cloudflare/Caddy 解决时，才考虑引入 Redis。分布式锁和任务事实仍优先由 PostgreSQL 约束、行锁或租约承载。
-
-## P4：RabbitMQ 可靠投递专项实验
-
-### 最小拓扑
-
-```text
-producer -> durable exchange -> durable queue -> consumer
-                                      |
-                                      +-> retry queue -> DLQ
-```
-
-实验要求：
-
-1. Producer 开启 publisher confirm，区分“Broker 已接收”和“业务已完成”。
-2. Consumer 使用手动 ack，业务成功后再 ack。
-3. 瞬时错误有限重试，永久错误进入失败终态，毒消息进入 DLQ，禁止无限 requeue。
-4. 在“数据库事务已提交、ack 尚未完成”时杀掉 consumer，验证重复投递。
-5. 使用稳定 `event_id` 和数据库唯一约束验证幂等消费。
-6. 记录生产速率、消费速率、最老消息年龄、失败率、重试数和下游容量。
-
-当前项目只有在需要跨服务事件广播、消费者独立扩缩容、持续积压或事件回放时，才有理由接入 RabbitMQ。若只是降低当前 PostgreSQL 轮询次数，先优化 claim、租约和指标，不用 MQ 代替故障模型。
-
-## 复习与面试表达
-
-### 30 秒结论版
-
-> 我的主项目目前没有直接部署 Redis 或 RabbitMQ。项目规模较小，抓取、通知和 Embedding 任务使用 PostgreSQL 任务表、状态机和 `SKIP LOCKED` 由独立 worker 消费，数据库同时承担事实存储和任务状态。这样可以减少基础设施复杂度，但边界是任务回收、独立扩缩容和事件广播能力仍需要继续完善。若出现持续积压、需要多个服务订阅同一事件或需要回放，我会先补事务 Outbox 和幂等消费，再评估 RabbitMQ；Redis 则优先用于 cache-aside 或跨实例限流，而不是替代数据库事实。
-
-### 90 秒展开版结构
-
-```text
-当前方案
-  -> 为什么适合当前规模
-  -> 任务 claim、超时、重试和幂等怎么保证
-  -> 当前真实缺口是什么
-  -> 哪个指标触发 Redis/MQ 演进
-  -> 如何灰度、观测和回滚
-```
-
-回答 K3s 时必须说明：当前是 WSL2 单节点 K3s，已经完成 Helm、多角色 Deployment、探针、NetworkPolicy、资源治理和 Pod 级故障验证；尚未具备多节点控制面、跨节点存储和数据库高可用生产经验。
-
-## 执行清单
-
-- [ ] 盘点并处理长期 `item_events` pending 记录，先确认业务语义，不直接删除数据。
-- [x] 统一任务租约、超时回收、重试和幂等字段及指标。
-- [x] 缩小 source worker 全局锁范围，接入 item-event-worker 消费角色。
-- [x] 设计并实现持久化 Agent execution job 和 `agent-worker` 角色。
-- [ ] 完成隔离环境双节点 K3s 实验并保留命令、日志和故障现象。
-- [ ] 在独立实验环境完成 Redis cache-aside 和故障降级验证。
-- [ ] 在独立实验环境完成 RabbitMQ confirm、ack、重试、DLQ 和幂等验证。
-- [ ] 将主项目事实、实验结果和理论知识分别记录，未完成项不写成已落地能力。
-
-## 验收标准
-
-1. `go test ./...`、`go vet ./...` 和必要的 `go test -race ./...` 通过。
-2. 每一个任务队列都能说明生产者、消费者、状态转换、租约、重试、幂等和恢复路径。
-3. Redis 实验能展示命中、回源、穿透、击穿、雪崩和不可用降级。
-4. RabbitMQ 实验能展示 confirm、手动 ack、重复投递、有限重试和 DLQ。
-5. K3s 实验能展示节点加入、服务发现、Pod 恢复、滚动发布和持久化边界。
-6. 面试回答始终区分“主项目实际使用”“专项实验完成”和“理论方案”。
-
-## 相关
-
-- [[4. Go后端开发定制复习]]
-- [[What‘sThis]]
-- [[Q&A]]
-- [[micr-k8s/micr-k8s-plan]]
-- [[micr-k8s/micr-k8s-implement]]
+1. 核对两台服务器的 SSH、K3s、GPU 驱动、磁盘和可用 CPU/内存，不满足安全基线则停止部署。
+2. 先给节点打标签和 taint，再部署主服务与 GPU worker，确认调度结果没有跨节点漂移。
+3. 验证主服务扩容、单 Pod 重建、节点维护和滚动回滚；验证 GPU 保底任务仅在触发条件下执行。
+4. 观察资源 requests/limits、实际使用率、队列延迟、GPU 显存和闲置资源回收结果，确保没有无业务任务长期占用计算资源。
+5. 保留部署命令、关键日志、指标截图和回滚结果；未完成的双节点验证不得表述为生产高可用能力。
