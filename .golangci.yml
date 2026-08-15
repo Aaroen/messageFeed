@@ -1,0 +1,34 @@
+linters:
+  enable:
+    - unused       # 检测未使用的代码、死代码、不可达代码
+    - gocyclo      # 检测圈复杂度
+    - gocognit     # 检测认知复杂度
+    - nestif       # 检测 if 嵌套深度
+    - funlen       # 检测函数体过长（行数 / 语句数）
+    - revive       # 检测命名风格、文件名格式
+
+issues:
+  uniq-by-line: false # 同一行同时保留长度、复杂度、命名等问题
+  max-issues-per-linter: 0 # 0 表示不截断，避免超长函数被默认的 50 条上限丢掉
+  max-same-issues: 0
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15 # 超过 15 的函数会报错
+  nestif:
+    min-relative-complexity: 3 # if 嵌套超过 3 层报错
+  funlen:
+    lines: 80          # 函数体超过 80 行报错
+    statements: 50     # 函数体超过 50 条语句报错
+    ignore-comments: true
+  revive:
+    ignore-generated-header: true
+    enable-all-rules: false
+    rules:
+      - name: var-naming          # 包 / 函数 / 变量使用 MixedCaps，禁止下划线
+      - name: receiver-naming     # 接收器名称与类型匹配，且足够短
+      - name: error-naming        # error 变量以 err / Err 开头
+      - name: time-naming         # time.Duration 变量以 Duration / Second 等结尾
+      - name: filename-format     # Go 文件名必须是小写字母、数字、下划线
+        arguments:
+          - "^[a-z][a-z0-9_]*\\.go$"
