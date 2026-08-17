@@ -63,7 +63,7 @@ type EvaluateAlertPolicyInput struct {
 }
 
 func (e *AlertPolicyEngine) Evaluate(ctx context.Context, input EvaluateAlertPolicyInput) (domain.AlertPolicyDecision, error) {
-	ctx, span := observability.StartSpan(ctx, "service.alert_policy.evaluate",
+	_, span := observability.StartSpan(ctx, "service.alert_policy.evaluate",
 		attribute.Int64("user.id", input.Candidate.UserID),
 		attribute.Int64("alert_rule.id", input.Rule.ID),
 		attribute.Int64("alert_candidate.id", input.Candidate.ID),

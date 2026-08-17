@@ -225,26 +225,3 @@ func (s *AgentConversationService) sendTurnFailureFeedback(
 		SendResult:      sendResult,
 	}
 }
-
-func (s *AgentConversationService) failTurn(ctx context.Context, userID int64, sessionID int64, turn domain.AgentTurn, input ReceiveWeChatWorkAppMessageInput, cause error) (ReceiveWeChatWorkAppMessageResult, error) {
-	now := s.now().UTC()
-	turn.Status = domain.AgentTurnStatusFailed
-	turn.ErrorMessage = cause.Error()
-	turn.FinishedAt = &now
-	if turn.ID > 0 {
-		_, _ = updateAgentTurn(ctx, s.repository, turn, s.workerID)
-	}
-	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
-		SessionID: sessionID,
-		TurnID:    turn.ID,
-		UserID:    userID,
-		EventType: "wechat_work.reply_failed",
-		Status:    "failed",
-		Message:   cause.Error(),
-		Metadata:  domain.AgentJSON{"provider_message_id": input.ProviderMessageID},
-		RequestID: input.RequestID,
-		TraceID:   input.TraceID,
-		CreatedAt: now,
-	})
-	return ReceiveWeChatWorkAppMessageResult{Turn: turn}, cause
-}

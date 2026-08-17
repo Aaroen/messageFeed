@@ -88,21 +88,45 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 		return result, nil
 	}
 
+	// 各 worker 角色只构造自己消费的仓储；仓储无状态，多角色进程（APP_ROLE=all）重复构造无害。
+	if plan.SourceWorker {
+		result.workers.source = service.NewSourceSyncService(
+			repository.NewSourceRepository(database),
+			repository.NewItemRepository(database),
+			fetcher.NewClient(),
+			repository.NewSourceFetchJobRepository(database),
+			repository.NewItemEventRepository(database),
+			service.WithSourceSyncTaskLocker(repository.NewTaskLockRepository(database)),
+		)
+	}
+	if plan.NotificationWorker && sender != nil {
+		result.workers.notification = service.NewNotificationWorkerService(repository.NewNotificationRepository(database), sender)
+	}
+	if plan.AgentSchedulerWorker {
+		result.workers.agentScheduler = service.NewAgentScheduledTaskWorkerService(repository.NewAgentRepository(database))
+		result.workers.agentScheduler.SetReportSender(sender)
+	}
+	if plan.EmbeddingWorker && embeddingClient != nil {
+		result.workers.embedding = service.NewAgentEmbeddingWorkerService(repository.NewAgentRepository(database), embeddingClient, cfg.Embedding.Model, time.Now)
+	}
+	if plan.ItemEventWorker {
+		alertRuleService := service.NewAlertRuleService(repository.NewAlertRuleRepository(database), repository.NewAlertCandidateRepository(database))
+		result.workers.itemEvent = service.NewItemEventWorkerService(repository.NewItemEventRepository(database), alertRuleService)
+	}
+
+	if !plan.API && !plan.AgentWorker {
+		return result, nil
+	}
+
 	sourceRepository := repository.NewSourceRepository(database)
 	sourceCatalogRepository := repository.NewSourceCatalogRepository(database)
 	sourceImportJobRepository := repository.NewSourceImportJobRepository(database)
 	itemRepository := repository.NewItemRepository(database)
-	userItemStateRepository := repository.NewUserItemStateRepository(database)
-	feedViewPreferenceRepository := repository.NewFeedViewPreferenceRepository(database)
 	sourceFetchJobRepository := repository.NewSourceFetchJobRepository(database)
-	itemEventRepository := repository.NewItemEventRepository(database)
-	alertRuleRepository := repository.NewAlertRuleRepository(database)
-	alertCandidateRepository := repository.NewAlertCandidateRepository(database)
 	notificationRepository := repository.NewNotificationRepository(database)
 	taskLockRepository := repository.NewTaskLockRepository(database)
 	agentRepository := repository.NewAgentRepository(database)
 	authRepository := repository.NewAuthRepository(database)
-	agentApprovalRepository := repository.NewAgentApprovalRepository(database)
 	feedFetcher := fetcher.NewClient()
 
 	sourceService := service.NewSourceService(sourceRepository,
@@ -112,27 +136,6 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 		service.WithItemRepository(itemRepository),
 		service.WithFeedFetcher(feedFetcher),
 	)
-	if plan.SourceWorker {
-		result.workers.source = service.NewSourceSyncService(sourceRepository, itemRepository, feedFetcher, sourceFetchJobRepository, itemEventRepository, service.WithSourceSyncTaskLocker(taskLockRepository))
-	}
-	if plan.NotificationWorker && sender != nil {
-		result.workers.notification = service.NewNotificationWorkerService(notificationRepository, sender)
-	}
-	if plan.AgentSchedulerWorker {
-		result.workers.agentScheduler = service.NewAgentScheduledTaskWorkerService(agentRepository)
-		result.workers.agentScheduler.SetReportSender(sender)
-	}
-	if plan.EmbeddingWorker && embeddingClient != nil {
-		result.workers.embedding = service.NewAgentEmbeddingWorkerService(agentRepository, embeddingClient, cfg.Embedding.Model, time.Now)
-	}
-	if plan.ItemEventWorker {
-		alertRuleService := service.NewAlertRuleService(alertRuleRepository, alertCandidateRepository)
-		result.workers.itemEvent = service.NewItemEventWorkerService(itemEventRepository, alertRuleService)
-	}
-
-	if !plan.API && !plan.AgentWorker {
-		return result, nil
-	}
 
 	var weChatWorkOAuth *service.WeChatWorkOAuthClient
 	if cfg.WeChatWork.Enabled() {
@@ -184,10 +187,10 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	services := apiServices{
 		auth: authService, source: sourceService, timeline: timelineService,
 		recommendation:    recommendationService,
-		item:              service.NewItemService(userItemStateRepository),
-		feedView:          service.NewFeedViewService(feedViewPreferenceRepository),
+		item:              service.NewItemService(repository.NewUserItemStateRepository(database)),
+		feedView:          service.NewFeedViewService(repository.NewFeedViewPreferenceRepository(database)),
 		agentConversation: agentConversationService,
-		agentApproval:     service.NewAgentApprovalService(agentApprovalRepository),
+		agentApproval:     service.NewAgentApprovalService(repository.NewAgentApprovalRepository(database)),
 		agentSession:      service.NewAgentSessionService(agentRepository, service.WithAgentSessionEmbeddingClient(embeddingClient, cfg.Embedding.Model)),
 		agentSchedule:     service.NewAgentScheduleEvalService(agentRepository),
 		agentLLMConfig:    service.NewAgentLLMConfigService(agentRepository, service.WithAgentLLMConfigDefaultConfig(cfg.LLM), service.WithAgentLLMConfigSecret(agentLLMConfigSecret)),

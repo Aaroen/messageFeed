@@ -364,15 +364,15 @@ func recoverExpiredSourceFetchJobs(tx *gorm.DB, input domain.SourceFetchJobClaim
 	base := tx.Model(&sourceFetchJobModel{}).
 		Where("status = ? AND lease_until IS NOT NULL AND lease_until <= ?", string(domain.SourceFetchJobStatusRunning), input.Now)
 	requeued := base.Where("attempt_count < max_attempts").Updates(map[string]interface{}{
-		"status":      string(domain.SourceFetchJobStatusQueued),
+		"status":       string(domain.SourceFetchJobStatusQueued),
 		"scheduled_at": input.Now,
-		"started_at":  nil,
-		"finished_at": nil,
-		"locked_by":   "",
-		"locked_at":   nil,
-		"lease_until": nil,
-		"last_error":  gorm.Expr("CASE WHEN COALESCE(last_error, '') = '' THEN ? ELSE last_error END", "worker lease expired"),
-		"updated_at":  input.Now,
+		"started_at":   nil,
+		"finished_at":  nil,
+		"locked_by":    "",
+		"locked_at":    nil,
+		"lease_until":  nil,
+		"last_error":   gorm.Expr("CASE WHEN COALESCE(last_error, '') = '' THEN ? ELSE last_error END", "worker lease expired"),
+		"updated_at":   input.Now,
 	})
 	if requeued.Error != nil {
 		return requeued.Error

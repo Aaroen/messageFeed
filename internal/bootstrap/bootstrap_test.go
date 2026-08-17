@@ -52,6 +52,18 @@ func TestPlanForRoleSeparatesRuntimeBoundaries(t *testing.T) {
 	}
 }
 
+func TestSourceWorkerDoesNotRequireLLMConfiguration(t *testing.T) {
+	// A3 验收：APP_ROLE=source-worker 且无 LLM 配置时，装配不报错。
+	cfg := config.Defaults()
+	plan, err := PlanForRole(config.AppRoleSourceWorker)
+	if err != nil {
+		t.Fatalf("PlanForRole() error = %v", err)
+	}
+	if _, err := buildDependencies(cfg, plan, nil, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+		t.Fatalf("buildDependencies() error = %v", err)
+	}
+}
+
 func TestNewAPIApplicationDoesNotConstructWorkerOperations(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Runtime.AppRole = config.AppRoleAPI

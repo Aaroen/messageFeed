@@ -86,18 +86,6 @@ type itemResponse struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
-type updateReadRequest struct {
-	IsRead *bool `json:"is_read"`
-}
-
-type updateFavoriteRequest struct {
-	IsFavorite *bool `json:"is_favorite"`
-}
-
-type updateHiddenRequest struct {
-	IsHidden *bool `json:"is_hidden"`
-}
-
 type userItemStateResponse struct {
 	ID          int64      `json:"id"`
 	UserID      int64      `json:"user_id"`
@@ -395,10 +383,6 @@ func writeItemError(c *gin.Context, err error) {
 	default:
 		RenderError(c, err, "item operation failed")
 	}
-}
-
-func itemResponseFromDomain(item domain.Item) itemResponse {
-	return itemResponseFromDomainForAuth(item, true)
 }
 
 func itemResponseFromDomainForAuth(item domain.Item, authenticated bool) itemResponse {

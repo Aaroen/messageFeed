@@ -1408,24 +1408,6 @@ func agentTranscriptArchiveIndexModelFromDomain(index domain.AgentTranscriptArch
 	}
 }
 
-func agentTranscriptArchiveIndexModelToDomain(model agentTranscriptArchiveIndexModel) domain.AgentTranscriptArchiveIndex {
-	return domain.AgentTranscriptArchiveIndex{
-		ID:                model.ID,
-		TranscriptEntryID: model.TranscriptEntryID,
-		SessionID:         model.SessionID,
-		UserID:            model.UserID,
-		ArchiveStatus:     domain.AgentTranscriptArchiveStatus(model.ArchiveStatus),
-		MemoryKind:        domain.AgentMemoryKind(model.MemoryKind),
-		Importance:        model.Importance,
-		Keywords:          cloneStringSlice(model.Keywords),
-		LastAccessedAt:    model.LastAccessedAt,
-		AccessCount:       model.AccessCount,
-		Metadata:          cloneAgentJSON(model.Metadata),
-		CreatedAt:         model.CreatedAt,
-		UpdatedAt:         model.UpdatedAt,
-	}
-}
-
 func agentRecallEventModelFromDomain(event domain.AgentRecallEvent) agentRecallEventModel {
 	event = normalizeRecallEvent(event)
 	return agentRecallEventModel{

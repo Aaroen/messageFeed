@@ -50,7 +50,10 @@ type agentTaskRouteJSON struct {
 }
 
 func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, controllerRun domain.AgentRun, input ReceiveWeChatWorkAppMessageInput) (agentTaskRouteClassification, error) {
-	startedAt := s.now().UTC()
+	var startedAt time.Time
+	if s != nil {
+		startedAt = s.now().UTC()
+	}
 	ctx, span := observability.StartSpan(ctx, "service.agent.task_route",
 		attribute.Int64("auth.user_id", account.UserID),
 		attribute.Int64("agent.session_id", session.ID),
@@ -215,6 +218,9 @@ func fallbackAgentTaskRoute(reason string) agentTaskRouteClassification {
 }
 
 func (s *AgentConversationService) recordAgentTaskRouteTrace(ctx context.Context, input ReceiveWeChatWorkAppMessageInput, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, controllerRun domain.AgentRun, route agentTaskRouteClassification, status domain.AgentTraceEventStatus, startedAt time.Time, errorCode string, errorMessage string) {
+	if s == nil {
+		return
+	}
 	finishedAt, durationMS := agentTraceFinish(startedAt, s.now)
 	metrics.AgentTaskRoutesTotal.WithLabelValues(route.TaskType, string(status), route.EstimatedLatencyClass).Inc()
 	metrics.AgentTaskRouteDuration.WithLabelValues(route.TaskType, string(status), route.EstimatedLatencyClass).Observe(float64(durationMS) / 1000)

@@ -27,14 +27,12 @@
 
 ## 文档关系
 
-
-| 文档                                                                           | 职责                             | 本文是否复述      |
+| 文档 | 职责 | 本文是否复述 |
 | ---------------------------------------------------------------------------- | ------------------------------ | ----------- |
-| `docs/nowdoit/archive/messagefeed-backend-evolution-review-plan-20260805.md` | P0 队列可靠性、P1 Agent 持久化 worker   | 只引用结论       |
-| `docs/micr-k8s/micr-k8s-plan.md`                                             | 架构决策、节点职责、拆分顺序                 | 只引用         |
-| `docs/micr-k8s/micr-k8s-implement.md`                                        | K3s / Helm / P2 / staging 操作手册 | 只写完成定义，不抄步骤 |
-| 本文                                                                           | 旧代码怎么改、质量门禁、下一刀服务如何上线与回滚       | 正文          |
-
+| `docs/nowdoit/archive/messagefeed-backend-evolution-review-plan-20260805.md` | P0 队列可靠性、P1 Agent 持久化 worker | 只引用结论 |
+| `docs/micr-k8s/micr-k8s-plan.md` | 架构决策、节点职责、拆分顺序 | 只引用 |
+| `docs/micr-k8s/micr-k8s-implement.md` | K3s / Helm / P2 / staging 操作手册 | 只写完成定义，不抄步骤 |
+| 本文 | 旧代码怎么改、质量门禁、下一刀服务如何上线与回滚 | 正文 |
 
 P2 双节点（110 装 K3s、Postgres 迁移、Cloudflare 主备）继续以 `micr-k8s-implement.md` 第 14 节为准。本文只把它当作并行轨道和硬门，不重写操作手册。
 
@@ -53,35 +51,28 @@ P2 双节点（110 装 K3s、Postgres 迁移、Cloudflare 主备）继续以 `mi
 3. 不在 staging 首次真实发布前抽第二个服务。
 4. 不继续只在 `internal/service` 里无限新增 `*_builders.go` 却不形成新包。
 
-
-
 ## 当前事实基线（2026-08-15）
-
-
 
 ### 运行与部署
 
-
-| 项               | 事实                                                                            |
+| 项 | 事实 |
 | --------------- | ----------------------------------------------------------------------------- |
-| 形态              | 模块化单体；同一 Go 模块                                                                |
-| 二进制             | `cmd/api`（多角色）、`cmd/notification`（钉死 `notification-worker`）                   |
-| 生产 Helm         | release `messagefeed` revision 36，`deployed`                                  |
-| API 镜像          | `messagefeed-api:split-20260806`                                              |
-| Notification 镜像 | `messagefeed-notification:split-20260806-2`                                   |
-| Web 镜像          | `messagefeed-web:allinone-0703de0`                                            |
-| 数据库             | PostgreSQL `39,false`，单副本，位于 WSL local-path                                   |
-| 当前节点            | WSL `100.78.141.120`，K3s single-server                                        |
-| P2 目标节点         | 实体 Linux `100.106.96.110`（尚未装 K3s / cloudflared）                              |
-| CI              | `validate` / `publish` / `deploy-staging` 工作流已写；自托管 Runner 未注册，staging 从未真实跑通 |
-
+| 形态 | 模块化单体；同一 Go 模块 |
+| 二进制 | `cmd/api`（多角色）、`cmd/notification`（钉死 `notification-worker`） |
+| 生产 Helm | release `messagefeed` revision 36，`deployed` |
+| API 镜像 | `messagefeed-api:split-20260806` |
+| Notification 镜像 | `messagefeed-notification:split-20260806-2` |
+| Web 镜像 | `messagefeed-web:allinone-0703de0` |
+| 数据库 | PostgreSQL `39,false`，单副本，位于 WSL local-path |
+| 当前节点 | WSL `100.78.141.120`，K3s single-server |
+| P2 目标节点 | 实体 Linux `100.106.96.110`（尚未装 K3s / cloudflared） |
+| CI | `validate` / `publish` / `deploy-staging` 工作流已写；自托管 Runner 未注册，staging 从未真实跑通 |
 
 `APP_ROLE` 已落地：`all`、`api`、`source-worker`、`notification-worker`、`agent-scheduler-worker`、`embedding-worker`、`item-event-worker`、`agent-worker`、`migrate`。cluster 模式禁止隐式 `all`。
 
 ### 质量扫描
 
 在可写 `GOCACHE` 下 `golangci-lint run ./...` 得到约 191 个问题（开启 `uniq-by-line: false` 且不截断后）：
-
 
 | Linter        | 约数  | 含义                   |
 | ------------- | --- | -------------------- |
@@ -95,17 +86,14 @@ P2 双节点（110 装 K3s、Postgres 迁移、Cloudflare 主备）继续以 `mi
 | `gosimple`    | 2   | 可简化转换                |
 | `revive`      | 0   | 文件名 / MixedCaps 当前通过 |
 
-
 最差函数：
 
-
-| 符号                                                               | 位置                                                    | 指标                              |
+| 符号 | 位置 | 指标 |
 | ---------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------- |
-| `NewP0CapabilityRegistry`                                        | `internal/agent/runtime.go:51`                        | 330 行                           |
+| `NewP0CapabilityRegistry` | `internal/agent/runtime.go:51` | 330 行 |
 | `TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks` | `internal/service/agent_progress_service_test.go:115` | 517 行、264 语句、圈复杂度 492、认知复杂度 258 |
-| `ListTasks`                                                      | `internal/service/agent_session_service.go:2429`      | 252 语句                          |
-| `buildDependencies`                                              | `internal/bootstrap/dependencies.go:26`               | 认知复杂度 52                        |
-
+| `ListTasks` | `internal/service/agent_session_service.go:2429` | 252 语句 |
+| `buildDependencies` | `internal/bootstrap/dependencies.go:26` | 认知复杂度 52 |
 
 本机若直接使用默认 `/home/aroen/.cache/go-build` 且进程为 root，可能出现 `permission denied`，golangci-lint 会误报 `no go files to analyze`。本地应使用可写缓存，例如 `GOCACHE=/tmp/go-cache-lint`。
 
@@ -156,20 +144,15 @@ flowchart TD
   agentRead --> phaseE
 ```
 
-
-
 硬门：
 
 1. Phase B 未完成，禁止开始 Phase C。
 2. Phase C 未稳定，禁止开始 Phase D。
 3. `internal/agentread` 未形成且 Phase D 未稳定，禁止把 Agent 读聚合提成独立服务；Phase E 只抽执行 worker。
 
-
-
 ## 设计模式与防劣化规则
 
 后续每一刀都必须遵守仓库里已经在用的模式，而不是另起一套。
-
 
 | 模式    | 现有落点                                                                | 后续要求                              |
 | ----- | ------------------------------------------------------------------- | --------------------------------- |
@@ -179,7 +162,6 @@ flowchart TD
 | 发布    | expand/contract 迁移 + `helm upgrade --atomic --wait --wait-for-jobs` | 失败先看 migrate Job 与 `/readyz`      |
 | 抽取模板  | `cmd/notification` 钉死角色，复用 `bootstrap.New`                          | 下一刀额外要求 `internal/<slice>`        |
 | 滚动    | `maxUnavailable: 0`、`maxSurge: 1`                                   | 不改策略，只换镜像                         |
-
 
 禁止：
 
@@ -195,8 +177,6 @@ flowchart TD
 属于下一刀服务包内的复杂度 → 跟该服务同一 PR 改
 只让全仓 lint 更好看、又不在切片里 → 放着
 ```
-
-
 
 ## 质量体系
 
@@ -235,17 +215,22 @@ golangci-lint run ./internal/feedworker/...
 
 ---
 
-
-
 ## Phase A：现在就改（不绑服务边界）
 
-**状态**：planned  
+**状态**：implemented（2026-08-17）  
 **目标**：去掉安全缺陷和装配耦合，并把 Agent 超长测试按未来子域切开。不发布新服务。
+
+### 验证记录（2026-08-17）
+
+- `golangci-lint run --no-config --disable-all -E unused -E staticcheck ./...` 输出 0 行（unused 13 处已删；SA5011 两处已修；另修 3 处 SA4006，否则层 1 门禁无法全绿）。
+- `go test ./...` 全绿；`make fmt` 通过（顺带修了 `source_fetch_job_repository.go` 的存量 gofmt 漂移）。
+- ListTasks 测试拆为 fixture + 18 个子域断言函数（表驱动 t.Run，闭包零分支），funlen/gocognit 均过线；子域函数 gocyclo 仍有 3 个 36–43，按「全仓 gocyclo 不做红线」放着。
+- CI `validate` 已加门禁；实现与文档命令的差异：加 `--no-config`（否则 `.golangci.yml` 全量 linter 穿透，会拦在 191 个存量上）+ 钉 v1.64.8 安装；新增 `.github/actionlint.yaml` 声明 `messagefeed-staging` 自定义标签。
+- 未回滚、未发布新镜像。
 
 ### A1. 删除或接上 unused
 
 优先处理确认无调用的符号。删除前用 `rg` 核对该标识符；若测试或未来路径需要，改为未导出并补测试，而不是留导出死代码。
-
 
 | 符号                                                                    | 文件                                                                         |
 | --------------------------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -260,7 +245,6 @@ golangci-lint run ./internal/feedworker/...
 | `historyRecallReason`                                                 | `internal/service/agent_runtime_adapters.go:2854`                          |
 | `failTurn`                                                            | `internal/service/agent_turn_result.go:229`（保留 `failTurnWithFeedback`）     |
 | `interleaveRecommendationItems`                                       | `internal/service/recommendation_service.go:580`                           |
-
 
 验收：`golangci-lint run --disable-all -E unused ./...` 为 0。
 
@@ -291,16 +275,14 @@ golangci-lint run ./internal/feedworker/...
 
 建议用同一个 fixture + 多个 `t.Run`，或按文件拆到 `agent_progress_list_tasks_*_test.go`：
 
-
-| 子域                       | 现有断言起点（约） | 覆盖字段                                                                                         |
+| 子域 | 现有断言起点（约） | 覆盖字段 |
 | ------------------------ | --------- | -------------------------------------------------------------------------------------------- |
-| 任务合并                     | L131–146  | `Tasks` 顺序、ProgressURL、governance 摘要                                                         |
-| SLA / cost / alert       | L147–164  | `SLA`、`Cost`、`Alerts`、`AlertPolicy`、`CostTrend`、`TrendSnapshot`                              |
-| 部署 / drill               | L165–171  | `Deployment`、`Drill`、`LoadTest`                                                              |
-| WeChat / button          | L172 起多处  | `WeChatComponents`、`WeChatNative*`、`Button*`、`WeChatE2E`、`WeChatSignoff`、`WeChatFinalReport` |
-| write-gray / audit       | 穿插        | `WriteSandbox`、`WriteGray*`、`WriteAudit`、`WriteRamp*`                                        |
-| launch / release / daily | 穿插        | `Launch*`、`Release*`、`Daily*`、`Production*`、`Operations*`                                    |
-
+| 任务合并 | L131–146 | `Tasks` 顺序、ProgressURL、governance 摘要 |
+| SLA / cost / alert | L147–164 | `SLA`、`Cost`、`Alerts`、`AlertPolicy`、`CostTrend`、`TrendSnapshot` |
+| 部署 / drill | L165–171 | `Deployment`、`Drill`、`LoadTest` |
+| WeChat / button | L172 起多处 | `WeChatComponents`、`WeChatNative*`、`Button*`、`WeChatE2E`、`WeChatSignoff`、`WeChatFinalReport` |
+| write-gray / audit | 穿插 | `WriteSandbox`、`WriteGray*`、`WriteAudit`、`WriteRamp*` |
+| launch / release / daily | 穿插 | `Launch*`、`Release*`、`Daily*`、`Production*`、`Operations*` |
 
 约束：不改 `ListTasks` JSON 字段和审计顺序。
 
@@ -321,16 +303,15 @@ golangci-lint run --disable-all -E funlen -E gocognit ./internal/service/agent_p
 
 ### Phase A 验收
 
-- [ ] unused 为 0
-- [ ] 两处 SA5011 消失
-- [ ] bootstrap 测试通过
-- [ ] ListTasks 测试按子域拆开且全绿
-- [ ] CI `validate` 已加入 unused/staticcheck 门禁
-- [ ] 不发布新镜像也可以合并
+- [x] unused 为 0
+- [x] 两处 SA5011 消失
+- [x] bootstrap 测试通过
+- [x] ListTasks 测试按子域拆开且全绿
+- [x] CI `validate` 已加入 unused/staticcheck 门禁
+- [x] 不发布新镜像也可以合并
+- 备注：A5（迁 builder 到 `internal/agentread`）未做，按计划可与 Phase B 并行、不挡 Phase C。
 
 ---
-
-
 
 ## Phase B：staging 首次真实发布（第二个服务的硬门）
 
@@ -353,8 +334,6 @@ golangci-lint run --disable-all -E funlen -E gocognit ./internal/service/agent_p
 
 ---
 
-
-
 ## Phase C：feed-worker-service（质量 + 抽取完整样板）
 
 **状态**：planned  
@@ -366,8 +345,6 @@ golangci-lint run --disable-all -E funlen -E gocognit ./internal/service/agent_p
 1. 已有 `APP_ROLE=source-worker`、Helm Deployment `source-worker`、任务表和租约。
 2. 与用户会话、企业微信按钮、治理看板耦合低。
 3. notification 已验证「独立入口 + 共享库」；本刀补上 notification 没做的包边界。
-
-
 
 ### 队列契约（不改语义）
 
@@ -388,8 +365,6 @@ golangci-lint run --disable-all -E funlen -E gocognit ./internal/service/agent_p
 - `sources` / `items` 表所有权
 - `item_events` 所有权（worker 仍可写事件，表归 item-event 切片）
 - `POST /api/v1/sources/:id/fetch` 同步抓取路径（`SourceService.TriggerFetch`）。本阶段保持行为，列为后续债，不在本刀改成入队
-
-
 
 ### 代码步骤
 
@@ -412,8 +387,6 @@ type SourceFetchJobQueue interface {
 5. `values.yaml` / `values-k3s.yaml` 增加 `workers.source.image`。
 6. CI：`go build` 增加 `./cmd/source`；`publish` 增加 `target: source` → `messagefeed-source:$SHA`；`deploy-staging` 增加 `--set workers.source.image.*` 与 `source-worker` rollout。
 
-
-
 ### 切片内质量（跟这一刀改）
 
 只整理迁入 `internal/feedworker` 的函数。切片外超长函数一律不动。
@@ -423,8 +396,6 @@ go test ./internal/feedworker/...
 go test ./internal/service -run 'SourceSync|SourceService' -count=1
 GOCACHE=/tmp/go-cache-lint golangci-lint run ./internal/feedworker/...
 ```
-
-
 
 ### 上线、滚动、回滚
 
@@ -475,8 +446,6 @@ helm rollback messagefeed <previous-revision> --wait --wait-for-jobs
 
 ---
 
-
-
 ## Phase D：embedding-service
 
 **状态**：planned  
@@ -494,8 +463,6 @@ helm rollback messagefeed <previous-revision> --wait --wait-for-jobs
 
 ---
 
-
-
 ## Phase E：agent-worker-service
 
 **状态**：planned  
@@ -509,10 +476,7 @@ helm rollback messagefeed <previous-revision> --wait --wait-for-jobs
 
 ---
 
-
-
 ## 现在改 / 跟拆分改 / 先放
-
 
 | 问题                                   | 策略                     | Phase         |
 | ------------------------------------ | ---------------------- | ------------- |
@@ -531,9 +495,6 @@ helm rollback messagefeed <previous-revision> --wait --wait-for-jobs
 | 独立数据库 / gRPC / MQ                    | 先放                     | —             |
 | 治理看板独立微服务                            | 先放                     | —             |
 | P2 双节点操作                             | 引用 micr-k8s，不在本文展开     | 与 B 并行、不挡 C   |
-
-
-
 
 ## 时间盒建议
 
@@ -563,11 +524,8 @@ kubectl -n messagefeed rollout status deployment/source-worker --timeout=240s
 helm history messagefeed
 ```
 
-
-
 ## 归档约定
 
 1. 每完成一个 Phase，把本节状态改为 `implemented`，补验证记录（命令、revision、是否回滚）。
 2. 全部 Phase 完成后，将本文移入 `docs/nowdoit/archive/`，并在 `docs/micr-k8s/micr-k8s-plan.md` 状态段回链。
 3. 若实施中发现与 `micr-k8s-implement.md` 冲突，以 micr-k8s 的平台操作为准，以本文的代码缝与质量门禁为准；冲突处改本文而不是静默偏航。
-

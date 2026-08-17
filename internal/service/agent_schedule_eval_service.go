@@ -1113,14 +1113,12 @@ func (s *AgentScheduleEvalService) RecoverPlan(ctx context.Context, auth Current
 	recoveryMetadata := buildAgentPlanRecoveryMetadata(plan, recoveredSteps, input.Reason, now)
 	plan.Metadata = cloneServiceAgentJSON(plan.Metadata)
 	plan.Metadata["recovery"] = recoveryMetadata
-	updated, err := repository.UpdateAgentPlanStatus(ctx, auth.User.ID, plan.ID, domain.AgentPlanStatusExecuting, now, "")
-	if err != nil {
+	if _, err := repository.UpdateAgentPlanStatus(ctx, auth.User.ID, plan.ID, domain.AgentPlanStatusExecuting, now, ""); err != nil {
 		return RecoverAgentPlanResult{}, err
 	}
-	if updatedWithMetadata, metadataErr := repository.UpdateAgentPlanMetadata(ctx, auth.User.ID, plan.ID, plan.Metadata, now); metadataErr == nil {
-		updated = updatedWithMetadata
-	} else {
-		return RecoverAgentPlanResult{}, metadataErr
+	updated, err := repository.UpdateAgentPlanMetadata(ctx, auth.User.ID, plan.ID, plan.Metadata, now)
+	if err != nil {
+		return RecoverAgentPlanResult{}, err
 	}
 	_, _ = repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: plan.SessionID,

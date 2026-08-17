@@ -231,20 +231,6 @@ func (s *AgentConversationService) sendWeChatWorkTaskAcceptedFeedback(
 	return reply, sendResult, sendCount
 }
 
-func planStepLabel(step domain.AgentPlanStep) string {
-	title := strings.TrimSpace(step.Title)
-	if title == "" {
-		title = strings.TrimSpace(step.CapabilityKey)
-	}
-	if title == "" {
-		return "step"
-	}
-	if step.CapabilityKey == "" {
-		return title
-	}
-	return title + " (" + step.CapabilityKey + ")"
-}
-
 func firstFailedPlanStep(plan domain.AgentPlan) domain.AgentPlanStep {
 	for _, step := range plan.Steps {
 		if step.Status == domain.AgentPlanStepStatusFailed {

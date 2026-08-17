@@ -208,7 +208,10 @@ func (s *AgentConversationService) agentNotificationPreference(ctx context.Conte
 }
 
 func (s *AgentConversationService) agentTaskAdmissionDecision(ctx context.Context, userID int64, entry string, currentScheduledTaskID int64) agentTaskAdmissionDecision {
-	now := s.now().UTC()
+	now := time.Time{}
+	if s != nil {
+		now = s.now().UTC()
+	}
 	preference := s.agentNotificationPreference(ctx, userID)
 	var plans []domain.AgentPlan
 	var scheduledTasks []domain.AgentScheduledTask

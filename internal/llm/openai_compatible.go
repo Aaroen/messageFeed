@@ -659,11 +659,6 @@ func responsesToolsFromDomain(tools []ToolDefinition) []responsesTool {
 	return output
 }
 
-func responsesOutputText(items []responsesOutputItem) string {
-	text, _ := responsesOutputTextAndEncodedToolCalls(items)
-	return text
-}
-
 func responsesOutputTextAndEncodedToolCalls(items []responsesOutputItem) (string, []ToolCall) {
 	var builder strings.Builder
 	calls := make([]ToolCall, 0)

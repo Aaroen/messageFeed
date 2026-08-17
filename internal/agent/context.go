@@ -317,10 +317,6 @@ func ShouldQueryConversationHistory(hint HistoryNeedHint, message string, recent
 	return false
 }
 
-func recentWindowHasEvidence(message string, recent []ContextMessage, requireKeyword bool) bool {
-	return false
-}
-
 func HistorySearchKeyword(message string) string {
 	return ""
 }

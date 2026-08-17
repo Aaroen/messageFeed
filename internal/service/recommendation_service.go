@@ -577,30 +577,6 @@ func recommendationMaterializedItemKey(sourceID int64, item domain.Item) string 
 	return fmt.Sprintf("%d:url:%s", sourceID, item.URL)
 }
 
-func interleaveRecommendationItems(sourceItems []recommendationSourceItems, limit int) []domain.Item {
-	if limit <= 0 {
-		return nil
-	}
-	items := make([]domain.Item, 0, limit)
-	for cursor := 0; len(items) < limit; cursor++ {
-		added := false
-		for _, group := range sourceItems {
-			if cursor >= len(group.items) {
-				continue
-			}
-			items = append(items, group.items[cursor])
-			added = true
-			if len(items) >= limit {
-				break
-			}
-		}
-		if !added {
-			break
-		}
-	}
-	return items
-}
-
 func recommendationItemTime(item domain.Item) time.Time {
 	if item.PublishedAt != nil {
 		return *item.PublishedAt

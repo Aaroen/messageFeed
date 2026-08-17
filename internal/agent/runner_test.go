@@ -905,7 +905,6 @@ func runnerAuditContains(events []AuditEvent, eventType string) bool {
 }
 
 type runnerFakeContextBuilder struct {
-	input    ContextBuildInput
 	snapshot ContextSnapshot
 	err      error
 }

@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    # Phase B 将注册的 staging 自托管 runner 标签
+    - messagefeed-staging

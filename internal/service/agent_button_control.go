@@ -193,11 +193,10 @@ func (s *AgentConversationService) applyAgentButtonDirectControl(ctx context.Con
 		plan.Metadata = cloneServiceAgentJSON(plan.Metadata)
 		recoveryMetadata := buildAgentPlanRecoveryMetadata(plan, recoveredSteps, "wechat button recovery", now)
 		plan.Metadata["recovery"] = recoveryMetadata
-		updated, err := s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, domain.AgentPlanStatusExecuting, now, "")
-		if err != nil {
+		if _, err := s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, domain.AgentPlanStatusExecuting, now, ""); err != nil {
 			return result, err
 		}
-		updated, err = s.repository.UpdateAgentPlanMetadata(ctx, userID, plan.ID, plan.Metadata, now)
+		updated, err := s.repository.UpdateAgentPlanMetadata(ctx, userID, plan.ID, plan.Metadata, now)
 		if err != nil {
 			return result, err
 		}

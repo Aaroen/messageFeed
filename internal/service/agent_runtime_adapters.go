@@ -826,7 +826,7 @@ func (e agentP0CapabilityExecutor) queryConversationHistory(ctx context.Context,
 	}
 	metadata := domain.AgentJSON{
 		"history_tool_empty": len(contextMessages) == 0,
-		"rag_hits_used":     factRecallUsedCount(fallback),
+		"rag_hits_used":      factRecallUsedCount(fallback),
 	}
 	if len(contextMessages) == 0 && conversationHistoryModeSupportsFactFallback(mode) {
 		metadata["rag_fallback_attempted"] = true
@@ -2812,19 +2812,6 @@ func transcriptEntriesToContextMessages(entries []domain.AgentTranscriptEntry) [
 	return messages
 }
 
-func earliestTranscriptEntryID(entries []domain.AgentTranscriptEntry) int64 {
-	var earliest int64
-	for _, entry := range entries {
-		if entry.ID <= 0 {
-			continue
-		}
-		if earliest == 0 || entry.ID < earliest {
-			earliest = entry.ID
-		}
-	}
-	return earliest
-}
-
 func transcriptEntryIDs(entries []domain.AgentTranscriptEntry) []int64 {
 	ids := make([]int64, 0, len(entries))
 	for _, entry := range entries {
@@ -2849,17 +2836,6 @@ func agentContextBlocksContentLength(blocks []agent.ContextBlock) int {
 		total += len([]rune(strings.TrimSpace(block.Content)))
 	}
 	return total
-}
-
-func historyRecallReason(hint agent.HistoryNeedHint) string {
-	switch hint {
-	case agent.HistoryNeedRequired:
-		return "required_history_recent_window_insufficient"
-	case agent.HistoryNeedPossible:
-		return "possible_history_recent_window_insufficient"
-	default:
-		return "history_query_requested"
-	}
 }
 
 func compactNonEmptyStrings(values []string) []string {

@@ -264,10 +264,10 @@ generate: ## 运行 go generate
 # ==================== 其他工具 ====================
 
 .PHONY: lint
-lint: ## 运行 golangci-lint（需要预先安装）
+lint: ## 运行 golangci-lint（需要预先安装；GOCACHE 钉在 /tmp，避免 root/只读缓存下 no go files to analyze）
 	@echo "运行 golangci-lint..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run ./...; \
+		GOCACHE=/tmp/go-cache-lint golangci-lint run ./...; \
 		echo "✅ Lint 检查通过"; \
 	else \
 		echo "⚠️  golangci-lint 未安装"; \

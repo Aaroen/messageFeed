@@ -112,6 +112,119 @@ func TestAgentSessionServiceGetProgressAggregatesPlanRunsAndScheduledTasks(t *te
 	}
 }
 
+// listTasksExpectedAuditEvents 按原 || 链的顺序列出 ListTasks 必须产生的审计事件。
+var listTasksExpectedAuditEvents = []string{
+	"agent.production_drill_snapshot",
+	"agent.alert_policy_decision",
+	"agent.write_sandbox_snapshot",
+	"agent.e2e_acceptance_snapshot",
+	"agent.real_integration_snapshot",
+	"agent.ops_acceptance_snapshot",
+	"agent.write_gray_policy_snapshot",
+	"agent.alert_channel_snapshot",
+	"agent.launch_drill_record",
+	"agent.wechat_native_integration_snapshot",
+	"agent.write_replay_snapshot",
+	"agent.launch_approval_snapshot",
+	"agent.production_daily_report",
+	"agent.preprod_acceptance_snapshot",
+	"agent.button_loop_snapshot",
+	"agent.write_execute_snapshot",
+	"agent.daily_report_persist_snapshot",
+	"agent.post_launch_monitor_snapshot",
+	"agent.release_approval_execution_snapshot",
+	"agent.button_callback_snapshot",
+	"agent.write_audit_review_snapshot",
+	"agent.daily_report_send_snapshot",
+	"agent.monitor_alert_drill_snapshot",
+	"agent.button_direct_control_snapshot",
+	"agent.wechat_e2e_acceptance_snapshot",
+	"agent.release_window_readiness_snapshot",
+	"agent.write_gray_expansion_snapshot",
+	"agent.external_monitor_integration_snapshot",
+	"agent.release_window_execution_snapshot",
+	"agent.external_monitor_runtime_snapshot",
+	"agent.write_gray_review_snapshot",
+	"agent.wechat_acceptance_review_snapshot",
+	"agent.operations_daily_closure_snapshot",
+	"agent.production_release_snapshot",
+	"agent.external_monitor_config_snapshot",
+	"agent.write_ramp_snapshot",
+	"agent.wechat_signoff_snapshot",
+	"agent.operations_handoff_snapshot",
+	"agent.production_execution_snapshot",
+	"agent.monitor_integration_snapshot",
+	"agent.write_ramp_policy_snapshot",
+	"agent.wechat_final_report_snapshot",
+	"agent.launch_runtime_overview_snapshot",
+	"agent.runtime_parameters_snapshot",
+	"agent.monitor_readback_snapshot",
+	"agent.write_ramp_recommendation_snapshot",
+	"agent.wechat_user_feedback_snapshot",
+	"agent.operations_runtime_closure_snapshot",
+	"agent.ops_panel_config_snapshot",
+	"agent.monitor_auto_report_snapshot",
+	"agent.write_ramp_stage_snapshot",
+	"agent.wechat_feedback_loop_snapshot",
+	"agent.operations_closed_loop_snapshot",
+	"agent.ops_dashboard_interaction_snapshot",
+	"agent.alert_dedupe_escalation_snapshot",
+	"agent.write_stage_record_snapshot",
+	"agent.wechat_feedback_ticket_snapshot",
+	"agent.operations_handling_snapshot",
+	"agent.ops_action_definition_snapshot",
+	"agent.alert_escalation_policy_snapshot",
+	"agent.write_stage_approval_snapshot",
+	"agent.feedback_ticket_lifecycle_snapshot",
+	"agent.operations_action_closure_snapshot",
+	"agent.ops_api_execution_snapshot",
+	"agent.alert_escalation_receipt_snapshot",
+	"agent.write_approval_button_snapshot",
+	"agent.feedback_ticket_sla_snapshot",
+	"agent.operations_execution_snapshot",
+	"agent.ops_execution_record_snapshot",
+	"agent.wechat_approval_callback_snapshot",
+	"agent.feedback_sla_report_snapshot",
+	"agent.alert_auto_recovery_snapshot",
+	"agent.operations_evidence_snapshot",
+	"agent.unified_progress_component_snapshot",
+	"agent.evidence_detail_page_snapshot",
+	"agent.callback_replay_tool_snapshot",
+	"agent.recovery_policy_config_snapshot",
+	"agent.dual_end_progress_evidence_snapshot",
+	"agent.wechat_progress_card_snapshot",
+	"agent.web_evidence_interaction_snapshot",
+	"agent.callback_replay_permission_snapshot",
+	"agent.recovery_policy_audit_snapshot",
+	"agent.dual_end_interaction_snapshot",
+	"agent.wechat_template_render_snapshot",
+	"agent.web_evidence_route_snapshot",
+	"agent.callback_replay_approval_snapshot",
+	"agent.recovery_policy_persist_snapshot",
+	"agent.dual_end_interaction_launch_snapshot",
+	"agent.wechat_template_send_snapshot",
+	"agent.web_evidence_detail_view_snapshot",
+	"agent.callback_replay_execution_snapshot",
+	"agent.recovery_policy_version_snapshot",
+	"agent.dual_end_real_interaction_snapshot",
+	"agent.wechat_template_integration_snapshot",
+	"agent.web_evidence_interaction_detail_snapshot",
+	"agent.callback_replay_safety_audit_snapshot",
+	"agent.recovery_policy_gray_release_snapshot",
+	"agent.dual_end_run_loop_snapshot",
+	"agent.wechat_template_pilot_snapshot",
+	"agent.web_evidence_user_action_snapshot",
+	"agent.callback_replay_result_trace_snapshot",
+	"agent.recovery_policy_automation_snapshot",
+	"agent.dual_end_task_closure_snapshot",
+	"agent.wechat_template_pilot_metric_snapshot",
+	"agent.web_evidence_operation_snapshot",
+	"agent.callback_replay_result_query_snapshot",
+	"agent.recovery_automation_execution_snapshot",
+	"agent.real_interaction_automation_snapshot",
+	"agent.wechat_web_progress_link_snapshot",
+}
+
 func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	repository := &fakeAgentProgressRepository{
@@ -135,6 +248,39 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	if len(result.Tasks) != 2 {
 		t.Fatalf("tasks = %#v", result.Tasks)
 	}
+
+	// 子域断言拆为顶层函数，避免 gocognit 把内联闭包聚合进本函数。
+	subtests := []struct {
+		name string
+		run  func(t *testing.T, result AgentTaskListResult, repository *fakeAgentProgressRepository)
+	}{
+		{"task_merge", assertListTasksTaskMerge},
+		{"sla_cost_alert", assertListTasksSLACostAlert},
+		{"deployment_drill", assertListTasksDeploymentDrill},
+		{"wechat_components", assertListTasksWechatComponents},
+		{"write_governance", assertListTasksWriteGovernance},
+		{"alert_monitor", assertListTasksAlertMonitor},
+		{"launch_release", assertListTasksLaunchRelease},
+		{"daily_report", assertListTasksDailyReport},
+		{"wechat_button", assertListTasksWechatButton},
+		{"wechat_delivery", assertListTasksWechatDelivery},
+		{"wechat_template", assertListTasksWechatTemplate},
+		{"callback_replay", assertListTasksCallbackReplay},
+		{"recovery_policy", assertListTasksRecoveryPolicy},
+		{"dual_end", assertListTasksDualEnd},
+		{"web_evidence", assertListTasksWebEvidence},
+		{"operations", assertListTasksOperations},
+		{"feedback_sla", assertListTasksFeedbackSla},
+		{"audit_events", assertListTasksAuditEvents},
+	}
+	for _, subtest := range subtests {
+		t.Run(subtest.name, func(t *testing.T) {
+			subtest.run(t, result, repository)
+		})
+	}
+}
+
+func assertListTasksTaskMerge(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
 	if result.Tasks[0].Kind != "scheduled_task" || result.Tasks[0].ProgressURL != "/agent/plans/10" {
 		t.Fatalf("first task = %#v", result.Tasks[0])
 	}
@@ -144,6 +290,9 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	if result.Tasks[1].PermissionStatus == "" || result.Tasks[1].BudgetStatus != "within_budget" || result.Tasks[1].NextAction == "" {
 		t.Fatalf("second task governance fields = %#v", result.Tasks[1])
 	}
+}
+
+func assertListTasksSLACostAlert(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
 	if result.SLA.PlanSucceeded != 1 || result.SLA.ScheduledTaskSucceeded != 1 || result.SLA.HandoffCount != 1 || result.SLA.NotificationSentCount != 1 {
 		t.Fatalf("sla = %#v", result.SLA)
 	}
@@ -162,23 +311,17 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	if result.TrendSnapshot.RetentionDays != 30 || len(result.TrendSnapshot.Buckets) != 1 || result.TrendSnapshot.Buckets[0].HandoffCount != 1 {
 		t.Fatalf("trend snapshot = %#v", result.TrendSnapshot)
 	}
+}
+
+func assertListTasksDeploymentDrill(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
 	if result.Deployment.Status != "ready" || len(result.Deployment.Checks) != 1 || result.Deployment.Checks[0].Key != "web_entry" {
 		t.Fatalf("deployment = %#v", result.Deployment)
 	}
 	if result.Drill.Status != "ready" || len(result.Drill.Checks) < len(result.Deployment.Checks) {
 		t.Fatalf("drill = %#v", result.Drill)
 	}
-	if result.WeChatComponents.Mode != "component_fallback" || !agentActionExists(result.WeChatComponents.Actions, "view_progress") || !agentActionExists(result.WeChatComponents.Actions, "cancel_scheduled_task") {
-		t.Fatalf("wechat components = %#v", result.WeChatComponents)
-	}
 	if result.LoadTest.Metrics.WebTasks != 1 || result.LoadTest.Metrics.ScheduledTasks != 1 || len(result.LoadTest.Checks) == 0 {
 		t.Fatalf("load test = %#v", result.LoadTest)
-	}
-	if len(result.WeChatCallback.Checks) == 0 || result.WeChatCallback.Summary == "" {
-		t.Fatalf("wechat callback = %#v", result.WeChatCallback)
-	}
-	if result.WriteSandbox.DefaultAction != "reject_or_require_approval" || result.WriteSandbox.Status != "sandboxed" {
-		t.Fatalf("write sandbox = %#v", result.WriteSandbox)
 	}
 	if len(result.E2E.Checks) == 0 || result.E2E.Summary == "" {
 		t.Fatalf("e2e = %#v", result.E2E)
@@ -186,122 +329,188 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	if len(result.RealIntegration.Checks) == 0 || result.RealIntegration.NextAction == "" {
 		t.Fatalf("real integration = %#v", result.RealIntegration)
 	}
-	if result.WeChatNative.Mode != "native_button_schema" || !agentNativeActionExists(result.WeChatNative.Actions, "view_progress") || !agentNativeActionExists(result.WeChatNative.Actions, "view_final_report") {
-		t.Fatalf("wechat native = %#v", result.WeChatNative)
-	}
-	if result.WriteLeastPrivilege.DefaultAction != "reject_or_require_approval" || !stringSliceContains(result.WriteLeastPrivilege.AllowedCandidates, "agent.schedule_message") {
-		t.Fatalf("write least privilege = %#v", result.WriteLeastPrivilege)
-	}
 	if len(result.OpsAcceptance.Checks) == 0 || result.OpsAcceptance.Summary == "" {
 		t.Fatalf("ops acceptance = %#v", result.OpsAcceptance)
-	}
-	if result.WeChatNativePayload.MessageType != "template_card" || len(result.WeChatNativePayload.Buttons) == 0 || result.WeChatNativePayload.FallbackText == "" {
-		t.Fatalf("wechat native payload = %#v", result.WeChatNativePayload)
-	}
-	if result.WriteGray.Status != "approval_required" || !result.WriteGray.RequiresApproval || !result.WriteGray.RequiresBudget || !result.WriteGray.RequiresAudit {
-		t.Fatalf("write gray = %#v", result.WriteGray)
-	}
-	if len(result.AlertChannel.Channels) < 3 || result.AlertChannel.Summary == "" {
-		t.Fatalf("alert channel = %#v", result.AlertChannel)
-	}
-	if result.LaunchDrill.BatchID == "" || result.LaunchDrill.TriggeredBy != "agent_task_workspace" || result.LaunchDrill.NextAction == "" {
-		t.Fatalf("launch drill = %#v", result.LaunchDrill)
-	}
-	if len(result.WeChatNativeIntegration.Checks) == 0 || result.WeChatNativeIntegration.NextAction == "" {
-		t.Fatalf("wechat native integration = %#v", result.WeChatNativeIntegration)
-	}
-	if result.WriteReplay.ApprovalStatus == "" || result.WriteReplay.AuditStatus == "" || len(result.WriteReplay.RollbackTriggers) == 0 {
-		t.Fatalf("write replay = %#v", result.WriteReplay)
-	}
-	if result.LaunchApproval.RequestID == "" || result.LaunchApproval.ReviewState == "" || result.LaunchApproval.HandoffPath == "" || result.LaunchApproval.RollbackPath == "" {
-		t.Fatalf("launch approval = %#v", result.LaunchApproval)
-	}
-	if result.DailyReport.Date == "" || result.DailyReport.TaskCount != 2 || result.DailyReport.AlertCount != result.Alerts.Total {
-		t.Fatalf("daily report = %#v", result.DailyReport)
 	}
 	if result.Preprod.Status == "" || len(result.Preprod.Checks) == 0 || result.Preprod.NextAction == "" {
 		t.Fatalf("preprod = %#v", result.Preprod)
 	}
-	if result.ButtonLoop.Status == "" || len(result.ButtonLoop.Actions) == 0 || result.ButtonLoop.FallbackText == "" {
-		t.Fatalf("button loop = %#v", result.ButtonLoop)
-	}
-	if result.WriteExecute.DefaultAction != "reject_or_require_approval" || result.WriteExecute.AuditStatus == "" || len(result.WriteExecute.RollbackTriggers) == 0 {
-		t.Fatalf("write execute = %#v", result.WriteExecute)
-	}
-	if result.DailyPersist.RecordKey == "" || result.DailyPersist.Source != "agent.production_daily_report" || !result.DailyPersist.Retained {
-		t.Fatalf("daily persist = %#v", result.DailyPersist)
-	}
 	if result.PostLaunchMonitor.Status == "" || len(result.PostLaunchMonitor.Checks) == 0 || result.PostLaunchMonitor.Summary == "" {
 		t.Fatalf("post launch monitor = %#v", result.PostLaunchMonitor)
 	}
-	if result.ReleaseApproval.RequestID == "" || result.ReleaseApproval.DecisionPath == "" || result.ReleaseApproval.AuditEvent == "" {
-		t.Fatalf("release approval = %#v", result.ReleaseApproval)
+}
+
+func assertListTasksWechatComponents(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.WeChatComponents.Mode != "component_fallback" || !agentActionExists(result.WeChatComponents.Actions, "view_progress") || !agentActionExists(result.WeChatComponents.Actions, "cancel_scheduled_task") {
+		t.Fatalf("wechat components = %#v", result.WeChatComponents)
 	}
-	if len(result.ButtonCallback.Actions) == 0 || !agentButtonCallbackExists(result.ButtonCallback.Actions, "view_progress") || result.ButtonCallback.FallbackText == "" {
-		t.Fatalf("button callback = %#v", result.ButtonCallback)
+	if len(result.WeChatCallback.Checks) == 0 || result.WeChatCallback.Summary == "" {
+		t.Fatalf("wechat callback = %#v", result.WeChatCallback)
 	}
-	if !stringSliceContains(result.WriteAudit.Candidates, "agent.schedule_task") || result.WriteAudit.ApprovalEvidence == "" || result.WriteAudit.RollbackEvidence == "" {
-		t.Fatalf("write audit = %#v", result.WriteAudit)
+	if result.WeChatNative.Mode != "native_button_schema" || !agentNativeActionExists(result.WeChatNative.Actions, "view_progress") || !agentNativeActionExists(result.WeChatNative.Actions, "view_final_report") {
+		t.Fatalf("wechat native = %#v", result.WeChatNative)
 	}
-	if result.DailySend.RecordKey == "" || result.DailySend.ScheduleStatus == "" || result.DailySend.WeChatReportStatus == "" {
-		t.Fatalf("daily send = %#v", result.DailySend)
+	if result.WeChatNativePayload.MessageType != "template_card" || len(result.WeChatNativePayload.Buttons) == 0 || result.WeChatNativePayload.FallbackText == "" {
+		t.Fatalf("wechat native payload = %#v", result.WeChatNativePayload)
 	}
-	if result.MonitorAlert.TriggerStatus == "" || result.MonitorAlert.NotificationStatus == "" || len(result.MonitorAlert.Checks) == 0 {
-		t.Fatalf("monitor alert = %#v", result.MonitorAlert)
-	}
-	if len(result.ButtonDirectControl.Actions) == 0 || len(result.ButtonDirectControl.Checks) == 0 {
-		t.Fatalf("button direct control = %#v", result.ButtonDirectControl)
-	}
-	if result.WeChatE2E.Status == "" || len(result.WeChatE2E.Checks) == 0 {
-		t.Fatalf("wechat e2e = %#v", result.WeChatE2E)
-	}
-	if result.ReleaseWindow.WindowState == "" || len(result.ReleaseWindow.Checks) == 0 {
-		t.Fatalf("release window = %#v", result.ReleaseWindow)
-	}
-	if result.WriteGrayExpansion.DefaultAction != "reject_or_require_approval" || !stringSliceContains(result.WriteGrayExpansion.Candidates, "agent.schedule_task") {
-		t.Fatalf("write gray expansion = %#v", result.WriteGrayExpansion)
-	}
-	if len(result.ExternalMonitor.Metrics) == 0 || len(result.ExternalMonitor.AlertEvents) == 0 || len(result.ExternalMonitor.Channels) == 0 {
-		t.Fatalf("external monitor = %#v", result.ExternalMonitor)
-	}
-	if result.ReleaseWindowExecution.ExecutionState == "" || result.ReleaseWindowExecution.AuditEvent == "" || len(result.ReleaseWindowExecution.Checks) == 0 {
-		t.Fatalf("release window execution = %#v", result.ReleaseWindowExecution)
-	}
-	if len(result.ExternalMonitorRuntime.Metrics) == 0 || len(result.ExternalMonitorRuntime.AlertEvents) == 0 || result.ExternalMonitorRuntime.DailySendStatus == "" {
-		t.Fatalf("external monitor runtime = %#v", result.ExternalMonitorRuntime)
-	}
-	if result.WriteGrayReview.Decision == "" || !stringSliceContains(result.WriteGrayReview.Candidates, "agent.schedule_task") || len(result.WriteGrayReview.DeniedPatterns) == 0 {
-		t.Fatalf("write gray review = %#v", result.WriteGrayReview)
+	if len(result.WeChatNativeIntegration.Checks) == 0 || result.WeChatNativeIntegration.NextAction == "" {
+		t.Fatalf("wechat native integration = %#v", result.WeChatNativeIntegration)
 	}
 	if result.WeChatAcceptanceReview.NextAction == "" || result.WeChatAcceptanceReview.ButtonControlStatus == "" || len(result.WeChatAcceptanceReview.Checks) == 0 {
 		t.Fatalf("wechat acceptance review = %#v", result.WeChatAcceptanceReview)
 	}
-	if result.OperationsDailyClosure.AuditStatus == "" || result.OperationsDailyClosure.ReleaseWindowStatus == "" || len(result.OperationsDailyClosure.Checks) == 0 {
-		t.Fatalf("operations daily closure = %#v", result.OperationsDailyClosure)
+}
+
+func assertListTasksWriteGovernance(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.WriteSandbox.DefaultAction != "reject_or_require_approval" || result.WriteSandbox.Status != "sandboxed" {
+		t.Fatalf("write sandbox = %#v", result.WriteSandbox)
 	}
-	if result.ProductionRelease.BatchID == "" || result.ProductionRelease.AuditEvent == "" || len(result.ProductionRelease.Checks) == 0 {
-		t.Fatalf("production release = %#v", result.ProductionRelease)
+	if result.WriteLeastPrivilege.DefaultAction != "reject_or_require_approval" || !stringSliceContains(result.WriteLeastPrivilege.AllowedCandidates, "agent.schedule_message") {
+		t.Fatalf("write least privilege = %#v", result.WriteLeastPrivilege)
 	}
-	if len(result.ExternalMonitorConfig.MetricNames) == 0 || len(result.ExternalMonitorConfig.EventNames) == 0 || result.ExternalMonitorConfig.PlatformStatus == "" {
-		t.Fatalf("external monitor config = %#v", result.ExternalMonitorConfig)
+	if result.WriteGray.Status != "approval_required" || !result.WriteGray.RequiresApproval || !result.WriteGray.RequiresBudget || !result.WriteGray.RequiresAudit {
+		t.Fatalf("write gray = %#v", result.WriteGray)
+	}
+	if result.WriteGrayExpansion.DefaultAction != "reject_or_require_approval" || !stringSliceContains(result.WriteGrayExpansion.Candidates, "agent.schedule_task") {
+		t.Fatalf("write gray expansion = %#v", result.WriteGrayExpansion)
+	}
+	if result.WriteGrayReview.Decision == "" || !stringSliceContains(result.WriteGrayReview.Candidates, "agent.schedule_task") || len(result.WriteGrayReview.DeniedPatterns) == 0 {
+		t.Fatalf("write gray review = %#v", result.WriteGrayReview)
 	}
 	if result.WriteRamp.Decision == "" || !stringSliceContains(result.WriteRamp.Candidates, "agent.schedule_task") || result.WriteRamp.DefaultAction != "reject_or_require_approval" {
 		t.Fatalf("write ramp = %#v", result.WriteRamp)
 	}
-	if result.WeChatSignoff.SignoffState == "" || result.WeChatSignoff.AuditEvent == "" || len(result.WeChatSignoff.Checks) == 0 {
-		t.Fatalf("wechat signoff = %#v", result.WeChatSignoff)
+	if result.WriteRampPolicy.UserScope == "" || result.WriteRampPolicy.DefaultAction != "reject_or_require_approval" || result.WriteRampPolicy.RollbackThreshold == "" {
+		t.Fatalf("write ramp policy = %#v", result.WriteRampPolicy)
 	}
-	if result.OperationsHandoff.NextAction == "" || result.OperationsHandoff.ReleaseStatus == "" || len(result.OperationsHandoff.Checks) == 0 {
-		t.Fatalf("operations handoff = %#v", result.OperationsHandoff)
+	if result.WriteRampRecommendation.RecommendedPercent < result.WriteRampRecommendation.CurrentPercent || result.WriteRampRecommendation.DefaultAction != "reject_or_require_approval" {
+		t.Fatalf("write ramp recommendation = %#v", result.WriteRampRecommendation)
 	}
-	if result.ProductionExecution.BatchID == "" || result.ProductionExecution.Executor == "" || result.ProductionExecution.AuditEvent == "" {
-		t.Fatalf("production execution = %#v", result.ProductionExecution)
+	if result.WriteRampStage.CurrentStage == "" || result.WriteRampStage.NextStage == "" || result.WriteRampStage.DefaultAction != "reject_or_require_approval" {
+		t.Fatalf("write ramp stage = %#v", result.WriteRampStage)
+	}
+	if result.WriteReplay.ApprovalStatus == "" || result.WriteReplay.AuditStatus == "" || len(result.WriteReplay.RollbackTriggers) == 0 {
+		t.Fatalf("write replay = %#v", result.WriteReplay)
+	}
+	if result.WriteExecute.DefaultAction != "reject_or_require_approval" || result.WriteExecute.AuditStatus == "" || len(result.WriteExecute.RollbackTriggers) == 0 {
+		t.Fatalf("write execute = %#v", result.WriteExecute)
+	}
+	if !stringSliceContains(result.WriteAudit.Candidates, "agent.schedule_task") || result.WriteAudit.ApprovalEvidence == "" || result.WriteAudit.RollbackEvidence == "" {
+		t.Fatalf("write audit = %#v", result.WriteAudit)
+	}
+	if result.WriteStageRecord.CurrentStage == "" || result.WriteStageRecord.TargetStage == "" || result.WriteStageRecord.DefaultAction != "reject_or_require_approval" {
+		t.Fatalf("write stage record = %#v", result.WriteStageRecord)
+	}
+	if result.WriteStageApproval.ApprovalStatus == "" || result.WriteStageApproval.TargetStage == "" || result.WriteStageApproval.DefaultAction != "reject_or_require_approval" {
+		t.Fatalf("write stage approval = %#v", result.WriteStageApproval)
+	}
+	if len(result.WriteApprovalButton.Buttons) == 0 || result.WriteApprovalButton.Buttons[0].ButtonKey == "" || result.WriteApprovalButton.Buttons[0].AuditEvidence == "" {
+		t.Fatalf("write approval button = %#v", result.WriteApprovalButton)
+	}
+}
+
+func assertListTasksAlertMonitor(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if len(result.AlertChannel.Channels) < 3 || result.AlertChannel.Summary == "" {
+		t.Fatalf("alert channel = %#v", result.AlertChannel)
+	}
+	if result.MonitorAlert.TriggerStatus == "" || result.MonitorAlert.NotificationStatus == "" || len(result.MonitorAlert.Checks) == 0 {
+		t.Fatalf("monitor alert = %#v", result.MonitorAlert)
+	}
+	if len(result.ExternalMonitor.Metrics) == 0 || len(result.ExternalMonitor.AlertEvents) == 0 || len(result.ExternalMonitor.Channels) == 0 {
+		t.Fatalf("external monitor = %#v", result.ExternalMonitor)
+	}
+	if len(result.ExternalMonitorRuntime.Metrics) == 0 || len(result.ExternalMonitorRuntime.AlertEvents) == 0 || result.ExternalMonitorRuntime.DailySendStatus == "" {
+		t.Fatalf("external monitor runtime = %#v", result.ExternalMonitorRuntime)
+	}
+	if len(result.ExternalMonitorConfig.MetricNames) == 0 || len(result.ExternalMonitorConfig.EventNames) == 0 || result.ExternalMonitorConfig.PlatformStatus == "" {
+		t.Fatalf("external monitor config = %#v", result.ExternalMonitorConfig)
 	}
 	if len(result.MonitorIntegration.MetricNames) == 0 || len(result.MonitorIntegration.EventNames) == 0 || result.MonitorIntegration.IntegrationResult == "" {
 		t.Fatalf("monitor integration = %#v", result.MonitorIntegration)
 	}
-	if result.WriteRampPolicy.UserScope == "" || result.WriteRampPolicy.DefaultAction != "reject_or_require_approval" || result.WriteRampPolicy.RollbackThreshold == "" {
-		t.Fatalf("write ramp policy = %#v", result.WriteRampPolicy)
+	if len(result.MonitorReadback.MetricNames) == 0 || len(result.MonitorReadback.EventNames) == 0 || result.MonitorReadback.FreshnessStatus == "" {
+		t.Fatalf("monitor readback = %#v", result.MonitorReadback)
+	}
+	if result.MonitorAutoReport.AuditEvent == "" || result.MonitorAutoReport.WeChatSendStatus == "" || len(result.MonitorAutoReport.Checks) == 0 {
+		t.Fatalf("monitor auto report = %#v", result.MonitorAutoReport)
+	}
+	if result.AlertDedupeEscalation.DedupeKey == "" || result.AlertDedupeEscalation.DedupeWindowSeconds == 0 || result.AlertDedupeEscalation.EscalationCondition == "" {
+		t.Fatalf("alert dedupe escalation = %#v", result.AlertDedupeEscalation)
+	}
+	if result.AlertEscalationPolicy.EscalationLevel == "" || len(result.AlertEscalationPolicy.NotificationChannels) == 0 || result.AlertEscalationPolicy.RepeatSuppression == "" {
+		t.Fatalf("alert escalation policy = %#v", result.AlertEscalationPolicy)
+	}
+	if result.AlertEscalationReceipt.DeliveryStatus == "" || result.AlertEscalationReceipt.SuppressionResult == "" || result.AlertEscalationReceipt.HandoffEntry == "" {
+		t.Fatalf("alert escalation receipt = %#v", result.AlertEscalationReceipt)
+	}
+	if result.AlertAutoRecovery.RecoveryTrigger == "" || result.AlertAutoRecovery.SuppressionRelease == "" || result.AlertAutoRecovery.AuditEvidence == "" {
+		t.Fatalf("alert auto recovery = %#v", result.AlertAutoRecovery)
+	}
+}
+
+func assertListTasksLaunchRelease(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.LaunchDrill.BatchID == "" || result.LaunchDrill.TriggeredBy != "agent_task_workspace" || result.LaunchDrill.NextAction == "" {
+		t.Fatalf("launch drill = %#v", result.LaunchDrill)
+	}
+	if result.LaunchApproval.RequestID == "" || result.LaunchApproval.ReviewState == "" || result.LaunchApproval.HandoffPath == "" || result.LaunchApproval.RollbackPath == "" {
+		t.Fatalf("launch approval = %#v", result.LaunchApproval)
+	}
+	if result.LaunchRuntimeOverview.NextAction == "" || result.LaunchRuntimeOverview.ProductionExecutionStatus == "" || len(result.LaunchRuntimeOverview.Checks) == 0 {
+		t.Fatalf("launch runtime overview = %#v", result.LaunchRuntimeOverview)
+	}
+	if result.ReleaseApproval.RequestID == "" || result.ReleaseApproval.DecisionPath == "" || result.ReleaseApproval.AuditEvent == "" {
+		t.Fatalf("release approval = %#v", result.ReleaseApproval)
+	}
+	if result.ReleaseWindow.WindowState == "" || len(result.ReleaseWindow.Checks) == 0 {
+		t.Fatalf("release window = %#v", result.ReleaseWindow)
+	}
+	if result.ReleaseWindowExecution.ExecutionState == "" || result.ReleaseWindowExecution.AuditEvent == "" || len(result.ReleaseWindowExecution.Checks) == 0 {
+		t.Fatalf("release window execution = %#v", result.ReleaseWindowExecution)
+	}
+	if result.ProductionRelease.BatchID == "" || result.ProductionRelease.AuditEvent == "" || len(result.ProductionRelease.Checks) == 0 {
+		t.Fatalf("production release = %#v", result.ProductionRelease)
+	}
+	if result.ProductionExecution.BatchID == "" || result.ProductionExecution.Executor == "" || result.ProductionExecution.AuditEvent == "" {
+		t.Fatalf("production execution = %#v", result.ProductionExecution)
+	}
+}
+
+func assertListTasksDailyReport(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.DailyReport.Date == "" || result.DailyReport.TaskCount != 2 || result.DailyReport.AlertCount != result.Alerts.Total {
+		t.Fatalf("daily report = %#v", result.DailyReport)
+	}
+	if result.DailyPersist.RecordKey == "" || result.DailyPersist.Source != "agent.production_daily_report" || !result.DailyPersist.Retained {
+		t.Fatalf("daily persist = %#v", result.DailyPersist)
+	}
+	if result.DailySend.RecordKey == "" || result.DailySend.ScheduleStatus == "" || result.DailySend.WeChatReportStatus == "" {
+		t.Fatalf("daily send = %#v", result.DailySend)
+	}
+	if result.Report.ByEntry["web"] != 1 || result.Report.ByCapability["web.search"] != 1 || result.Report.ByHandoff["required"] != 1 {
+		t.Fatalf("report = %#v", result.Report)
+	}
+}
+
+func assertListTasksWechatButton(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.ButtonLoop.Status == "" || len(result.ButtonLoop.Actions) == 0 || result.ButtonLoop.FallbackText == "" {
+		t.Fatalf("button loop = %#v", result.ButtonLoop)
+	}
+	if len(result.ButtonCallback.Actions) == 0 || !agentButtonCallbackExists(result.ButtonCallback.Actions, "view_progress") || result.ButtonCallback.FallbackText == "" {
+		t.Fatalf("button callback = %#v", result.ButtonCallback)
+	}
+	if len(result.ButtonDirectControl.Actions) == 0 || len(result.ButtonDirectControl.Checks) == 0 {
+		t.Fatalf("button direct control = %#v", result.ButtonDirectControl)
+	}
+	if result.WeChatApprovalCallback.CallbackKey == "" || result.WeChatApprovalCallback.Source != "wechat_work" || result.WeChatApprovalCallback.StorageState == "" {
+		t.Fatalf("wechat approval callback = %#v", result.WeChatApprovalCallback)
+	}
+}
+
+func assertListTasksWechatDelivery(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.WeChatE2E.Status == "" || len(result.WeChatE2E.Checks) == 0 {
+		t.Fatalf("wechat e2e = %#v", result.WeChatE2E)
+	}
+	if result.WeChatSignoff.SignoffState == "" || result.WeChatSignoff.AuditEvent == "" || len(result.WeChatSignoff.Checks) == 0 {
+		t.Fatalf("wechat signoff = %#v", result.WeChatSignoff)
 	}
 	if result.WeChatFinalReport.FinalReportEntry == "" || result.WeChatFinalReport.AuditEvent == "" || len(result.WeChatFinalReport.Checks) == 0 {
 		t.Fatalf("wechat final report = %#v", result.WeChatFinalReport)
@@ -309,203 +518,17 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	if result.WeChatFinalReport.DeliveryStatus != "succeeded" || result.WeChatFinalReport.TemplateStatus != "succeeded" || result.WeChatFinalReport.TextStatus != "succeeded" || result.WeChatFinalReport.ProgressURL == "" {
 		t.Fatalf("wechat final report delivery = %#v", result.WeChatFinalReport)
 	}
-	if result.LaunchRuntimeOverview.NextAction == "" || result.LaunchRuntimeOverview.ProductionExecutionStatus == "" || len(result.LaunchRuntimeOverview.Checks) == 0 {
-		t.Fatalf("launch runtime overview = %#v", result.LaunchRuntimeOverview)
-	}
-	if result.RuntimeParameters.UserScope == "" || result.RuntimeParameters.NotificationChannel == "" || result.RuntimeParameters.RollbackThreshold == "" {
-		t.Fatalf("runtime parameters = %#v", result.RuntimeParameters)
-	}
-	if len(result.MonitorReadback.MetricNames) == 0 || len(result.MonitorReadback.EventNames) == 0 || result.MonitorReadback.FreshnessStatus == "" {
-		t.Fatalf("monitor readback = %#v", result.MonitorReadback)
-	}
-	if result.WriteRampRecommendation.RecommendedPercent < result.WriteRampRecommendation.CurrentPercent || result.WriteRampRecommendation.DefaultAction != "reject_or_require_approval" {
-		t.Fatalf("write ramp recommendation = %#v", result.WriteRampRecommendation)
-	}
 	if result.WeChatUserFeedback.NextAction == "" || result.WeChatUserFeedback.ButtonFeedback == "" || len(result.WeChatUserFeedback.Checks) == 0 {
 		t.Fatalf("wechat user feedback = %#v", result.WeChatUserFeedback)
-	}
-	if result.OperationsRuntimeClosure.NextAction == "" || result.OperationsRuntimeClosure.RuntimeParameterStatus == "" || len(result.OperationsRuntimeClosure.Checks) == 0 {
-		t.Fatalf("operations runtime closure = %#v", result.OperationsRuntimeClosure)
-	}
-	if result.OpsPanelConfig.ParameterGroup == "" || len(result.OpsPanelConfig.DisplayItems) == 0 || result.OpsPanelConfig.RefreshIntervalSeconds == 0 {
-		t.Fatalf("ops panel config = %#v", result.OpsPanelConfig)
-	}
-	if result.MonitorAutoReport.AuditEvent == "" || result.MonitorAutoReport.WeChatSendStatus == "" || len(result.MonitorAutoReport.Checks) == 0 {
-		t.Fatalf("monitor auto report = %#v", result.MonitorAutoReport)
-	}
-	if result.WriteRampStage.CurrentStage == "" || result.WriteRampStage.NextStage == "" || result.WriteRampStage.DefaultAction != "reject_or_require_approval" {
-		t.Fatalf("write ramp stage = %#v", result.WriteRampStage)
 	}
 	if result.WeChatFeedbackLoop.ProcessingState == "" || result.WeChatFeedbackLoop.NextAction == "" || len(result.WeChatFeedbackLoop.Checks) == 0 {
 		t.Fatalf("wechat feedback loop = %#v", result.WeChatFeedbackLoop)
 	}
-	if result.OperationsClosedLoop.NextAction == "" || result.OperationsClosedLoop.OpsPanelStatus == "" || len(result.OperationsClosedLoop.Checks) == 0 {
-		t.Fatalf("operations closed loop = %#v", result.OperationsClosedLoop)
-	}
-	if len(result.OpsDashboardInteraction.Actions) == 0 || result.OpsDashboardInteraction.AuditEvent == "" || len(result.OpsDashboardInteraction.Checks) == 0 {
-		t.Fatalf("ops dashboard interaction = %#v", result.OpsDashboardInteraction)
-	}
-	if result.AlertDedupeEscalation.DedupeKey == "" || result.AlertDedupeEscalation.DedupeWindowSeconds == 0 || result.AlertDedupeEscalation.EscalationCondition == "" {
-		t.Fatalf("alert dedupe escalation = %#v", result.AlertDedupeEscalation)
-	}
-	if result.WriteStageRecord.CurrentStage == "" || result.WriteStageRecord.TargetStage == "" || result.WriteStageRecord.DefaultAction != "reject_or_require_approval" {
-		t.Fatalf("write stage record = %#v", result.WriteStageRecord)
-	}
 	if result.WeChatFeedbackTicket.TicketType == "" || result.WeChatFeedbackTicket.OwnerEntry == "" || result.WeChatFeedbackTicket.AuditEvent == "" {
 		t.Fatalf("wechat feedback ticket = %#v", result.WeChatFeedbackTicket)
 	}
-	if result.OperationsHandling.NextAction == "" || result.OperationsHandling.DashboardStatus == "" || len(result.OperationsHandling.Checks) == 0 {
-		t.Fatalf("operations handling = %#v", result.OperationsHandling)
-	}
-	if len(result.OpsActionDefinition.Actions) == 0 || result.OpsActionDefinition.Actions[0].HandlerEntry == "" || result.OpsActionDefinition.Actions[0].IdempotencyKey == "" {
-		t.Fatalf("ops action definition = %#v", result.OpsActionDefinition)
-	}
-	if result.AlertEscalationPolicy.EscalationLevel == "" || len(result.AlertEscalationPolicy.NotificationChannels) == 0 || result.AlertEscalationPolicy.RepeatSuppression == "" {
-		t.Fatalf("alert escalation policy = %#v", result.AlertEscalationPolicy)
-	}
-	if result.WriteStageApproval.ApprovalStatus == "" || result.WriteStageApproval.TargetStage == "" || result.WriteStageApproval.DefaultAction != "reject_or_require_approval" {
-		t.Fatalf("write stage approval = %#v", result.WriteStageApproval)
-	}
-	if result.FeedbackTicketLifecycle.CreatedState == "" || result.FeedbackTicketLifecycle.HandoffState == "" || len(result.FeedbackTicketLifecycle.Checks) == 0 {
-		t.Fatalf("feedback ticket lifecycle = %#v", result.FeedbackTicketLifecycle)
-	}
-	if result.OperationsActionClosure.NextAction == "" || result.OperationsActionClosure.OpsActionStatus == "" || len(result.OperationsActionClosure.Checks) == 0 {
-		t.Fatalf("operations action closure = %#v", result.OperationsActionClosure)
-	}
-	if len(result.OpsAPIExecution.Executions) == 0 || result.OpsAPIExecution.Executions[0].ExecutionEntry == "" || result.OpsAPIExecution.Executions[0].AuditEvent == "" {
-		t.Fatalf("ops api execution = %#v", result.OpsAPIExecution)
-	}
-	if result.AlertEscalationReceipt.DeliveryStatus == "" || result.AlertEscalationReceipt.SuppressionResult == "" || result.AlertEscalationReceipt.HandoffEntry == "" {
-		t.Fatalf("alert escalation receipt = %#v", result.AlertEscalationReceipt)
-	}
-	if len(result.WriteApprovalButton.Buttons) == 0 || result.WriteApprovalButton.Buttons[0].ButtonKey == "" || result.WriteApprovalButton.Buttons[0].AuditEvidence == "" {
-		t.Fatalf("write approval button = %#v", result.WriteApprovalButton)
-	}
-	if result.FeedbackTicketSLA.FirstResponseSeconds == 0 || result.FeedbackTicketSLA.ResolveSeconds == 0 || result.FeedbackTicketSLA.HandoffPath == "" {
-		t.Fatalf("feedback ticket sla = %#v", result.FeedbackTicketSLA)
-	}
-	if result.OperationsExecution.NextAction == "" || result.OperationsExecution.OpsAPIExecutionStatus == "" || len(result.OperationsExecution.Checks) == 0 {
-		t.Fatalf("operations execution = %#v", result.OperationsExecution)
-	}
-	if len(result.OpsExecutionRecord.Records) == 0 || result.OpsExecutionRecord.Records[0].RecordKey == "" || result.OpsExecutionRecord.Records[0].ReplayEntry == "" {
-		t.Fatalf("ops execution record = %#v", result.OpsExecutionRecord)
-	}
-	if result.WeChatApprovalCallback.CallbackKey == "" || result.WeChatApprovalCallback.Source != "wechat_work" || result.WeChatApprovalCallback.StorageState == "" {
-		t.Fatalf("wechat approval callback = %#v", result.WeChatApprovalCallback)
-	}
-	if result.FeedbackSLAReport.ReportAuditEvent == "" || result.FeedbackSLAReport.FirstResponseRate < 0 || result.FeedbackSLAReport.ResolveRate < 0 {
-		t.Fatalf("feedback sla report = %#v", result.FeedbackSLAReport)
-	}
-	if result.AlertAutoRecovery.RecoveryTrigger == "" || result.AlertAutoRecovery.SuppressionRelease == "" || result.AlertAutoRecovery.AuditEvidence == "" {
-		t.Fatalf("alert auto recovery = %#v", result.AlertAutoRecovery)
-	}
-	if result.OperationsEvidence.NextAction == "" || result.OperationsEvidence.ExecutionRecordStatus == "" || len(result.OperationsEvidence.Checks) == 0 {
-		t.Fatalf("operations evidence = %#v", result.OperationsEvidence)
-	}
-	if result.UnifiedProgressComponent.ComponentKey == "" || result.UnifiedProgressComponent.WebStatus == "" || result.UnifiedProgressComponent.WeChatStatus == "" {
-		t.Fatalf("unified progress component = %#v", result.UnifiedProgressComponent)
-	}
-	if result.EvidenceDetailPage.DetailEntry == "" || result.EvidenceDetailPage.RecordCount == 0 || result.EvidenceDetailPage.RetentionPolicy == "" {
-		t.Fatalf("evidence detail page = %#v", result.EvidenceDetailPage)
-	}
-	if result.CallbackReplayTool.CallbackKey == "" || result.CallbackReplayTool.ReplayEntry == "" || result.CallbackReplayTool.IdempotencyGuard == "" {
-		t.Fatalf("callback replay tool = %#v", result.CallbackReplayTool)
-	}
-	if result.RecoveryPolicyConfig.PolicyKey == "" || result.RecoveryPolicyConfig.DefaultPolicy == "" || result.RecoveryPolicyConfig.SuppressionWindow == "" {
-		t.Fatalf("recovery policy config = %#v", result.RecoveryPolicyConfig)
-	}
-	if result.DualEndProgressEvidence.NextAction == "" || result.DualEndProgressEvidence.UnifiedProgressStatus == "" || len(result.DualEndProgressEvidence.Checks) == 0 {
-		t.Fatalf("dual end progress evidence = %#v", result.DualEndProgressEvidence)
-	}
 	if result.WeChatProgressCard.CardKey == "" || result.WeChatProgressCard.ProgressPercent == 0 || len(result.WeChatProgressCard.Actions) == 0 {
 		t.Fatalf("wechat progress card = %#v", result.WeChatProgressCard)
-	}
-	if len(result.WebEvidenceInteraction.Filters) == 0 || result.WebEvidenceInteraction.ReplayEntry == "" || result.WebEvidenceInteraction.Visibility == "" {
-		t.Fatalf("web evidence interaction = %#v", result.WebEvidenceInteraction)
-	}
-	if result.CallbackReplayPermission.PermissionKey == "" || len(result.CallbackReplayPermission.AllowedRoles) == 0 || result.CallbackReplayPermission.AuditEvent == "" {
-		t.Fatalf("callback replay permission = %#v", result.CallbackReplayPermission)
-	}
-	if result.RecoveryPolicyAudit.ChangeKey == "" || result.RecoveryPolicyAudit.ApprovalStatus == "" || result.RecoveryPolicyAudit.RollbackPath == "" {
-		t.Fatalf("recovery policy audit = %#v", result.RecoveryPolicyAudit)
-	}
-	if result.DualEndInteraction.NextAction == "" || result.DualEndInteraction.WeChatProgressCardStatus == "" || len(result.DualEndInteraction.Checks) == 0 {
-		t.Fatalf("dual end interaction = %#v", result.DualEndInteraction)
-	}
-	if result.WeChatTemplateRender.TemplateKey == "" || result.WeChatTemplateRender.RenderStatus == "" || result.WeChatTemplateRender.SendEntry == "" || len(result.WeChatTemplateRender.ButtonFields) == 0 {
-		t.Fatalf("wechat template render = %#v", result.WeChatTemplateRender)
-	}
-	if result.WebEvidenceRoute.RouteName == "" || len(result.WebEvidenceRoute.PathParams) == 0 || result.WebEvidenceRoute.PermissionRequirement == "" || result.WebEvidenceRoute.ReplayEntry == "" {
-		t.Fatalf("web evidence route = %#v", result.WebEvidenceRoute)
-	}
-	if result.CallbackReplayApproval.ApprovalKey == "" || result.CallbackReplayApproval.RequestEntry == "" || result.CallbackReplayApproval.ExecutionGate == "" || len(result.CallbackReplayApproval.ApprovalRoles) == 0 {
-		t.Fatalf("callback replay approval = %#v", result.CallbackReplayApproval)
-	}
-	if result.RecoveryPolicyPersist.ConfigKey == "" || result.RecoveryPolicyPersist.CurrentVersion == "" || result.RecoveryPolicyPersist.PendingVersion == "" || result.RecoveryPolicyPersist.RollbackVersion == "" {
-		t.Fatalf("recovery policy persist = %#v", result.RecoveryPolicyPersist)
-	}
-	if result.DualEndInteractionLaunch.NextAction == "" || result.DualEndInteractionLaunch.WeChatTemplateRenderStatus == "" || len(result.DualEndInteractionLaunch.Checks) == 0 {
-		t.Fatalf("dual end interaction launch = %#v", result.DualEndInteractionLaunch)
-	}
-	if result.WeChatTemplateSend.MessageType != "template_card" || result.WeChatTemplateSend.SendEntry == "" || result.WeChatTemplateSend.FallbackText == "" || result.WeChatTemplateSend.AuditEvent == "" {
-		t.Fatalf("wechat template send = %#v", result.WeChatTemplateSend)
-	}
-	if result.WebEvidenceDetailView.RoutePath == "" || result.WebEvidenceDetailView.PlanParam == "" || result.WebEvidenceDetailView.RecordParam == "" || result.WebEvidenceDetailView.PermissionHint == "" {
-		t.Fatalf("web evidence detail view = %#v", result.WebEvidenceDetailView)
-	}
-	if result.CallbackReplayExecution.RequestEntry == "" || result.CallbackReplayExecution.ExecuteEntry == "" || result.CallbackReplayExecution.IdempotencyKey == "" || result.CallbackReplayExecution.FailureFallback == "" {
-		t.Fatalf("callback replay execution = %#v", result.CallbackReplayExecution)
-	}
-	if result.RecoveryPolicyVersion.PolicyKey == "" || result.RecoveryPolicyVersion.CurrentVersion == "" || result.RecoveryPolicyVersion.ReleaseStatus == "" || result.RecoveryPolicyVersion.AuditEvent == "" {
-		t.Fatalf("recovery policy version = %#v", result.RecoveryPolicyVersion)
-	}
-	if result.DualEndRealInteraction.NextAction == "" || result.DualEndRealInteraction.WeChatTemplateSendStatus == "" || len(result.DualEndRealInteraction.Checks) == 0 {
-		t.Fatalf("dual end real interaction = %#v", result.DualEndRealInteraction)
-	}
-	if result.WeChatTemplateIntegration.SendPath == "" || result.WeChatTemplateIntegration.FallbackStatus == "" || result.WeChatTemplateIntegration.DegradeStrategy == "" || result.WeChatTemplateIntegration.MessageIDReadback == "" {
-		t.Fatalf("wechat template integration = %#v", result.WeChatTemplateIntegration)
-	}
-	if result.WebEvidenceInteractionDetail.FilterMode == "" || result.WebEvidenceInteractionDetail.ExpandMode == "" || result.WebEvidenceInteractionDetail.AuditTimeline == "" || result.WebEvidenceInteractionDetail.ReplayRequestEntry == "" {
-		t.Fatalf("web evidence interaction detail = %#v", result.WebEvidenceInteractionDetail)
-	}
-	if result.CallbackReplaySafetyAudit.IdempotencyCheck == "" || result.CallbackReplaySafetyAudit.ApprovalCheck == "" || result.CallbackReplaySafetyAudit.SignatureCheck == "" || result.CallbackReplaySafetyAudit.FailureAudit == "" {
-		t.Fatalf("callback replay safety audit = %#v", result.CallbackReplaySafetyAudit)
-	}
-	if result.RecoveryPolicyGrayRelease.GrayStage == "" || result.RecoveryPolicyGrayRelease.RollbackCondition == "" || result.RecoveryPolicyGrayRelease.ApprovalStatus == "" || result.RecoveryPolicyGrayRelease.AuditEvidence == "" {
-		t.Fatalf("recovery policy gray release = %#v", result.RecoveryPolicyGrayRelease)
-	}
-	if result.DualEndRunLoop.NextAction == "" || result.DualEndRunLoop.WeChatTemplateIntegrationStatus == "" || len(result.DualEndRunLoop.Checks) == 0 {
-		t.Fatalf("dual end run loop = %#v", result.DualEndRunLoop)
-	}
-	if result.WeChatTemplatePilot.PilotBatch == "" || result.WeChatTemplatePilot.TemplateStatus == "" || result.WeChatTemplatePilot.MessageIDStatus == "" {
-		t.Fatalf("wechat template pilot = %#v", result.WeChatTemplatePilot)
-	}
-	if result.WebEvidenceUserAction.FilterAction == "" || result.WebEvidenceUserAction.ExpandAction == "" || result.WebEvidenceUserAction.PermissionResult == "" {
-		t.Fatalf("web evidence user action = %#v", result.WebEvidenceUserAction)
-	}
-	if result.CallbackReplayResultTrace.ExecutionResult == "" || result.CallbackReplayResultTrace.IdempotencyHit == "" || result.CallbackReplayResultTrace.AuditRecord == "" {
-		t.Fatalf("callback replay result trace = %#v", result.CallbackReplayResultTrace)
-	}
-	if result.RecoveryPolicyAutomation.AutoAdvance == "" || result.RecoveryPolicyAutomation.NextPercent < result.RecoveryPolicyAutomation.CurrentPercent || result.RecoveryPolicyAutomation.AuditEvidence == "" {
-		t.Fatalf("recovery policy automation = %#v", result.RecoveryPolicyAutomation)
-	}
-	if result.DualEndTaskClosure.NextAction == "" || result.DualEndTaskClosure.WeChatPilotStatus == "" || len(result.DualEndTaskClosure.Checks) == 0 {
-		t.Fatalf("dual end task closure = %#v", result.DualEndTaskClosure)
-	}
-	if result.WeChatTemplatePilotMetric.BatchID == "" || result.WeChatTemplatePilotMetric.SendStatus == "" || result.WeChatTemplatePilotMetric.AuditRef == "" {
-		t.Fatalf("wechat template pilot metric = %#v", result.WeChatTemplatePilotMetric)
-	}
-	if result.WebEvidenceOperation.FilterEntry == "" || result.WebEvidenceOperation.ReplayRequestEntry == "" || result.WebEvidenceOperation.OperationCount == 0 {
-		t.Fatalf("web evidence operation = %#v", result.WebEvidenceOperation)
-	}
-	if result.CallbackReplayResultQuery.QueryEntry == "" || result.CallbackReplayResultQuery.IdempotencyResult == "" || result.CallbackReplayResultQuery.AuditRef == "" {
-		t.Fatalf("callback replay result query = %#v", result.CallbackReplayResultQuery)
-	}
-	if result.RecoveryAutomationExecution.ExecutionMode == "" || result.RecoveryAutomationExecution.ApprovalGate == "" || result.RecoveryAutomationExecution.NextPercent < result.RecoveryAutomationExecution.CurrentPercent {
-		t.Fatalf("recovery automation execution = %#v", result.RecoveryAutomationExecution)
-	}
-	if result.RealInteractionAutomation.NextAction == "" || result.RealInteractionAutomation.PilotMetricStatus == "" || len(result.RealInteractionAutomation.Checks) == 0 {
-		t.Fatalf("real interaction automation = %#v", result.RealInteractionAutomation)
 	}
 	if result.WeChatWebProgressLink.ProgressURL == "" || result.WeChatWebProgressLink.DeliveryChannel != "wechat_work" || result.WeChatWebProgressLink.BrowserTarget != "web_browser" {
 		t.Fatalf("wechat web progress link = %#v", result.WeChatWebProgressLink)
@@ -513,119 +536,187 @@ func TestAgentSessionServiceListTasksCombinesPlansAndScheduledTasks(t *testing.T
 	if result.WeChatWebProgressLink.URLSource != "agent_progress_notification" || result.WeChatWebProgressLink.TemplateStatus != "succeeded" || result.WeChatWebProgressLink.FallbackStatus != "not_attempted" {
 		t.Fatalf("wechat web progress link audit fields = %#v", result.WeChatWebProgressLink)
 	}
-	if result.Report.ByEntry["web"] != 1 || result.Report.ByCapability["web.search"] != 1 || result.Report.ByHandoff["required"] != 1 {
-		t.Fatalf("report = %#v", result.Report)
+}
+
+func assertListTasksWechatTemplate(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.WeChatTemplateRender.TemplateKey == "" || result.WeChatTemplateRender.RenderStatus == "" || result.WeChatTemplateRender.SendEntry == "" || len(result.WeChatTemplateRender.ButtonFields) == 0 {
+		t.Fatalf("wechat template render = %#v", result.WeChatTemplateRender)
 	}
-	if !auditEventExists(repository.audits, "agent.production_drill_snapshot") ||
-		!auditEventExists(repository.audits, "agent.alert_policy_decision") ||
-		!auditEventExists(repository.audits, "agent.write_sandbox_snapshot") ||
-		!auditEventExists(repository.audits, "agent.e2e_acceptance_snapshot") ||
-		!auditEventExists(repository.audits, "agent.real_integration_snapshot") ||
-		!auditEventExists(repository.audits, "agent.ops_acceptance_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_gray_policy_snapshot") ||
-		!auditEventExists(repository.audits, "agent.alert_channel_snapshot") ||
-		!auditEventExists(repository.audits, "agent.launch_drill_record") ||
-		!auditEventExists(repository.audits, "agent.wechat_native_integration_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_replay_snapshot") ||
-		!auditEventExists(repository.audits, "agent.launch_approval_snapshot") ||
-		!auditEventExists(repository.audits, "agent.production_daily_report") ||
-		!auditEventExists(repository.audits, "agent.preprod_acceptance_snapshot") ||
-		!auditEventExists(repository.audits, "agent.button_loop_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_execute_snapshot") ||
-		!auditEventExists(repository.audits, "agent.daily_report_persist_snapshot") ||
-		!auditEventExists(repository.audits, "agent.post_launch_monitor_snapshot") ||
-		!auditEventExists(repository.audits, "agent.release_approval_execution_snapshot") ||
-		!auditEventExists(repository.audits, "agent.button_callback_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_audit_review_snapshot") ||
-		!auditEventExists(repository.audits, "agent.daily_report_send_snapshot") ||
-		!auditEventExists(repository.audits, "agent.monitor_alert_drill_snapshot") ||
-		!auditEventExists(repository.audits, "agent.button_direct_control_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_e2e_acceptance_snapshot") ||
-		!auditEventExists(repository.audits, "agent.release_window_readiness_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_gray_expansion_snapshot") ||
-		!auditEventExists(repository.audits, "agent.external_monitor_integration_snapshot") ||
-		!auditEventExists(repository.audits, "agent.release_window_execution_snapshot") ||
-		!auditEventExists(repository.audits, "agent.external_monitor_runtime_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_gray_review_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_acceptance_review_snapshot") ||
-		!auditEventExists(repository.audits, "agent.operations_daily_closure_snapshot") ||
-		!auditEventExists(repository.audits, "agent.production_release_snapshot") ||
-		!auditEventExists(repository.audits, "agent.external_monitor_config_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_ramp_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_signoff_snapshot") ||
-		!auditEventExists(repository.audits, "agent.operations_handoff_snapshot") ||
-		!auditEventExists(repository.audits, "agent.production_execution_snapshot") ||
-		!auditEventExists(repository.audits, "agent.monitor_integration_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_ramp_policy_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_final_report_snapshot") ||
-		!auditEventExists(repository.audits, "agent.launch_runtime_overview_snapshot") ||
-		!auditEventExists(repository.audits, "agent.runtime_parameters_snapshot") ||
-		!auditEventExists(repository.audits, "agent.monitor_readback_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_ramp_recommendation_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_user_feedback_snapshot") ||
-		!auditEventExists(repository.audits, "agent.operations_runtime_closure_snapshot") ||
-		!auditEventExists(repository.audits, "agent.ops_panel_config_snapshot") ||
-		!auditEventExists(repository.audits, "agent.monitor_auto_report_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_ramp_stage_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_feedback_loop_snapshot") ||
-		!auditEventExists(repository.audits, "agent.operations_closed_loop_snapshot") ||
-		!auditEventExists(repository.audits, "agent.ops_dashboard_interaction_snapshot") ||
-		!auditEventExists(repository.audits, "agent.alert_dedupe_escalation_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_stage_record_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_feedback_ticket_snapshot") ||
-		!auditEventExists(repository.audits, "agent.operations_handling_snapshot") ||
-		!auditEventExists(repository.audits, "agent.ops_action_definition_snapshot") ||
-		!auditEventExists(repository.audits, "agent.alert_escalation_policy_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_stage_approval_snapshot") ||
-		!auditEventExists(repository.audits, "agent.feedback_ticket_lifecycle_snapshot") ||
-		!auditEventExists(repository.audits, "agent.operations_action_closure_snapshot") ||
-		!auditEventExists(repository.audits, "agent.ops_api_execution_snapshot") ||
-		!auditEventExists(repository.audits, "agent.alert_escalation_receipt_snapshot") ||
-		!auditEventExists(repository.audits, "agent.write_approval_button_snapshot") ||
-		!auditEventExists(repository.audits, "agent.feedback_ticket_sla_snapshot") ||
-		!auditEventExists(repository.audits, "agent.operations_execution_snapshot") ||
-		!auditEventExists(repository.audits, "agent.ops_execution_record_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_approval_callback_snapshot") ||
-		!auditEventExists(repository.audits, "agent.feedback_sla_report_snapshot") ||
-		!auditEventExists(repository.audits, "agent.alert_auto_recovery_snapshot") ||
-		!auditEventExists(repository.audits, "agent.operations_evidence_snapshot") ||
-		!auditEventExists(repository.audits, "agent.unified_progress_component_snapshot") ||
-		!auditEventExists(repository.audits, "agent.evidence_detail_page_snapshot") ||
-		!auditEventExists(repository.audits, "agent.callback_replay_tool_snapshot") ||
-		!auditEventExists(repository.audits, "agent.recovery_policy_config_snapshot") ||
-		!auditEventExists(repository.audits, "agent.dual_end_progress_evidence_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_progress_card_snapshot") ||
-		!auditEventExists(repository.audits, "agent.web_evidence_interaction_snapshot") ||
-		!auditEventExists(repository.audits, "agent.callback_replay_permission_snapshot") ||
-		!auditEventExists(repository.audits, "agent.recovery_policy_audit_snapshot") ||
-		!auditEventExists(repository.audits, "agent.dual_end_interaction_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_template_render_snapshot") ||
-		!auditEventExists(repository.audits, "agent.web_evidence_route_snapshot") ||
-		!auditEventExists(repository.audits, "agent.callback_replay_approval_snapshot") ||
-		!auditEventExists(repository.audits, "agent.recovery_policy_persist_snapshot") ||
-		!auditEventExists(repository.audits, "agent.dual_end_interaction_launch_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_template_send_snapshot") ||
-		!auditEventExists(repository.audits, "agent.web_evidence_detail_view_snapshot") ||
-		!auditEventExists(repository.audits, "agent.callback_replay_execution_snapshot") ||
-		!auditEventExists(repository.audits, "agent.recovery_policy_version_snapshot") ||
-		!auditEventExists(repository.audits, "agent.dual_end_real_interaction_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_template_integration_snapshot") ||
-		!auditEventExists(repository.audits, "agent.web_evidence_interaction_detail_snapshot") ||
-		!auditEventExists(repository.audits, "agent.callback_replay_safety_audit_snapshot") ||
-		!auditEventExists(repository.audits, "agent.recovery_policy_gray_release_snapshot") ||
-		!auditEventExists(repository.audits, "agent.dual_end_run_loop_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_template_pilot_snapshot") ||
-		!auditEventExists(repository.audits, "agent.web_evidence_user_action_snapshot") ||
-		!auditEventExists(repository.audits, "agent.callback_replay_result_trace_snapshot") ||
-		!auditEventExists(repository.audits, "agent.recovery_policy_automation_snapshot") ||
-		!auditEventExists(repository.audits, "agent.dual_end_task_closure_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_template_pilot_metric_snapshot") ||
-		!auditEventExists(repository.audits, "agent.web_evidence_operation_snapshot") ||
-		!auditEventExists(repository.audits, "agent.callback_replay_result_query_snapshot") ||
-		!auditEventExists(repository.audits, "agent.recovery_automation_execution_snapshot") ||
-		!auditEventExists(repository.audits, "agent.real_interaction_automation_snapshot") ||
-		!auditEventExists(repository.audits, "agent.wechat_web_progress_link_snapshot") {
-		t.Fatalf("audits = %#v", repository.audits)
+	if result.WeChatTemplateSend.MessageType != "template_card" || result.WeChatTemplateSend.SendEntry == "" || result.WeChatTemplateSend.FallbackText == "" || result.WeChatTemplateSend.AuditEvent == "" {
+		t.Fatalf("wechat template send = %#v", result.WeChatTemplateSend)
+	}
+	if result.WeChatTemplateIntegration.SendPath == "" || result.WeChatTemplateIntegration.FallbackStatus == "" || result.WeChatTemplateIntegration.DegradeStrategy == "" || result.WeChatTemplateIntegration.MessageIDReadback == "" {
+		t.Fatalf("wechat template integration = %#v", result.WeChatTemplateIntegration)
+	}
+	if result.WeChatTemplatePilot.PilotBatch == "" || result.WeChatTemplatePilot.TemplateStatus == "" || result.WeChatTemplatePilot.MessageIDStatus == "" {
+		t.Fatalf("wechat template pilot = %#v", result.WeChatTemplatePilot)
+	}
+	if result.WeChatTemplatePilotMetric.BatchID == "" || result.WeChatTemplatePilotMetric.SendStatus == "" || result.WeChatTemplatePilotMetric.AuditRef == "" {
+		t.Fatalf("wechat template pilot metric = %#v", result.WeChatTemplatePilotMetric)
+	}
+}
+
+func assertListTasksCallbackReplay(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.CallbackReplayTool.CallbackKey == "" || result.CallbackReplayTool.ReplayEntry == "" || result.CallbackReplayTool.IdempotencyGuard == "" {
+		t.Fatalf("callback replay tool = %#v", result.CallbackReplayTool)
+	}
+	if result.CallbackReplayPermission.PermissionKey == "" || len(result.CallbackReplayPermission.AllowedRoles) == 0 || result.CallbackReplayPermission.AuditEvent == "" {
+		t.Fatalf("callback replay permission = %#v", result.CallbackReplayPermission)
+	}
+	if result.CallbackReplayApproval.ApprovalKey == "" || result.CallbackReplayApproval.RequestEntry == "" || result.CallbackReplayApproval.ExecutionGate == "" || len(result.CallbackReplayApproval.ApprovalRoles) == 0 {
+		t.Fatalf("callback replay approval = %#v", result.CallbackReplayApproval)
+	}
+	if result.CallbackReplayExecution.RequestEntry == "" || result.CallbackReplayExecution.ExecuteEntry == "" || result.CallbackReplayExecution.IdempotencyKey == "" || result.CallbackReplayExecution.FailureFallback == "" {
+		t.Fatalf("callback replay execution = %#v", result.CallbackReplayExecution)
+	}
+	if result.CallbackReplaySafetyAudit.IdempotencyCheck == "" || result.CallbackReplaySafetyAudit.ApprovalCheck == "" || result.CallbackReplaySafetyAudit.SignatureCheck == "" || result.CallbackReplaySafetyAudit.FailureAudit == "" {
+		t.Fatalf("callback replay safety audit = %#v", result.CallbackReplaySafetyAudit)
+	}
+	if result.CallbackReplayResultTrace.ExecutionResult == "" || result.CallbackReplayResultTrace.IdempotencyHit == "" || result.CallbackReplayResultTrace.AuditRecord == "" {
+		t.Fatalf("callback replay result trace = %#v", result.CallbackReplayResultTrace)
+	}
+	if result.CallbackReplayResultQuery.QueryEntry == "" || result.CallbackReplayResultQuery.IdempotencyResult == "" || result.CallbackReplayResultQuery.AuditRef == "" {
+		t.Fatalf("callback replay result query = %#v", result.CallbackReplayResultQuery)
+	}
+}
+
+func assertListTasksRecoveryPolicy(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.RecoveryPolicyConfig.PolicyKey == "" || result.RecoveryPolicyConfig.DefaultPolicy == "" || result.RecoveryPolicyConfig.SuppressionWindow == "" {
+		t.Fatalf("recovery policy config = %#v", result.RecoveryPolicyConfig)
+	}
+	if result.RecoveryPolicyAudit.ChangeKey == "" || result.RecoveryPolicyAudit.ApprovalStatus == "" || result.RecoveryPolicyAudit.RollbackPath == "" {
+		t.Fatalf("recovery policy audit = %#v", result.RecoveryPolicyAudit)
+	}
+	if result.RecoveryPolicyPersist.ConfigKey == "" || result.RecoveryPolicyPersist.CurrentVersion == "" || result.RecoveryPolicyPersist.PendingVersion == "" || result.RecoveryPolicyPersist.RollbackVersion == "" {
+		t.Fatalf("recovery policy persist = %#v", result.RecoveryPolicyPersist)
+	}
+	if result.RecoveryPolicyVersion.PolicyKey == "" || result.RecoveryPolicyVersion.CurrentVersion == "" || result.RecoveryPolicyVersion.ReleaseStatus == "" || result.RecoveryPolicyVersion.AuditEvent == "" {
+		t.Fatalf("recovery policy version = %#v", result.RecoveryPolicyVersion)
+	}
+	if result.RecoveryPolicyGrayRelease.GrayStage == "" || result.RecoveryPolicyGrayRelease.RollbackCondition == "" || result.RecoveryPolicyGrayRelease.ApprovalStatus == "" || result.RecoveryPolicyGrayRelease.AuditEvidence == "" {
+		t.Fatalf("recovery policy gray release = %#v", result.RecoveryPolicyGrayRelease)
+	}
+	if result.RecoveryPolicyAutomation.AutoAdvance == "" || result.RecoveryPolicyAutomation.NextPercent < result.RecoveryPolicyAutomation.CurrentPercent || result.RecoveryPolicyAutomation.AuditEvidence == "" {
+		t.Fatalf("recovery policy automation = %#v", result.RecoveryPolicyAutomation)
+	}
+	if result.RecoveryAutomationExecution.ExecutionMode == "" || result.RecoveryAutomationExecution.ApprovalGate == "" || result.RecoveryAutomationExecution.NextPercent < result.RecoveryAutomationExecution.CurrentPercent {
+		t.Fatalf("recovery automation execution = %#v", result.RecoveryAutomationExecution)
+	}
+}
+
+func assertListTasksDualEnd(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.UnifiedProgressComponent.ComponentKey == "" || result.UnifiedProgressComponent.WebStatus == "" || result.UnifiedProgressComponent.WeChatStatus == "" {
+		t.Fatalf("unified progress component = %#v", result.UnifiedProgressComponent)
+	}
+	if result.DualEndProgressEvidence.NextAction == "" || result.DualEndProgressEvidence.UnifiedProgressStatus == "" || len(result.DualEndProgressEvidence.Checks) == 0 {
+		t.Fatalf("dual end progress evidence = %#v", result.DualEndProgressEvidence)
+	}
+	if result.DualEndInteraction.NextAction == "" || result.DualEndInteraction.WeChatProgressCardStatus == "" || len(result.DualEndInteraction.Checks) == 0 {
+		t.Fatalf("dual end interaction = %#v", result.DualEndInteraction)
+	}
+	if result.DualEndInteractionLaunch.NextAction == "" || result.DualEndInteractionLaunch.WeChatTemplateRenderStatus == "" || len(result.DualEndInteractionLaunch.Checks) == 0 {
+		t.Fatalf("dual end interaction launch = %#v", result.DualEndInteractionLaunch)
+	}
+	if result.DualEndRealInteraction.NextAction == "" || result.DualEndRealInteraction.WeChatTemplateSendStatus == "" || len(result.DualEndRealInteraction.Checks) == 0 {
+		t.Fatalf("dual end real interaction = %#v", result.DualEndRealInteraction)
+	}
+	if result.DualEndRunLoop.NextAction == "" || result.DualEndRunLoop.WeChatTemplateIntegrationStatus == "" || len(result.DualEndRunLoop.Checks) == 0 {
+		t.Fatalf("dual end run loop = %#v", result.DualEndRunLoop)
+	}
+	if result.DualEndTaskClosure.NextAction == "" || result.DualEndTaskClosure.WeChatPilotStatus == "" || len(result.DualEndTaskClosure.Checks) == 0 {
+		t.Fatalf("dual end task closure = %#v", result.DualEndTaskClosure)
+	}
+	if result.RealInteractionAutomation.NextAction == "" || result.RealInteractionAutomation.PilotMetricStatus == "" || len(result.RealInteractionAutomation.Checks) == 0 {
+		t.Fatalf("real interaction automation = %#v", result.RealInteractionAutomation)
+	}
+}
+
+func assertListTasksWebEvidence(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.EvidenceDetailPage.DetailEntry == "" || result.EvidenceDetailPage.RecordCount == 0 || result.EvidenceDetailPage.RetentionPolicy == "" {
+		t.Fatalf("evidence detail page = %#v", result.EvidenceDetailPage)
+	}
+	if len(result.WebEvidenceInteraction.Filters) == 0 || result.WebEvidenceInteraction.ReplayEntry == "" || result.WebEvidenceInteraction.Visibility == "" {
+		t.Fatalf("web evidence interaction = %#v", result.WebEvidenceInteraction)
+	}
+	if result.WebEvidenceRoute.RouteName == "" || len(result.WebEvidenceRoute.PathParams) == 0 || result.WebEvidenceRoute.PermissionRequirement == "" || result.WebEvidenceRoute.ReplayEntry == "" {
+		t.Fatalf("web evidence route = %#v", result.WebEvidenceRoute)
+	}
+	if result.WebEvidenceDetailView.RoutePath == "" || result.WebEvidenceDetailView.PlanParam == "" || result.WebEvidenceDetailView.RecordParam == "" || result.WebEvidenceDetailView.PermissionHint == "" {
+		t.Fatalf("web evidence detail view = %#v", result.WebEvidenceDetailView)
+	}
+	if result.WebEvidenceInteractionDetail.FilterMode == "" || result.WebEvidenceInteractionDetail.ExpandMode == "" || result.WebEvidenceInteractionDetail.AuditTimeline == "" || result.WebEvidenceInteractionDetail.ReplayRequestEntry == "" {
+		t.Fatalf("web evidence interaction detail = %#v", result.WebEvidenceInteractionDetail)
+	}
+	if result.WebEvidenceUserAction.FilterAction == "" || result.WebEvidenceUserAction.ExpandAction == "" || result.WebEvidenceUserAction.PermissionResult == "" {
+		t.Fatalf("web evidence user action = %#v", result.WebEvidenceUserAction)
+	}
+	if result.WebEvidenceOperation.FilterEntry == "" || result.WebEvidenceOperation.ReplayRequestEntry == "" || result.WebEvidenceOperation.OperationCount == 0 {
+		t.Fatalf("web evidence operation = %#v", result.WebEvidenceOperation)
+	}
+}
+
+func assertListTasksOperations(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.OperationsDailyClosure.AuditStatus == "" || result.OperationsDailyClosure.ReleaseWindowStatus == "" || len(result.OperationsDailyClosure.Checks) == 0 {
+		t.Fatalf("operations daily closure = %#v", result.OperationsDailyClosure)
+	}
+	if result.OperationsHandoff.NextAction == "" || result.OperationsHandoff.ReleaseStatus == "" || len(result.OperationsHandoff.Checks) == 0 {
+		t.Fatalf("operations handoff = %#v", result.OperationsHandoff)
+	}
+	if result.OperationsRuntimeClosure.NextAction == "" || result.OperationsRuntimeClosure.RuntimeParameterStatus == "" || len(result.OperationsRuntimeClosure.Checks) == 0 {
+		t.Fatalf("operations runtime closure = %#v", result.OperationsRuntimeClosure)
+	}
+	if result.OperationsClosedLoop.NextAction == "" || result.OperationsClosedLoop.OpsPanelStatus == "" || len(result.OperationsClosedLoop.Checks) == 0 {
+		t.Fatalf("operations closed loop = %#v", result.OperationsClosedLoop)
+	}
+	if result.OperationsHandling.NextAction == "" || result.OperationsHandling.DashboardStatus == "" || len(result.OperationsHandling.Checks) == 0 {
+		t.Fatalf("operations handling = %#v", result.OperationsHandling)
+	}
+	if result.OperationsActionClosure.NextAction == "" || result.OperationsActionClosure.OpsActionStatus == "" || len(result.OperationsActionClosure.Checks) == 0 {
+		t.Fatalf("operations action closure = %#v", result.OperationsActionClosure)
+	}
+	if result.OperationsExecution.NextAction == "" || result.OperationsExecution.OpsAPIExecutionStatus == "" || len(result.OperationsExecution.Checks) == 0 {
+		t.Fatalf("operations execution = %#v", result.OperationsExecution)
+	}
+	if result.OperationsEvidence.NextAction == "" || result.OperationsEvidence.ExecutionRecordStatus == "" || len(result.OperationsEvidence.Checks) == 0 {
+		t.Fatalf("operations evidence = %#v", result.OperationsEvidence)
+	}
+	if result.OpsPanelConfig.ParameterGroup == "" || len(result.OpsPanelConfig.DisplayItems) == 0 || result.OpsPanelConfig.RefreshIntervalSeconds == 0 {
+		t.Fatalf("ops panel config = %#v", result.OpsPanelConfig)
+	}
+	if len(result.OpsDashboardInteraction.Actions) == 0 || result.OpsDashboardInteraction.AuditEvent == "" || len(result.OpsDashboardInteraction.Checks) == 0 {
+		t.Fatalf("ops dashboard interaction = %#v", result.OpsDashboardInteraction)
+	}
+	if len(result.OpsActionDefinition.Actions) == 0 || result.OpsActionDefinition.Actions[0].HandlerEntry == "" || result.OpsActionDefinition.Actions[0].IdempotencyKey == "" {
+		t.Fatalf("ops action definition = %#v", result.OpsActionDefinition)
+	}
+	if len(result.OpsAPIExecution.Executions) == 0 || result.OpsAPIExecution.Executions[0].ExecutionEntry == "" || result.OpsAPIExecution.Executions[0].AuditEvent == "" {
+		t.Fatalf("ops api execution = %#v", result.OpsAPIExecution)
+	}
+	if len(result.OpsExecutionRecord.Records) == 0 || result.OpsExecutionRecord.Records[0].RecordKey == "" || result.OpsExecutionRecord.Records[0].ReplayEntry == "" {
+		t.Fatalf("ops execution record = %#v", result.OpsExecutionRecord)
+	}
+	if result.RuntimeParameters.UserScope == "" || result.RuntimeParameters.NotificationChannel == "" || result.RuntimeParameters.RollbackThreshold == "" {
+		t.Fatalf("runtime parameters = %#v", result.RuntimeParameters)
+	}
+}
+
+func assertListTasksFeedbackSla(t *testing.T, result AgentTaskListResult, _ *fakeAgentProgressRepository) {
+	if result.FeedbackTicketLifecycle.CreatedState == "" || result.FeedbackTicketLifecycle.HandoffState == "" || len(result.FeedbackTicketLifecycle.Checks) == 0 {
+		t.Fatalf("feedback ticket lifecycle = %#v", result.FeedbackTicketLifecycle)
+	}
+	if result.FeedbackTicketSLA.FirstResponseSeconds == 0 || result.FeedbackTicketSLA.ResolveSeconds == 0 || result.FeedbackTicketSLA.HandoffPath == "" {
+		t.Fatalf("feedback ticket sla = %#v", result.FeedbackTicketSLA)
+	}
+	if result.FeedbackSLAReport.ReportAuditEvent == "" || result.FeedbackSLAReport.FirstResponseRate < 0 || result.FeedbackSLAReport.ResolveRate < 0 {
+		t.Fatalf("feedback sla report = %#v", result.FeedbackSLAReport)
+	}
+}
+
+func assertListTasksAuditEvents(t *testing.T, result AgentTaskListResult, repository *fakeAgentProgressRepository) {
+	for _, event := range listTasksExpectedAuditEvents {
+		if !auditEventExists(repository.audits, event) {
+			t.Fatalf("audit event %q missing (audits = %#v)", event, repository.audits)
+		}
 	}
 }
 
