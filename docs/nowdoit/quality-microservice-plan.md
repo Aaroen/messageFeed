@@ -315,9 +315,19 @@ golangci-lint run --disable-all -E funlen -E gocognit ./internal/service/agent_p
 
 ## Phase B：staging 首次真实发布（第二个服务的硬门）
 
-**状态**：planned  
+**状态**：implemented（2026-08-17）  
 **操作手册**：`docs/micr-k8s/micr-k8s-implement.md` 第 12 节  
 **本文只定义「完成」**
+
+### 验证记录（2026-08-17）
+
+- Runner：`Aroen`（v2.336.0）标签 `[self-hosted, Linux, X64, messagefeed-staging]` 在线，nohup + cron @reboot 持久化。
+- 首次闭环 run `32029023895`（SHA `0020363`）：validate（含层 1 门禁）→ publish 双镜像 GHCR → deploy-staging 全绿，耗时约 4 分钟。
+- Pod 状态：api/gateway/web + 六类 worker 全 1/1 Running；`messagefeed-migrate` Job Completed；postgres StatefulSet Running。
+- smoke：api `/healthz` ok、`/readyz` 六项全 ready（含 `database migrations at version 39`、pgvector 0.8.4）；notification-worker 9090 `/healthz`、`/readyz` ok。
+- Helm：release `messagefeed-staging` revision 1（bootstrap，superseded）→ revision 2（deployed）；回滚路径 `helm rollback messagefeed-staging 1`。
+- 原子性实测：失败 run `32027619659`、`32028046601` 均被 `--atomic` 自动卸载，无 pending release 残留，后续重装无冲突。
+- 实现要点：GHCR 镜像私有，deploy-staging 每次用运行时 GITHUB_TOKEN upsert `ghcr-pull` 拉取 Secret；首次安装用「仅 postgres 引导 + 随后全量 upgrade」两段式，绕开 pre-install migrate hook 死等 postgres 的次序问题（生产当年能过是因为 postgres 为接管存量）；staging 关闭 cloudflared（防生产 Tunnel 双连接器分流）与观测栈，单副本。
 
 现有工作流已具备 `validate` → `publish`（GHCR SHA 镜像）→ `workflow_dispatch` 的 `deploy-staging`（`--atomic --wait --wait-for-jobs --timeout 10m`）。缺失的是外部激活。
 
