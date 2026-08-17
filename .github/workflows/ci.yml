@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 env:
-  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  # docker tag 不允许大写；GHCR 命名空间大小写不敏感，统一用小写 owner。
+  IMAGE_REGISTRY: ghcr.io/aaroen
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
