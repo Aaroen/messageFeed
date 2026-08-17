@@ -72,16 +72,35 @@ jobs:
     # pi-lens-ignore: runner-label
     runs-on: [self-hosted, messagefeed-staging]
     environment: staging
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
+      - name: Upsert GHCR pull secret
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          kubectl -n messagefeed-staging create secret docker-registry ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} \
+            --docker-password="$GHCR_TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -
+      # staging 范围：不用生产 Tunnel（避免双连接器分流）、不跑观测栈、单副本减负载。
       - run: |
           helm upgrade --install messagefeed-staging deploy/helm/messagefeed \
             --namespace messagefeed-staging --create-namespace \
             -f deploy/helm/messagefeed/values-k3s.yaml \
+            --set cloudflared.enabled=false \
+            --set observability.enabled=false \
+            --set api.replicaCount=1 \
+            --set web.replicaCount=1 \
+            --set gateway.replicaCount=1 \
             --set api.image.repository="$IMAGE_REGISTRY/messagefeed-api" \
             --set api.image.tag="$IMAGE_TAG" \
             --set workers.notification.image.repository="$IMAGE_REGISTRY/messagefeed-notification" \
             --set workers.notification.image.tag="$IMAGE_TAG" \
+            --set imagePullSecrets[0].name=ghcr-pull \
             --atomic --wait --wait-for-jobs --timeout 10m
       - run: |
           kubectl -n messagefeed-staging rollout status deployment/messagefeed-api --timeout=240s
