@@ -28,10 +28,11 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: go test ./...
       - run: go vet ./...
+      # 官方 v1.64.8 二进制是 go1.24 构建的，拒绝分析 go1.26 模块；用仓库工具链源码安装同版本。
       - name: Install golangci-lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.64.8
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
       # 层 1 门禁：只开 unused + staticcheck；--no-config 避免 .golangci.yml 全量 linter 穿透。
-      - run: $(go env GOPATH)/bin/golangci-lint run --no-config --disable-all -E unused -E staticcheck ./...
+      - run: golangci-lint run --no-config --disable-all -E unused -E staticcheck ./...
       - run: go build ./cmd/api ./cmd/notification
       - run: npm ci --prefix web
       - run: npm run type-check --prefix web
