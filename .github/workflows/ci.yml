@@ -95,6 +95,8 @@ jobs:
             -f deploy/helm/messagefeed/values-k3s.yaml \
             --set cloudflared.enabled=false \
             --set observability.enabled=false \
+            # StorageClass 是集群级资源，归生产 release 所有，staging 不接管。
+            --set storageClass.create=false \
             --set api.replicaCount=1 \
             --set web.replicaCount=1 \
             --set gateway.replicaCount=1 \
