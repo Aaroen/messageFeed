@@ -88,18 +88,52 @@ jobs:
             --docker-username=${{ github.actor }} \
             --docker-password="$GHCR_TOKEN" \
             --dry-run=client -o yaml | kubectl apply -f -
+      # 首次安装引导：pre-install migrate hook 先于常规资源执行，全新 namespace 里 postgres 尚不存在，
+      # hook 会死等超时。首次只装 postgres（应用缩零、关迁移），后续 upgrade 再跑完整命令。
+      - name: Bootstrap staging PostgreSQL (first install only)
+        run: |
+          if helm status messagefeed-staging -n messagefeed-staging >/dev/null 2>&1; then
+            echo "release exists, skip bootstrap"
+            exit 0
+          fi
+          helm upgrade --install messagefeed-staging deploy/helm/messagefeed \
+            --namespace messagefeed-staging --create-namespace \
+            -f deploy/helm/messagefeed/values-k3s.yaml \
+            --set migrations.enabled=false \
+            --set cloudflared.enabled=false \
+            --set observability.enabled=false \
+            --set storageClass.create=false \
+            --set api.replicaCount=0 \
+            --set web.replicaCount=0 \
+            --set gateway.replicaCount=0 \
+            --set workers.source.enabled=false \
+            --set workers.notification.enabled=false \
+            --set workers.agentScheduler.enabled=false \
+            --set workers.embedding.enabled=false \
+            --set workers.itemEvent.enabled=false \
+            --set workers.agent.enabled=false \
+            --set api.image.repository="$IMAGE_REGISTRY/messagefeed-api" \
+            --set api.image.tag="$IMAGE_TAG" \
+            --set imagePullSecrets[0].name=ghcr-pull \
+            --atomic --wait --timeout 5m
       # staging 范围：不用生产 Tunnel（避免双连接器分流）、不跑观测栈、单副本减负载；
       # StorageClass 是集群级资源，归生产 release 所有，staging 不接管。
       - run: |
           helm upgrade --install messagefeed-staging deploy/helm/messagefeed \
             --namespace messagefeed-staging --create-namespace \
             -f deploy/helm/messagefeed/values-k3s.yaml \
+            --set migrations.enabled=true \
             --set cloudflared.enabled=false \
             --set observability.enabled=false \
             --set storageClass.create=false \
             --set api.replicaCount=1 \
             --set web.replicaCount=1 \
             --set gateway.replicaCount=1 \
+            --set workers.source.enabled=true \
+            --set workers.agentScheduler.enabled=true \
+            --set workers.embedding.enabled=true \
+            --set workers.itemEvent.enabled=true \
+            --set workers.agent.enabled=true \
             --set api.image.repository="$IMAGE_REGISTRY/messagefeed-api" \
             --set api.image.tag="$IMAGE_TAG" \
             --set workers.notification.image.repository="$IMAGE_REGISTRY/messagefeed-notification" \
