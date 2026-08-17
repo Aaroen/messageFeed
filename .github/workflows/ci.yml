@@ -103,9 +103,6 @@ jobs:
             --set cloudflared.enabled=false \
             --set observability.enabled=false \
             --set storageClass.create=false \
-            --set api.replicaCount=0 \
-            --set web.replicaCount=0 \
-            --set gateway.replicaCount=0 \
             --set workers.source.enabled=false \
             --set workers.notification.enabled=false \
             --set workers.agentScheduler.enabled=false \
