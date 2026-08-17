@@ -88,14 +88,14 @@ jobs:
             --docker-username=${{ github.actor }} \
             --docker-password="$GHCR_TOKEN" \
             --dry-run=client -o yaml | kubectl apply -f -
-      # staging 范围：不用生产 Tunnel（避免双连接器分流）、不跑观测栈、单副本减负载。
+      # staging 范围：不用生产 Tunnel（避免双连接器分流）、不跑观测栈、单副本减负载；
+      # StorageClass 是集群级资源，归生产 release 所有，staging 不接管。
       - run: |
           helm upgrade --install messagefeed-staging deploy/helm/messagefeed \
             --namespace messagefeed-staging --create-namespace \
             -f deploy/helm/messagefeed/values-k3s.yaml \
             --set cloudflared.enabled=false \
             --set observability.enabled=false \
-            # StorageClass 是集群级资源，归生产 release 所有，staging 不接管。
             --set storageClass.create=false \
             --set api.replicaCount=1 \
             --set web.replicaCount=1 \
