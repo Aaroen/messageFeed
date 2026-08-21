@@ -67,9 +67,15 @@ jobs:
           target: notification
           push: true
           tags: ${{ env.IMAGE_REGISTRY }}/messagefeed-notification:${{ env.IMAGE_TAG }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: web
+          push: true
+          tags: ${{ env.IMAGE_REGISTRY }}/messagefeed-web:${{ env.IMAGE_TAG }}
 
   deploy-staging:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: [validate, publish]
     # pi-lens-ignore: runner-label
     runs-on: [self-hosted, messagefeed-staging]
@@ -135,9 +141,70 @@ jobs:
             --set api.image.tag="$IMAGE_TAG" \
             --set workers.notification.image.repository="$IMAGE_REGISTRY/messagefeed-notification" \
             --set workers.notification.image.tag="$IMAGE_TAG" \
+            --set web.image.repository="$IMAGE_REGISTRY/messagefeed-web" \
+            --set web.image.tag="$IMAGE_TAG" \
             --set imagePullSecrets[0].name=ghcr-pull \
             --atomic --wait --wait-for-jobs --timeout 10m
+      # 冒烟失败即回滚到上一 revision（--atomic 只覆盖升级过程本身的失败）。
+      - name: Smoke check (rollback on failure)
+        run: |
+          if ! kubectl -n messagefeed-staging rollout status deployment/messagefeed-api --timeout=240s; then
+            echo "::error::api rollout failed, rolling back"
+            helm rollback messagefeed-staging --wait --wait-for-jobs --timeout 10m
+            exit 1
+          fi
+          if ! kubectl -n messagefeed-staging exec deploy/messagefeed-api -- wget -qO- -T 10 http://localhost:60001/readyz; then
+            echo "::error::readyz smoke check failed, rolling back"
+            helm rollback messagefeed-staging --wait --wait-for-jobs --timeout 10m
+            exit 1
+          fi
+      - run: kubectl -n messagefeed-staging get pods
+
+  deploy-production:
+    # 生产发布保持手动触发（workflow_dispatch）：同一次运行内先过 staging，再提升到生产。
+    # 如需人工审批门，在仓库 Settings -> Environments -> production 配置 required reviewers。
+    if: github.event_name == 'workflow_dispatch'
+    needs: [validate, publish, deploy-staging]
+    # pi-lens-ignore: runner-label
+    runs-on: [self-hosted, messagefeed-staging]
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upsert GHCR pull secret
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          kubectl -n messagefeed create secret docker-registry ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} \
+            --docker-password="$GHCR_TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -
+      # 生产发布：保留 values-k3s 生产值（双副本、Tunnel、观测栈、迁移），仅将镜像切换为 CI 不可变产物。
       - run: |
-          kubectl -n messagefeed-staging rollout status deployment/messagefeed-api --timeout=240s
-          kubectl -n messagefeed-staging rollout status deployment/notification-worker --timeout=240s
-          kubectl -n messagefeed-staging get pods
+          helm upgrade --install messagefeed deploy/helm/messagefeed \
+            --namespace messagefeed \
+            -f deploy/helm/messagefeed/values-k3s.yaml \
+            --set api.image.repository="$IMAGE_REGISTRY/messagefeed-api" \
+            --set api.image.tag="$IMAGE_TAG" \
+            --set workers.notification.image.repository="$IMAGE_REGISTRY/messagefeed-notification" \
+            --set workers.notification.image.tag="$IMAGE_TAG" \
+            --set web.image.repository="$IMAGE_REGISTRY/messagefeed-web" \
+            --set web.image.tag="$IMAGE_TAG" \
+            --set imagePullSecrets[0].name=ghcr-pull \
+            --atomic --wait --wait-for-jobs --timeout 10m
+      - name: Smoke check (rollback on failure)
+        run: |
+          if ! kubectl -n messagefeed rollout status deployment/messagefeed-api --timeout=240s; then
+            echo "::error::api rollout failed, rolling back"
+            helm rollback messagefeed --wait --wait-for-jobs --timeout 10m
+            exit 1
+          fi
+          if ! kubectl -n messagefeed exec deploy/messagefeed-api -- wget -qO- -T 10 http://localhost:60001/readyz; then
+            echo "::error::readyz smoke check failed, rolling back"
+            helm rollback messagefeed --wait --wait-for-jobs --timeout 10m
+            exit 1
+          fi
+      - run: kubectl -n messagefeed get pods
