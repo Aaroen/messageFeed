@@ -158,11 +158,9 @@ func (r *AgentRepository) MarkAgentLLMProviderConfigUsed(ctx context.Context, us
 	result := r.db.WithContext(ctx).
 		Model(&agentLLMProviderConfigModel{}).
 		Where("id = ? AND user_id = ?", id, userID).
-		// 只写 last_used_at。updated_at 是配置修改时间，也是运行时长缓存键的组成部分，
-		// 如果这里一并改写，每次模型调用后都会重建 client 与连接池。
-		Updates(map[string]any{
-			"last_used_at": now.UTC(),
-		})
+		// UpdateColumn 跳过钩子与自动时间戳。updated_at 是配置修改时间，也是运行时长缓存键的组成部分，
+		// 每次模型调用后改写它会重建 client 与连接池。
+		UpdateColumn("last_used_at", now.UTC())
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
 		return opErr
