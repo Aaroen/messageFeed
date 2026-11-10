@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
 	"strings"
@@ -707,13 +708,16 @@ func (r *AgentRepository) observeAgentTurnQueueState(ctx context.Context, now ti
 	if err := r.db.WithContext(ctx).Model(&agentTurnModel{}).Where("status = ?", string(domain.AgentTurnStatusQueued)).Count(&depth).Error; err != nil {
 		return
 	}
-	var oldest time.Time
+	// 队列为空时 MIN(created_at) 返回 NULL，必须用 NullTime 接收，
+	// 否则每轮认领都会记录一条扫描失败日志。
+	var oldest sql.NullTime
 	if err := r.db.WithContext(ctx).Model(&agentTurnModel{}).Where("status = ?", string(domain.AgentTurnStatusQueued)).Select("MIN(created_at)").Scan(&oldest).Error; err != nil {
 		return
 	}
 	var oldestPtr *time.Time
-	if !oldest.IsZero() {
-		oldestPtr = &oldest
+	if oldest.Valid {
+		value := oldest.Time
+		oldestPtr = &value
 	}
 	metrics.ObserveTaskQueueState(agentTurnQueueName, depth, oldestPtr, now)
 }

@@ -11,14 +11,20 @@ scheduling:
     whenUnsatisfiable: ScheduleAnyway
 
 networkPolicy:
+  # WSL 网络已从桥接固定 IP(192.168.3.40)切换为 NAT 动态 IP(eth0 172.19.x)。
+  # gateway/观测/API 的节点入口需要放行 hostNetwork cloudflared 回源时的宿主 IP;
+  # NAT 子网由 Windows Hyper-V 分配,重启可能变化,此处放行当前 172.19.80.0/20 并保留旧桥接 IP。
   gatewayIngressCIDRs:
     - 192.168.3.40/32
+    - 172.19.80.0/20
   observabilityIngressCIDRs:
     - 192.168.3.40/32
+    - 172.19.80.0/20
   kubernetesAPI:
     serviceCIDR: 10.43.0.1/32
     nodeCIDRs:
       - 192.168.3.40/32
+      - 172.19.80.0/20
   httpsEgress:
     - cidr: 0.0.0.0/0
       except:
@@ -33,10 +39,15 @@ networkPolicy:
         - 10.43.0.0/16
       ports:
         - 80
+  # 环境变量里的 fallback 与数据库里网页配置的默认供应商各占一条；
+  # 只放行 fallback 会让网页配置的 base_url 被策略拒绝。
   llmEgress:
     - cidr: 198.18.0.1/32
       ports:
         - 15721
+    - cidr: 100.72.246.82/32
+      ports:
+        - 3425
   cloudflaredEgress:
     - cidr: 0.0.0.0/0
       except:

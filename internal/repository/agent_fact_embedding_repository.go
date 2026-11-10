@@ -608,14 +608,14 @@ func (r *AgentRepository) observeAgentFactIndexQueueState(ctx context.Context, n
 		Where("job_type = ? AND status = ?", string(domain.AgentFactIndexJobEmbed), string(domain.AgentFactIndexJobPending)).Count(&depth).Error; err != nil {
 		return
 	}
-	var oldest time.Time
+	var oldest sql.NullTime
 	if err := r.db.WithContext(ctx).Model(&agentFactIndexJobModel{}).
 		Where("job_type = ? AND status = ?", string(domain.AgentFactIndexJobEmbed), string(domain.AgentFactIndexJobPending)).Select("MIN(COALESCE(next_run_at, created_at))").Scan(&oldest).Error; err != nil {
 		return
 	}
 	var oldestPtr *time.Time
-	if !oldest.IsZero() {
-		oldestPtr = &oldest
+	if oldest.Valid {
+		oldestPtr = &oldest.Time
 	}
 	metrics.ObserveTaskQueueState(agentFactIndexJobQueueName, depth, oldestPtr, now)
 }

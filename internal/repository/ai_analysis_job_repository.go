@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
 	"strings"
@@ -274,14 +275,14 @@ func (r *AIAnalysisJobRepository) observeAIAnalysisQueueState(ctx context.Contex
 		Where("status = ?", string(domain.AIAnalysisJobStatusQueued)).Count(&depth).Error; err != nil {
 		return
 	}
-	var oldest time.Time
+	var oldest sql.NullTime
 	if err := r.db.WithContext(ctx).Model(&aiAnalysisJobModel{}).
 		Where("status = ?", string(domain.AIAnalysisJobStatusQueued)).Select("MIN(scheduled_at)").Scan(&oldest).Error; err != nil {
 		return
 	}
 	var oldestPtr *time.Time
-	if !oldest.IsZero() {
-		oldestPtr = &oldest
+	if oldest.Valid {
+		oldestPtr = &oldest.Time
 	}
 	metrics.ObserveTaskQueueState(aiAnalysisJobQueueName, depth, oldestPtr, now)
 }

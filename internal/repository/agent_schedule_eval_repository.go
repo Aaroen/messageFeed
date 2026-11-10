@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
 	"strings"
@@ -593,14 +594,14 @@ func (r *AgentRepository) observeAgentScheduledTaskQueueState(ctx context.Contex
 		Where("status = ?", string(domain.AgentScheduledTaskStatusQueued)).Count(&depth).Error; err != nil {
 		return
 	}
-	var oldest time.Time
+	var oldest sql.NullTime
 	if err := r.db.WithContext(ctx).Model(&agentScheduledTaskModel{}).
 		Where("status = ?", string(domain.AgentScheduledTaskStatusQueued)).Select("MIN(scheduled_at)").Scan(&oldest).Error; err != nil {
 		return
 	}
 	var oldestPtr *time.Time
-	if !oldest.IsZero() {
-		oldestPtr = &oldest
+	if oldest.Valid {
+		oldestPtr = &oldest.Time
 	}
 	metrics.ObserveTaskQueueState(agentScheduledTaskQueueName, depth, oldestPtr, now)
 }

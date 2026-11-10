@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
@@ -405,14 +406,14 @@ func (r *SourceFetchJobRepository) observeSourceFetchQueueState(ctx context.Cont
 		Where("status = ?", string(domain.SourceFetchJobStatusQueued)).Count(&depth).Error; err != nil {
 		return
 	}
-	var oldest time.Time
+	var oldest sql.NullTime
 	if err := r.db.WithContext(ctx).Model(&sourceFetchJobModel{}).
 		Where("status = ?", string(domain.SourceFetchJobStatusQueued)).Select("MIN(scheduled_at)").Scan(&oldest).Error; err != nil {
 		return
 	}
 	var oldestPtr *time.Time
-	if !oldest.IsZero() {
-		oldestPtr = &oldest
+	if oldest.Valid {
+		oldestPtr = &oldest.Time
 	}
 	metrics.ObserveTaskQueueState(sourceFetchJobQueueName, depth, oldestPtr, now)
 }
