@@ -39,11 +39,13 @@ func TestAgentAnswerQualityKeepsUnrecognizedCurrentConstraint(test *testing.T) {
 }
 
 func TestAgentAnswerQualityRequestPreservesFollowupContext(test *testing.T) {
+	createdAt := time.Date(2026, 11, 16, 2, 0, 0, 0, time.UTC)
 	input := agentAnswerQualityInput{
 		Reply: "abc", CurrentMessage: "将刚才约定的代号转为小写",
-		SourceMessages: []agent.ContextMessage{{Role: domain.AgentTranscriptRoleUser, Content: "本次约定的代号为 ABC"}, {Role: domain.AgentTranscriptRoleAssistant, Content: "ABC"}},
+		SourceMessages: []agent.ContextMessage{{Role: domain.AgentTranscriptRoleUser, Content: "本次约定的代号为 ABC", TranscriptEntryID: 91, TurnID: 12, CreatedAt: createdAt}, {Role: domain.AgentTranscriptRoleAssistant, Content: "ABC"}},
 	}
-	request, err := agentAnswerQualityRequest(input, []string{input.CurrentMessage}, nil, nil)
+	sources := append(agentAnswerConversationSources(input), domain.AgentFactSource{CanonicalRef: "artifact:320", Content: "外部事实正文", CreatedAt: createdAt})
+	request, err := agentAnswerQualityRequest(input, []string{input.CurrentMessage}, nil, sources)
 	if err != nil {
 		test.Fatal(err)
 	}
@@ -53,6 +55,13 @@ func TestAgentAnswerQualityRequestPreservesFollowupContext(test *testing.T) {
 	}
 	if !strings.Contains(string(payload["source_result"]), "本次约定的代号为 ABC") || !strings.Contains(string(payload["current_user_message"]), input.CurrentMessage) {
 		test.Fatal("追问质量评价未保留原始问答与当前要求")
+	}
+	var projected []map[string]any
+	if err := json.Unmarshal(payload["sources"], &projected); err != nil {
+		test.Fatal(err)
+	}
+	if len(projected) != 2 || projected[0]["turn_id"] != float64(12) || projected[0]["transcript_entry_id"] != float64(91) || projected[0]["message_created_at"] != createdAt.Format(time.RFC3339Nano) || projected[0]["captured_at"] != nil || projected[1]["captured_at"] != createdAt.Format(time.RFC3339Nano) {
+		test.Fatal("对话时间和外部事实抓取时间未被分别保留")
 	}
 }
 
