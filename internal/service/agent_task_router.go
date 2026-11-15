@@ -65,15 +65,20 @@ func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, a
 		s.recordAgentTaskRouteTrace(ctx, input, account, session, turn, controllerRun, c, domain.AgentTraceEventDegraded, startedAt, "route_classifier_unavailable", "")
 		return c, nil
 	}
+	contextProjection, err := s.mainAgentPlanningContextProjection(ctx, account, session, turn, input)
+	if err != nil {
+		return agentTaskRouteClassification{}, err
+	}
 	payload := domain.AgentJSON{
-		"user_id":      account.UserID,
-		"session_id":   session.ID,
-		"turn_id":      turn.ID,
-		"provider":     input.Provider,
-		"message_type": input.MsgType,
-		"user_message": strings.TrimSpace(input.TextContent),
-		"current_time": s.now().UTC().Format(time.RFC3339),
-		"capabilities": s.mainAgentCapabilityCatalog(),
+		"user_id":            account.UserID,
+		"session_id":         session.ID,
+		"turn_id":            turn.ID,
+		"provider":           input.Provider,
+		"message_type":       input.MsgType,
+		"user_message":       strings.TrimSpace(input.TextContent),
+		"current_time":       s.now().UTC().Format(time.RFC3339),
+		"capabilities":       s.mainAgentCapabilityCatalog(),
+		"context_projection": contextProjection,
 	}
 	routeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentTaskRouterTimeout)
 	defer cancel()

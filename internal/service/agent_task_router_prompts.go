@@ -8,6 +8,8 @@ import (
 func agentTaskRouterSystemPrompt() string {
 	return `你是主 Agent 的任务分级器。你只判断当前用户消息应进入哪种执行路径，不直接回答用户。
 
+结合 payload.context_projection 中的近期对话、用户约束和稳定记忆理解本轮消息。当前用户明确要求优先于历史偏好；省略表达和短追问需要联系最近问答判断。
+
 可选 task_type：
 - quick_answer：普通问答、解释、改写、很短的总结；不需要历史召回、工具、子 Agent。
 - rag_answer：用户明确要求结合历史上下文、之前记录、记忆、偏好、刚才内容或依据来源；需要 conversation.query_history 与 memory.fact_recall，但不需要外部网页工具。

@@ -17,6 +17,146 @@ import (
 	"time"
 )
 
+func TestActivePlanContextBlockPreservesFinalAnswerConstraints(t *testing.T) {
+	constraints := []string{"只输出三个英文字母", strings.Repeat("保持完整约束", 100)}
+	for _, value := range []any{constraints, []any{constraints[0], constraints[1]}} {
+		plan := domain.AgentPlan{
+			ID:   7,
+			Goal: "预测比赛结果",
+			Metadata: domain.AgentJSON{
+				"main_agent_plan": domain.AgentJSON{"final_answer_constraints": value},
+			},
+		}
+		block := activePlanContextBlock(plan)
+		if block == nil || strings.Join(block.FinalAnswerConstraints, "\n") != strings.Join(constraints, "\n") {
+			t.Fatalf("活动计划约束：%#v", block)
+		}
+		if block.Source != "active_plan" || block.TrustLevel != "planner" {
+			t.Fatalf("活动计划来源：%#v", block)
+		}
+	}
+}
+
+func TestAgentConversationContextProjectionPreservesConversationAndConstraints(test *testing.T) {
+	now := time.Date(2026, 11, 10, 8, 45, 0, 0, time.UTC)
+	recent := []agent.ContextMessage{
+		{Role: domain.AgentTranscriptRoleUser, Content: "查询决赛对阵与胜率", TranscriptEntryID: 210, TurnID: 111, CreatedAt: now.Add(-time.Minute)},
+		{Role: domain.AgentTranscriptRoleAssistant, Content: strings.Repeat("完整比赛结果与来源依据", 400), TranscriptEntryID: 211, TurnID: 111, CreatedAt: now.Add(-30 * time.Second)},
+	}
+	current := agent.ContextMessage{Role: domain.AgentTranscriptRoleUser, Content: "决赛谁会赢，只用告诉我三个字母"}
+	constraints := []agent.ContextBlock{{Name: "用户约束", Source: "user_profile", Content: strings.Repeat("保留有效回答约束", 100)}}
+	memory := []agent.ContextBlock{{Name: "稳定记忆", Source: "stable_memory", Content: strings.Repeat("保留完整长期事实", 100), CanonicalRef: "memory_block:7"}}
+	activePlan := &agent.ContextBlock{Name: "当前活动计划", Source: "active_plan", Content: "基于已完成检索回答追问"}
+	units := agent.BuildConversationSemanticUnits(recent)
+	for index := range units {
+		units[index].Selected = true
+	}
+	units = append(units, agent.NewCurrentMessageSemanticUnit(current.Content))
+	snapshot := agent.ContextSnapshot{
+		BudgetProfile: agent.ContextBudgetProfileMainPlanning,
+		SemanticUnits: units,
+		BudgetReport:  agent.ContextBudgetReport{SelectedMessageCount: len(recent)},
+		Bundle: agent.ContextBundle{
+			RecentMessages:  recent,
+			CurrentMessage:  &current,
+			ActiveGoal:      "回答当前比赛追问",
+			ActivePlan:      activePlan,
+			UserConstraints: constraints,
+			MemoryBlocks:    memory,
+		},
+	}
+
+	projection := agentConversationContextProjection(snapshot)
+	projectedMessages, ok := projection["recent_messages"].([]domain.AgentJSON)
+	if !ok || len(projectedMessages) != len(recent) {
+		test.Fatalf("近期对话数量：%#v", projection["recent_messages"])
+	}
+	for index, message := range recent {
+		projected := projectedMessages[index]
+		if projected["content"] != message.Content || projected["role"] != string(message.Role) || projected["transcript_entry_id"] != message.TranscriptEntryID || projected["turn_id"] != message.TurnID {
+			test.Fatalf("近期对话索引 %d 的正文或引用不完整", index)
+		}
+	}
+	projectedCurrent, ok := projection["current_message"].(domain.AgentJSON)
+	if !ok || projectedCurrent["content"] != current.Content || projectedCurrent["role"] != string(current.Role) {
+		test.Fatalf("当前消息：%#v", projection["current_message"])
+	}
+	projectedConstraints, ok := projection["user_constraints"].([]agent.ContextBlock)
+	if !ok || len(projectedConstraints) != 1 || projectedConstraints[0].Content != constraints[0].Content || projectedConstraints[0].Source != constraints[0].Source {
+		test.Fatalf("用户约束投影不完整")
+	}
+	projectedMemory, ok := projection["memory_blocks"].([]agent.ContextBlock)
+	if !ok || len(projectedMemory) != 1 || projectedMemory[0].Content != memory[0].Content || projectedMemory[0].CanonicalRef != memory[0].CanonicalRef {
+		test.Fatalf("长期记忆投影不完整")
+	}
+	if projection["active_goal"] != snapshot.Bundle.ActiveGoal || projection["active_plan"] != activePlan {
+		test.Fatalf("当前目标或计划投影不完整")
+	}
+	projectedUnits, ok := projection["semantic_units"].([]domain.AgentJSON)
+	if !ok || len(projectedUnits) != len(units) {
+		test.Fatalf("语义单元数量：%#v", projection["semantic_units"])
+	}
+	for index, unit := range projectedUnits {
+		if _, exists := unit["content"]; exists {
+			test.Fatalf("语义单元 %d 重复携带正文", index)
+		}
+		if _, exists := unit["messages"]; exists {
+			test.Fatalf("语义单元 %d 重复携带消息", index)
+		}
+		if unit["id"] != units[index].ID {
+			test.Fatalf("语义单元 %d 缺少原始标识", index)
+		}
+	}
+	references, ok := projectedUnits[0]["message_refs"].([]domain.AgentJSON)
+	if !ok || len(references) != len(recent) {
+		test.Fatalf("语义单元消息引用：%#v", projectedUnits[0]["message_refs"])
+	}
+	for index, message := range recent {
+		if references[index]["transcript_entry_id"] != message.TranscriptEntryID || references[index]["turn_id"] != message.TurnID {
+			test.Fatalf("语义单元消息引用 %d 不完整", index)
+		}
+	}
+	encoded, err := json.Marshal(projection)
+	if err != nil {
+		test.Fatalf("编码上下文投影：%v", err)
+	}
+	for _, content := range []string{recent[0].Content, recent[1].Content, current.Content} {
+		if count := strings.Count(string(encoded), content); count != 1 {
+			test.Fatalf("对话正文在序列化投影中出现 %d 次", count)
+		}
+	}
+}
+
+func TestAgentPlanArtifactFactsNormalizesReferencesAndPreservesScope(test *testing.T) {
+	plan := domain.AgentPlan{
+		UserID:    99,
+		SessionID: 47,
+		TurnID:    111,
+		Steps: []domain.AgentPlanStep{
+			{ArtifactRefs: []string{"agent_artifact:320", "agent_artifacts/320", "artifact:321", "agent_observation:321", "plan_step:149", "https://example.com/article", "artifact:0", "artifact:-1", "artifact:invalid", ""}},
+			{ArtifactRefs: []string{" artifact:320 ", "agent_artifacts/321", "agent_artifact:322", "run:367"}},
+		},
+	}
+
+	facts := agentPlanArtifactFacts(7, plan)
+	expectedIDs := []int64{320, 321, 322}
+	if len(facts) != len(expectedIDs) {
+		test.Fatalf("产物引用数量：%#v", facts)
+	}
+	for index, fact := range facts {
+		expectedRef := fmt.Sprintf("artifact:%d", expectedIDs[index])
+		if fact.FactType != domain.AgentFactTypeArtifact || fact.FactID != expectedIDs[index] || fact.CanonicalRef != expectedRef {
+			test.Fatalf("产物引用 %d 未正确规范化：%#v", index, fact)
+		}
+		if fact.UserID != 7 || fact.SessionID != plan.SessionID || fact.TurnID != plan.TurnID {
+			test.Fatalf("产物引用 %d 的用户、会话或调用范围不完整：%#v", index, fact)
+		}
+	}
+	if facts := agentPlanArtifactFacts(7, domain.AgentPlan{}); len(facts) != 0 {
+		test.Fatalf("无步骤的计划产生了产物引用：%#v", facts)
+	}
+}
+
 func TestAgentConversationServiceReceivesBoundAccountAndSendsAIReply(t *testing.T) {
 	now := time.Date(2026, 6, 24, 17, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -1812,6 +1952,7 @@ func TestAgentConversationServiceAsyncWeChatDoesNotWaitForFollowupIntent(t *test
 	now := time.Date(2026, 7, 4, 19, 10, 0, 0, time.UTC)
 	completedAt := now.Add(-10 * time.Minute)
 	repository := newFakeAgentConversationRepository()
+	repository.nextID = 100
 	repository.session = domain.AgentSession{
 		ID:                88,
 		UserID:            1,
@@ -1835,6 +1976,26 @@ func TestAgentConversationServiceAsyncWeChatDoesNotWaitForFollowupIntent(t *test
 			CreatedAt:   now.Add(-15 * time.Minute),
 			UpdatedAt:   completedAt,
 			CompletedAt: &completedAt,
+		},
+	}
+	repository.transcripts = []domain.AgentTranscriptEntry{
+		{
+			ID:        78,
+			SessionID: 88,
+			TurnID:    77,
+			UserID:    1,
+			Role:      domain.AgentTranscriptRoleUser,
+			Content:   "搜索最新比赛和后续赛程",
+			CreatedAt: now.Add(-15 * time.Minute),
+		},
+		{
+			ID:        79,
+			SessionID: 88,
+			TurnID:    77,
+			UserID:    1,
+			Role:      domain.AgentTranscriptRoleAssistant,
+			Content:   "已完成赛事搜索，后续比赛包括下一场和随后的赛程安排。",
+			CreatedAt: completedAt,
 		},
 	}
 	resolver := &fakeAgentExternalAccountResolver{account: testAgentExternalAccount(now)}

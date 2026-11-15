@@ -490,7 +490,9 @@ func (r *AgentRepository) ListAgentMemoryBlocks(ctx context.Context, options dom
 		blocks = append(blocks, agentMemoryBlockModelToDomain(model))
 		ids = append(ids, model.ID)
 	}
-	r.touchAgentMemoryBlocks(ctx, options.UserID, ids)
+	if !options.ReadOnly {
+		r.touchAgentMemoryBlocks(ctx, options.UserID, ids)
+	}
 	return blocks, nil
 }
 

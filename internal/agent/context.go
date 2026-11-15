@@ -120,6 +120,22 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 	if activePlanBlock, ok := protectedActivePlanBlock(input.ActivePlan, input.ActiveGoal, b.now().UTC()); ok {
 		snapshot.Blocks = append(snapshot.Blocks, activePlanBlock)
 		snapshot.SemanticUnits = append(snapshot.SemanticUnits, NewProtectedContextBlockSemanticUnit("active_plan", ContextSemanticUnitPlan, activePlanBlock, "active_plan"))
+		if constraints := strings.TrimSpace(strings.Join(activePlanBlock.FinalAnswerConstraints, "\n")); constraints != "" {
+			constraintBlock := ContextBlock{
+				Name:            "当前任务回答约束",
+				CapabilityKey:   "agent.plan.constraints",
+				Content:         "以下约束来自任务计划；与当前用户要求冲突时，以当前用户要求为准。\n" + constraints,
+				ItemCount:       len(activePlanBlock.FinalAnswerConstraints),
+				GeneratedAt:     activePlanBlock.GeneratedAt,
+				TrustLevel:      "planner",
+				Source:          "plan_constraints",
+				EvidenceRefs:    append([]string(nil), activePlanBlock.EvidenceRefs...),
+				CanonicalRef:    activePlanBlock.CanonicalRef,
+				RetentionReason: "active_plan_constraints",
+			}
+			snapshot.Blocks = append(snapshot.Blocks, constraintBlock)
+			snapshot.SemanticUnits = append(snapshot.SemanticUnits, NewProtectedContextBlockSemanticUnit("active_plan_constraints", ContextSemanticUnitContextBlock, constraintBlock, "active_plan_constraints"))
+		}
 	}
 
 	if b.userContextProvider != nil {
@@ -299,7 +315,7 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 
 func (b *DefaultContextBuilder) capabilityKeysForInput(input ContextBuildInput) []string {
 	keys := append([]string(nil), b.capabilityKeys...)
-	if len(input.CapabilityKeys) > 0 {
+	if input.CapabilityKeys != nil {
 		keys = append([]string(nil), input.CapabilityKeys...)
 	}
 	return uniqueStrings(keys)
@@ -504,6 +520,9 @@ func isSystemContextBlock(block ContextBlock) bool {
 }
 
 func isUserConstraintContextBlock(block ContextBlock) bool {
+	if strings.TrimSpace(block.Source) == "plan_constraints" && strings.TrimSpace(block.TrustLevel) == "planner" {
+		return true
+	}
 	if strings.TrimSpace(block.Source) == "user_profile" || strings.TrimSpace(block.TrustLevel) == "user_profile" {
 		return true
 	}

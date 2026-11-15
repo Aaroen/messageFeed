@@ -92,6 +92,35 @@ func TestDefaultContextBuilderUsesInputCapabilityKeysForPlannedScope(t *testing.
 	}
 }
 
+func TestDefaultContextBuilderCapabilityScopeDistinguishesNilAndEmpty(t *testing.T) {
+	builder := NewDefaultContextBuilder(DefaultContextBuilderOptions{
+		CapabilityKeys: []string{"feed.query_recent_items"},
+	})
+	for _, testCase := range []struct {
+		name string
+		keys []string
+		want string
+	}{
+		{name: "继承默认能力", want: "feed.query_recent_items"},
+		{name: "禁用预取能力", keys: []string{}},
+		{name: "采用指定能力", keys: []string{"web.search"}, want: "web.search"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			keys := builder.capabilityKeysForInput(ContextBuildInput{CapabilityKeys: testCase.keys})
+			if strings.Join(keys, ",") != testCase.want {
+				t.Fatalf("能力范围：%#v，预期：%q", keys, testCase.want)
+			}
+		})
+	}
+	snapshot, err := builder.Build(context.Background(), ContextBuildInput{CapabilityKeys: []string{}})
+	if err != nil {
+		t.Fatalf("Build() 调用错误：%v", err)
+	}
+	if len(snapshot.Observations) != 0 {
+		t.Fatalf("禁用能力后仍产生观测：%#v", snapshot.Observations)
+	}
+}
+
 func TestDefaultContextBuilderBuildsContextBundleBudgetProfile(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	builder := NewDefaultContextBuilder(DefaultContextBuilderOptions{
@@ -190,6 +219,45 @@ func TestDefaultContextBuilderBuildsShortTermProtectionBundle(t *testing.T) {
 	}
 	if !contextTestHasProtectedReason(snapshot.SemanticUnits, "previous_assistant_answer") {
 		t.Fatalf("semantic units missing previous assistant protection: %#v", snapshot.SemanticUnits)
+	}
+}
+
+func TestDefaultContextBuilderProtectsPlanAnswerConstraints(t *testing.T) {
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	constraints := []string{"只输出三个英文字母", "以最近证据为依据"}
+	builder := NewDefaultContextBuilder(DefaultContextBuilderOptions{Now: func() time.Time { return now }})
+	snapshot, err := builder.Build(context.Background(), ContextBuildInput{
+		MessageText:    "简短回答",
+		CapabilityKeys: []string{},
+		ActivePlan: &ContextBlock{
+			Content:                "plan_id: 7\ngoal: 赛事预测",
+			CanonicalRef:           "agent_plan:7",
+			EvidenceRefs:           []string{"agent_plan:7", "agent_plan_step:8"},
+			FinalAnswerConstraints: constraints,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Build() 调用错误：%v", err)
+	}
+	if len(snapshot.Bundle.UserConstraints) != 1 {
+		t.Fatalf("用户约束内容：%#v", snapshot.Bundle.UserConstraints)
+	}
+	block := snapshot.Bundle.UserConstraints[0]
+	if block.Source != "plan_constraints" || block.TrustLevel != "planner" || block.CanonicalRef != "plan:7" {
+		t.Fatalf("约束来源：%#v", block)
+	}
+	if !strings.Contains(block.Content, strings.Join(constraints, "\n")) || strings.Contains(block.Content, "plan_id:") {
+		t.Fatalf("约束正文：%q", block.Content)
+	}
+	if strings.Join(block.EvidenceRefs, ",") != "plan:7,plan_step:8" {
+		t.Fatalf("约束证据引用：%#v", block.EvidenceRefs)
+	}
+	if !contextTestHasProtectedUnit(snapshot.SemanticUnits, "active_plan_constraints", "active_plan_constraints") {
+		t.Fatalf("语义单元缺少受保护约束：%#v", snapshot.SemanticUnits)
+	}
+	runner := NewTurnRunner(TurnRunnerOptions{Now: func() time.Time { return now }})
+	if !strings.Contains(runner.buildSystemPrompt(snapshot, "简短回答"), block.Content) {
+		t.Fatal("执行提示缺少回答约束")
 	}
 }
 

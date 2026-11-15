@@ -508,6 +508,7 @@ type AgentMemoryBlockQueryOptions struct {
 	Query       string
 	Limit       int
 	Offset      int
+	ReadOnly    bool
 }
 
 type AgentMemoryEventType string

@@ -910,16 +910,17 @@ func activePlanContextBlock(plan domain.AgentPlan) *agent.ContextBlock {
 		}
 	}
 	return &agent.ContextBlock{
-		Name:            "当前活动计划",
-		CapabilityKey:   "agent.plan",
-		Content:         strings.TrimSpace(builder.String()),
-		ItemCount:       len(plan.Steps),
-		GeneratedAt:     plan.UpdatedAt,
-		TrustLevel:      "planner",
-		Source:          "active_plan",
-		EvidenceRefs:    agent.NormalizeCanonicalRefs(evidenceRefs),
-		CanonicalRef:    fmt.Sprintf("plan:%d", plan.ID),
-		RetentionReason: "active_plan",
+		Name:                   "当前活动计划",
+		CapabilityKey:          "agent.plan",
+		Content:                strings.TrimSpace(builder.String()),
+		ItemCount:              len(plan.Steps),
+		GeneratedAt:            plan.UpdatedAt,
+		TrustLevel:             "planner",
+		Source:                 "active_plan",
+		EvidenceRefs:           agent.NormalizeCanonicalRefs(evidenceRefs),
+		CanonicalRef:           fmt.Sprintf("plan:%d", plan.ID),
+		RetentionReason:        "active_plan",
+		FinalAnswerConstraints: compactNonEmptyStrings(agentJSONStringSlice(domain.AgentJSON(mainPlan), "final_answer_constraints")),
 	}
 }
 

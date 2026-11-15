@@ -44,7 +44,10 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 	if !candidates.hasAny() {
 		return false, ReceiveWeChatWorkAppMessageResult{}, nil
 	}
-	decision := s.classifyAgentFollowupIntent(ctx, account, session, turn, input, candidates)
+	decision, err := s.classifyAgentFollowupIntent(ctx, account, session, turn, input, candidates)
+	if err != nil {
+		return false, ReceiveWeChatWorkAppMessageResult{}, err
+	}
 	intent := decision.Intent
 	now := s.now().UTC()
 	if candidates.ActiveFound && (intent == agentFollowupIntentNewTask || intent == agentFollowupIntentDeriveTask || intent == agentFollowupIntentAppendConstraints) {
@@ -261,17 +264,22 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
 	candidates multiTurnPlanCandidates,
-) agentFollowupDecision {
+) (agentFollowupDecision, error) {
 	if s == nil || s.llmClient == nil {
-		return agentFollowupDecision{Intent: agentFollowupIntentNewTask, Reason: "llm_unavailable"}
+		return agentFollowupDecision{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_llm_unavailable", "agent followup classifier is unavailable", "service.agent.followup_intent", true, nil)
+	}
+	contextProjection, err := s.mainAgentPlanningContextProjection(ctx, account, session, turn, input)
+	if err != nil {
+		return agentFollowupDecision{}, err
 	}
 	payload := domain.AgentJSON{
-		"user_message": input.TextContent,
-		"user_id":      account.UserID,
-		"session_id":   session.ID,
-		"turn_id":      turn.ID,
-		"active_plan":  multiTurnPlanDecisionSummary(candidates.Active, candidates.ActiveFound),
-		"failed_plan":  multiTurnPlanDecisionSummary(candidates.Failed, candidates.FailedFound),
+		"user_message":       input.TextContent,
+		"context_projection": contextProjection,
+		"user_id":            account.UserID,
+		"session_id":         session.ID,
+		"turn_id":            turn.ID,
+		"active_plan":        multiTurnPlanDecisionSummary(candidates.Active, candidates.ActiveFound),
+		"failed_plan":        multiTurnPlanDecisionSummary(candidates.Failed, candidates.FailedFound),
 		"completed_plan": multiTurnPlanDecisionSummary(
 			candidates.Completed,
 			candidates.CompletedFound,
@@ -286,7 +294,10 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 		},
 		"required_schema": agentFollowupIntentSchemaHint(),
 	}
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return agentFollowupDecision{}, err
+	}
 	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
 		Messages: []llm.ChatMessage{
 			{Role: "system", Content: agentFollowupIntentSystemPrompt()},
@@ -297,7 +308,7 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 	})
 	if err != nil {
 		s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "llm_error", err.Error(), domain.AgentJSON{"payload": payload})
-		return agentFollowupDecision{Intent: agentFollowupIntentNewTask, Reason: "llm_error"}
+		return agentFollowupDecision{}, err
 	}
 	decision, parseErr := parseAgentFollowupDecision(response.Content)
 	if parseErr != nil {
@@ -307,7 +318,7 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 			"provider":     response.Provider,
 			"model":        response.Model,
 		})
-		return agentFollowupDecision{Intent: agentFollowupIntentNewTask, Reason: "parse_error"}
+		return agentFollowupDecision{}, parseErr
 	}
 	s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "succeeded", decision.Reason, domain.AgentJSON{
 		"intent":     string(decision.Intent),
@@ -315,7 +326,7 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 		"provider":   response.Provider,
 		"model":      response.Model,
 	})
-	return decision
+	return decision, nil
 }
 
 func parseAgentFollowupDecision(raw string) (agentFollowupDecision, error) {
@@ -679,25 +690,20 @@ func (s *AgentConversationService) generateMultiTurnFollowupAnswer(
 	if s == nil || s.llmClient == nil {
 		return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_llm_unavailable", "agent followup answer llm is unavailable", "service.agent.followup_answer", true, nil)
 	}
-	payload := s.multiTurnFollowupAnswerPayload(account, session, turn, input, plan, question)
-	body, err := json.Marshal(payload)
+	payload, err := s.multiTurnFollowupAnswerPayload(ctx, account, session, turn, input, plan, question)
+	if err != nil {
+		return "", err
+	}
+	request, err := multiTurnFollowupAnswerRequest(payload)
 	if err != nil {
 		return "", domain.NewAppError(domain.ErrorKindInternal, "agent_followup_answer_payload_invalid", "agent followup answer payload is invalid", "service.agent.followup_answer", true, err)
 	}
-	messages := []llm.ChatMessage{
-		{Role: "system", Content: agentFollowupAnswerSystemPrompt()},
-		{Role: "user", Content: string(body)},
-	}
-	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
-		Messages:    messages,
-		Temperature: 0.2,
-		MaxTokens:   512,
-	})
+	response, err := s.llmClient.Chat(ctx, request)
 	if err != nil {
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_followup_answer", "failed", err.Error())
 		return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_failed", "agent followup answer generation failed", "service.agent.followup_answer", true, err)
 	}
-	reply, err := s.repairMultiTurnFollowupPlainText(ctx, messages, response)
+	reply, err := s.repairMultiTurnFollowupPlainText(ctx, request.Messages, response)
 	if err != nil {
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_followup_answer", "failed", err.Error())
 		return "", err
@@ -706,21 +712,52 @@ func (s *AgentConversationService) generateMultiTurnFollowupAnswer(
 	return reply, nil
 }
 
+func multiTurnFollowupAnswerRequest(payload domain.AgentJSON) (llm.ChatRequest, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return llm.ChatRequest{}, err
+	}
+	return llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: agentFollowupAnswerSystemPrompt()},
+			{Role: "user", Content: string(body)},
+		},
+		Temperature: 0.2,
+		MaxTokens:   512,
+	}, nil
+}
+
 func (s *AgentConversationService) multiTurnFollowupAnswerPayload(
+	ctx context.Context,
 	account domain.ExternalAccount,
 	session domain.AgentSession,
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
 	plan domain.AgentPlan,
 	question string,
-) domain.AgentJSON {
+) (domain.AgentJSON, error) {
+	if account.UserID != plan.UserID || session.ID != plan.SessionID || plan.TurnID >= turn.ID {
+		return nil, domain.ErrInvalidInput
+	}
+	snapshot, err := s.buildAgentConversationContext(ctx, account, session, turn, input, agent.ContextBudgetProfileFinalSynthesis, &plan)
+	if err != nil {
+		return nil, err
+	}
+	sourceMessages, err := s.agentPlanSourceMessages(ctx, account.UserID, plan)
+	if err != nil {
+		return nil, err
+	}
+	evidence, err := s.repository.ResolveAgentFactSources(ctx, account.UserID, agentPlanArtifactFacts(account.UserID, plan))
+	if err != nil {
+		return nil, err
+	}
 	freshness := planResultFreshness(plan, s.now().UTC())
 	staleAfter := ""
 	if !freshness.ReferenceAt.IsZero() {
 		staleAfter = formatAgentTime(freshness.ReferenceAt.Add(freshness.StaleAfter))
 	}
 	return domain.AgentJSON{
-		"user_message": safeSummary(question, 600),
+		"user_message": strings.TrimSpace(question),
 		"user_id":      account.UserID,
 		"session_id":   session.ID,
 		"turn_id":      turn.ID,
@@ -743,8 +780,11 @@ func (s *AgentConversationService) multiTurnFollowupAnswerPayload(
 		},
 		"steps":               multiTurnFollowupStepPayload(plan),
 		"evidence_refs":       planEvidenceRefs(plan),
+		"source_result":       mainAgentContextMessageProjection(sourceMessages),
+		"context_projection":  agentConversationContextProjection(snapshot),
+		"evidence":            evidence,
 		"provider_message_id": input.ProviderMessageID,
-	}
+	}, nil
 }
 
 func multiTurnFollowupStepPayload(plan domain.AgentPlan) []domain.AgentJSON {

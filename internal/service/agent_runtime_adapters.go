@@ -89,7 +89,11 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 		return memory, err
 	}
 	memory.Messages = transcriptEntriesToContextMessages(recent)
-	memory.MemoryBlocks = append(memory.MemoryBlocks, p.stableMemoryBlocks(ctx, input)...)
+	blocks, err := p.stableMemoryBlocks(ctx, input)
+	if err != nil {
+		return memory, err
+	}
+	memory.MemoryBlocks = append(memory.MemoryBlocks, blocks...)
 	if conversationHistoryPlanHasContent(input.HistoryQueryPlan) {
 		historyResults, historyContent, err := p.queryPlannedConversationHistory(ctx, input)
 		if err != nil {
@@ -188,19 +192,20 @@ func (p agentConversationMemoryProvider) queryPlannedConversationHistory(ctx con
 	return messages, content, nil
 }
 
-func (p agentConversationMemoryProvider) stableMemoryBlocks(ctx context.Context, input agent.ContextBuildInput) []agent.ContextBlock {
+func (p agentConversationMemoryProvider) stableMemoryBlocks(ctx context.Context, input agent.ContextBuildInput) ([]agent.ContextBlock, error) {
 	if p.repository == nil || input.UserID == 0 {
-		return nil
+		return nil, nil
 	}
 	blocks, err := p.repository.ListAgentMemoryBlocks(ctx, domain.AgentMemoryBlockQueryOptions{
 		UserID: input.UserID,
 		Statuses: []domain.AgentMemoryBlockStatus{
 			domain.AgentMemoryBlockActive,
 		},
-		Limit: 8,
+		Limit:    8,
+		ReadOnly: true,
 	})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	output := make([]agent.ContextBlock, 0, len(blocks))
 	for _, block := range blocks {
@@ -221,7 +226,7 @@ func (p agentConversationMemoryProvider) stableMemoryBlocks(ctx context.Context,
 			RetentionReason: "stable_memory",
 		})
 	}
-	return output
+	return output, nil
 }
 
 func (p agentConversationMemoryProvider) factRecallBlocks(ctx context.Context, input agent.ContextBuildInput) []agent.ContextBlock {

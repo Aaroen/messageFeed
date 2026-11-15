@@ -2,17 +2,179 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
+	"messagefeed/internal/repository"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
+
+func TestAgentConversationContextFromDatabase(test *testing.T) {
+	databaseURL := strings.TrimSpace(os.Getenv("AGENT_CONTEXT_DATABASE_URL"))
+	if databaseURL == "" {
+		test.Skip("设置 AGENT_CONTEXT_DATABASE_URL 后执行真实数据库上下文回归")
+	}
+	identifiers := make(map[string]int64, 3)
+	for _, name := range []string{"AGENT_CONTEXT_USER_ID", "AGENT_CONTEXT_PLAN_ID", "AGENT_CONTEXT_TURN_ID"} {
+		value, err := strconv.ParseInt(strings.TrimSpace(os.Getenv(name)), 10, 64)
+		if err != nil || value <= 0 {
+			test.Fatalf("%s 必须设置为正整数", name)
+		}
+		identifiers[name] = value
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	database, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		test.Fatalf("打开真实数据库失败：%T", err)
+	}
+	sqlDatabase, err := database.DB()
+	if err != nil {
+		test.Fatalf("取得数据库连接失败：%T", err)
+	}
+	defer sqlDatabase.Close()
+	transaction := database.WithContext(ctx).Begin(&sql.TxOptions{ReadOnly: true})
+	if transaction.Error != nil {
+		test.Fatalf("建立只读事务失败：%T", transaction.Error)
+	}
+	defer transaction.Rollback()
+	store := repository.NewAgentRepository(transaction)
+	userID := identifiers["AGENT_CONTEXT_USER_ID"]
+	plan, err := store.GetAgentPlan(ctx, userID, identifiers["AGENT_CONTEXT_PLAN_ID"])
+	if err != nil {
+		test.Fatalf("读取原任务计划失败：%T", err)
+	}
+	turn, err := store.GetAgentTurn(ctx, userID, identifiers["AGENT_CONTEXT_TURN_ID"])
+	if err != nil {
+		test.Fatalf("读取追问调用失败：%T", err)
+	}
+	session, err := store.GetAgentSession(ctx, userID, turn.SessionID)
+	if err != nil {
+		test.Fatalf("读取会话失败：%T", err)
+	}
+	account := domain.ExternalAccount{ID: session.ExternalAccountID, UserID: userID}
+	input := ReceiveWeChatWorkAppMessageInput{Provider: session.Provider, MsgType: "text", TextContent: turn.InputText}
+	service := NewAgentConversationService(store, WithAgentConversationNow(func() time.Time { return turn.CreatedAt }))
+	payload, err := service.multiTurnFollowupAnswerPayload(ctx, account, session, turn, input, plan, turn.InputText)
+	if err != nil {
+		test.Fatalf("构建真实追问上下文失败：%T", err)
+	}
+	sourceEntries, err := store.ListRecentTranscriptEntries(ctx, domain.AgentTranscriptListOptions{
+		SessionID:    session.ID,
+		UserID:       userID,
+		BeforeTurnID: plan.TurnID + 1,
+		Roles:        []domain.AgentTranscriptRole{domain.AgentTranscriptRoleAssistant},
+		Limit:        1,
+	})
+	if err != nil || len(sourceEntries) != 1 || sourceEntries[0].TurnID != plan.TurnID || strings.TrimSpace(sourceEntries[0].Content) == "" {
+		test.Fatal("原任务未取得完整 assistant 回答")
+	}
+	containsEntry := func(messages []domain.AgentJSON, entry domain.AgentTranscriptEntry) bool {
+		for _, message := range messages {
+			if message["transcript_entry_id"] == entry.ID && message["turn_id"] == entry.TurnID && message["role"] == string(entry.Role) && message["content"] == strings.TrimSpace(entry.Content) {
+				return true
+			}
+		}
+		return false
+	}
+	sourceResult, ok := payload["source_result"].([]domain.AgentJSON)
+	if !ok || !containsEntry(sourceResult, sourceEntries[0]) {
+		test.Fatal("source_result 未保留原任务完整 assistant 回答")
+	}
+	recentEntries, err := store.ListRecentTranscriptEntries(ctx, domain.AgentTranscriptListOptions{
+		SessionID:    session.ID,
+		UserID:       userID,
+		BeforeTurnID: turn.ID,
+		Roles:        []domain.AgentTranscriptRole{domain.AgentTranscriptRoleAssistant},
+		Limit:        1,
+	})
+	if err != nil || len(recentEntries) != 1 || strings.TrimSpace(recentEntries[0].Content) == "" {
+		test.Fatal("未取得紧邻追问之前的 assistant 回答")
+	}
+	projection, ok := payload["context_projection"].(domain.AgentJSON)
+	if !ok {
+		test.Fatal("追问请求缺少 context_projection")
+	}
+	recentMessages, ok := projection["recent_messages"].([]domain.AgentJSON)
+	if !ok || !containsEntry(recentMessages, recentEntries[0]) {
+		test.Fatal("追问上下文未保留紧邻上一轮的完整回答")
+	}
+	if payload["user_message"] != strings.TrimSpace(turn.InputText) {
+		test.Fatal("追问请求未保留完整当前消息")
+	}
+	currentMessage, ok := projection["current_message"].(domain.AgentJSON)
+	if !ok || currentMessage["content"] != strings.TrimSpace(turn.InputText) || currentMessage["role"] != string(domain.AgentTranscriptRoleUser) {
+		test.Fatal("上下文投影未保留完整当前用户消息")
+	}
+	facts := agentPlanArtifactFacts(userID, plan)
+	evidence, ok := payload["evidence"].([]domain.AgentFactSource)
+	if !ok || len(facts) > 0 && len(evidence) == 0 {
+		test.Fatal("原任务的 artifact 引用未解析为证据")
+	}
+	for _, source := range evidence {
+		parsed, valid := agent.ParseCanonicalFactRef(source.CanonicalRef)
+		if !valid || parsed.FactType != string(domain.AgentFactTypeArtifact) || parsed.FactID != source.FactID || strings.TrimSpace(source.Summary) == "" || strings.TrimSpace(source.Content) == "" {
+			test.Fatal("artifact 证据缺少有效引用、摘要或正文")
+		}
+		if source.UserID != userID || source.SessionID != plan.SessionID || source.TurnID != plan.TurnID {
+			test.Fatal("artifact 证据的用户、会话或调用范围不正确")
+		}
+	}
+	planningProjection, err := service.mainAgentPlanningContextProjection(ctx, account, session, turn, input)
+	if err != nil {
+		test.Fatalf("构建真实规划上下文失败：%T", err)
+	}
+	planningMessages, ok := planningProjection["recent_messages"].([]domain.AgentJSON)
+	if !ok || !containsEntry(planningMessages, recentEntries[0]) {
+		test.Fatal("规划上下文未保留最近真实对话")
+	}
+	test.Logf("数据库上下文验证完成：原任务消息=%d，近期消息=%d，产物证据=%d，规划消息=%d", len(sourceResult), len(recentMessages), len(evidence), len(planningMessages))
+	if os.Getenv("RUN_REAL_LLM_TESTS") != "1" {
+		return
+	}
+	request, err := multiTurnFollowupAnswerRequest(payload)
+	if err != nil {
+		test.Fatalf("构建真实模型请求失败：%T", err)
+	}
+	response, err := realAgentFlowLLMClient(test).Chat(ctx, request)
+	if err != nil {
+		test.Fatalf("真实模型请求失败：%T", err)
+	}
+	reply := strings.TrimSpace(response.Content)
+	if reply == "" {
+		test.Fatal("真实模型返回空回答")
+	}
+	if expected := strings.TrimSpace(os.Getenv("AGENT_CONTEXT_EXPECTED_REPLIES")); expected != "" {
+		allowedReplies := strings.Split(expected, ",")
+		expectedLength := len([]rune(strings.TrimSpace(allowedReplies[0])))
+		matched := false
+		for _, allowed := range allowedReplies {
+			allowed = strings.TrimSpace(allowed)
+			if allowed == "" || len([]rune(allowed)) != expectedLength {
+				test.Fatal("AGENT_CONTEXT_EXPECTED_REPLIES 必须包含长度相同的非空允许值")
+			}
+			if reply == allowed {
+				matched = true
+			}
+		}
+		if len([]rune(reply)) != expectedLength || !matched {
+			test.Fatal("真实模型回答未满足指定长度与允许值集合")
+		}
+	}
+	test.Logf("真实模型验证完成：model=%s，回答字符数=%d", response.Model, len([]rune(reply)))
+}
 
 // TestAgentConversationServiceRealLLMFullFlowContracts 使用 .env 中的真实 LLM 配置验证主闭环模型契约。
 // 默认跳过，只有显式设置 RUN_REAL_LLM_TESTS=1 时才会访问外部模型，避免常规单测依赖网络和账号余额。

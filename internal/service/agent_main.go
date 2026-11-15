@@ -46,6 +46,7 @@ type AgentConversationService struct {
 	scheduledTasks         AgentScheduleEvalRepository
 	sessionTaskLocker      AgentSessionTaskLocker
 	webFetcher             agentWebFetcher
+	contextBuilder         *agent.DefaultContextBuilder
 	turnRunner             *agent.TurnRunner
 	runManager             *agent.RunManager
 	planner                *agent.Planner
@@ -242,7 +243,7 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 	if s == nil {
 		return
 	}
-	contextBuilder := agent.NewDefaultContextBuilder(agent.DefaultContextBuilderOptions{
+	s.contextBuilder = agent.NewDefaultContextBuilder(agent.DefaultContextBuilderOptions{
 		Registry: s.capabilityRegistry,
 		Policy:   s.policyEngine,
 		UserContextProvider: agentUserContextBlockProvider{
@@ -260,7 +261,7 @@ func (s *AgentConversationService) rebuildTurnRunner() {
 	s.turnRunner = agent.NewTurnRunner(agent.TurnRunnerOptions{
 		Store:          newAgentTurnStoreAdapter(s.repository, s.workerID),
 		AuditLogger:    s,
-		ContextBuilder: contextBuilder,
+		ContextBuilder: s.contextBuilder,
 		ToolExecutor:   s.agentCapabilityExecutor(),
 		ToolRegistry:   s.capabilityRegistry,
 		ToolKeys:       []string{"feed.query_recent_items", "source.query_latest_items", "conversation.query_history", "memory.fact_recall", "agent.schedule_task", "agent.schedule_message", "web.search", "web.fetch_page", "web.extract_page", "repo.search", "repo.inspect_remote", "content.summarize_text"},

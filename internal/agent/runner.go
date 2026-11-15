@@ -65,19 +65,20 @@ type ContextSnapshot struct {
 }
 
 type ContextBlock struct {
-	Name            string
-	CapabilityKey   string
-	Content         string
-	ItemCount       int
-	Truncated       bool
-	GeneratedAt     time.Time
-	TrustLevel      string
-	Source          string
-	EvidenceRefs    []string
-	CanonicalRef    string
-	TokenEstimate   int
-	RetentionReason string
-	OmittedReason   string
+	Name                   string
+	CapabilityKey          string
+	Content                string
+	ItemCount              int
+	Truncated              bool
+	GeneratedAt            time.Time
+	TrustLevel             string
+	Source                 string
+	EvidenceRefs           []string
+	CanonicalRef           string
+	TokenEstimate          int
+	RetentionReason        string
+	OmittedReason          string
+	FinalAnswerConstraints []string
 }
 
 type ContextMessage struct {
@@ -288,7 +289,7 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 			SessionID:        input.Session.ID,
 			TurnID:           input.Turn.ID,
 			ControllerRunID:  input.ControllerRunID,
-			CapabilityKeys:   append([]string(nil), input.AllowedToolKeys...),
+			CapabilityKeys:   input.AllowedToolKeys,
 			MessageText:      input.MessageText,
 			MessageType:      input.MessageType,
 			RequestID:        input.RequestID,

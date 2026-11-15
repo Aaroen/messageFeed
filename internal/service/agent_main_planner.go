@@ -300,56 +300,11 @@ func (s *AgentConversationService) mainAgentPlanningContextProjection(
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
 ) (domain.AgentJSON, error) {
-	profile := agent.ContextBudgetProfileMainPlanning
-	spec := agent.ContextBudgetForProfile(profile)
-	projection := domain.AgentJSON{
-		"budget_profile":    string(profile),
-		"projection_policy": "recent transcript entries are selected by token budget as whole semantic units; omitted units keep metadata and original transcript rows remain queryable",
-		"current_message": domain.AgentJSON{
-			"role":    string(domain.AgentTranscriptRoleUser),
-			"content": strings.TrimSpace(input.TextContent),
-		},
-	}
-	if s == nil || s.repository == nil || account.UserID == 0 || session.ID == 0 {
-		report := agent.CompleteContextBudgetReport(agent.ContextBudgetReport{Profile: profile}, spec)
-		currentUnit := agent.NewCurrentMessageSemanticUnit(input.TextContent)
-		projection["context_budget_report"] = contextBudgetReportMetadata(report)
-		projection["recent_messages"] = []domain.AgentJSON{}
-		projection["semantic_units"] = []domain.AgentJSON{mainAgentSemanticUnitProjection(currentUnit)}
-		return projection, nil
-	}
-	queryLimit := agent.RecentConversationCandidateLimit(profile)
-	recent, err := s.repository.ListRecentTranscriptEntries(ctx, domain.AgentTranscriptListOptions{
-		SessionID:    session.ID,
-		UserID:       account.UserID,
-		BeforeTurnID: turn.ID,
-		Roles: []domain.AgentTranscriptRole{
-			domain.AgentTranscriptRoleUser,
-			domain.AgentTranscriptRoleAssistant,
-		},
-		Limit: queryLimit,
-	})
+	snapshot, err := s.buildAgentConversationContext(ctx, account, session, turn, input, agent.ContextBudgetProfileMainPlanning, nil)
 	if err != nil {
 		return nil, err
 	}
-	messages := transcriptEntriesToContextMessages(recent)
-	units := agent.BuildConversationSemanticUnits(messages)
-	selectedUnits, report := agent.SelectSemanticUnitsByTokenBudget(units, spec.RecentMessagesTokens, profile)
-	report = agent.CompleteContextBudgetReport(report, spec)
-	currentUnit := agent.NewCurrentMessageSemanticUnit(input.TextContent)
-	projectedUnits := make([]domain.AgentJSON, 0, len(selectedUnits)+1)
-	if currentUnit.TokenEstimate > 0 {
-		projectedUnits = append(projectedUnits, mainAgentSemanticUnitProjection(currentUnit))
-	}
-	for _, unit := range selectedUnits {
-		projectedUnits = append(projectedUnits, mainAgentSemanticUnitProjection(unit))
-	}
-	projection["candidate_message_count"] = len(messages)
-	projection["candidate_query_limit"] = queryLimit
-	projection["recent_messages"] = mainAgentContextMessageProjection(agent.SelectedMessagesFromSemanticUnits(selectedUnits))
-	projection["semantic_units"] = projectedUnits
-	projection["context_budget_report"] = contextBudgetReportMetadata(report)
-	return projection, nil
+	return agentConversationContextProjection(snapshot), nil
 }
 
 func mainAgentContextMessageProjection(messages []agent.ContextMessage) []domain.AgentJSON {
