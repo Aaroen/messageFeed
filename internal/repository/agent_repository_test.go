@@ -20,6 +20,21 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+func TestAgentLLMCallSnapshotsStayOutsideFactRecall(test *testing.T) {
+	now := time.Now().UTC()
+	builder := newAgentFactIndexBuilder(func() time.Time { return now })
+	scope := agentFactRunScope{UserID: 1, SessionID: 2, TurnID: 3}
+	for _, kind := range []string{"llm_request", "llm_response"} {
+		trace := domain.AgentRunContextTrace{ID: 4, RunID: 5, TraceKind: kind, Content: domain.AgentJSON{"content": "完整模型审计快照"}, CreatedAt: now}
+		if _, indexed := builder.BuildRunContextTrace(scope, trace); indexed {
+			test.Fatalf("模型审计快照被加入事实召回：%s", kind)
+		}
+	}
+	if _, indexed := builder.BuildRunContextTrace(scope, domain.AgentRunContextTrace{ID: 4, RunID: 5, TraceKind: "executor_output", Content: domain.AgentJSON{"content": "工具观察结果"}, CreatedAt: now}); !indexed {
+		test.Fatal("既有工具观察索引未被保留")
+	}
+}
+
 func TestAgentTurnCompletionDatabaseTransaction(test *testing.T) {
 	databaseURL := strings.TrimSpace(os.Getenv("AGENT_COMPLETION_DATABASE_URL"))
 	if databaseURL == "" {

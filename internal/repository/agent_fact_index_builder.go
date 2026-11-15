@@ -209,7 +209,7 @@ func (b agentFactIndexBuilder) BuildPlanStep(scope agentFactRunScope, step domai
 }
 
 func (b agentFactIndexBuilder) BuildRunContextTrace(scope agentFactRunScope, trace domain.AgentRunContextTrace) (domain.AgentFactArchiveIndex, bool) {
-	if trace.ID == 0 || scope.UserID == 0 {
+	if trace.ID == 0 || scope.UserID == 0 || trace.TraceKind == "llm_request" || trace.TraceKind == "llm_response" {
 		return domain.AgentFactArchiveIndex{}, false
 	}
 	contentBytes, _ := json.Marshal(trace.Content)

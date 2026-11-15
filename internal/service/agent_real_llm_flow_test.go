@@ -184,6 +184,13 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	if stages["generation"] == 0 || stages["followup_answer"] == 0 || stages["evaluation"] == 0 || artifactCount == 0 || historyToolCount == 0 {
 		test.Fatalf("实际验收路径覆盖不足：stages=%v，artifacts=%d", stages, artifactCount)
 	}
+	var auditFacts int64
+	if err := transaction.Raw("SELECT count(*) FROM agent_fact_archive_index f JOIN agent_run_context_traces t ON t.id = f.fact_id WHERE f.fact_type = 'run_trace' AND t.trace_kind IN ('llm_request','llm_response')").Scan(&auditFacts).Error; err != nil {
+		test.Fatal(err)
+	}
+	if auditFacts != 0 {
+		test.Fatal("实际模型审计快照进入了事实召回索引")
+	}
 	test.Logf("真实数据库与默认模型验收通过：普通回答=%q，追问=%q，工具回答=%q，模型阶段=%v，完整产物=%d。", first.Reply, followup.Reply, third.Reply, stages, artifactCount)
 }
 
