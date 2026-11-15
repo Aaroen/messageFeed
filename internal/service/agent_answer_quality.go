@@ -135,6 +135,22 @@ func (s *AgentConversationService) evaluateAgentAnswerQuality(ctx context.Contex
 		}
 	}
 	result.AnswerQuality["required_evidence_requirements"] = requirements
+	for _, requirement := range requirements {
+		if strings.TrimSpace(requirement.Freshness) == "" || s == nil || s.userCtx == nil {
+			continue
+		}
+		userContext, err := s.userCtx.BuildAgentUserContext(ctx, input.Plan.UserID)
+		if err != nil {
+			return agentAnswerQualityFailure(result, "unverified", "evidence_timezone_unavailable", err)
+		}
+		location, err := time.LoadLocation(userContext.Profile.TimeZone)
+		if err != nil || strings.TrimSpace(userContext.Profile.TimeZone) == "" {
+			return agentAnswerQualityFailure(result, "unverified", "evidence_timezone_invalid", err)
+		}
+		input.Now = input.Now.In(location)
+		break
+	}
+	result.AnswerQuality["time_zone"] = input.Now.Location().String()
 	if len(requirements) == 0 && len(semanticConstraints) == 0 {
 		result.Passed, result.Status = true, "passed"
 		result.AnswerQuality["status"] = "passed"
@@ -439,7 +455,7 @@ func agentAnswerQualityRequest(input agentAnswerQualityInput, constraints []stri
 		"tool_observations":  agent.ObservationMetadata(input.Context.Observations),
 		"context_projection": agentConversationContextProjection(input.Context), "original_goal": input.Plan.Goal,
 		"semantic_constraints": constraints, "required_evidence": requirements, "sources": content,
-		"now": input.Now.UTC().Format(time.RFC3339Nano),
+		"now": input.Now.Format(time.RFC3339Nano), "time_zone": input.Now.Location().String(),
 	})
 	if err != nil {
 		return llm.ChatRequest{}, err
@@ -559,18 +575,18 @@ func agentAnswerEvidenceDateValid(quote string, freshness string, now time.Time)
 	if !regexp.MustCompile(`\d{4}[-/年]\d{1,2}[-/月]\d{1,2}`).MatchString(quote) {
 		return false
 	}
-	date := timeintent.Parse(quote, now, time.UTC)
+	date := timeintent.Parse(quote, now, now.Location())
 	if !date.HasRange() || date.StartAt.After(now) {
 		return false
 	}
-	window := timeintent.Parse(freshness, now, time.UTC)
-	if window.HasRange() && (date.StartAt.Before(window.StartAt) || !date.StartAt.Before(window.EndAt)) {
-		return false
+	window := timeintent.Parse(freshness, now, now.Location())
+	if window.HasRange() {
+		return !date.StartAt.Before(window.StartAt) && date.StartAt.Before(window.EndAt)
 	}
 	if duration, err := time.ParseDuration(freshness); err == nil {
 		return duration > 0 && date.EndAt.After(now.Add(-duration))
 	}
-	return true
+	return false
 }
 
 func agentAnswerExecutionCompleteness(plan domain.AgentPlan) domain.AgentJSON {

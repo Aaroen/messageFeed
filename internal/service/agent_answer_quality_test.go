@@ -151,3 +151,17 @@ func TestAgentAnswerConversationSourcesCannotReplaceExternalEvidence(test *testi
 		test.Fatal("对话内容被计为外部事实证据")
 	}
 }
+
+func TestAgentAnswerEvidenceDateUsesAccountDayAndRejectsUnknownWindow(test *testing.T) {
+	location, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		test.Fatal(err)
+	}
+	now := time.Date(2026, 11, 15, 16, 0, 0, 0, time.UTC).In(location)
+	if !agentAnswerEvidenceDateValid("2026年11月16日发布。", "今天", now) || agentAnswerEvidenceDateValid("2026年11月15日发布。", "今天", now) {
+		test.Fatal("时效校验未使用账户时区中的日期")
+	}
+	if agentAnswerEvidenceDateValid("2020年11月15日发布。", "尚未定义的时效范围", now) {
+		test.Fatal("无法解析的时效条件被标记为通过")
+	}
+}
