@@ -283,7 +283,7 @@ func (r *AgentRepository) UpdateAgentPlanStepStatus(ctx context.Context, userID 
 	}
 	result := r.db.WithContext(ctx).
 		Model(&agentPlanStepModel{}).
-		Where("agent_plan_steps.id = ? AND EXISTS (SELECT 1 FROM agent_plans WHERE agent_plans.id = agent_plan_steps.plan_id AND agent_plans.user_id = ?)", step.ID, userID).
+		Where("agent_plan_steps.id = ? AND agent_plan_steps.plan_id = ? AND EXISTS (SELECT 1 FROM agent_plans WHERE agent_plans.id = agent_plan_steps.plan_id AND agent_plans.user_id = ?)", step.ID, step.PlanID, userID).
 		Updates(map[string]any{
 			"status":              string(step.Status),
 			"output_summary":      step.OutputSummary,

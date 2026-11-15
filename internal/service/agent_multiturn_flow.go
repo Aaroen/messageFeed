@@ -75,9 +75,10 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_result_stale", "stale", message)
 		reply, answerErr := s.generateMultiTurnFollowupAnswer(ctx, account, session, turn, input, updated, message)
 		if answerErr != nil {
-			return true, s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, updated, answerErr), nil
+			result, finishErr := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, updated, answerErr)
+			return true, result, finishErr
 		}
-		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "followup_stale")
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, updated, reply, nil, "followup_stale")
 		result.Plan = updated
 		return true, result, err
 	}
@@ -106,7 +107,7 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 			ErrorText:   updated.ErrorMessage,
 			ProgressURL: s.agentPlanURLIfAvailable(updated.ID),
 		})
-		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "stopped")
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, updated, reply, nil, "stopped")
 		result.Plan = updated
 		return true, result, err
 	case agentFollowupIntentAppendConstraints:
@@ -123,7 +124,7 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 				Plan:        plan,
 				ProgressURL: s.agentPlanURLIfAvailable(plan.ID),
 			})
-			result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "retry_skipped")
+			result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, plan, reply, nil, "retry_skipped")
 			result.Plan = plan
 			return true, result, err
 		}
@@ -143,9 +144,10 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, updated, input, "agent.plan_result_reused", "succeeded", message)
 		reply, answerErr := s.generateMultiTurnFollowupAnswer(ctx, account, session, turn, input, updated, message)
 		if answerErr != nil {
-			return true, s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, updated, answerErr), nil
+			result, finishErr := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, updated, answerErr)
+			return true, result, finishErr
 		}
-		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "followup_reused")
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, updated, reply, nil, "followup_reused")
 		result.Plan = updated
 		return true, result, err
 	default:
@@ -298,6 +300,10 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 	if err != nil {
 		return agentFollowupDecision{}, err
 	}
+	ctx = WithAgentLLMCallContext(ctx, AgentLLMCallContext{
+		UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID,
+		Stage: AgentLLMCallStageFollowupIntent, PromptVersion: "agent-followup-intent-v1",
+	})
 	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
 		Messages: []llm.ChatMessage{
 			{Role: "system", Content: agentFollowupIntentSystemPrompt()},
@@ -698,6 +704,10 @@ func (s *AgentConversationService) generateMultiTurnFollowupAnswer(
 	if err != nil {
 		return "", domain.NewAppError(domain.ErrorKindInternal, "agent_followup_answer_payload_invalid", "agent followup answer payload is invalid", "service.agent.followup_answer", true, err)
 	}
+	ctx = WithAgentLLMCallContext(ctx, AgentLLMCallContext{
+		UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID, ParentRunID: plan.ControllerRunID,
+		Stage: AgentLLMCallStageFollowupAnswer, PromptVersion: "agent-followup-answer-v1",
+	})
 	response, err := s.llmClient.Chat(ctx, request)
 	if err != nil {
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_followup_answer", "failed", err.Error())
@@ -819,7 +829,14 @@ func (s *AgentConversationService) repairMultiTurnFollowupPlainText(ctx context.
 		repairMessages := append([]llm.ChatMessage(nil), messages...)
 		repairMessages = append(repairMessages, llm.ChatMessage{Role: "assistant", Content: current})
 		repairMessages = append(repairMessages, llm.ChatMessage{Role: "user", Content: agent.PlainTextReplyRepairPrompt(current, violation, attempt+1)})
-		repaired, err := s.llmClient.Chat(ctx, llm.ChatRequest{
+		metadata, err := agentLLMCallContextFromContext(ctx)
+		if err != nil {
+			return "", err
+		}
+		metadata.Stage = AgentLLMCallStageRepair
+		metadata.PromptVersion = "agent-followup-answer-repair-v1"
+		repairCtx := WithAgentLLMCallContext(ctx, metadata)
+		repaired, err := s.llmClient.Chat(repairCtx, llm.ChatRequest{
 			Messages:    repairMessages,
 			Temperature: 0.2,
 			MaxTokens:   512,

@@ -70,7 +70,7 @@ func (s *AgentConversationService) handleWeChatButtonCallback(
 		TraceID:   input.TraceID,
 		CreatedAt: s.now().UTC(),
 	})
-	result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "button_callback")
+	result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, plan, reply, nil, "button_callback")
 	result.Plan = plan
 	return true, result, err
 }

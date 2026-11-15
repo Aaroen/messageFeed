@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"messagefeed/internal/domain"
 	"strings"
 )
@@ -23,10 +24,18 @@ func (s *AgentConversationService) sendWebAgentTaskFinalReport(
 		s.recordWebAgentTaskFinalReportSkipped(ctx, account, inbound, session, turn, plan, input, "wechat work sender is unavailable")
 		return nil
 	}
+	preference := s.agentNotificationPreference(ctx, account.UserID)
+	if turn.Status == domain.AgentTurnStatusFailed && !preference.FailureNotificationsEnabled || turn.Status != domain.AgentTurnStatusFailed && !preference.FinalReportsEnabled {
+		s.recordWebAgentTaskFinalReportSkipped(ctx, account, inbound, session, turn, plan, input, "report notifications are disabled")
+		return nil
+	}
 	target, ok, reason := s.webAgentTaskFinalReportTarget(ctx, account.UserID)
 	if !ok {
 		s.recordWebAgentTaskFinalReportSkipped(ctx, account, inbound, session, turn, plan, input, reason)
 		return nil
+	}
+	if _, err := s.repository.UpdateAgentTurnDelivery(ctx, account.UserID, turn.ID, "pending", "", s.now().UTC()); err != nil {
+		return err
 	}
 	delivery, err := s.sendWeChatWorkFinalReportDelivery(ctx, target.ExternalUserID, plan, s.webAgentTaskWeChatReply(reply, plan), string(plan.Status))
 	status := "succeeded"
@@ -38,6 +47,11 @@ func (s *AgentConversationService) sendWebAgentTaskFinalReport(
 			message = "web agent task final report delivery failed"
 		}
 	}
+	deliveryError := ""
+	if err != nil {
+		deliveryError = message
+	}
+	_, deliveryErr := s.repository.UpdateAgentTurnDelivery(ctx, account.UserID, turn.ID, status, deliveryError, s.now().UTC())
 	metadata := agentWeChatFinalReportMetadata(delivery)
 	metadata["source_provider"] = domain.AgentProviderWeb
 	metadata["provider_message_id"] = input.ProviderMessageID
@@ -49,7 +63,7 @@ func (s *AgentConversationService) sendWebAgentTaskFinalReport(
 	metadata["wechat_msgid"] = delivery.SendResult.MessageID
 	metadata["invalid_user"] = delivery.SendResult.InvalidUser
 	metadata["send_count"] = delivery.SendCount
-	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
+	_, auditErr := s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
 		TurnID:    turn.ID,
 		UserID:    account.UserID,
@@ -61,7 +75,7 @@ func (s *AgentConversationService) sendWebAgentTaskFinalReport(
 		TraceID:   input.TraceID,
 		CreatedAt: s.now().UTC(),
 	})
-	return err
+	return errors.Join(err, deliveryErr, auditErr)
 }
 
 func (s *AgentConversationService) webAgentTaskWeChatReply(reply string, plan domain.AgentPlan) string {

@@ -437,6 +437,9 @@ func (e agentP0CapabilityExecutor) queryRecentItems(ctx context.Context, input a
 	}
 	items := filterAgentItems(result.Items, query)
 	observation.Status = "succeeded"
+	if len(items) == 0 {
+		observation.Status = "empty"
+	}
 	observation.Summary = fmt.Sprintf("loaded %d recent items with filters %s", len(items), formatItemQuerySummary(query))
 	return agent.CapabilityExecuteResult{
 		Blocks: []agent.ContextBlock{
@@ -493,6 +496,9 @@ func (e agentP0CapabilityExecutor) querySourceLatestItems(ctx context.Context, i
 	}
 	items := filterAgentItems(result.Items, query)
 	observation.Status = "succeeded"
+	if len(items) == 0 {
+		observation.Status = "empty"
+	}
 	observation.Summary = fmt.Sprintf("loaded %d latest items for source %s with filters %s", len(items), source.Name, formatItemQuerySummary(query))
 	return agent.CapabilityExecuteResult{
 		Blocks: []agent.ContextBlock{

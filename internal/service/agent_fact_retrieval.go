@@ -522,6 +522,11 @@ func relationExpansionRefs(hitsByRef map[string]domain.AgentFactRecallHit) []str
 
 func projectFactSource(source domain.AgentFactSource, hit domain.AgentFactRecallHit) domain.AgentFactProjection {
 	content := strings.TrimSpace(source.Content)
+	trustLevel := "source_fact"
+	if source.FactType == domain.AgentFactTypeArtifact && metadataString(source.Metadata, "content_status") == "missing" {
+		content = "[完整正文缺失；仅有独立摘要]\n" + strings.TrimSpace(source.Summary)
+		trustLevel = "summary_only"
+	}
 	if content == "" {
 		content = strings.TrimSpace(source.Summary)
 	}
@@ -538,7 +543,7 @@ func projectFactSource(source domain.AgentFactSource, hit domain.AgentFactRecall
 		SourceFact:    source,
 		Text:          projected,
 		TokenEstimate: estimateProjectionTokens(projected),
-		TrustLevel:    "source_fact",
+		TrustLevel:    trustLevel,
 		RiskLevel:     hit.Fact.RiskLevel,
 	}
 }

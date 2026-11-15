@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"sort"
 	"strconv"
@@ -11,15 +12,180 @@ import (
 	"time"
 
 	"messagefeed/internal/agent"
+	"messagefeed/internal/config"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/repository"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
+	databaseURL := strings.TrimSpace(os.Getenv("AGENT_RUNTIME_DATABASE_URL"))
+	if databaseURL == "" || os.Getenv("RUN_REAL_LLM_TESTS") != "1" {
+		test.Skip("设置 AGENT_RUNTIME_DATABASE_URL 与 RUN_REAL_LLM_TESTS=1 后执行真实数据库和模型验收")
+	}
+	userID, err := strconv.ParseInt(os.Getenv("AGENT_RUNTIME_USER_ID"), 10, 64)
+	if err != nil || userID <= 0 || os.Getenv("AGENT_RUNTIME_CONFIG_SECRET") == "" {
+		test.Fatal("必须提供真实用户编号和生产配置加密凭据")
+	}
+	database, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		test.Fatalf("连接真实数据库失败：%T", err)
+	}
+	connection, err := database.DB()
+	if err != nil {
+		test.Fatal(err)
+	}
+	defer connection.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	transaction := database.WithContext(ctx).Begin()
+	if transaction.Error != nil {
+		test.Fatalf("建立验收事务失败：%T", transaction.Error)
+	}
+	defer transaction.Rollback()
+	var sourceSchema string
+	if err := transaction.Raw("SELECT current_schema()").Scan(&sourceSchema).Error; err != nil {
+		test.Fatal(err)
+	}
+	var tables []string
+	if err := transaction.Raw("SELECT tablename FROM pg_tables WHERE schemaname = ?", sourceSchema).Scan(&tables).Error; err != nil {
+		test.Fatal(err)
+	}
+	schema := fmt.Sprintf("agent_acceptance_%d", time.Now().UnixNano())
+	if err := transaction.Exec("CREATE SCHEMA " + pgx.Identifier{schema}.Sanitize()).Error; err != nil {
+		test.Fatalf("建立隔离验收 schema 失败：%T", err)
+	}
+	for _, table := range tables {
+		statement := "CREATE TABLE " + pgx.Identifier{schema, table}.Sanitize() + " (LIKE " + pgx.Identifier{sourceSchema, table}.Sanitize() + " INCLUDING ALL)"
+		if err := transaction.Exec(statement).Error; err != nil {
+			test.Fatalf("建立真实数据库验收表失败：%T", err)
+		}
+	}
+	for _, table := range []string{"users", "agent_llm_provider_configs"} {
+		column := "user_id"
+		if table == "users" {
+			column = "id"
+		}
+		statement := "INSERT INTO " + pgx.Identifier{schema, table}.Sanitize() + " SELECT * FROM " + pgx.Identifier{sourceSchema, table}.Sanitize() + " WHERE " + column + " = ?"
+		if err := transaction.Exec(statement, userID).Error; err != nil {
+			test.Fatalf("复制验收用户和模型配置失败：%T", err)
+		}
+	}
+	if err := transaction.Exec("SET LOCAL search_path TO " + pgx.Identifier{schema}.Sanitize() + ", " + pgx.Identifier{sourceSchema}.Sanitize()).Error; err != nil {
+		test.Fatal(err)
+	}
+	for _, name := range []string{"000040_add_agent_artifact_content.up.sql", "000041_add_agent_turn_delivery.up.sql"} {
+		migration, err := os.ReadFile("../../migrations/" + name)
+		if err != nil {
+			test.Fatal(err)
+		}
+		if err := transaction.Exec(string(migration)).Error; err != nil {
+			test.Fatalf("在隔离 schema 应用迁移失败：%T", err)
+		}
+	}
+	store := repository.NewAgentRepository(transaction)
+	runtime := NewAgentLLMRuntime(store, WithAgentLLMRuntimeSecret(os.Getenv("AGENT_RUNTIME_CONFIG_SECRET")), WithAgentLLMRuntimeRunManager(agent.NewRunManager(agent.RunManagerOptions{Store: store})))
+	authService := NewAuthService(repository.NewAuthRepository(transaction), config.Defaults())
+	service := NewAgentConversationService(store, WithAgentConversationLLM(runtime), WithAgentConversationUserContextProvider(authService), WithAgentConversationInlineProcessing(true))
+	auth := CurrentAuth{Authenticated: true, User: domain.User{ID: userID}}
+	first, err := service.ReceiveWebAgentTask(ctx, auth, ReceiveWebAgentTaskInput{Message: "本次为上下文自动验收。我们约定的代号为 ABC。请仅回复这三个大写英文字母，不要附加解释。", Channel: "web"})
+	if err != nil || first.Turn.Status != "succeeded" || first.Reply != "ABC" || first.Plan.Status != "completed" {
+		test.Fatalf("普通回答验收失败：turn=%s，plan=%s，reply=%q，error=%v", first.Turn.Status, first.Plan.Status, first.Reply, err)
+	}
+	test.Log("普通回答与最终格式验收通过")
+	followup, err := service.ReceiveWebAgentTask(ctx, auth, ReceiveWebAgentTaskInput{SessionID: first.Session.ID, Message: "对于上一轮已完成任务，刚才约定的代号是什么？请回答其小写形式，仅回复三个小写英文字母，不要附加解释。", Channel: "web"})
+	if err != nil || followup.Turn.Status != "succeeded" || followup.Reply != "abc" || followup.Plan.ID != first.Plan.ID {
+		runs, _ := store.ListAgentRunsByTurn(ctx, userID, followup.Turn.ID)
+		for _, run := range runs {
+			detail, _ := store.GetAgentRunDetail(ctx, userID, run.ID)
+			for _, trace := range detail.ContextTraces {
+				if trace.TraceKind == "llm_response" {
+					test.Logf("追问模型阶段=%v，回答=%v，错误=%v", trace.Content["stage"], trace.Content["content"], trace.Content["error"])
+				}
+			}
+		}
+		var transcript []struct{ MetadataJSON string }
+		transaction.Raw("SELECT metadata_json FROM agent_transcript_entries WHERE turn_id = ? AND role = 'assistant'", followup.Turn.ID).Scan(&transcript)
+		test.Logf("追问验证结果：%v", transcript)
+		test.Fatalf("追问上下文与当前格式验收失败：turn=%s，reply=%q，error=%v", followup.Turn.Status, followup.Reply, err)
+	}
+	test.Log("追问原始上下文与当前格式验收通过")
+	third, err := service.ReceiveWebAgentTask(ctx, auth, ReceiveWebAgentTaskInput{SessionID: first.Session.ID, Message: "新建独立任务：必须调用 conversation.query_history 读取本会话中我们约定的代号，并将查到的代号转换为小写，最终仅回复三个小写英文字母。", Channel: "web"})
+	if err != nil || third.Turn.Status != "succeeded" || third.Reply != "abc" || third.Plan.ID == first.Plan.ID {
+		runs, _ := store.ListAgentRunsByTurn(ctx, userID, third.Turn.ID)
+		for _, run := range runs {
+			detail, _ := store.GetAgentRunDetail(ctx, userID, run.ID)
+			for _, trace := range detail.ContextTraces {
+				if trace.TraceKind == "llm_response" {
+					test.Logf("工具任务模型阶段=%v，回答=%v，错误=%v", trace.Content["stage"], trace.Content["content"], trace.Content["error"])
+				}
+			}
+			for _, artifact := range detail.Artifacts {
+				test.Logf("工具产物编号=%d，完整正文=%s", artifact.ID, artifact.Content)
+			}
+		}
+		test.Fatalf("真实工具与证据验收失败：turn=%s，plan=%s，reply=%q，error=%v", third.Turn.Status, third.Plan.Status, third.Reply, err)
+	}
+	stages := map[string]int{}
+	artifactCount := 0
+	historyToolCount := 0
+	for _, turnID := range []int64{first.Turn.ID, followup.Turn.ID, third.Turn.ID} {
+		runs, err := store.ListAgentRunsByTurn(ctx, userID, turnID)
+		if err != nil {
+			test.Fatal(err)
+		}
+		for _, run := range runs {
+			detail, err := store.GetAgentRunDetail(ctx, userID, run.ID)
+			if err != nil {
+				test.Fatal(err)
+			}
+			for _, artifact := range detail.Artifacts {
+				if artifact.Content == "" || artifact.ContentHash != agentAnswerContentHash(artifact.Content) {
+					test.Fatal("真实工具产物缺少完整正文或有效散列")
+				}
+				artifactCount++
+			}
+			for _, observation := range detail.Observations {
+				if observation.CapabilityKey == "conversation.query_history" && observation.Status == "succeeded" && run.Status == domain.AgentRunStatusSucceeded && len(detail.Artifacts) > 0 {
+					historyToolCount++
+				}
+			}
+			stage := metadataString(run.TaskPacket, "stage")
+			if stage == "" || run.Role != domain.AgentRunRoleExecutor {
+				continue
+			}
+			stages[stage]++
+			requestCount, responseCount := 0, 0
+			for _, trace := range detail.ContextTraces {
+				if trace.TraceKind == "llm_request" {
+					requestCount++
+					if metadataMap(trace.Content, "request") == nil || trace.ContentHash == "" || trace.PromptVersion == "" {
+						test.Fatal("实际模型请求缺少完整快照")
+					}
+				}
+				if trace.TraceKind == "llm_response" {
+					responseCount++
+					if metadataString(trace.Content, "response_id") == "" || metadataString(trace.Content, "protocol") == "" || metadataString(trace.Content, "finish_reason") == "" || trace.Content["usage"] == nil {
+						test.Fatalf("模型响应元数据缺失：stage=%s", stage)
+					}
+				}
+			}
+			if requestCount != 1 || responseCount != 1 || run.Status != domain.AgentRunStatusSucceeded {
+				test.Fatalf("实际模型调用与快照不一致：stage=%s，request=%d，response=%d，status=%s", stage, requestCount, responseCount, run.Status)
+			}
+		}
+	}
+	if stages["generation"] == 0 || stages["followup_answer"] == 0 || stages["evaluation"] == 0 || artifactCount == 0 || historyToolCount == 0 {
+		test.Fatalf("实际验收路径覆盖不足：stages=%v，artifacts=%d", stages, artifactCount)
+	}
+	test.Logf("真实数据库与默认模型验收通过：普通回答=%q，追问=%q，工具回答=%q，模型阶段=%v，完整产物=%d。", first.Reply, followup.Reply, third.Reply, stages, artifactCount)
+}
 
 func TestAgentConversationContextFromDatabase(test *testing.T) {
 	databaseURL := strings.TrimSpace(os.Getenv("AGENT_CONTEXT_DATABASE_URL"))
@@ -125,8 +291,14 @@ func TestAgentConversationContextFromDatabase(test *testing.T) {
 	}
 	for _, source := range evidence {
 		parsed, valid := agent.ParseCanonicalFactRef(source.CanonicalRef)
-		if !valid || parsed.FactType != string(domain.AgentFactTypeArtifact) || parsed.FactID != source.FactID || strings.TrimSpace(source.Summary) == "" || strings.TrimSpace(source.Content) == "" {
-			test.Fatal("artifact 证据缺少有效引用、摘要或正文")
+		if !valid || parsed.FactType != string(domain.AgentFactTypeArtifact) || parsed.FactID != source.FactID || strings.TrimSpace(source.Summary) == "" {
+			test.Fatal("artifact 证据缺少有效引用或独立摘要")
+		}
+		if source.Content == "" && (source.Metadata["content_status"] != "missing" || source.Metadata["content_missing_reason"] == "") {
+			test.Fatal("历史 artifact 未明确报告正文缺失")
+		}
+		if source.Content != "" && source.Metadata["content_status"] != "available" {
+			test.Fatal("完整正文未明确标记为可用")
 		}
 		if source.UserID != userID || source.SessionID != plan.SessionID || source.TurnID != plan.TurnID {
 			test.Fatal("artifact 证据的用户、会话或调用范围不正确")

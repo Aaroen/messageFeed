@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"messagefeed/internal/domain"
 	"strings"
 	"time"
@@ -60,6 +62,7 @@ type agentArtifactModel struct {
 	RunID        int64 `gorm:"not null"`
 	ArtifactType string
 	ContentRef   string
+	Content      string
 	Summary      string
 	SourceRefs   []string `gorm:"column:source_refs_json;serializer:json;type:jsonb;not null"`
 	ContentHash  string
@@ -158,7 +161,12 @@ func (r *AgentRepository) CreateAgentArtifact(ctx context.Context, artifact doma
 	var opErr error
 	defer func() { finish(opErr) }()
 
-	model := agentArtifactModelFromDomain(normalizeAgentArtifact(artifact))
+	artifact, err := normalizeAgentArtifact(artifact)
+	if err != nil {
+		opErr = err
+		return domain.AgentArtifact{}, err
+	}
+	model := agentArtifactModelFromDomain(artifact)
 	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
 		opErr = mapRepositoryError(err)
 		return domain.AgentArtifact{}, opErr
@@ -246,8 +254,13 @@ func (r *AgentRepository) GetAgentRunDetail(ctx context.Context, userID int64, r
 		opErr = mapRepositoryError(err)
 		return domain.AgentRun{}, opErr
 	}
-	for _, artifact := range artifactModels {
-		run.Artifacts = append(run.Artifacts, agentArtifactModelToDomain(artifact))
+	for _, model := range artifactModels {
+		artifact, err := normalizeAgentArtifact(agentArtifactModelToDomain(model))
+		if err != nil {
+			opErr = err
+			return domain.AgentRun{}, err
+		}
+		run.Artifacts = append(run.Artifacts, artifact)
 	}
 	return run, nil
 }
@@ -309,12 +322,20 @@ func normalizeAgentObservation(observation domain.AgentObservation) domain.Agent
 	return observation
 }
 
-func normalizeAgentArtifact(artifact domain.AgentArtifact) domain.AgentArtifact {
+func normalizeAgentArtifact(artifact domain.AgentArtifact) (domain.AgentArtifact, error) {
 	artifact.ArtifactType = strings.TrimSpace(artifact.ArtifactType)
 	artifact.ContentRef = strings.TrimSpace(artifact.ContentRef)
 	artifact.Summary = strings.TrimSpace(artifact.Summary)
 	artifact.ContentHash = strings.TrimSpace(artifact.ContentHash)
-	return artifact
+	if artifact.Content != "" {
+		digest := sha256.Sum256([]byte(artifact.Content))
+		contentHash := hex.EncodeToString(digest[:])
+		if artifact.ContentHash != "" && !strings.EqualFold(artifact.ContentHash, contentHash) {
+			return domain.AgentArtifact{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_artifact_content_hash_mismatch", "产物正文与校验值不一致。", "repository.agent_artifact.normalize", false, nil)
+		}
+		artifact.ContentHash = contentHash
+	}
+	return artifact, nil
 }
 
 func agentRunModelFromDomain(run domain.AgentRun) agentRunModel {
@@ -427,6 +448,7 @@ func agentArtifactModelFromDomain(artifact domain.AgentArtifact) agentArtifactMo
 		RunID:        artifact.RunID,
 		ArtifactType: artifact.ArtifactType,
 		ContentRef:   artifact.ContentRef,
+		Content:      artifact.Content,
 		Summary:      artifact.Summary,
 		SourceRefs:   cloneStringSlice(artifact.SourceRefs),
 		ContentHash:  artifact.ContentHash,
@@ -440,6 +462,7 @@ func agentArtifactModelToDomain(model agentArtifactModel) domain.AgentArtifact {
 		RunID:        model.RunID,
 		ArtifactType: model.ArtifactType,
 		ContentRef:   model.ContentRef,
+		Content:      model.Content,
 		Summary:      model.Summary,
 		SourceRefs:   cloneStringSlice(model.SourceRefs),
 		ContentHash:  model.ContentHash,

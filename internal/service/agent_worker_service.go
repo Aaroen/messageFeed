@@ -147,13 +147,20 @@ func (s *AgentConversationService) processClaimedAgentTurnUnlocked(ctx context.C
 	entry := s.userTranscriptForTurn(ctx, turn, inbound)
 	defer s.captureMemoryCandidateFromTranscriptAsync(ctx, entry)
 	if handled, handledResult, processErr := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, input); processErr != nil {
-		if failErr := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, processErr); failErr.Turn.ID > 0 {
-			turn = failErr.Turn
+		if handledResult.Turn.ID > 0 {
+			return s.failClaimedAgentTurn(ctx, repository, handledResult.Turn, processErr)
 		}
+		failedResult, finishErr := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, processErr)
+		if finishErr != nil {
+			return s.failClaimedAgentTurn(ctx, repository, turn, finishErr)
+		}
+		turn = failedResult.Turn
 	} else if handled {
 		turn = handledResult.Turn
 		if input.Provider == domain.AgentProviderWeb && handledResult.Turn.ID > 0 {
-			_ = s.sendWebAgentTaskFinalReport(ctx, account, inbound, session, handledResult.Turn, handledResult.Plan, handledResult.Reply, input)
+			if reportErr := s.sendWebAgentTaskFinalReport(ctx, account, inbound, session, handledResult.Turn, handledResult.Plan, handledResult.Reply, input); reportErr != nil {
+				return s.failClaimedAgentTurn(ctx, repository, turn, reportErr)
+			}
 		}
 	} else {
 		processed, processErr := s.processTurn(ctx, account, inbound, session, turn, input)
@@ -176,6 +183,17 @@ func (s *AgentConversationService) failClaimedAgentTurn(ctx context.Context, rep
 	if cause == nil {
 		cause = fmt.Errorf("agent worker failed")
 	}
+	current, err := repository.GetAgentTurn(ctx, turn.UserID, turn.ID)
+	if err != nil {
+		return err
+	}
+	if current.Status == domain.AgentTurnStatusSucceeded || current.Status == domain.AgentTurnStatusFailed {
+		if err := s.releaseClaimedAgentTurn(ctx, repository, current); err != nil {
+			return err
+		}
+		return cause
+	}
+	turn = current
 	now := s.now().UTC()
 	turn.Status = domain.AgentTurnStatusFailed
 	turn.ErrorMessage = cause.Error()

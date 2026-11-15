@@ -213,43 +213,21 @@ func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult
 	reply, provider, model, snapshot, err := r.generateReply(ctx, input)
 	if err != nil {
 		opErr = err
-		_ = r.markInbound(ctx, input, domain.AgentInboundMessageStatusFailed)
-		failed := r.failTurn(ctx, input, err)
+		failed := input.Turn
+		failed.Status = domain.AgentTurnStatusFailed
+		failed.ErrorMessage = err.Error()
 		return TurnRunResult{Turn: failed, Context: snapshot}, err
 	}
-
-	_, _ = r.store.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
-		SessionID: input.Session.ID,
-		TurnID:    input.Turn.ID,
-		UserID:    input.UserID,
-		Role:      domain.AgentTranscriptRoleAssistant,
-		Content:   reply,
-		Metadata: domain.AgentJSON{
-			"model_provider": provider,
-			"model":          model,
-			"observations":   ObservationMetadata(snapshot.Observations),
-		},
-		CreatedAt: r.now().UTC(),
-	})
-
-	finishedAt := r.now().UTC()
 	turn := input.Turn
-	turn.Status = domain.AgentTurnStatusSucceeded
 	turn.OutputText = reply
 	turn.ModelProvider = provider
 	turn.Model = model
-	turn.FinishedAt = &finishedAt
-	turn, err = r.store.UpdateTurn(ctx, turn)
-	if err != nil {
-		opErr = err
-		return TurnRunResult{}, err
-	}
 	r.record(ctx, AuditEvent{
 		SessionID: input.Session.ID,
 		TurnID:    turn.ID,
 		UserID:    input.UserID,
 		EventType: "agent.turn_generated",
-		Status:    "succeeded",
+		Status:    "generated",
 		Message:   "agent turn reply generated",
 		Metadata: domain.AgentJSON{
 			"model_provider": provider,
@@ -258,7 +236,7 @@ func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult
 		},
 		RequestID: input.RequestID,
 		TraceID:   input.TraceID,
-		CreatedAt: finishedAt,
+		CreatedAt: r.now().UTC(),
 	})
 
 	span.SetAttributes(
@@ -302,6 +280,13 @@ func (r *TurnRunner) generateReply(ctx context.Context, input TurnRunInput) (str
 		if err != nil {
 			return "", "", "", snapshot, err
 		}
+	}
+	for index, observation := range snapshot.Observations {
+		outcome, err := ToolOutcomeForStatus(observation.Status)
+		if err != nil {
+			return "", "", "", snapshot, fmt.Errorf("%s: %w", observation.Capability, err)
+		}
+		snapshot.Observations[index].Status = outcome.Status
 	}
 	if r.llmClient == nil {
 		return "", "", "", snapshot, domain.NewAppError(domain.ErrorKindUnavailable, "agent_llm_client_unavailable", "agent llm client is unavailable", "agent.turn_runner.generate", true, nil)
@@ -393,10 +378,8 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 		})
 		for _, call := range response.ToolCalls {
 			toolInteractionObserved = true
-			result, err := r.executeToolCall(ctx, input, call)
-			if err != nil {
-				return llm.ChatResponse{}, snapshot, messages, err
-			}
+			result, callErr := r.executeToolCall(ctx, input, call)
+			result, executionErr := NormalizeToolResult(result, callErr)
 			observation := result.Observation
 			if observation.Capability == "" {
 				observation.Capability = capabilityKeyForToolName(call.Name)
@@ -404,14 +387,19 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 			if observation.Decision == "" {
 				observation.Decision = string(PolicyDecisionAllow)
 			}
-			if observation.Status == "" {
-				observation.Status = "succeeded"
-			}
 			snapshot.Observations = append(snapshot.Observations, observation)
+			if executionErr != nil {
+				return llm.ChatResponse{}, snapshot, messages, executionErr
+			}
+			outcome, err := ToolOutcomeForStatus(observation.Status)
+			if err != nil {
+				return llm.ChatResponse{}, snapshot, messages, err
+			}
 			content := strings.TrimSpace(result.TextContent())
 			if content == "" {
 				content = emptyMCPToolResultPrompt()
 			}
+			content = fmt.Sprintf("工具结果状态：%s\n可用事实证据：%t\n%s", outcome.Status, outcome.EvidenceUsable, content)
 			messages = append(messages, llm.ChatMessage{
 				Role:       "tool",
 				ToolCallID: call.ID,
@@ -1295,41 +1283,6 @@ func dedupeFallbackEvidenceItems(items []fallbackEvidenceItem) []fallbackEvidenc
 		deduped = append(deduped, item)
 	}
 	return deduped
-}
-
-func (r *TurnRunner) failTurn(ctx context.Context, input TurnRunInput, cause error) domain.AgentTurn {
-	now := r.now().UTC()
-	turn := input.Turn
-	turn.Status = domain.AgentTurnStatusFailed
-	turn.ErrorMessage = cause.Error()
-	turn.FinishedAt = &now
-	if turn.ID > 0 && r.store != nil {
-		updated, err := r.store.UpdateTurn(ctx, turn)
-		if err == nil {
-			turn = updated
-		}
-	}
-	r.record(ctx, AuditEvent{
-		SessionID: input.Session.ID,
-		TurnID:    turn.ID,
-		UserID:    input.UserID,
-		EventType: "agent.turn_failed",
-		Status:    "failed",
-		Message:   cause.Error(),
-		Metadata:  domain.AgentJSON{"provider_message_id": input.InboundMessage.ProviderMessageID},
-		RequestID: input.RequestID,
-		TraceID:   input.TraceID,
-		CreatedAt: now,
-	})
-	return turn
-}
-
-func (r *TurnRunner) markInbound(ctx context.Context, input TurnRunInput, status domain.AgentInboundMessageStatus) error {
-	if r.store == nil || input.InboundMessage.ID == 0 {
-		return nil
-	}
-	_, err := r.store.UpdateInboundMessageStatus(ctx, input.UserID, input.InboundMessage.ID, status, r.now().UTC())
-	return err
 }
 
 func (r *TurnRunner) record(ctx context.Context, event AuditEvent) {

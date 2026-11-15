@@ -16,6 +16,7 @@ func agentFollowupIntentSystemPrompt() string {
 		"如果用户在发起一个独立的新目标，intent 必须为 new_task。",
 		"如果用户要求终止或取消当前活动计划，intent 为 stop。",
 		"如果用户是在询问已有计划的结果、依据、进度或失败原因，intent 为 followup_question。",
+		"用户要求复述、缩写、翻译或调整已有回答的输出格式时，仍属于 followup_question；已有计划可以已经完成。",
 		"如果用户要求重试失败计划，intent 为 retry。",
 		"如果用户只是想修改当前活动计划的约束，intent 为 append_constraints；后端会把旧活动计划终止并让当前消息重新规划。",
 		"如果用户明确要求基于已有结果继续派生一个新任务，intent 为 derive_task。",

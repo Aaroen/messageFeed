@@ -104,6 +104,8 @@ export interface AgentTurn {
   input_text: string
   output_text: string
   error_message: string
+  delivery_status?: string
+  delivery_error?: string
   started_at: string
   finished_at?: string
   created_at: string

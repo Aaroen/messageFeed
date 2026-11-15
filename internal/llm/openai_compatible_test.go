@@ -108,7 +108,7 @@ func TestOpenAICompatibleClientOmitsTokenLimitWhenUnset(t *testing.T) {
 	}
 }
 
-func TestOpenAICompatibleClientFallsBackWhenResponsesIncomplete(t *testing.T) {
+func TestOpenAICompatibleClientPreservesIncompleteResponsesWithoutProtocolFallback(t *testing.T) {
 	paths := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
@@ -143,13 +143,13 @@ func TestOpenAICompatibleClientFallsBackWhenResponsesIncomplete(t *testing.T) {
 	response, err := client.Chat(context.Background(), ChatRequest{
 		Messages: []ChatMessage{{Role: "user", Content: "生成较长报告"}},
 	})
-	if err != nil {
-		t.Fatalf("Chat() error = %v", err)
+	if err == nil {
+		t.Fatal("Chat() 接受了未完成响应")
 	}
-	if response.Content != "chat fallback ok" {
-		t.Fatalf("content = %q, want chat fallback ok", response.Content)
+	if response.Content != "partial" || response.Protocol != "responses" || response.FinishReason != "incomplete" || response.IncompleteReason != "max_output_tokens" {
+		t.Fatalf("response = %#v", response)
 	}
-	want := []string{"/responses", "/chat/completions"}
+	want := []string{"/responses"}
 	if len(paths) != len(want) {
 		t.Fatalf("paths = %#v, want %#v", paths, want)
 	}
@@ -157,6 +157,54 @@ func TestOpenAICompatibleClientFallsBackWhenResponsesIncomplete(t *testing.T) {
 		if paths[i] != want[i] {
 			t.Fatalf("paths = %#v, want %#v", paths, want)
 		}
+	}
+}
+
+func TestChatResponseFromChatCompletionPreservesMetadata(t *testing.T) {
+	var decoded chatCompletionResponse
+	if err := json.Unmarshal([]byte(`{"id":"chatcmpl-metadata","model":"actual-model","choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"完整回答"}}],"usage":{"prompt_tokens":80,"completion_tokens":20,"total_tokens":100,"completion_tokens_details":{"reasoning_tokens":12}}}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	response, err := chatResponseFromChatCompletion(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.ResponseID != "chatcmpl-metadata" || response.Protocol != "chat_completions" || response.Model != "actual-model" || response.FinishReason != "stop" || response.Content != "完整回答" {
+		t.Fatalf("response = %#v", response)
+	}
+	if response.Usage == nil || *response.Usage != (TokenUsage{InputTokens: 80, OutputTokens: 20, TotalTokens: 100, ReasoningTokens: 12}) {
+		t.Fatalf("usage = %#v", response.Usage)
+	}
+}
+
+func TestChatResponseFromResponsesPreservesMetadata(t *testing.T) {
+	var decoded responsesResponse
+	if err := json.Unmarshal([]byte(`{"id":"resp-metadata","model":"actual-model","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"完整回答"}]}],"usage":{"input_tokens":80,"output_tokens":20,"total_tokens":100,"output_tokens_details":{"reasoning_tokens":12}}}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	response, err := chatResponseFromResponses(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.ResponseID != "resp-metadata" || response.Protocol != "responses" || response.Model != "actual-model" || response.FinishReason != "completed" || response.Content != "完整回答" {
+		t.Fatalf("response = %#v", response)
+	}
+	if response.Usage == nil || *response.Usage != (TokenUsage{InputTokens: 80, OutputTokens: 20, TotalTokens: 100, ReasoningTokens: 12}) {
+		t.Fatalf("usage = %#v", response.Usage)
+	}
+}
+
+func TestChatResponseFromChatCompletionRejectsTruncation(t *testing.T) {
+	var decoded chatCompletionResponse
+	if err := json.Unmarshal([]byte(`{"id":"chatcmpl-truncated","model":"actual-model","choices":[{"finish_reason":"length","message":{"role":"assistant","content":"S"}}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11}}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	response, err := chatResponseFromChatCompletion(decoded)
+	if err == nil || shouldTryNextLLMProtocol(err) {
+		t.Fatalf("截断响应必须直接返回错误，error = %v", err)
+	}
+	if response.ResponseID != "chatcmpl-truncated" || response.Content != "S" || response.FinishReason != "length" || response.IncompleteReason != "length" || response.Usage == nil || response.Usage.TotalTokens != 11 {
+		t.Fatalf("response = %#v", response)
 	}
 }
 

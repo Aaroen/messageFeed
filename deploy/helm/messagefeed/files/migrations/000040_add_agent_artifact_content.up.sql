@@ -1,0 +1,2 @@
+ALTER TABLE agent_artifacts
+    ADD COLUMN IF NOT EXISTS content TEXT NOT NULL DEFAULT '';

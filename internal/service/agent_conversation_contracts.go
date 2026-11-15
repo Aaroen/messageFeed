@@ -42,6 +42,8 @@ type AgentConversationTurnStore interface {
 	CreateTurn(ctx context.Context, turn domain.AgentTurn) (domain.AgentTurn, error)
 	UpdateTurn(ctx context.Context, turn domain.AgentTurn) (domain.AgentTurn, error)
 	AppendTranscriptEntry(ctx context.Context, entry domain.AgentTranscriptEntry) (domain.AgentTranscriptEntry, error)
+	CommitAgentTurnResult(ctx context.Context, completion domain.AgentTurnCompletion) (domain.AgentTurnCompletionResult, error)
+	UpdateAgentTurnDelivery(ctx context.Context, userID int64, turnID int64, status string, errorMessage string, now time.Time) (domain.AgentTurn, error)
 }
 
 type AgentTurnWorkerRepository interface {
@@ -181,6 +183,8 @@ type AgentTurnResponse struct {
 	InputText        string `json:"input_text"`
 	OutputText       string `json:"output_text"`
 	ErrorMessage     string `json:"error_message"`
+	DeliveryStatus   string `json:"delivery_status"`
+	DeliveryError    string `json:"delivery_error"`
 	StartedAt        string `json:"started_at"`
 	FinishedAt       string `json:"finished_at,omitempty"`
 	CreatedAt        string `json:"created_at"`

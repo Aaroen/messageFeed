@@ -151,7 +151,7 @@ func (m *RunManager) RecordArtifact(ctx context.Context, artifact domain.AgentAr
 		artifact.SourceRefs = []string{}
 	}
 	if artifact.ContentHash == "" {
-		artifact.ContentHash = textHash(artifact.ContentRef + "\n" + artifact.Summary)
+		artifact.ContentHash = textHash(artifact.Content)
 	}
 	return m.store.CreateAgentArtifact(ctx, artifact)
 }

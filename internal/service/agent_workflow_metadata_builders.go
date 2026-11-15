@@ -206,84 +206,10 @@ func buildAgentScheduledTaskRecoveryMetadata(task domain.AgentScheduledTask, rea
 	}
 }
 
-func buildAgentResultQualityMetadata(plan domain.AgentPlan, now time.Time) domain.AgentJSON {
-	totalSteps := len(plan.Steps)
-	completedSteps := 0
-	failedSteps := 0
-	outputSteps := 0
-	for _, step := range plan.Steps {
-		switch step.Status {
-		case domain.AgentPlanStepStatusCompleted:
-			completedSteps++
-		case domain.AgentPlanStepStatusFailed:
-			failedSteps++
-		}
-		if strings.TrimSpace(step.OutputSummary) != "" {
-			outputSteps++
-		}
-	}
-	refs := planEvidenceRefs(plan)
-	evidenceCompleteness := agentQualityRatio(len(refs), maxAgentInt(1, totalSteps))
-	goalCoverage := agentQualityRatio(completedSteps, maxAgentInt(1, totalSteps))
-	readability := agentQualityRatio(outputSteps+boolAgentInt(strings.TrimSpace(plan.Summary) != ""), maxAgentInt(1, totalSteps+1))
-	riskNotice := 1.0
-	if strings.TrimSpace(plan.RiskLevel) == "" && strings.TrimSpace(plan.PolicyReason) == "" {
-		riskNotice = 0.5
-	}
-	freshness := agentQualityFreshness(plan, now)
-	score := (evidenceCompleteness + freshness + goalCoverage + riskNotice + readability) / 5
-	if failedSteps > 0 {
-		score = score * 0.75
-	}
-	return domain.AgentJSON{
-		"score":                 roundAgentQualityScore(score),
-		"status":                agentQualityStatus(score),
-		"evidence_completeness": roundAgentQualityScore(evidenceCompleteness),
-		"freshness":             roundAgentQualityScore(freshness),
-		"goal_coverage":         roundAgentQualityScore(goalCoverage),
-		"risk_notice":           roundAgentQualityScore(riskNotice),
-		"readability":           roundAgentQualityScore(readability),
-		"total_steps":           totalSteps,
-		"completed_steps":       completedSteps,
-		"failed_steps":          failedSteps,
-		"evidence_refs":         refs,
-		"summary":               agentResultQualitySummary(score, len(refs), failedSteps),
-		"recorded_at":           now.UTC().Format(time.RFC3339),
-	}
-}
-
-func buildAgentDeploymentAcceptanceMetadata(plan domain.AgentPlan, now time.Time) domain.AgentJSON {
-	checks := []domain.AgentJSON{
-		agentDeploymentCheck("web_entry", "ready", "Web task endpoint and plan progress view are available"),
-		agentDeploymentCheck("wechat_entry", "ready", "WeChat Work message entry can create agent turns"),
-		agentDeploymentCheck("scheduled_worker", "ready", "scheduled task worker can claim queued tasks"),
-		agentDeploymentCheck("recovery_control", "ready", "plan and scheduled task recovery controls are exposed"),
-		agentDeploymentCheck("eval_ready", "ready", "builtin eval cases include safety and workflow governance"),
-		agentDeploymentCheck("healthz", "ready", "runtime status endpoint reports node health"),
-		agentDeploymentCheck("migrations", "ready", "agent plan, schedule, retry and notification migrations are required before deployment"),
-		agentDeploymentCheck("worker_claim_idempotency", "ready", "scheduled worker claim uses repository level locking semantics"),
-		agentDeploymentCheck("task_recovery_consistency", "ready", "plan and scheduled task recovery records strategy metadata"),
-		agentDeploymentCheck("throttle_consistency", "ready", "web, wechat and scheduled worker use shared admission policy"),
-		agentDeploymentCheck("quota_consistency", "ready", "web, wechat and scheduled worker share daily quota admission checks"),
-		agentDeploymentCheck("notification_idempotency", "ready", "notification send results are recorded in audit logs"),
-		agentDeploymentCheck("node_mode_consistency", "ready", "single node and cluster modes are represented in runtime status"),
-		agentDeploymentCheck("migration_readiness", "ready", "agent policy, quota and capability migrations are declared"),
-		agentDeploymentCheck("healthz_readiness", "ready", "runtime health endpoint is part of deployment verification"),
-	}
-	return domain.AgentJSON{
-		"status":  "ready",
-		"plan_id": plan.ID,
-		"checks":  checks,
-		"multi_node_consistency": domain.AgentJSON{
-			"worker_claim":        "repository_claim_due_tasks",
-			"recovery_control":    "metadata_audit_recorded",
-			"throttle_policy":     "shared_user_policy",
-			"notification_dedupe": "audit_send_result",
-			"deployment_modes":    []string{"single_node", "cluster"},
-		},
-		"summary":     fmt.Sprintf("%d deployment acceptance checks ready", len(checks)),
-		"recorded_at": now.UTC().Format(time.RFC3339),
-	}
+func buildAgentExecutionCompletenessMetadata(plan domain.AgentPlan, now time.Time) domain.AgentJSON {
+	metadata := agentAnswerExecutionCompleteness(plan)
+	metadata["recorded_at"] = now.UTC().Format(time.RFC3339)
+	return metadata
 }
 
 func buildAgentCostSummaryMetadata(plan domain.AgentPlan, relatedTasks []domain.AgentScheduledTask, notificationCount int, now time.Time) domain.AgentJSON {
@@ -331,8 +257,4 @@ func agentTextTokenEstimate(text string) int {
 		return 0
 	}
 	return (runes + 3) / 4
-}
-
-func agentDeploymentCheck(key string, status string, summary string) domain.AgentJSON {
-	return domain.AgentJSON{"key": key, "status": status, "summary": summary}
 }

@@ -92,6 +92,7 @@ type AgentArtifact struct {
 	RunID        int64
 	ArtifactType string
 	ContentRef   string
+	Content      string
 	Summary      string
 	SourceRefs   []string
 	ContentHash  string

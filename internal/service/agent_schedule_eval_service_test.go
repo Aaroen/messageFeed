@@ -2,11 +2,20 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"errors"
+	"fmt"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/repository"
 	"strings"
 	"testing"
 	"time"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestAgentScheduleEvalServiceCreateScheduledTask(t *testing.T) {
@@ -591,9 +600,14 @@ func TestAgentRunRecordingExecutorSuccessWritesEvidenceRefs(t *testing.T) {
 	runManager := agent.NewRunManager(agent.RunManagerOptions{Store: store, Now: func() time.Time { return now }})
 	executor := agentRunRecordingExecutor{runManager: runManager}
 
-	observation := executor.recordExecutorSuccess(context.Background(), domain.AgentRun{ID: 5, TurnID: 3}, "web.search", "query", agent.CapabilityObservation{
+	output := strings.Repeat("完整工具正文", 300)
+	observation, err := executor.recordExecutorResult(context.Background(), domain.AgentRun{ID: 5, TurnID: 3}, "web.search", "query", agent.CapabilityObservation{
+		Status:  "succeeded",
 		Summary: "found result",
-	}, "output content", 1)
+	}, output, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if len(store.artifacts) != 1 || !containsAgentString(store.artifacts[0].SourceRefs, "capability:web.search") || !containsAgentString(store.artifacts[0].SourceRefs, "agent_run:5") {
 		t.Fatalf("artifact refs = %#v", store.artifacts)
@@ -604,6 +618,12 @@ func TestAgentRunRecordingExecutorSuccessWritesEvidenceRefs(t *testing.T) {
 	if observation.ObservationRef != "agent_observations/1" || !containsAgentString(observation.ArtifactRefs, "agent_observation:1") || !containsAgentString(observation.ArtifactRefs, "agent_turn:3") {
 		t.Fatalf("observation = %#v", observation)
 	}
+	if store.artifacts[0].Content != output || store.artifacts[0].Summary != safeSummary(output, 1000) || store.artifacts[0].ContentHash != fmt.Sprintf("%x", sha256.Sum256([]byte(output))) {
+		t.Fatalf("完整正文、摘要或散列不符合约定: %#v", store.artifacts[0])
+	}
+	if len(store.runs) != 1 || store.runs[0].Status != domain.AgentRunStatusSucceeded {
+		t.Fatalf("执行状态不符合约定: %#v", store.runs)
+	}
 }
 
 func TestAgentRunRecordingExecutorFailureWritesEvidenceRefs(t *testing.T) {
@@ -612,13 +632,115 @@ func TestAgentRunRecordingExecutorFailureWritesEvidenceRefs(t *testing.T) {
 	runManager := agent.NewRunManager(agent.RunManagerOptions{Store: store, Now: func() time.Time { return now }})
 	executor := agentRunRecordingExecutor{runManager: runManager}
 
-	observation := executor.recordExecutorFailure(context.Background(), domain.AgentRun{ID: 5, TurnID: 3}, "local.history.search", "query", domain.ErrInvalidInput)
+	diagnostic := strings.Repeat("工具连接错误完整诊断", 200)
+	observation, err := executor.recordExecutorResult(context.Background(), domain.AgentRun{ID: 5, TurnID: 3}, "local.history.search", "query", agent.CapabilityObservation{
+		Status:  "failed",
+		Summary: domain.ErrInvalidInput.Error(),
+	}, diagnostic, domain.ErrInvalidInput)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if len(store.observations) != 1 || !containsAgentString(store.observations[0].ArtifactRefs, "capability:local.history.search") || !containsAgentString(store.observations[0].ArtifactRefs, "agent_run:5") {
 		t.Fatalf("stored observations = %#v", store.observations)
 	}
 	if observation.ObservationRef != "agent_observations/1" || !containsAgentString(observation.ArtifactRefs, "agent_observation:1") {
 		t.Fatalf("observation = %#v", observation)
+	}
+	if len(store.runs) != 1 || store.runs[0].Status != domain.AgentRunStatusFailed || store.observations[0].Error != domain.ErrInvalidInput.Error() {
+		t.Fatalf("执行失败记录不符合约定: %#v", store.runs)
+	}
+	if len(store.artifacts) != 0 || len(store.traces) != 1 || store.traces[0].Content["diagnostic_output"] != diagnostic {
+		t.Fatalf("失败诊断应当完整保存于trace: %#v", store.traces)
+	}
+}
+
+func TestAgentRunRecordingExecutorPropagatesStorageErrors(t *testing.T) {
+	connection, err := sql.Open("pgx", "postgres://localhost/messagefeed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	closedErr := connection.PingContext(context.Background())
+	if closedErr == nil {
+		t.Fatal("关闭连接之后应当返回错误")
+	}
+	database, err := gorm.Open(postgres.New(postgres.Config{Conn: connection}), &gorm.Config{
+		DisableAutomaticPing: true,
+		Logger:               logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := repository.NewAgentRepository(database)
+	executor := agentRunRecordingExecutor{
+		base:       agentP0CapabilityExecutor{repository: store},
+		runManager: agent.NewRunManager(agent.RunManagerOptions{Store: store}),
+	}
+	ctx := context.Background()
+	run := domain.AgentRun{ID: 5, TurnID: 3}
+	testCases := []struct {
+		name    string
+		execute func() error
+	}{
+		{"创建执行记录", func() error {
+			_, err := executor.CallTool(ctx, agent.MCPCallToolInput{ControllerRunID: 1, Capability: agent.Capability{Key: "content.summarize_text"}})
+			return err
+		}},
+		{"记录完整正文", func() error {
+			_, err := executor.recordExecutorResult(ctx, run, "web.search", "query", agent.CapabilityObservation{Status: "succeeded"}, "完整正文", nil)
+			return err
+		}},
+		{"记录观察结果", func() error {
+			_, err := executor.recordExecutorResult(ctx, run, "web.search", "query", agent.CapabilityObservation{Status: "empty"}, "", nil)
+			return err
+		}},
+		{"记录执行事件", func() error {
+			return executor.recordToolTraceEvent(ctx, agentToolTraceEventInput{Run: run, Status: "failed", StartedAt: time.Now()})
+		}},
+		{"提交执行状态", func() error {
+			_, err := executor.runManager.FinishToolRun(ctx, run, "rejected", "", "证据被拒绝")
+			return err
+		}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if err := testCase.execute(); !errors.Is(err, closedErr) {
+				t.Fatalf("仓储错误未向上传递: %v", err)
+			}
+		})
+	}
+}
+
+func TestAgentRunRecordingExecutorNormalizesRealToolResults(t *testing.T) {
+	executor := agentRunRecordingExecutor{base: agentP0CapabilityExecutor{}}
+	testCases := []struct {
+		capability string
+		arguments  string
+		status     string
+		isError    bool
+	}{
+		{"unregistered.tool", `{}`, "rejected", true},
+		{"conversation.query_history", `{}`, "rejected", true},
+		{"web.fetch_page", `{}`, "failed", true},
+		{"feed.query_recent_items", `{}`, "skipped", false},
+		{"content.summarize_text", `{"text":"有效工具正文"}`, "succeeded", false},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.capability, func(t *testing.T) {
+			result, err := executor.CallTool(context.Background(), agent.MCPCallToolInput{
+				Capability:   agent.Capability{Key: testCase.capability},
+				RawArguments: testCase.arguments,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Observation.Status != testCase.status || result.Result.IsError != testCase.isError {
+				t.Fatalf("真实工具结果未统一: %#v", result)
+			}
+		})
 	}
 }
 

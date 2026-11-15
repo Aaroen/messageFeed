@@ -259,6 +259,8 @@ func agentTurnResponse(turn domain.AgentTurn) AgentTurnResponse {
 		InputText:        turn.InputText,
 		OutputText:       turn.OutputText,
 		ErrorMessage:     turn.ErrorMessage,
+		DeliveryStatus:   turn.DeliveryStatus,
+		DeliveryError:    turn.DeliveryError,
 		StartedAt:        formatOptionalTime(&turn.StartedAt),
 		FinishedAt:       formatOptionalTime(turn.FinishedAt),
 		CreatedAt:        formatOptionalTime(&turn.CreatedAt),

@@ -2,11 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
-	"messagefeed/internal/metrics"
-	"messagefeed/internal/notifier"
 	"messagefeed/internal/observability"
 	"strings"
 	"time"
@@ -78,22 +77,19 @@ func (s *AgentConversationService) processTurn(
 
 	if s.turnRunner == nil {
 		opErr = domain.NewAppError(domain.ErrorKindUnavailable, "agent_runner_unavailable", "agent turn runner is unavailable", "service.agent.process_turn", true, nil)
-		result := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, opErr)
-		return result, nil
+		return s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, opErr)
 	}
 	controllerRun, err := s.createControllerRun(ctx, account, inbound, session, turn, input)
 	if err != nil {
 		opErr = err
-		result := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, err)
-		return result, nil
+		return s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, err)
 	}
 	processRunID = controllerRun.ID
 	plan, approvalToken, err := s.createPlanForTurn(ctx, account, session, turn, controllerRun, input)
 	if err != nil {
 		opErr = err
 		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
-		result := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, plan, err)
-		return result, nil
+		return s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, plan, err)
 	}
 	processPlanID = plan.ID
 	s.bindAgentProcessPlan(turn.ID, plan.ID)
@@ -116,7 +112,7 @@ func (s *AgentConversationService) processTurn(
 		})
 		_, _ = s.runManager.CompleteRun(ctx, controllerRun, "plan_rejected_by_capability_policy")
 		processStatus = domain.AgentTraceEventSucceeded
-		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "rejected")
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, plan, reply, nil, "rejected")
 		result.Plan = plan
 		return result, err
 	}
@@ -144,7 +140,7 @@ func (s *AgentConversationService) processTurn(
 		})
 		_, _ = s.runManager.CompleteRun(ctx, controllerRun, "plan_approval")
 		processStatus = domain.AgentTraceEventSucceeded
-		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, reply, nil, "awaiting_approval")
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, plan, reply, nil, "awaiting_approval")
 		result.Plan = plan
 		return result, err
 	}
@@ -154,6 +150,7 @@ func (s *AgentConversationService) processTurn(
 	if !planAllowsConversationHistory(plan) {
 		historyQueryPlan = agent.PlanHistoryQueryPlan{}
 	}
+	ctx = WithAgentLLMCallContext(ctx, AgentLLMCallContext{UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID, ParentRunID: controllerRun.ID, Stage: AgentLLMCallStageGeneration})
 	runResult, err := s.turnRunner.Run(ctx, agent.TurnRunInput{
 		UserID:           account.UserID,
 		Session:          session,
@@ -174,21 +171,15 @@ func (s *AgentConversationService) processTurn(
 			return s.finishStoppedAgentProcess(ctx, account, inbound, session, turn, plan), nil
 		}
 		s.recordControllerTrace(ctx, controllerRun, runResult, "controller_error")
-		if markedPlan, markErr := s.markInterruptedPlanSteps(ctx, account.UserID, plan, runResult.Context.Observations, err); markErr == nil && markedPlan.ID > 0 {
+		markedPlan, markErr := s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
+		if markErr != nil {
+			err = errors.Join(err, markErr)
+		} else {
 			plan = markedPlan
 		}
-		failedPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, s.now().UTC(), err.Error())
-		if failedPlan.ID > 0 {
-			plan = s.applyAgentPlanTerminalMetadata(ctx, account.UserID, failedPlan)
-		}
-		if !s.processInline {
-			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "failed", "failed")
-		}
-		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
 		opErr = err
-		result := s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, plan, err)
-		result.Plan = plan
-		return result, nil
+		stopPeriodicProgress()
+		return s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, plan, err)
 	}
 	if activeProcess.stoppedByUser() {
 		return s.finishStoppedAgentProcess(ctx, account, inbound, session, turn, plan), nil
@@ -196,18 +187,9 @@ func (s *AgentConversationService) processTurn(
 	s.recordControllerTrace(ctx, controllerRun, runResult, "controller_output")
 	updatedPlan, err := s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
 	if err != nil {
-		failedPlan, _ := s.repository.UpdateAgentPlanStatus(ctx, account.UserID, plan.ID, domain.AgentPlanStatusFailed, s.now().UTC(), err.Error())
-		if failedPlan.ID > 0 {
-			plan = s.applyAgentPlanTerminalMetadata(ctx, account.UserID, failedPlan)
-		}
-		if !s.processInline {
-			s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "failed", "failed")
-		}
-		_, _ = s.runManager.FailRun(ctx, controllerRun, err)
 		opErr = err
-		result := s.sendTurnFailureFeedback(ctx, account, inbound, session, turn, runResult.Turn, input, plan, err)
-		result.Plan = plan
-		return result, nil
+		stopPeriodicProgress()
+		return s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, plan, err)
 	}
 	if updatedPlan.ID > 0 {
 		plan = updatedPlan
@@ -217,12 +199,7 @@ func (s *AgentConversationService) processTurn(
 	} else if !s.processInline && len(runResult.Context.Observations) > 0 {
 		s.sendPlanProgressNotification(ctx, account, session, turn, input, plan, "subagent_stage_completed", "subagent_stage_completed")
 	}
-	_, _ = s.runManager.CompleteRun(ctx, controllerRun, "turn_output")
-	reply := runResult.Reply
-	if !s.processInline {
-		reply = s.agentTurnCompletionReply(ctx, plan, reply)
-	}
-	reply = sanitizeAgentReportText(reply)
+	reply := sanitizeAgentReportText(runResult.Reply)
 	observations := runResult.Context.Observations
 	turn = runResult.Turn
 	span.SetAttributes(
@@ -232,96 +209,13 @@ func (s *AgentConversationService) processTurn(
 		attribute.Int("agent.observation_count", len(observations)),
 	)
 
-	sendResult := notifier.WeChatWorkSendResult{}
-	sendCount := 0
-	finalDelivery := agentWeChatFinalReportDeliveryResult{}
-	if s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, "final") {
-		finalDelivery, err = s.sendWeChatWorkFinalReportDelivery(ctx, input.ExternalUserID, plan, reply, string(plan.Status))
-		sendResult = finalDelivery.SendResult
-		sendCount = finalDelivery.SendCount
-		if err != nil {
-			opErr = err
-			s.recordAgentNotificationTraceEvent(ctx, input, account, session, turn, plan, "final_report_delivery", domain.AgentTraceEventFailed, sendCount, err, agentWeChatFinalReportMetadata(finalDelivery))
-			metrics.AgentReplyBytes.WithLabelValues(input.Provider, "failed").Observe(float64(len([]byte(reply))))
-			metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "failed").Add(float64(sendCount))
-			_, _ = s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusFailed, s.now().UTC())
-			_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
-				SessionID: session.ID,
-				TurnID:    turn.ID,
-				UserID:    account.UserID,
-				EventType: "wechat_work.reply_failed",
-				Status:    "failed",
-				Message:   err.Error(),
-				Metadata: domain.AgentJSON{
-					"provider_message_id": input.ProviderMessageID,
-					"send_count":          sendCount,
-					"message_type":        finalDelivery.DeliveryMode,
-					"template_status":     finalDelivery.TemplateStatus,
-					"text_status":         finalDelivery.TextStatus,
-					"template_error":      finalDelivery.TemplateError,
-					"text_error":          finalDelivery.TextError,
-					"progress_url":        finalDelivery.ProgressURL,
-					"reply_bytes":         finalDelivery.ReplyBytes,
-					"text_chunks":         finalDelivery.TextChunkCount,
-					"text_chunk_bytes":    finalDelivery.TextChunkBytes,
-				},
-				RequestID: input.RequestID,
-				TraceID:   input.TraceID,
-				CreatedAt: s.now().UTC(),
-			})
-			return ReceiveWeChatWorkAppMessageResult{Turn: turn, Plan: plan}, err
-		}
-		s.recordAgentNotificationTraceEvent(ctx, input, account, session, turn, plan, "final_report_delivery", domain.AgentTraceEventSucceeded, sendCount, nil, agentWeChatFinalReportMetadata(finalDelivery))
+	stopPeriodicProgress()
+	result, err := s.finishAgentTurnCandidate(ctx, account, inbound, session, turn, input, plan, reply, runResult.Context, "succeeded")
+	opErr = err
+	if err == nil && result.Turn.Status == domain.AgentTurnStatusSucceeded {
+		processStatus = domain.AgentTraceEventSucceeded
 	}
-	metrics.AgentReplyBytes.WithLabelValues(input.Provider, "succeeded").Observe(float64(len([]byte(reply))))
-	metrics.AgentReplyChunksTotal.WithLabelValues(input.Provider, "succeeded").Add(float64(sendCount))
-
-	finishedAt := s.now().UTC()
-	inbound, _ = s.repository.UpdateInboundMessageStatus(ctx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusSucceeded, finishedAt)
-	replyEventType := "agent.turn_completed"
-	replyEventMessage := "agent turn completed"
-	if sendCount > 0 {
-		replyEventType = "wechat_work.reply_sent"
-		replyEventMessage = "wechat work reply sent"
-	}
-	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
-		SessionID: session.ID,
-		TurnID:    turn.ID,
-		UserID:    account.UserID,
-		EventType: replyEventType,
-		Status:    "succeeded",
-		Message:   replyEventMessage,
-		Metadata: domain.AgentJSON{
-			"provider_message_id": input.ProviderMessageID,
-			"wechat_msgid":        sendResult.MessageID,
-			"invalid_user":        sendResult.InvalidUser,
-			"send_count":          sendCount,
-			"observations":        agent.ObservationMetadata(observations),
-			"message_type":        finalDelivery.DeliveryMode,
-			"template_status":     finalDelivery.TemplateStatus,
-			"text_status":         finalDelivery.TextStatus,
-			"template_error":      finalDelivery.TemplateError,
-			"text_error":          finalDelivery.TextError,
-			"progress_url":        finalDelivery.ProgressURL,
-			"reply_bytes":         finalDelivery.ReplyBytes,
-			"text_chunks":         finalDelivery.TextChunkCount,
-			"text_chunk_bytes":    finalDelivery.TextChunkBytes,
-		},
-		RequestID: input.RequestID,
-		TraceID:   input.TraceID,
-		CreatedAt: finishedAt,
-	})
-
-	processStatus = domain.AgentTraceEventSucceeded
-	return ReceiveWeChatWorkAppMessageResult{
-		ExternalAccount: account,
-		InboundMessage:  inbound,
-		Session:         session,
-		Turn:            turn,
-		Plan:            plan,
-		Reply:           reply,
-		SendResult:      sendResult,
-	}, nil
+	return result, err
 }
 
 // markInterruptedPlanSteps 在主流程异常中断时收敛 Web 计划步骤状态。
@@ -436,15 +330,12 @@ func agentPlanObservationRank(observation agent.CapabilityObservation) int {
 	}
 }
 
-func agentPlanStepStatusForObservation(observation agent.CapabilityObservation) domain.AgentPlanStepStatus {
-	switch strings.ToLower(strings.TrimSpace(observation.Status)) {
-	case "failed":
-		return domain.AgentPlanStepStatusFailed
-	case "skipped":
-		return domain.AgentPlanStepStatusSkipped
-	default:
-		return domain.AgentPlanStepStatusCompleted
+func agentPlanStepStatusForObservation(observation agent.CapabilityObservation) (domain.AgentPlanStepStatus, error) {
+	outcome, err := agent.ToolOutcomeForStatus(observation.Status)
+	if err != nil {
+		return "", err
 	}
+	return outcome.PlanStepStatus, nil
 }
 
 // convergeUnobservedPlanStep 把终态计划中未被实际执行路径使用的步骤收敛为 skipped。
@@ -467,9 +358,13 @@ func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Conte
 	if s == nil || s.repository == nil || plan.ID == 0 {
 		return plan, nil
 	}
+	plan.Steps = append([]domain.AgentPlanStep(nil), plan.Steps...)
 	now := s.now().UTC()
 	observationsByCapability := map[string][]agent.CapabilityObservation{}
 	for _, observation := range observations {
+		if _, err := agent.ToolOutcomeForStatus(observation.Status); err != nil {
+			return domain.AgentPlan{}, err
+		}
 		key := strings.TrimSpace(observation.Capability)
 		if key == "" {
 			continue
@@ -483,7 +378,14 @@ func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Conte
 		if !ok {
 			continue
 		}
-		step.Status = agentPlanStepStatusForObservation(observation)
+		status, err := agentPlanStepStatusForObservation(observation)
+		if err != nil {
+			return domain.AgentPlan{}, err
+		}
+		if status == domain.AgentPlanStepStatusPending {
+			return domain.AgentPlan{}, domain.NewAppError(domain.ErrorKindConflict, "agent_tool_confirmation_required", "agent tool requires confirmation before the task can complete", "service.agent.bind_steps", false, nil)
+		}
+		step.Status = status
 		if step.Status == domain.AgentPlanStepStatusFailed {
 			step.ErrorMessage = observation.Summary
 			hasFailure = true
@@ -498,22 +400,14 @@ func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Conte
 		step.ObservationRef = observation.ObservationRef
 		step.ArtifactRefs = append([]string(nil), observation.ArtifactRefs...)
 		step.OutputSummary = observation.Summary
-		updatedStep, err := s.repository.UpdateAgentPlanStepStatus(ctx, userID, step)
-		if err != nil {
-			return domain.AgentPlan{}, err
-		}
-		plan.Steps[index] = updatedStep
+		plan.Steps[index] = step
 	}
 	for index := range plan.Steps {
 		step := convergeUnobservedPlanStep(plan.Steps[index], now)
 		if step.Status == plan.Steps[index].Status {
 			continue
 		}
-		updatedStep, err := s.repository.UpdateAgentPlanStepStatus(ctx, userID, step)
-		if err != nil {
-			return domain.AgentPlan{}, err
-		}
-		plan.Steps[index] = updatedStep
+		plan.Steps[index] = step
 	}
 	status := domain.AgentPlanStatusCompleted
 	errorMessage := ""
@@ -521,25 +415,13 @@ func (s *AgentConversationService) bindPlanStepsToObservations(ctx context.Conte
 		status = domain.AgentPlanStatusFailed
 		errorMessage = "one or more plan steps failed"
 	}
-	plans, err := s.repository.ListAgentPlans(ctx, userID, plan.SessionID, 0, 20)
-	if err == nil {
-		for _, latest := range plans {
-			if latest.ID == plan.ID && planStoppedByUser(latest) {
-				return latest, nil
-			}
-		}
-	}
-	updated, err := s.repository.UpdateAgentPlanStatus(ctx, userID, plan.ID, status, now, errorMessage)
-	if err != nil {
-		return domain.AgentPlan{}, err
-	}
-	updated.Metadata = cloneApprovalMetadata(updated.Metadata)
-	updated.Metadata["result_quality"] = buildAgentResultQualityMetadata(updated, now)
-	updated.Metadata["cost_summary"] = buildAgentCostSummaryMetadata(updated, s.relatedScheduledTasksForPlan(ctx, userID, updated.ID), 0, now)
-	updated.Metadata["deployment_acceptance"] = buildAgentDeploymentAcceptanceMetadata(updated, now)
-	updated.Metadata["handoff"] = buildAgentHandoffMetadata(updated, s.agentNotificationPreference(ctx, userID), now)
-	updated.Metadata["runtime_observability"] = buildAgentRuntimeObservabilityMetadata(updated, metadataMap(updated.Metadata, "admission_policy"), now)
-	return s.repository.UpdateAgentPlanMetadata(ctx, userID, updated.ID, updated.Metadata, now)
+	plan.Status = status
+	plan.ErrorMessage = errorMessage
+	plan.Metadata = cloneApprovalMetadata(plan.Metadata)
+	plan.Metadata["execution_completeness"] = buildAgentExecutionCompletenessMetadata(plan, now)
+	plan.Metadata["cost_summary"] = buildAgentCostSummaryMetadata(plan, s.relatedScheduledTasksForPlan(ctx, userID, plan.ID), 0, now)
+	plan.Metadata["runtime_observability"] = buildAgentRuntimeObservabilityMetadata(plan, metadataMap(plan.Metadata, "admission_policy"), now)
+	return plan, nil
 }
 
 func (s *AgentConversationService) applyAgentPlanTerminalMetadata(ctx context.Context, userID int64, plan domain.AgentPlan) domain.AgentPlan {
@@ -548,9 +430,11 @@ func (s *AgentConversationService) applyAgentPlanTerminalMetadata(ctx context.Co
 	}
 	now := s.now().UTC()
 	plan.Metadata = cloneApprovalMetadata(plan.Metadata)
-	plan.Metadata["result_quality"] = buildAgentResultQualityMetadata(plan, now)
+	plan.Metadata["execution_completeness"] = buildAgentExecutionCompletenessMetadata(plan, now)
+	if metadataMap(plan.Metadata, "answer_quality") == nil {
+		plan.Metadata["result_quality"] = domain.AgentJSON{"status": "not_evaluated", "score": 0.0, "reason": "final_answer_not_evaluated"}
+	}
 	plan.Metadata["cost_summary"] = buildAgentCostSummaryMetadata(plan, s.relatedScheduledTasksForPlan(ctx, userID, plan.ID), 0, now)
-	plan.Metadata["deployment_acceptance"] = buildAgentDeploymentAcceptanceMetadata(plan, now)
 	plan.Metadata["handoff"] = buildAgentHandoffMetadata(plan, s.agentNotificationPreference(ctx, userID), now)
 	plan.Metadata["runtime_observability"] = buildAgentRuntimeObservabilityMetadata(plan, metadataMap(plan.Metadata, "admission_policy"), now)
 	updated, err := s.repository.UpdateAgentPlanMetadata(ctx, userID, plan.ID, plan.Metadata, now)

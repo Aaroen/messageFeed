@@ -954,7 +954,7 @@ func TestAgentConversationServiceFailsWeChatSearchWhenLLMReturnsEmpty(t *testing
 	if result.Turn.Status != domain.AgentTurnStatusFailed || result.Plan.Status != domain.AgentPlanStatusFailed {
 		t.Fatalf("turn=%q plan=%q error=%q", result.Turn.Status, result.Plan.Status, result.Plan.ErrorMessage)
 	}
-	if !strings.Contains(result.Reply, "feedback:failed") {
+	if !strings.Contains(result.Reply, "这次任务没有完成") {
 		t.Fatalf("reply = %q", result.Reply)
 	}
 	if webFetchCalls != 0 {
@@ -1068,12 +1068,12 @@ func TestAgentConversationServiceHandlesWeChatButtonCallback(t *testing.T) {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
 	if result.Plan.ID != 9 ||
-		!strings.Contains(result.Reply, "feedback:button_callback") ||
+		!strings.Contains(result.Reply, "按钮操作已处理") ||
 		!strings.Contains(result.Reply, "https://messagefeed.example/agent/plans/9") {
 		t.Fatalf("result = %#v", result)
 	}
-	if llmClient.feedbackIdx != 1 {
-		t.Fatalf("feedback calls = %d, want 1", llmClient.feedbackIdx)
+	if llmClient.feedbackIdx != 0 {
+		t.Fatalf("系统回执的模型调用次数应为零，实际为 %d", llmClient.feedbackIdx)
 	}
 	if !fakeAuditContains(repository.audits, "agent.button_direct_control") {
 		t.Fatalf("audits = %#v", repository.audits)
@@ -1081,7 +1081,7 @@ func TestAgentConversationServiceHandlesWeChatButtonCallback(t *testing.T) {
 	if repository.inbound.Status != domain.AgentInboundMessageStatusSucceeded {
 		t.Fatalf("inbound status = %q", repository.inbound.Status)
 	}
-	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "feedback:button_callback") {
+	if sender.calls == 0 || !strings.Contains(sender.sent.Content, "按钮操作已处理") {
 		t.Fatalf("sent = %#v calls=%d", sender.sent, sender.calls)
 	}
 }
@@ -1128,7 +1128,7 @@ func TestAgentConversationServiceButtonCallbackRetriesFailedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if result.Plan.Status != domain.AgentPlanStatusExecuting || !strings.Contains(result.Reply, "feedback:button_callback") {
+	if result.Plan.Status != domain.AgentPlanStatusExecuting || !strings.Contains(result.Reply, "按钮操作已处理") {
 		t.Fatalf("result = %#v", result)
 	}
 	if repository.plans[0].Steps[0].Status != domain.AgentPlanStepStatusApproved || repository.plans[0].Steps[0].RetryCount != 1 {
@@ -1173,8 +1173,7 @@ func TestAgentConversationServiceButtonCallbackCancelsScheduledTask(t *testing.T
 	if err != nil {
 		t.Fatalf("ReceiveWeChatWorkAppMessage() error = %v", err)
 	}
-	if !strings.Contains(result.Reply, "feedback:button_callback") ||
-		!strings.Contains(result.Reply, "task:30") ||
+	if !strings.Contains(result.Reply, "按钮操作已处理") ||
 		repository.scheduledTasks[0].Status != domain.AgentScheduledTaskStatusCanceled ||
 		repository.scheduledTasks[0].LockedBy != "" ||
 		repository.scheduledTasks[0].LockedAt != nil ||
@@ -1401,8 +1400,8 @@ func TestAgentConversationServiceSupersedesActiveWebPlanForNewTask(t *testing.T)
 	if _, ok := repository.plans[0].Metadata["superseded_by"]; !ok {
 		t.Fatalf("old plan metadata missing superseded_by: %#v", repository.plans[0].Metadata)
 	}
-	if result.Reply != "这是新任务回复" {
-		t.Fatalf("reply = %q", result.Reply)
+	if result.Turn.InputText != "补充：只看未读内容" {
+		t.Fatalf("新任务未保留当前输入：%#v", result.Turn)
 	}
 	if fakeAuditContains(repository.audits, "agent.plan_input_appended") {
 		t.Fatalf("audits = %#v", repository.audits)
@@ -2089,7 +2088,7 @@ func TestAgentConversationServiceAsyncWeChatDoesNotWaitForAcceptedFeedbackModel(
 		t.Fatalf("ReceiveWeChatWorkAppMessage() elapsed = %s, want below accepted feedback delay", elapsed)
 	}
 	message := waitForWeChatTextMessage(t, sentEvents, func(message notifier.WeChatWorkTextMessage) bool {
-		return strings.Contains(message.Content, "feedback:accepted")
+		return strings.Contains(message.Content, "收到，正在处理")
 	})
 	if message.ToUser != "zhangsan" {
 		t.Fatalf("accepted message = %#v", message)
@@ -2255,7 +2254,7 @@ func TestAgentConversationServiceQueuesTurnAndProcessesAsync(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("task acceptance feedback was not sent")
 	}
-	if acceptedMessage.ToUser != "zhangsan" || !strings.Contains(acceptedMessage.Content, "feedback:accepted") {
+	if acceptedMessage.ToUser != "zhangsan" || !strings.Contains(acceptedMessage.Content, "收到，正在处理") {
 		t.Fatalf("acceptance feedback = %#v", acceptedMessage)
 	}
 	for _, forbidden := range []string{"状态锚点", "企微动作组件", "调度方式", "权限：", "预算：", "详情："} {
@@ -2585,7 +2584,7 @@ func TestAgentConversationServiceSendsPeriodicProgressNotification(t *testing.T)
 	}
 }
 
-func TestAgentConversationServiceBindPlanStepsWritesQualityAndDeploymentMetadata(t *testing.T) {
+func TestAgentConversationServiceBindPlanStepsComputesExecutionMetadata(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
 	plan := domain.AgentPlan{
@@ -2623,14 +2622,14 @@ func TestAgentConversationServiceBindPlanStepsWritesQualityAndDeploymentMetadata
 	if updated.Status != domain.AgentPlanStatusCompleted {
 		t.Fatalf("updated status = %q", updated.Status)
 	}
-	if metadataMap(updated.Metadata, "result_quality") == nil || metadataMap(updated.Metadata, "cost_summary") == nil || metadataMap(updated.Metadata, "deployment_acceptance") == nil {
+	if metadataMap(updated.Metadata, "execution_completeness") == nil || metadataMap(updated.Metadata, "cost_summary") == nil || metadataMap(updated.Metadata, "result_quality") != nil || metadataMap(updated.Metadata, "deployment_acceptance") != nil {
 		t.Fatalf("metadata = %#v", updated.Metadata)
 	}
 	if metadataNumber(metadataMap(updated.Metadata, "cost_summary"), "tool_calls") != 1 || metadataNumber(metadataMap(updated.Metadata, "cost_summary"), "external_calls") != 1 {
 		t.Fatalf("cost summary = %#v", updated.Metadata["cost_summary"])
 	}
-	if metadataString(metadataMap(updated.Metadata, "deployment_acceptance"), "status") != "ready" {
-		t.Fatalf("deployment acceptance = %#v", updated.Metadata["deployment_acceptance"])
+	if repository.plans[0].Status != domain.AgentPlanStatusExecuting {
+		t.Fatalf("候选步骤计算提前提交了计划终态：%#v", repository.plans[0])
 	}
 }
 
@@ -2769,7 +2768,7 @@ func TestAgentConversationServiceMarksInterruptedPlanSteps(t *testing.T) {
 	}
 }
 
-func TestAgentConversationServiceBindPlanStepsReturnsUpdateError(t *testing.T) {
+func TestAgentConversationServiceBindPlanStepsDefersUpdatesUntilCommit(t *testing.T) {
 	now := time.Date(2026, 6, 25, 12, 30, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
 	repository.updatePlanStepErr = errors.New("update step failed")
@@ -2802,8 +2801,8 @@ func TestAgentConversationServiceBindPlanStepsReturnsUpdateError(t *testing.T) {
 			ArtifactRefs:   []string{"artifact:web:1"},
 		},
 	})
-	if !errors.Is(err, repository.updatePlanStepErr) {
-		t.Fatalf("bindPlanStepsToObservations() error = %v, want %v", err, repository.updatePlanStepErr)
+	if err != nil {
+		t.Fatalf("候选步骤计算不应执行仓储写入：%v", err)
 	}
 	if repository.plans[0].Status != domain.AgentPlanStatusExecuting {
 		t.Fatalf("plan status = %q, want unchanged executing", repository.plans[0].Status)
@@ -3276,7 +3275,7 @@ func TestAgentConversationServicePlanStartedFeedbackUsesTemplateSource(t *testin
 	}
 }
 
-func TestAgentConversationServiceTaskAcceptedFeedbackUsesGeneratedText(t *testing.T) {
+func TestAgentConversationServiceTaskAcceptedFeedbackUsesTemplateText(t *testing.T) {
 	now := time.Date(2026, 7, 4, 20, 30, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
 	sender := &fakeAgentConversationSender{result: notifier.WeChatWorkSendResult{MessageID: "wx-accepted-generated"}}
@@ -3304,18 +3303,18 @@ func TestAgentConversationServiceTaskAcceptedFeedbackUsesGeneratedText(t *testin
 			TextContent:       "重新搜索最新比赛",
 		},
 	)
-	if reply != "我先接住这个任务，开始处理。" ||
+	if reply != "收到，正在处理。" ||
 		sender.sent.Content != reply ||
 		sendResult.MessageID != "wx-accepted-generated" ||
 		sendCount != 1 {
 		t.Fatalf("accepted reply=%q sent=%#v result=%#v count=%d", reply, sender.sent, sendResult, sendCount)
 	}
-	if llmClient.feedbackIdx != 1 {
-		t.Fatalf("feedback calls = %d, want 1", llmClient.feedbackIdx)
+	if llmClient.feedbackIdx != 0 {
+		t.Fatalf("feedback calls = %d, want 0", llmClient.feedbackIdx)
 	}
 }
 
-func TestAgentConversationServiceEmptyCompletionUsesGeneratedFeedback(t *testing.T) {
+func TestAgentConversationServiceEmptyCompletionUsesTemplateFeedback(t *testing.T) {
 	now := time.Date(2026, 7, 4, 20, 35, 0, 0, time.UTC)
 	llmClient := &fakeAgentConversationLLM{
 		feedbackResponses: []llm.ChatResponse{
@@ -3335,11 +3334,11 @@ func TestAgentConversationServiceEmptyCompletionUsesGeneratedFeedback(t *testing
 		Summary:   "整理赛事信息",
 		UpdatedAt: now,
 	}, "")
-	if reply != "处理完成，结果已经整理好。" {
+	if reply != "处理完成。\nhttps://messagefeed.example/agent/plans/12" {
 		t.Fatalf("reply = %q", reply)
 	}
-	if llmClient.feedbackIdx != 1 {
-		t.Fatalf("feedback calls = %d, want 1", llmClient.feedbackIdx)
+	if llmClient.feedbackIdx != 0 {
+		t.Fatalf("feedback calls = %d, want 0", llmClient.feedbackIdx)
 	}
 }
 
@@ -3371,7 +3370,7 @@ func TestAgentConversationServiceFeedbackMarksThinkingTimeout(t *testing.T) {
 	}
 }
 
-func TestAgentConversationServiceRepairsMarkdownFeedback(t *testing.T) {
+func TestAgentConversationServiceTemplateFeedbackUsesPlainText(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 30, 0, 0, time.UTC)
 	llmClient := &fakeAgentConversationLLM{
 		feedbackResponses: []llm.ChatResponse{
@@ -3393,14 +3392,14 @@ func TestAgentConversationServiceRepairsMarkdownFeedback(t *testing.T) {
 			UpdatedAt: now,
 		},
 	})
-	if reply != "已开始在后台处理。" {
+	if reply != "开始处理了，有进展会继续同步。" {
 		t.Fatalf("reply = %q", reply)
 	}
 	if violation := agent.PlainTextReplyViolation(reply); violation != "" {
 		t.Fatalf("plain text violation = %q reply = %q", violation, reply)
 	}
-	if llmClient.feedbackIdx != 2 {
-		t.Fatalf("feedback calls = %d, want 2", llmClient.feedbackIdx)
+	if llmClient.feedbackIdx != 0 {
+		t.Fatalf("feedback calls = %d, want 0", llmClient.feedbackIdx)
 	}
 }
 
@@ -3804,6 +3803,72 @@ func (r *fakeAgentConversationRepository) UpdateTurn(_ context.Context, turn dom
 	}
 	r.turns = append(r.turns, turn)
 	return turn, nil
+}
+
+func (r *fakeAgentConversationRepository) CommitAgentTurnResult(ctx context.Context, completion domain.AgentTurnCompletion) (domain.AgentTurnCompletionResult, error) {
+	turn := completion.Turn
+	turn.FinishedAt = &completion.CompletedAt
+	var err error
+	if completion.WorkerID != "" {
+		turn, err = r.UpdateTurnIfOwned(ctx, turn, completion.WorkerID)
+	} else {
+		turn, err = r.UpdateTurn(ctx, turn)
+	}
+	if err != nil {
+		return domain.AgentTurnCompletionResult{}, err
+	}
+	plan := completion.Plan
+	if plan.ID > 0 {
+		for _, step := range plan.Steps {
+			if _, err := r.UpdateAgentPlanStepStatus(ctx, turn.UserID, step); err != nil {
+				return domain.AgentTurnCompletionResult{}, err
+			}
+		}
+		if _, err := r.UpdateAgentPlanMetadata(ctx, turn.UserID, plan.ID, plan.Metadata, completion.CompletedAt); err != nil {
+			return domain.AgentTurnCompletionResult{}, err
+		}
+		plan, err = r.UpdateAgentPlanStatus(ctx, turn.UserID, plan.ID, plan.Status, completion.CompletedAt, plan.ErrorMessage)
+		if err != nil {
+			return domain.AgentTurnCompletionResult{}, err
+		}
+	}
+	if completion.ControllerRunID > 0 {
+		for _, run := range r.runs {
+			if run.ID == completion.ControllerRunID {
+				run.Status = domain.AgentRunStatusSucceeded
+				if turn.Status == domain.AgentTurnStatusFailed {
+					run.Status = domain.AgentRunStatusFailed
+				}
+				run.CompletedAt = &completion.CompletedAt
+				if _, err := r.UpdateAgentRun(ctx, run); err != nil {
+					return domain.AgentTurnCompletionResult{}, err
+				}
+				break
+			}
+		}
+	}
+	if strings.TrimSpace(turn.OutputText) != "" {
+		if _, err := r.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{SessionID: turn.SessionID, TurnID: turn.ID, UserID: turn.UserID, Role: domain.AgentTranscriptRoleAssistant, Content: turn.OutputText, Metadata: completion.TranscriptMetadata, CreatedAt: completion.CompletedAt}); err != nil {
+			return domain.AgentTurnCompletionResult{}, err
+		}
+	}
+	inboundStatus := domain.AgentInboundMessageStatusSucceeded
+	if turn.Status == domain.AgentTurnStatusFailed {
+		inboundStatus = domain.AgentInboundMessageStatusFailed
+	}
+	inbound, err := r.UpdateInboundMessageStatus(ctx, turn.UserID, turn.InboundMessageID, inboundStatus, completion.CompletedAt)
+	return domain.AgentTurnCompletionResult{Turn: turn, Plan: plan, InboundMessage: inbound}, err
+}
+
+func (r *fakeAgentConversationRepository) UpdateAgentTurnDelivery(ctx context.Context, userID int64, turnID int64, status string, errorMessage string, now time.Time) (domain.AgentTurn, error) {
+	turn, err := r.GetAgentTurn(ctx, userID, turnID)
+	if err != nil {
+		return domain.AgentTurn{}, err
+	}
+	turn.DeliveryStatus = status
+	turn.DeliveryError = errorMessage
+	turn.UpdatedAt = now
+	return r.UpdateTurn(ctx, turn)
 }
 
 func (r *fakeAgentConversationRepository) GetInboundMessage(_ context.Context, userID int64, id int64) (domain.AgentInboundMessage, error) {

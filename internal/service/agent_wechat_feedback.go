@@ -5,18 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
-	"messagefeed/internal/llm"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
-	"time"
 )
 
 const (
-	agentWeChatFeedbackLLMTimeout       = 4 * time.Second
 	agentWeChatFeedbackMaxRunes         = 180
 	agentWeChatFeedbackTemplateFileName = "configs/agent_wechat_feedback.zh-CN.json"
 )
@@ -83,109 +79,8 @@ func (s *AgentConversationService) outboundNotificationContext(parent context.Co
 	return context.WithTimeout(context.WithoutCancel(parent), timeout)
 }
 
-// generateAgentWeChatFeedbackText 只把结构化事实交给模型生成用户可见文本。
-// 当模型不可用时，使用外部配置模板兜底；流程代码不拼接任何企微回复文案。
 func (s *AgentConversationService) generateAgentWeChatFeedbackText(ctx context.Context, request agentWeChatFeedbackRequest) string {
-	payload := request.agentWeChatFeedbackPayload()
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return finalizeAgentWeChatFeedbackText(renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData()))
-	}
-	if s == nil || s.llmClient == nil {
-		return finalizeAgentWeChatFeedbackText(renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData()))
-	}
-	llmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentWeChatFeedbackLLMTimeout)
-	defer cancel()
-	response, err := s.llmClient.Chat(llmCtx, llm.ChatRequest{
-		Messages: []llm.ChatMessage{
-			{Role: "system", Content: agentWeChatFeedbackSystemPrompt()},
-			{Role: "user", Content: agentWeChatFeedbackUserPrompt(body)},
-		},
-		Temperature: 0.35,
-		MaxTokens:   96,
-	})
-	if err != nil {
-		return finalizeAgentWeChatFeedbackText(renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData()))
-	}
-	text := normalizeAgentWeChatFeedbackText(response.Content)
-	if text == "" {
-		text = renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData())
-	}
-	if agent.PlainTextReplyViolation(text) != "" {
-		text = s.repairAgentWeChatFeedbackPlainText(ctx, request, text)
-	}
-	return finalizeAgentWeChatFeedbackText(text)
-}
-
-// repairAgentWeChatFeedbackPlainText 复用 Agent 纯文本格式契约修复企微短反馈。
-// 如果模型仍不遵守格式，则回到集中配置模板，避免 Markdown 直接进入用户侧。
-func (s *AgentConversationService) repairAgentWeChatFeedbackPlainText(ctx context.Context, request agentWeChatFeedbackRequest, text string) string {
-	if s == nil || s.llmClient == nil {
-		return renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData())
-	}
-	current := strings.TrimSpace(text)
-	for attempt := 0; attempt < 2; attempt++ {
-		violation := agent.PlainTextReplyViolation(current)
-		if violation == "" {
-			return current
-		}
-		llmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentWeChatFeedbackLLMTimeout)
-		response, err := s.llmClient.Chat(llmCtx, llm.ChatRequest{
-			Messages: []llm.ChatMessage{
-				{Role: "system", Content: agentWeChatFeedbackSystemPrompt()},
-				{Role: "user", Content: agent.PlainTextReplyRepairPrompt(current, violation, attempt+1)},
-			},
-			Temperature: 0.2,
-			MaxTokens:   96,
-		})
-		cancel()
-		if err != nil {
-			break
-		}
-		current = normalizeAgentWeChatFeedbackText(response.Content)
-	}
-	if agent.PlainTextReplyViolation(current) == "" && current != "" {
-		return current
-	}
-	return renderAgentWeChatFeedbackTemplate(request.fallbackTemplateKey(), request.templateData())
-}
-
-func (request agentWeChatFeedbackRequest) agentWeChatFeedbackPayload() domain.AgentJSON {
-	errorText := strings.TrimSpace(request.ErrorText)
-	if errorText == "" && request.Cause != nil {
-		errorText = request.Cause.Error()
-	}
-	progressURL := strings.TrimSpace(request.ProgressURL)
-	if progressURL == "" && request.Plan.ID > 0 {
-		progressURL = ""
-	}
-	thinkingTimedOut := isAgentThinkingTimeoutError(request.Cause, errorText)
-	payload := domain.AgentJSON{
-		"schema":           agentWeChatFeedbackPayloadSchema(),
-		"stage":            strings.TrimSpace(request.Stage),
-		"user_message":     safeSummary(request.UserMessage, 300),
-		"goal":             safeSummary(request.Plan.Goal, 300),
-		"summary":          safeSummary(request.Plan.Summary, 300),
-		"status":           string(request.Plan.Status),
-		"error":            safeSummary(errorText, 300),
-		"error_type":       agentFeedbackErrorType(request.Cause, errorText),
-		"timed_out":        thinkingTimedOut || isAgentTimeoutError(request.Cause) || strings.Contains(strings.ToLower(errorText), "deadline exceeded"),
-		"thinking_timeout": thinkingTimedOut,
-		"progress_url":     progressURL,
-		"approval_url":     strings.TrimSpace(request.ApprovalURL),
-	}
-	if request.Step.ID > 0 || strings.TrimSpace(request.Step.Title) != "" {
-		payload["step"] = domain.AgentJSON{
-			"title":      safeSummary(request.Step.Title, 160),
-			"summary":    safeSummary(firstNonEmptyString(request.Step.OutputSummary, request.Step.InputSummary), 220),
-			"status":     string(request.Step.Status),
-			"capability": request.Step.CapabilityKey,
-		}
-	}
-	if control := request.controlPayload(); len(control) > 0 {
-		payload["control"] = control
-	}
-	return payload
+	return agentWeChatFeedbackText(request)
 }
 
 func (request agentWeChatFeedbackRequest) templateData() agentWeChatFeedbackTemplateData {
@@ -218,7 +113,7 @@ func (request agentWeChatFeedbackRequest) templateData() agentWeChatFeedbackTemp
 	}
 }
 
-func (request agentWeChatFeedbackRequest) fallbackTemplateKey() string {
+func (request agentWeChatFeedbackRequest) templateKey() string {
 	stage := strings.TrimSpace(request.Stage)
 	if stage == "" {
 		stage = "progress"
@@ -237,41 +132,6 @@ func (request agentWeChatFeedbackRequest) fallbackTemplateKey() string {
 		return "step_failed"
 	}
 	return stage
-}
-
-func (request agentWeChatFeedbackRequest) controlPayload() domain.AgentJSON {
-	control := domain.AgentJSON{}
-	if value := strings.TrimSpace(request.Control.ActionKey); value != "" {
-		control["action_key"] = value
-	}
-	if value := strings.TrimSpace(request.Control.Handler); value != "" {
-		control["handler"] = value
-	}
-	if value := strings.TrimSpace(request.Control.Type); value != "" {
-		control["type"] = value
-	}
-	if value := strings.TrimSpace(request.Control.Status); value != "" {
-		control["status"] = value
-	}
-	if value := strings.TrimSpace(request.Control.Summary); value != "" {
-		control["summary"] = safeSummary(value, 300)
-	}
-	if request.Control.Changed {
-		control["changed"] = true
-	}
-	if request.Control.PlanID > 0 {
-		control["plan_id"] = request.Control.PlanID
-	}
-	if request.Control.ScheduledTaskID > 0 {
-		control["scheduled_task_id"] = request.Control.ScheduledTaskID
-	}
-	if value := strings.TrimSpace(request.Control.ScheduledTaskStatus); value != "" {
-		control["scheduled_task_status"] = value
-	}
-	if len(request.Control.Metadata) > 0 {
-		control["metadata"] = request.Control.Metadata
-	}
-	return control
 }
 
 func finalizeAgentWeChatFeedbackText(text string) string {

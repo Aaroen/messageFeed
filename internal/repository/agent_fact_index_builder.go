@@ -96,8 +96,15 @@ func (b agentFactIndexBuilder) BuildArtifact(scope agentFactRunScope, artifact d
 	if artifact.ID == 0 || scope.UserID == 0 {
 		return domain.AgentFactArchiveIndex{}, false
 	}
-	content := strings.TrimSpace(strings.Join([]string{artifact.Summary, artifact.ContentRef}, "\n"))
-	classification := classifyTranscriptMemory(content)
+	content := artifact.Content
+	indexSource := "full_content"
+	contentStatus := "available"
+	if content == "" {
+		indexSource = "summary_only"
+		contentStatus = "missing"
+	}
+	searchText := strings.Join([]string{artifact.Summary, content}, "\n")
+	classification := classifyTranscriptMemory(searchText)
 	return domain.AgentFactArchiveIndex{
 		CanonicalRef:    fmt.Sprintf("artifact:%d", artifact.ID),
 		FactType:        domain.AgentFactTypeArtifact,
@@ -107,20 +114,22 @@ func (b agentFactIndexBuilder) BuildArtifact(scope agentFactRunScope, artifact d
 		TurnID:          scope.TurnID,
 		MemoryKind:      classification.Kind,
 		Topics:          compactNonEmptyStrings([]string{"artifact", artifact.ArtifactType}),
-		Keywords:        transcriptIndexKeywords(content),
-		Entities:        transcriptIndexKeywords(content),
-		SummaryForIndex: safeTextPrefix(content, 320),
+		Keywords:        transcriptIndexKeywords(searchText),
+		Entities:        transcriptIndexKeywords(searchText),
+		SummaryForIndex: safeTextPrefix(artifact.Summary, 320),
 		ContextualText:  content,
 		Importance:      factImportanceForKind(classification.Kind, 50),
 		Confidence:      confidenceForClassification(classification),
 		SourceRefs:      compactNonEmptyStrings(append([]string{fmt.Sprintf("artifact:%d", artifact.ID), fmt.Sprintf("run:%d", artifact.RunID)}, artifact.SourceRefs...)),
 		RelationRefs:    compactNonEmptyStrings(append([]string{fmt.Sprintf("run:%d", artifact.RunID), fmt.Sprintf("turn:%d", scope.TurnID)}, artifact.SourceRefs...)),
 		IndexStatus:     domain.AgentFactIndexStatusReady,
-		RiskLevel:       inferMemoryRisk(content, classification.Kind),
+		RiskLevel:       inferMemoryRisk(searchText, classification.Kind),
 		Metadata: domain.AgentJSON{
 			"artifact_type":   artifact.ArtifactType,
 			"content_hash":    artifact.ContentHash,
-			"indexer_version": "fact_indexer_v1",
+			"content_status":  contentStatus,
+			"index_source":    indexSource,
+			"indexer_version": "fact_indexer_v2",
 		},
 		CreatedAt: artifact.CreatedAt,
 		UpdatedAt: b.now().UTC(),

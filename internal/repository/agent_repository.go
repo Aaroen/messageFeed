@@ -93,6 +93,8 @@ type agentTurnModel struct {
 	ModelProvider    string
 	Model            string
 	ErrorMessage     string
+	DeliveryStatus   string
+	DeliveryError    string
 	AttemptCount     int
 	MaxAttempts      int
 	LockedBy         string
@@ -1327,6 +1329,8 @@ func agentTurnModelFromDomain(turn domain.AgentTurn) agentTurnModel {
 		ModelProvider:    turn.ModelProvider,
 		Model:            turn.Model,
 		ErrorMessage:     turn.ErrorMessage,
+		DeliveryStatus:   turn.DeliveryStatus,
+		DeliveryError:    turn.DeliveryError,
 		AttemptCount:     turn.AttemptCount,
 		MaxAttempts:      turn.MaxAttempts,
 		LockedBy:         turn.LockedBy,
@@ -1353,6 +1357,8 @@ func agentTurnModelToDomain(model agentTurnModel) domain.AgentTurn {
 		ModelProvider:    model.ModelProvider,
 		Model:            model.Model,
 		ErrorMessage:     model.ErrorMessage,
+		DeliveryStatus:   model.DeliveryStatus,
+		DeliveryError:    model.DeliveryError,
 		AttemptCount:     model.AttemptCount,
 		MaxAttempts:      model.MaxAttempts,
 		LockedBy:         model.LockedBy,

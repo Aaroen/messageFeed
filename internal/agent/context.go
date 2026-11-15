@@ -282,9 +282,11 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 		if observation.Decision == "" {
 			observation.Decision = string(decision.Decision)
 		}
-		if observation.Status == "" {
-			observation.Status = "succeeded"
+		outcome, err := ToolOutcomeForStatus(observation.Status)
+		if err != nil {
+			return snapshot, fmt.Errorf("%s: %w", capability.Key, err)
 		}
+		observation.Status = outcome.Status
 		snapshot.Observations = append(snapshot.Observations, observation)
 		for _, block := range result.Blocks {
 			if strings.TrimSpace(block.Content) == "" {

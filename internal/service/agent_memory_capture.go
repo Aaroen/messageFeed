@@ -46,7 +46,11 @@ func (s *AgentConversationService) captureMemoryCandidateFromTranscript(ctx cont
 		return
 	}
 	activeTopic, hasActiveTopic := s.activeMemoryTopic(ctx, entry)
-	classification := s.classifyAgentMemoryCandidateWithModel(ctx, entry, activeTopic, hasActiveTopic)
+	classification, err := s.classifyAgentMemoryCandidateWithModel(ctx, entry, activeTopic, hasActiveTopic)
+	if err != nil {
+		s.recordMemoryCaptureFailure(ctx, entry, "classification_failed", err)
+		return
+	}
 	activeTopic, hasActiveTopic = s.trackMemoryTopicFromTranscript(ctx, entry, activeTopic, hasActiveTopic, classification)
 	if !classification.ShouldCapture || !agentMemoryKindShouldCapture(classification.Kind) {
 		return
@@ -283,12 +287,20 @@ type agentMemoryClassificationJSON struct {
 	Reason               string   `json:"reason"`
 }
 
-func (s *AgentConversationService) classifyAgentMemoryCandidateWithModel(ctx context.Context, entry domain.AgentTranscriptEntry, activeTopic domain.AgentMemoryTopic, hasActiveTopic bool) agentMemoryCaptureClassification {
+func (s *AgentConversationService) classifyAgentMemoryCandidateWithModel(ctx context.Context, entry domain.AgentTranscriptEntry, activeTopic domain.AgentMemoryTopic, hasActiveTopic bool) (agentMemoryCaptureClassification, error) {
 	startedAt := s.now().UTC()
+	ctx = WithAgentLLMCallContext(ctx, AgentLLMCallContext{
+		UserID: entry.UserID, SessionID: entry.SessionID, TurnID: entry.TurnID,
+		Stage: AgentLLMCallStageMemoryClassification, PromptVersion: "agent-memory-classification-v1",
+	})
+	if _, err := agentLLMCallContextFromContext(ctx); err != nil {
+		s.recordMemoryClassificationTrace(ctx, entry, agentMemoryCaptureClassification{}, domain.AgentTraceEventFailed, startedAt, "call_context_invalid", err.Error())
+		return agentMemoryCaptureClassification{}, err
+	}
 	if s.llmClient == nil {
-		classification := fallbackAgentMemoryClassification("llm_client_missing")
-		s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventDegraded, startedAt, "llm_client_missing", "")
-		return classification
+		err := domain.NewAppError(domain.ErrorKindUnavailable, "agent_memory_classifier_unavailable", "agent memory classifier is unavailable", "service.agent.memory.classify", true, nil)
+		s.recordMemoryClassificationTrace(ctx, entry, agentMemoryCaptureClassification{}, domain.AgentTraceEventFailed, startedAt, "llm_client_missing", err.Error())
+		return agentMemoryCaptureClassification{}, err
 	}
 	ctx, span := observability.StartSpan(ctx, "service.agent.memory.classify")
 	defer observability.EndSpan(span, nil)
@@ -328,29 +340,26 @@ func (s *AgentConversationService) classifyAgentMemoryCandidateWithModel(ctx con
 	if err != nil {
 		response, err = s.retryAgentMemoryClassification(ctx, payload, err)
 		if err != nil {
-			classification := fallbackAgentMemoryClassification("llm_call_failed")
-			s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventDegraded, startedAt, "llm_call_failed", err.Error())
-			return classification
+			s.recordMemoryClassificationTrace(ctx, entry, agentMemoryCaptureClassification{}, domain.AgentTraceEventFailed, startedAt, "llm_call_failed", err.Error())
+			return agentMemoryCaptureClassification{}, err
 		}
 	}
 	classification, parseErr := parseAgentMemoryClassificationJSON(response.Content)
 	if parseErr != nil {
 		response, err = s.retryAgentMemoryClassification(ctx, payload, parseErr)
 		if err != nil {
-			classification := fallbackAgentMemoryClassification("llm_response_invalid")
-			s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventDegraded, startedAt, "llm_response_invalid", err.Error())
-			return classification
+			s.recordMemoryClassificationTrace(ctx, entry, agentMemoryCaptureClassification{}, domain.AgentTraceEventFailed, startedAt, "llm_response_invalid", err.Error())
+			return agentMemoryCaptureClassification{}, err
 		}
 		classification, parseErr = parseAgentMemoryClassificationJSON(response.Content)
 		if parseErr != nil {
-			classification := fallbackAgentMemoryClassification("llm_response_invalid")
-			s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventDegraded, startedAt, "llm_response_invalid", parseErr.Error())
-			return classification
+			s.recordMemoryClassificationTrace(ctx, entry, agentMemoryCaptureClassification{}, domain.AgentTraceEventFailed, startedAt, "llm_response_invalid", parseErr.Error())
+			return agentMemoryCaptureClassification{}, parseErr
 		}
 	}
 	classification = guardAgentMemoryClassification(entry.Content, classification)
 	s.recordMemoryClassificationTrace(ctx, entry, classification, domain.AgentTraceEventSucceeded, startedAt, "", "")
-	return classification
+	return classification, nil
 }
 
 func (s *AgentConversationService) retryAgentMemoryClassification(ctx context.Context, payload domain.AgentJSON, previousErr error) (llm.ChatResponse, error) {
@@ -360,6 +369,13 @@ func (s *AgentConversationService) retryAgentMemoryClassification(ctx context.Co
 	if ctx.Err() != nil {
 		return llm.ChatResponse{}, previousErr
 	}
+	metadata, err := agentLLMCallContextFromContext(ctx)
+	if err != nil {
+		return llm.ChatResponse{}, err
+	}
+	metadata.Stage = AgentLLMCallStageRepair
+	metadata.PromptVersion = "agent-memory-classification-repair-v1"
+	ctx = WithAgentLLMCallContext(ctx, metadata)
 	retryPayload := cloneAgentMemoryPromptPayload(payload)
 	response, retryErr := s.llmClient.Chat(ctx, llm.ChatRequest{
 		Messages: []llm.ChatMessage{
@@ -370,7 +386,7 @@ func (s *AgentConversationService) retryAgentMemoryClassification(ctx context.Co
 		MaxTokens:   1200,
 	})
 	if retryErr != nil {
-		return llm.ChatResponse{}, fmt.Errorf("%w; retry failed: %v", previousErr, retryErr)
+		return response, fmt.Errorf("%w; retry failed: %w", previousErr, retryErr)
 	}
 	return response, nil
 }
@@ -464,20 +480,6 @@ func guardAgentMemoryClassification(content string, classification agentMemoryCa
 		classification.ChunkContent = firstNonEmptyString(classification.Summary, summarizeMemoryCandidate(content))
 	}
 	return classification
-}
-
-func fallbackAgentMemoryClassification(reason string) agentMemoryCaptureClassification {
-	return agentMemoryCaptureClassification{
-		ShouldCapture:       false,
-		Kind:                domain.AgentMemoryKindUnknown,
-		Importance:          0,
-		Confidence:          0,
-		RiskLevel:           domain.AgentMemoryRiskMedium,
-		TopicDecision:       "ignore",
-		ConsolidationReason: "none",
-		Reason:              reason,
-		Classifier:          "conservative_fallback",
-	}
 }
 
 func normalizeMemoryTopicDecision(value string) string {

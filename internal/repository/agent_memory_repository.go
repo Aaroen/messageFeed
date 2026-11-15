@@ -844,23 +844,44 @@ func (r *AgentRepository) resolveAgentFactSource(ctx context.Context, userID int
 			CreatedAt:    observation.CreatedAt,
 		}, nil
 	case domain.AgentFactTypeArtifact:
-		var model agentArtifactModel
-		if err := r.userScopedArtifacts(ctx, userID).Where("agent_artifacts.id = ?", fact.FactID).First(&model).Error; err != nil {
+		var model struct {
+			Artifact  agentArtifactModel `gorm:"embedded"`
+			UserID    int64
+			SessionID int64
+			TurnID    int64
+			RunStatus string
+		}
+		query := r.userScopedArtifacts(ctx, userID).Where("agent_artifacts.id = ?", fact.FactID)
+		if fact.SessionID > 0 {
+			query = query.Where("COALESCE(agent_runs.session_id, agent_turns.session_id, 0) = ?", fact.SessionID)
+		}
+		if fact.TurnID > 0 {
+			query = query.Where("agent_runs.turn_id = ?", fact.TurnID)
+		}
+		if err := query.Select("agent_artifacts.*, COALESCE(agent_turns.user_id, agent_sessions.user_id, 0) AS user_id, COALESCE(agent_runs.session_id, agent_turns.session_id, 0) AS session_id, COALESCE(agent_runs.turn_id, 0) AS turn_id, agent_runs.status AS run_status").Take(&model).Error; err != nil {
 			return domain.AgentFactSource{}, mapRepositoryError(err)
 		}
-		artifact := agentArtifactModelToDomain(model)
+		artifact, err := normalizeAgentArtifact(agentArtifactModelToDomain(model.Artifact))
+		if err != nil {
+			return domain.AgentFactSource{}, err
+		}
+		metadata := domain.AgentJSON{"content_hash": artifact.ContentHash, "content_ref": artifact.ContentRef, "content_status": "available", "run_status": model.RunStatus}
+		if artifact.Content == "" {
+			metadata["content_status"] = "missing"
+			metadata["content_missing_reason"] = "历史产物仅保存摘要，未保存工具正文。"
+		}
 		return domain.AgentFactSource{
 			CanonicalRef: fact.CanonicalRef,
 			FactType:     fact.FactType,
 			FactID:       fact.FactID,
-			UserID:       userID,
-			SessionID:    fact.SessionID,
-			TurnID:       fact.TurnID,
+			UserID:       model.UserID,
+			SessionID:    model.SessionID,
+			TurnID:       model.TurnID,
 			Title:        artifact.ArtifactType,
-			Content:      strings.TrimSpace(strings.Join([]string{artifact.Summary, artifact.ContentRef}, "\n")),
+			Content:      artifact.Content,
 			Summary:      artifact.Summary,
 			SourceRefs:   artifact.SourceRefs,
-			Metadata:     domain.AgentJSON{"content_hash": artifact.ContentHash},
+			Metadata:     metadata,
 			CreatedAt:    artifact.CreatedAt,
 		}, nil
 	case domain.AgentFactTypePlan:
@@ -950,7 +971,10 @@ func (r *AgentRepository) userScopedArtifacts(ctx context.Context, userID int64)
 		Joins("JOIN agent_runs ON agent_runs.id = agent_artifacts.run_id").
 		Joins("LEFT JOIN agent_turns ON agent_turns.id = agent_runs.turn_id").
 		Joins("LEFT JOIN agent_sessions ON agent_sessions.id = agent_runs.session_id").
-		Where("(agent_turns.user_id = ? OR agent_sessions.user_id = ?)", userID, userID).
+		Where("(agent_turns.id IS NOT NULL OR agent_sessions.id IS NOT NULL)").
+		Where("(agent_turns.id IS NULL OR agent_turns.user_id = ?)", userID).
+		Where("(agent_sessions.id IS NULL OR agent_sessions.user_id = ?)", userID).
+		Where("(agent_turns.id IS NULL OR agent_sessions.id IS NULL OR agent_turns.session_id = agent_sessions.id)").
 		Select("agent_artifacts.*")
 }
 
@@ -981,7 +1005,7 @@ func applyFactChunkProjection(fact domain.AgentFactArchiveIndex, source domain.A
 	if chunkText == "" {
 		chunkText = strings.TrimSpace(stringFromAgentJSON(fact.Metadata, "projection_text"))
 	}
-	if chunkText != "" {
+	if chunkText != "" && source.FactType != domain.AgentFactTypeArtifact {
 		source.Content = chunkText
 		source.Summary = safeTextPrefix(chunkText, 320)
 	}

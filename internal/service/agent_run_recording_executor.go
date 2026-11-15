@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
@@ -23,9 +24,12 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 		"message":        safeSummary(input.Message, 500),
 		"capability_key": input.Capability.Key,
 	})
-	e.recordSubagentDispatchTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
+	dispatchErr := e.recordSubagentDispatchTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
+	if err := errors.Join(runErr, dispatchErr); err != nil {
+		return agent.CapabilityExecuteResult{}, e.failExecutorRun(ctx, run, err)
+	}
 	if run.ID > 0 {
-		_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
+		_, err := e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 			RunID:     run.ID,
 			TraceKind: "executor_input",
 			Content: domain.AgentJSON{
@@ -35,10 +39,17 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 			RedactionStatus: "redacted",
 			TokenEstimate:   estimateTokenCount(input.Message),
 		})
+		if err != nil {
+			return agent.CapabilityExecuteResult{}, e.failExecutorRun(ctx, run, fmt.Errorf("记录工具输入上下文: %w", err))
+		}
 	}
 
-	result, err := e.base.Execute(ctx, input)
-	e.recordToolTraceEvent(ctx, agentToolTraceEventInput{
+	result, callErr := e.base.Execute(ctx, input)
+	normalized, executionErr := agent.NormalizeToolResult(agent.MCPCallToolResult{Observation: result.Observation}, callErr)
+	result.Observation = normalized.Observation
+	var recordErr error
+	result.Observation, recordErr = e.recordExecutorResult(ctx, run, input.Capability.Key, input.Message, result.Observation, contextBlocksContent(result.Blocks), executionErr)
+	traceErr := e.recordToolTraceEvent(ctx, agentToolTraceEventInput{
 		UserID:          input.UserID,
 		SessionID:       input.SessionID,
 		TurnID:          input.TurnID,
@@ -50,14 +61,14 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 		OutputSummary:   result.Observation.Summary,
 		Metadata:        result.Observation.Metadata,
 		StartedAt:       startedAt,
-		Err:             err,
+		Status:          result.Observation.Status,
+		Err:             errors.Join(executionErr, recordErr),
 	})
-	if err != nil {
-		result.Observation = e.recordExecutorFailure(ctx, run, input.Capability.Key, input.Message, err)
-		return result, err
+	if err := errors.Join(recordErr, traceErr); err != nil {
+		result.Observation.Status = "failed"
+		return result, e.failExecutorRun(ctx, run, errors.Join(executionErr, err))
 	}
-	result.Observation = e.recordExecutorSuccess(ctx, run, input.Capability.Key, input.Message, result.Observation, contextBlocksContent(result.Blocks), len(result.Blocks))
-	return result, nil
+	return result, executionErr
 }
 
 func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
@@ -68,9 +79,12 @@ func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCP
 		"tool_call_id":   input.CallID,
 		"tool_arguments": safeSummary(input.RawArguments, 1000),
 	})
-	e.recordSubagentDispatchTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
+	dispatchErr := e.recordSubagentDispatchTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
+	if err := errors.Join(runErr, dispatchErr); err != nil {
+		return agent.MCPCallToolResult{}, e.failExecutorRun(ctx, run, err)
+	}
 	if run.ID > 0 {
-		_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
+		_, err := e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
 			RunID:     run.ID,
 			TraceKind: "tool_input",
 			Content: domain.AgentJSON{
@@ -80,10 +94,16 @@ func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCP
 			RedactionStatus: "redacted",
 			TokenEstimate:   estimateTokenCount(input.RawArguments),
 		})
+		if err != nil {
+			return agent.MCPCallToolResult{}, e.failExecutorRun(ctx, run, fmt.Errorf("记录工具输入上下文: %w", err))
+		}
 	}
 
-	result, err := e.base.CallTool(ctx, input)
-	e.recordToolTraceEvent(ctx, agentToolTraceEventInput{
+	result, callErr := e.base.CallTool(ctx, input)
+	result, executionErr := agent.NormalizeToolResult(result, callErr)
+	var recordErr error
+	result.Observation, recordErr = e.recordExecutorResult(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.TextContent(), executionErr)
+	traceErr := e.recordToolTraceEvent(ctx, agentToolTraceEventInput{
 		UserID:          input.UserID,
 		SessionID:       input.SessionID,
 		TurnID:          input.TurnID,
@@ -97,14 +117,15 @@ func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCP
 		StartedAt:       startedAt,
 		RequestID:       input.RequestID,
 		TraceID:         input.TraceID,
-		Err:             err,
+		Status:          result.Observation.Status,
+		Err:             errors.Join(executionErr, recordErr),
 	})
-	if err != nil {
-		result.Observation = e.recordExecutorFailure(ctx, run, input.Capability.Key, input.RawArguments, err)
-		return result, err
+	if err := errors.Join(recordErr, traceErr); err != nil {
+		result.Observation.Status = "failed"
+		result.Result.IsError = true
+		return result, e.failExecutorRun(ctx, run, errors.Join(executionErr, err))
 	}
-	result.Observation = e.recordExecutorSuccess(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.TextContent(), 1)
-	return result, nil
+	return result, executionErr
 }
 
 type agentToolTraceEventInput struct {
@@ -121,13 +142,14 @@ type agentToolTraceEventInput struct {
 	StartedAt       time.Time
 	RequestID       string
 	TraceID         string
+	Status          string
 	Err             error
 }
 
-func (e agentRunRecordingExecutor) recordSubagentDispatchTraceEvent(ctx context.Context, userID int64, sessionID int64, turnID int64, parentRunID int64, run domain.AgentRun, capabilityKey string, err error) {
+func (e agentRunRecordingExecutor) recordSubagentDispatchTraceEvent(ctx context.Context, userID int64, sessionID int64, turnID int64, parentRunID int64, run domain.AgentRun, capabilityKey string, err error) error {
 	store, ok := any(e.base.repository).(agentTraceEventStore)
 	if !ok {
-		return
+		return nil
 	}
 	status := domain.AgentTraceEventSucceeded
 	if err != nil {
@@ -163,27 +185,38 @@ func (e agentRunRecordingExecutor) recordSubagentDispatchTraceEvent(ctx context.
 		event.ErrorMessage = err.Error()
 	}
 	metrics.AgentTraceEventsTotal.WithLabelValues(string(event.EventKind), string(event.Status)).Inc()
-	_, _ = store.CreateAgentTraceEvent(ctx, event)
+	if _, writeErr := store.CreateAgentTraceEvent(ctx, event); writeErr != nil {
+		return fmt.Errorf("记录工具分派事件: %w", writeErr)
+	}
+	return nil
 }
 
-func (e agentRunRecordingExecutor) recordToolTraceEvent(ctx context.Context, input agentToolTraceEventInput) {
+func (e agentRunRecordingExecutor) recordToolTraceEvent(ctx context.Context, input agentToolTraceEventInput) error {
+	status := input.Status
+	if input.Err != nil {
+		status = "failed"
+	}
+	outcome, err := agent.ToolOutcomeForStatus(status)
+	if err != nil {
+		return err
+	}
 	store, ok := any(e.base.repository).(agentTraceEventStore)
 	if !ok {
-		return
+		return nil
 	}
 	finishedAt := e.nowUTC()
 	durationMS := finishedAt.Sub(input.StartedAt).Milliseconds()
 	if durationMS < 0 {
 		durationMS = 0
 	}
-	status := agentTraceStatusFromError(input.Err)
+	traceStatus := outcome.TraceStatus
 	capability := agentTraceLabelValue(input.CapabilityKey)
 	tool := agentTraceLabelValue(input.ToolName)
-	metrics.AgentToolExecutionsTotal.WithLabelValues(capability, tool, string(status)).Inc()
-	metrics.AgentToolExecutionDuration.WithLabelValues(capability, tool, string(status)).Observe(float64(durationMS) / 1000)
-	metrics.AgentTraceEventsTotal.WithLabelValues(string(domain.AgentTraceEventToolExecution), string(status)).Inc()
+	metrics.AgentToolExecutionsTotal.WithLabelValues(capability, tool, string(traceStatus)).Inc()
+	metrics.AgentToolExecutionDuration.WithLabelValues(capability, tool, string(traceStatus)).Observe(float64(durationMS) / 1000)
+	metrics.AgentTraceEventsTotal.WithLabelValues(string(domain.AgentTraceEventToolExecution), string(traceStatus)).Inc()
 	if durationMS > 0 {
-		metrics.AgentTraceEventDuration.WithLabelValues(string(domain.AgentTraceEventToolExecution), string(status)).Observe(float64(durationMS) / 1000)
+		metrics.AgentTraceEventDuration.WithLabelValues(string(domain.AgentTraceEventToolExecution), string(traceStatus)).Observe(float64(durationMS) / 1000)
 	}
 	event := domain.AgentTraceEvent{
 		RequestID:     firstNonEmptyString(input.RequestID, observability.RequestID(ctx)),
@@ -196,7 +229,7 @@ func (e agentRunRecordingExecutor) recordToolTraceEvent(ctx context.Context, inp
 		ParentRunID:   input.ControllerRunID,
 		EventKind:     domain.AgentTraceEventToolExecution,
 		EventName:     "capability_execute",
-		Status:        status,
+		Status:        traceStatus,
 		StartedAt:     input.StartedAt,
 		FinishedAt:    &finishedAt,
 		DurationMS:    durationMS,
@@ -208,11 +241,22 @@ func (e agentRunRecordingExecutor) recordToolTraceEvent(ctx context.Context, inp
 		Metadata:      cloneAgentTraceMetadata(input.Metadata),
 		CreatedAt:     finishedAt,
 	}
+	if event.Metadata == nil {
+		event.Metadata = domain.AgentJSON{}
+	}
+	event.Metadata["observation_status"] = outcome.Status
+	event.Metadata["evidence_usable"] = outcome.EvidenceUsable
 	if input.Err != nil {
 		event.ErrorCode = "capability_execution_failed"
 		event.ErrorMessage = input.Err.Error()
+	} else if outcome.IsError {
+		event.ErrorCode = "capability_result_" + outcome.Status
+		event.ErrorMessage = safeSummary(input.OutputSummary, 1000)
 	}
-	_, _ = store.CreateAgentTraceEvent(ctx, event)
+	if _, err := store.CreateAgentTraceEvent(ctx, event); err != nil {
+		return fmt.Errorf("记录工具执行事件: %w", err)
+	}
+	return nil
 }
 
 func (e agentRunRecordingExecutor) nowUTC() time.Time {
@@ -250,63 +294,93 @@ func (e agentRunRecordingExecutor) createExecutorRun(ctx context.Context, parent
 	})
 }
 
-func (e agentRunRecordingExecutor) recordExecutorSuccess(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, observation agent.CapabilityObservation, output string, artifactCount int) agent.CapabilityObservation {
+func (e agentRunRecordingExecutor) recordExecutorResult(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, observation agent.CapabilityObservation, output string, executionErr error) (agent.CapabilityObservation, error) {
 	if observation.Capability == "" {
 		observation.Capability = capabilityKey
 	}
+	outcome, err := agent.ToolOutcomeForStatus(observation.Status)
+	if err != nil {
+		return observation, err
+	}
+	observation.Status = outcome.Status
 	if e.runManager == nil || run.ID == 0 {
-		return observation
+		return observation, nil
 	}
-	status := observation.Status
-	if strings.TrimSpace(status) == "" {
-		status = "succeeded"
-	}
-	observation.Status = status
 	observation.RunID = run.ID
-	evidenceRefs := capabilityEvidenceRefs(capabilityKey, run)
-	if strings.TrimSpace(output) != "" {
-		artifact, _ := e.runManager.RecordArtifact(ctx, domain.AgentArtifact{
+	evidenceRefs := append(capabilityEvidenceRefs(capabilityKey, run), observation.ArtifactRefs...)
+	artifactCount := 0
+	if outcome.EvidenceUsable && strings.TrimSpace(output) != "" {
+		artifact, err := e.runManager.RecordArtifact(ctx, domain.AgentArtifact{
 			RunID:        run.ID,
 			ArtifactType: "capability_output",
 			ContentRef:   fmt.Sprintf("agent_run:%d:capability_output", run.ID),
+			Content:      output,
 			Summary:      safeSummary(output, 1000),
 			SourceRefs:   evidenceRefs,
 		})
+		if err != nil {
+			return observation, fmt.Errorf("记录工具结果正文: %w", err)
+		}
 		if artifact.ID > 0 {
 			evidenceRefs = append(evidenceRefs, fmt.Sprintf("agent_artifact:%d", artifact.ID), fmt.Sprintf("agent_artifacts/%d", artifact.ID))
+			artifactCount = 1
 		}
 	}
-	recordedObservation, _ := e.runManager.RecordObservation(ctx, domain.AgentObservation{
+	errorMessage := ""
+	if executionErr != nil {
+		errorMessage = executionErr.Error()
+	} else if outcome.IsError {
+		errorMessage = observation.Summary
+	}
+	recordedObservation, err := e.runManager.RecordObservation(ctx, domain.AgentObservation{
 		RunID:         run.ID,
 		CapabilityKey: capabilityKey,
 		InputSummary:  safeSummary(input, 500),
 		OutputSummary: safeSummary(observation.Summary, 500),
-		Status:        status,
+		Status:        outcome.Status,
+		Error:         safeSummary(errorMessage, 500),
 		ArtifactRefs:  evidenceRefs,
 	})
+	if err != nil {
+		return observation, fmt.Errorf("记录工具观察结果: %w", err)
+	}
 	if recordedObservation.ID > 0 {
 		observation.ObservationRef = fmt.Sprintf("agent_observations/%d", recordedObservation.ID)
 		evidenceRefs = append(evidenceRefs, fmt.Sprintf("agent_observation:%d", recordedObservation.ID), observation.ObservationRef)
 	}
 	observation.ArtifactRefs = append([]string(nil), evidenceRefs...)
-	_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
-		RunID:     run.ID,
-		TraceKind: "executor_output",
-		Content: domain.AgentJSON{
-			"observation": domain.AgentJSON{
-				"capability": observation.Capability,
-				"decision":   observation.Decision,
-				"status":     status,
-				"summary":    observation.Summary,
-				"metadata":   cloneAgentTraceMetadata(observation.Metadata),
-			},
-			"artifact_count": artifactCount,
+	traceKind := "executor_output"
+	if executionErr != nil {
+		traceKind = "executor_error"
+	}
+	traceContent := domain.AgentJSON{
+		"observation": domain.AgentJSON{
+			"capability": observation.Capability,
+			"decision":   observation.Decision,
+			"status":     outcome.Status,
+			"summary":    observation.Summary,
+			"metadata":   cloneAgentTraceMetadata(observation.Metadata),
 		},
+		"artifact_count": artifactCount,
+		"error":          safeSummary(errorMessage, 1000),
+	}
+	if !outcome.EvidenceUsable && output != "" {
+		traceContent["diagnostic_output"] = output
+	}
+	_, err = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
+		RunID:           run.ID,
+		TraceKind:       traceKind,
+		Content:         traceContent,
 		RedactionStatus: "redacted",
 		TokenEstimate:   estimateTokenCount(output),
 	})
-	_, _ = e.runManager.CompleteRun(ctx, run, "observation")
-	return observation
+	if err != nil {
+		return observation, fmt.Errorf("记录工具输出上下文: %w", err)
+	}
+	if _, err := e.runManager.FinishToolRun(ctx, run, outcome.Status, observation.ObservationRef, errorMessage); err != nil {
+		return observation, fmt.Errorf("提交工具执行状态: %w", err)
+	}
+	return observation, nil
 }
 
 func cloneAgentTraceMetadata(input domain.AgentJSON) domain.AgentJSON {
@@ -320,40 +394,15 @@ func cloneAgentTraceMetadata(input domain.AgentJSON) domain.AgentJSON {
 	return output
 }
 
-func (e agentRunRecordingExecutor) recordExecutorFailure(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, err error) agent.CapabilityObservation {
-	observation := agent.CapabilityObservation{
-		Capability: capabilityKey,
-		Decision:   string(agent.PolicyDecisionAllow),
-		Status:     "failed",
-		Summary:    "capability execution failed",
-		RunID:      run.ID,
-	}
+func (e agentRunRecordingExecutor) failExecutorRun(ctx context.Context, run domain.AgentRun, executionErr error) error {
 	if e.runManager == nil || run.ID == 0 {
-		return observation
+		return executionErr
 	}
-	recordedObservation, _ := e.runManager.RecordObservation(ctx, domain.AgentObservation{
-		RunID:         run.ID,
-		CapabilityKey: capabilityKey,
-		InputSummary:  safeSummary(input, 500),
-		OutputSummary: "capability execution failed",
-		Status:        "failed",
-		Error:         safeSummary(err.Error(), 500),
-		ArtifactRefs:  capabilityEvidenceRefs(capabilityKey, run),
-	})
-	if recordedObservation.ID > 0 {
-		observation.ObservationRef = fmt.Sprintf("agent_observations/%d", recordedObservation.ID)
-		observation.ArtifactRefs = append(capabilityEvidenceRefs(capabilityKey, run), fmt.Sprintf("agent_observation:%d", recordedObservation.ID), observation.ObservationRef)
+	_, err := e.runManager.FailRun(ctx, run, executionErr)
+	if err != nil {
+		return errors.Join(executionErr, fmt.Errorf("提交工具失败状态: %w", err))
 	}
-	_, _ = e.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
-		RunID:     run.ID,
-		TraceKind: "executor_error",
-		Content: domain.AgentJSON{
-			"error": safeSummary(err.Error(), 1000),
-		},
-		RedactionStatus: "redacted",
-	})
-	_, _ = e.runManager.FailRun(ctx, run, err)
-	return observation
+	return executionErr
 }
 
 func capabilityEvidenceRefs(capabilityKey string, run domain.AgentRun) []string {

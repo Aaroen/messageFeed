@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"messagefeed/internal/agent"
 	"messagefeed/internal/config"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
@@ -371,12 +371,14 @@ func (s *AgentLLMConfigService) clientForConfig(config domain.AgentLLMProviderCo
 }
 
 type AgentLLMRuntime struct {
-	store         AgentLLMProviderConfigStore
-	defaultClient AgentConversationLLM
-	codec         agentLLMConfigCodec
-	now           func() time.Time
-	mu            sync.Mutex
-	cache         map[string]AgentConversationLLM
+	store              AgentLLMProviderConfigStore
+	defaultClient      AgentConversationLLM
+	defaultModelConfig domain.AgentJSON
+	runManager         *agent.RunManager
+	codec              agentLLMConfigCodec
+	now                func() time.Time
+	mu                 sync.Mutex
+	cache              map[string]AgentConversationLLM
 }
 
 type AgentLLMRuntimeOption func(*AgentLLMRuntime)
@@ -415,26 +417,7 @@ func NewAgentLLMRuntime(store AgentLLMProviderConfigStore, options ...AgentLLMRu
 }
 
 func (r *AgentLLMRuntime) Chat(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
-	userID := agentLLMUserIDFromContext(ctx)
-	if r == nil || userID < 1 || r.store == nil {
-		return chatWithAgentLLMFallback(ctx, r, request)
-	}
-	config, err := r.store.GetDefaultAgentLLMProviderConfig(ctx, userID)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			return chatWithAgentLLMFallback(ctx, r, request)
-		}
-		return llm.ChatResponse{}, err
-	}
-	client, err := r.clientForConfig(config)
-	if err != nil {
-		return llm.ChatResponse{}, err
-	}
-	response, err := client.Chat(ctx, request)
-	if err == nil {
-		_ = r.store.MarkAgentLLMProviderConfigUsed(context.WithoutCancel(ctx), userID, config.ID, r.now().UTC())
-	}
-	return response, err
+	return r.chatWithCallTrace(ctx, request)
 }
 
 func (r *AgentLLMRuntime) clientForConfig(config domain.AgentLLMProviderConfig) (AgentConversationLLM, error) {
@@ -457,13 +440,6 @@ func (r *AgentLLMRuntime) clientForConfig(config domain.AgentLLMProviderConfig) 
 	r.cache[key] = client
 	r.mu.Unlock()
 	return client, nil
-}
-
-func chatWithAgentLLMFallback(ctx context.Context, runtime *AgentLLMRuntime, request llm.ChatRequest) (llm.ChatResponse, error) {
-	if runtime == nil || runtime.defaultClient == nil {
-		return llm.ChatResponse{}, domain.NewAppError(domain.ErrorKindUnavailable, "llm_unavailable", "llm client is unavailable", "service.agent_llm_runtime.chat", true, nil)
-	}
-	return runtime.defaultClient.Chat(ctx, request)
 }
 
 type agentLLMUserIDContextKey struct{}

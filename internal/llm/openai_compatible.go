@@ -62,10 +62,22 @@ type ChatRequest struct {
 }
 
 type ChatResponse struct {
-	Provider  string
-	Model     string
-	Content   string
-	ToolCalls []ToolCall
+	Provider         string
+	Model            string
+	Content          string
+	ToolCalls        []ToolCall
+	ResponseID       string
+	Protocol         string
+	FinishReason     string
+	IncompleteReason string
+	Usage            *TokenUsage
+}
+
+type TokenUsage struct {
+	InputTokens     int `json:"input_tokens"`
+	OutputTokens    int `json:"output_tokens"`
+	TotalTokens     int `json:"total_tokens"`
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 type Client interface {
@@ -151,17 +163,23 @@ type chatCompletionToolCallFunction struct {
 }
 
 type chatCompletionResponse struct {
+	ID      string `json:"id"`
+	Model   string `json:"model"`
 	Choices []struct {
-		Message chatCompletionMessage `json:"message"`
+		Message      chatCompletionMessage `json:"message"`
+		FinishReason string                `json:"finish_reason"`
 	} `json:"choices"`
 	Error *struct {
 		Message string `json:"message"`
 		Type    string `json:"type"`
 	} `json:"error,omitempty"`
 	Usage *struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
+		PromptTokens            int `json:"prompt_tokens"`
+		CompletionTokens        int `json:"completion_tokens"`
+		TotalTokens             int `json:"total_tokens"`
+		CompletionTokensDetails *struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"completion_tokens_details,omitempty"`
 	} `json:"usage,omitempty"`
 }
 
@@ -205,9 +223,12 @@ type responsesResponse struct {
 		Type    string `json:"type"`
 	} `json:"error,omitempty"`
 	Usage *struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
+		InputTokens         int `json:"input_tokens"`
+		OutputTokens        int `json:"output_tokens"`
+		TotalTokens         int `json:"total_tokens"`
+		OutputTokensDetails *struct {
+			ReasoningTokens int `json:"reasoning_tokens"`
+		} `json:"output_tokens_details,omitempty"`
 	} `json:"usage,omitempty"`
 }
 
@@ -311,13 +332,20 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request ChatRequest) 
 		return ChatResponse{}, chatErr
 	}
 	var lastErr error
+	var lastResponse ChatResponse
 	for _, protocol := range c.protocolOrder(request) {
 		response, err := c.chatWithProtocol(ctx, request, protocol, host, span)
+		response.Provider = c.provider
+		response.Protocol = string(protocol)
+		if response.Model == "" {
+			response.Model = c.model
+		}
 		if err == nil {
 			c.rememberProtocol(protocol)
 			span.SetAttributes(attribute.String("llm.route.protocol", string(protocol)))
 			return response, nil
 		}
+		lastResponse = response
 		lastErr = err
 		if !shouldTryNextLLMProtocol(err) {
 			break
@@ -327,7 +355,7 @@ func (c *OpenAICompatibleClient) Chat(ctx context.Context, request ChatRequest) 
 		lastErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_route_failed", "llm route failed", "llm.openai_compatible.chat", true, nil)
 	}
 	chatErr = lastErr
-	return ChatResponse{}, lastErr
+	return lastResponse, lastErr
 }
 
 // compactChatMessages 只用于确认请求至少含有一条可发送消息或工具结果。
@@ -421,22 +449,51 @@ func (c *OpenAICompatibleClient) chatWithChatCompletions(ctx context.Context, re
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
 		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is invalid: "+llmResponseSnippet(responseBody), true, err)
 	}
-	if len(decoded.Choices) == 0 {
-		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is empty", len(request.Tools) > 0, nil)
+	response, err := chatResponseFromChatCompletion(decoded)
+	response.Provider = c.provider
+	if response.Model == "" {
+		response.Model = c.model
 	}
-	content := strings.TrimSpace(decoded.Choices[0].Message.Content)
-	toolCalls := domainToolCallsFromChatCompletion(decoded.Choices[0].Message.ToolCalls)
-	if encodedCall, ok := encodedToolCallFromText(content, "encoded_call_0_0"); ok {
-		toolCalls = append(toolCalls, encodedCall)
-		content = ""
+	if response.Usage != nil {
+		recordLLMUsage(c.provider, response.Model, response.Usage.InputTokens, response.Usage.OutputTokens, response.Usage.TotalTokens, span)
 	}
-	if content == "" && len(toolCalls) == 0 {
-		return ChatResponse{}, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is empty", len(request.Tools) > 0, nil)
+	if err != nil {
+		return response, err
+	}
+	if response.Content == "" && len(response.ToolCalls) == 0 {
+		return response, newLLMRouteError(llmProtocolChatCompletions, statusCode, "llm response is empty", len(request.Tools) > 0, nil)
+	}
+	return response, nil
+}
+
+func chatResponseFromChatCompletion(decoded chatCompletionResponse) (ChatResponse, error) {
+	response := ChatResponse{
+		ResponseID: strings.TrimSpace(decoded.ID),
+		Protocol:   string(llmProtocolChatCompletions),
+		Model:      strings.TrimSpace(decoded.Model),
 	}
 	if decoded.Usage != nil {
-		recordLLMUsage(c.provider, c.model, decoded.Usage.PromptTokens, decoded.Usage.CompletionTokens, decoded.Usage.TotalTokens, span)
+		response.Usage = &TokenUsage{InputTokens: decoded.Usage.PromptTokens, OutputTokens: decoded.Usage.CompletionTokens, TotalTokens: decoded.Usage.TotalTokens}
+		if decoded.Usage.CompletionTokensDetails != nil {
+			response.Usage.ReasoningTokens = decoded.Usage.CompletionTokensDetails.ReasoningTokens
+		}
 	}
-	return ChatResponse{Provider: c.provider, Model: c.model, Content: content, ToolCalls: toolCalls}, nil
+	if len(decoded.Choices) == 0 {
+		return response, nil
+	}
+	choice := decoded.Choices[0]
+	response.Content = strings.TrimSpace(choice.Message.Content)
+	response.ToolCalls = domainToolCallsFromChatCompletion(choice.Message.ToolCalls)
+	response.FinishReason = strings.TrimSpace(choice.FinishReason)
+	if encodedCall, ok := encodedToolCallFromText(response.Content, "encoded_call_0_0"); ok {
+		response.ToolCalls = append(response.ToolCalls, encodedCall)
+		response.Content = ""
+	}
+	if response.FinishReason == "length" || response.FinishReason == "content_filter" {
+		response.IncompleteReason = response.FinishReason
+		return response, incompleteChatResponseError(response)
+	}
+	return response, nil
 }
 
 func chatCompletionMessagesFromDomain(messages []ChatMessage) []chatCompletionMessage {
@@ -564,30 +621,56 @@ func (c *OpenAICompatibleClient) chatWithResponses(ctx context.Context, request 
 	if err := json.Unmarshal(responseBody, &decoded); err != nil {
 		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, "llm response is invalid: "+llmResponseSnippet(responseBody), true, err)
 	}
-	content, encodedToolCalls := responsesOutputTextAndEncodedToolCalls(decoded.Output)
-	toolCalls := domainToolCallsFromResponses(decoded.Output)
-	toolCalls = append(toolCalls, encodedToolCalls...)
-	if strings.EqualFold(decoded.Status, "incomplete") {
-		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, responsesIncompleteMessage(decoded), true, nil)
+	response, err := chatResponseFromResponses(decoded)
+	response.Provider = c.provider
+	if response.Model == "" {
+		response.Model = c.model
 	}
-	if content == "" && len(toolCalls) == 0 {
-		return ChatResponse{}, newLLMRouteError(llmProtocolResponses, statusCode, "llm response is empty", false, nil)
+	if response.Usage != nil {
+		recordLLMUsage(c.provider, response.Model, response.Usage.InputTokens, response.Usage.OutputTokens, response.Usage.TotalTokens, span)
 	}
-	if decoded.Usage != nil {
-		recordLLMUsage(c.provider, c.model, decoded.Usage.InputTokens, decoded.Usage.OutputTokens, decoded.Usage.TotalTokens, span)
+	if err != nil {
+		return response, err
 	}
-	return ChatResponse{Provider: c.provider, Model: c.model, Content: content, ToolCalls: toolCalls}, nil
+	if response.Content == "" && len(response.ToolCalls) == 0 {
+		return response, newLLMRouteError(llmProtocolResponses, statusCode, "llm response is empty", false, nil)
+	}
+	return response, nil
 }
 
-func responsesIncompleteMessage(response responsesResponse) string {
-	reason := ""
-	if response.IncompleteDetails != nil {
-		reason = strings.TrimSpace(response.IncompleteDetails.Reason)
+func chatResponseFromResponses(decoded responsesResponse) (ChatResponse, error) {
+	content, encodedToolCalls := responsesOutputTextAndEncodedToolCalls(decoded.Output)
+	response := ChatResponse{
+		ResponseID:   strings.TrimSpace(decoded.ID),
+		Protocol:     string(llmProtocolResponses),
+		Model:        strings.TrimSpace(decoded.Model),
+		Content:      content,
+		ToolCalls:    append(domainToolCallsFromResponses(decoded.Output), encodedToolCalls...),
+		FinishReason: strings.TrimSpace(decoded.Status),
 	}
-	if reason == "" {
-		return "llm response is incomplete"
+	if decoded.Usage != nil {
+		response.Usage = &TokenUsage{InputTokens: decoded.Usage.InputTokens, OutputTokens: decoded.Usage.OutputTokens, TotalTokens: decoded.Usage.TotalTokens}
+		if decoded.Usage.OutputTokensDetails != nil {
+			response.Usage.ReasoningTokens = decoded.Usage.OutputTokensDetails.ReasoningTokens
+		}
 	}
-	return "llm response is incomplete: " + reason
+	if decoded.IncompleteDetails != nil {
+		response.IncompleteReason = strings.TrimSpace(decoded.IncompleteDetails.Reason)
+	}
+	if strings.EqualFold(decoded.Status, "incomplete") || strings.EqualFold(decoded.Status, "failed") || strings.EqualFold(decoded.Status, "cancelled") {
+		if response.IncompleteReason == "" {
+			response.IncompleteReason = strings.ToLower(strings.TrimSpace(decoded.Status))
+		}
+		return response, incompleteChatResponseError(response)
+	}
+	if response.IncompleteReason != "" {
+		return response, incompleteChatResponseError(response)
+	}
+	return response, nil
+}
+
+func incompleteChatResponseError(response ChatResponse) error {
+	return domain.NewAppError(domain.ErrorKindUnavailable, "llm_response_incomplete", "llm response is incomplete: "+response.IncompleteReason, "llm.openai_compatible.chat", true, nil)
 }
 
 func responsesInputFromChatMessages(messages []ChatMessage) []responsesInputItem {

@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"fmt"
 	"log/slog"
+	"messagefeed/internal/agent"
 	"messagefeed/internal/channel/wechatwork"
 	"messagefeed/internal/config"
 	"messagefeed/internal/fetcher"
@@ -150,7 +151,12 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	recommendationService := service.NewRecommendationService(sourceCatalogRepository, feedFetcher)
 	recommendationService.SetLocalHistoryRepositories(sourceRepository, itemRepository)
 	agentLLMConfigSecret := service.AgentLLMConfigSecretFromConfig(cfg)
-	agentLLMRuntime := service.NewAgentLLMRuntime(agentRepository, service.WithAgentLLMRuntimeDefaultClient(llmClient), service.WithAgentLLMRuntimeSecret(agentLLMConfigSecret))
+	agentLLMRuntime := service.NewAgentLLMRuntime(agentRepository,
+		service.WithAgentLLMRuntimeDefaultClient(llmClient),
+		service.WithAgentLLMRuntimeDefaultConfig(cfg.LLM),
+		service.WithAgentLLMRuntimeSecret(agentLLMConfigSecret),
+		service.WithAgentLLMRuntimeRunManager(agent.NewRunManager(agent.RunManagerOptions{Store: agentRepository})),
+	)
 	agentConversationService := service.NewAgentConversationService(agentRepository,
 		service.WithAgentConversationLLM(agentLLMRuntime),
 		service.WithAgentConversationSender(sender),

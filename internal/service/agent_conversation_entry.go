@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
 	"messagefeed/internal/notifier"
@@ -247,7 +248,9 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 		s.sendWeChatWorkTaskAcceptedFeedback(processCtx, account, session, turn, input)
 		ctx, cancel := context.WithTimeout(processCtx, s.processTimeout)
 		defer cancel()
-		s.processQueuedWeChatWorkTurn(ctx, account, inbound, session, turn, input, userTranscript)
+		if err := s.processQueuedWeChatWorkTurn(ctx, account, inbound, session, turn, input, userTranscript); err != nil {
+			slog.ErrorContext(processCtx, "异步 Agent 调用失败", "turn_id", turn.ID, "error", err)
+		}
 	}()
 
 	return result, nil
@@ -261,15 +264,16 @@ func (s *AgentConversationService) processQueuedWeChatWorkTurn(
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
 	userTranscript domain.AgentTranscriptEntry,
-) {
+) error {
 	defer s.captureMemoryCandidateFromTranscriptAsync(ctx, userTranscript)
 	if handled, _, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, input); err != nil {
-		s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, err)
-		return
+		_, finishErr := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, err)
+		return finishErr
 	} else if handled {
-		return
+		return nil
 	}
-	_, _ = s.processTurn(ctx, account, inbound, session, turn, input)
+	_, err := s.processTurn(ctx, account, inbound, session, turn, input)
+	return err
 }
 
 // ReceiveWebAgentTask 接收 Web 任务，复用同一套 Agent turn 闭环。

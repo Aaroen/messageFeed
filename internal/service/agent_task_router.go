@@ -82,6 +82,10 @@ func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, a
 	}
 	routeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentTaskRouterTimeout)
 	defer cancel()
+	routeCtx = WithAgentLLMCallContext(routeCtx, AgentLLMCallContext{
+		UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID, ParentRunID: controllerRun.ID,
+		Stage: AgentLLMCallStageRoute, PromptVersion: "agent-task-router-v1",
+	})
 	response, err := s.llmClient.Chat(routeCtx, llm.ChatRequest{
 		Messages: []llm.ChatMessage{
 			{Role: "system", Content: agentTaskRouterSystemPrompt()},

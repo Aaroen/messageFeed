@@ -170,6 +170,8 @@ type AgentTurn struct {
 	ModelProvider    string
 	Model            string
 	ErrorMessage     string
+	DeliveryStatus   string
+	DeliveryError    string
 	AttemptCount     int
 	MaxAttempts      int
 	LockedBy         string

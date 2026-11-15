@@ -73,8 +73,8 @@ func TestTurnRunnerExecutesToolCallAndContinuesChat(t *testing.T) {
 	if len(result.Context.Observations) != 1 || result.Context.Observations[0].Capability != "conversation.query_history" {
 		t.Fatalf("observations = %#v", result.Context.Observations)
 	}
-	if len(store.transcripts) != 1 || store.transcripts[0].Role != domain.AgentTranscriptRoleAssistant {
-		t.Fatalf("assistant transcript = %#v", store.transcripts)
+	if len(store.transcripts) != 0 || result.Turn.Status != domain.AgentTurnStatusRunning || result.Turn.FinishedAt != nil {
+		t.Fatalf("候选回答在校验之前已经持久化或完成：turn=%#v，transcripts=%#v", result.Turn, store.transcripts)
 	}
 }
 

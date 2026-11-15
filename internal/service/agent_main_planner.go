@@ -179,6 +179,10 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 	}
 	var lastErr error
 	var lastRaw string
+	ctx = WithAgentLLMCallContext(ctx, AgentLLMCallContext{
+		UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID, ParentRunID: controllerRun.ID,
+		Stage: AgentLLMCallStagePlanning, PromptVersion: "agent-main-planner-v1",
+	})
 	for attempt := 1; attempt <= mainAgentPlanSpecMaxAttempts; attempt++ {
 		attempts = attempt
 		// 每次尝试都把上一次错误和原始返回带回模型，允许模型自行修正 JSON 结构。
