@@ -20,6 +20,14 @@ func TestParseMigrationVersion(t *testing.T) {
 	}
 }
 
+func TestRepositoryMigrationsFollowDeploymentPolicy(test *testing.T) {
+	for _, path := range []string{"../../migrations", "../../deploy/helm/messagefeed/files/migrations"} {
+		if err := validatePendingMigrations(path, migrationPolicyBaselineVersion, "expand"); err != nil {
+			test.Fatalf("正式迁移目录未满足部署规则：%s，%v", path, err)
+		}
+	}
+}
+
 func TestValidatePendingMigrationsEnforcesExpandContract(t *testing.T) {
 	tests := []struct {
 		name           string

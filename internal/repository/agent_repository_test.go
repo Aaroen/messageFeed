@@ -60,7 +60,7 @@ func TestAgentTurnCompletionDatabaseTransaction(test *testing.T) {
 		test.Fatalf("开始真实数据库事务失败：%T", transaction.Error)
 	}
 	defer transaction.Rollback()
-	for _, name := range []string{"000040_add_agent_artifact_content.up.sql", "000041_add_agent_turn_delivery.up.sql"} {
+	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql"} {
 		migration, readErr := os.ReadFile("../../migrations/" + name)
 		if readErr != nil {
 			test.Fatal(readErr)
@@ -224,7 +224,7 @@ func TestAgentArtifactChunkProjectionPreservesSourceBody(test *testing.T) {
 
 func TestAgentArtifactContentMigrationMatchesHelm(test *testing.T) {
 	for _, suffix := range []string{"up.sql", "down.sql"} {
-		name := "000040_add_agent_artifact_content." + suffix
+		name := "000040_expand_agent_artifact_content." + suffix
 		migration, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			test.Fatalf("读取正文迁移失败：%v", err)

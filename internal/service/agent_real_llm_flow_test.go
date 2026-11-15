@@ -80,7 +80,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	if err := transaction.Exec("SET LOCAL search_path TO " + pgx.Identifier{schema}.Sanitize() + ", " + pgx.Identifier{sourceSchema}.Sanitize()).Error; err != nil {
 		test.Fatal(err)
 	}
-	for _, name := range []string{"000040_add_agent_artifact_content.up.sql", "000041_add_agent_turn_delivery.up.sql"} {
+	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql"} {
 		migration, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			test.Fatal(err)
