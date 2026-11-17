@@ -2058,14 +2058,24 @@ func (s *AgentSessionService) CreateSession(ctx context.Context, auth CurrentAut
 	if !auth.Authenticated || auth.User.ID < 1 {
 		return AgentSessionResponse{}, fmt.Errorf("%w: authenticated user is required", domain.ErrInvalidInput)
 	}
-	account, err := s.repository.GetExternalAccount(ctx, auth.User.ID, externalAccountID)
+	var account domain.ExternalAccount
+	var err error
+	if externalAccountID == 0 {
+		store, ok := s.repository.(AgentConversationAccountStore)
+		if !ok {
+			return AgentSessionResponse{}, fmt.Errorf("web account store is unavailable")
+		}
+		account, err = store.EnsureExternalAccount(ctx, domain.ExternalAccount{UserID: auth.User.ID, Provider: domain.AgentProviderWeb, CorpID: domain.AgentProviderWeb, AgentID: "assistant", ExternalUserID: fmt.Sprintf("user:%d", auth.User.ID), DisplayName: auth.User.DisplayName, BindingStatus: domain.ExternalAccountBindingStatusActive})
+	} else {
+		account, err = s.repository.GetExternalAccount(ctx, auth.User.ID, externalAccountID)
+	}
 	if err != nil {
 		return AgentSessionResponse{}, err
 	}
 	now := s.now().UTC()
 	title = strings.TrimSpace(title)
 	if title == "" {
-		title = "企业微信对话"
+		title = "新对话"
 	}
 	session, err := s.repository.CreateAgentSession(ctx, domain.AgentSession{
 		UserID:            auth.User.ID,
@@ -4135,7 +4145,7 @@ func agentRunResponse(run domain.AgentRun, includeDetail bool) AgentRunResponse 
 			TraceKind:       trace.TraceKind,
 			PromptVersion:   trace.PromptVersion,
 			ModelKey:        trace.ModelKey,
-			Content:         trace.Content,
+			Content:         agentPublicTraceContent(trace.Content),
 			ContentHash:     trace.ContentHash,
 			RedactionStatus: trace.RedactionStatus,
 			TokenEstimate:   trace.TokenEstimate,

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, type StyleValue } from 'vue'
+import { useRoute } from 'vue-router'
 
 import type { FeedItem } from '@/api/feed'
 import AgentPlanView from '@/views/AgentPlanView.vue'
+import AgentWorkspaceView from '@/views/AgentWorkspaceView.vue'
 import SubscriptionFeedView from '@/views/SubscriptionFeedView.vue'
 
 type FeedSourceKind = 'subscriptions' | 'recommendations'
@@ -48,6 +50,8 @@ const emit = defineEmits<{
 }>()
 
 const readerClosed = computed(() => !props.detailReaderOpen && !props.sourceReaderOpen)
+const route = useRoute()
+const conversationMode = computed(() => route.name === 'agent' && !['turn_id', 'turnID', 'plan_id', 'planID', 'run_id', 'runID', 'scheduled_task_id', 'task_id'].some((key) => route.query[key]))
 const subscriptionsActive = computed(() => props.activeKey === 'subscriptions' && readerClosed.value)
 const recommendationsActive = computed(() => props.activeKey === 'recommendations' && readerClosed.value)
 const agentActive = computed(() => props.activeKey === 'agent' && readerClosed.value)
@@ -58,7 +62,7 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
 </script>
 
 <template>
-  <div class="feed-stage">
+  <div class="feed-stage" :class="{ 'feed-stage--assistant': conversationMode }">
     <div class="feed-track" :style="feedTrackStyle">
       <section class="feed-pane" :aria-hidden="!subscriptionsActive" :inert="!subscriptionsActive">
         <SubscriptionFeedView
@@ -101,8 +105,15 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
         />
       </section>
       <section class="feed-pane feed-pane--agent" :aria-hidden="!agentActive" :inert="!agentActive">
-        <AgentPlanView />
+        <AgentWorkspaceView v-if="agentActive && conversationMode" />
+        <AgentPlanView v-else-if="agentActive" />
       </section>
     </div>
   </div>
 </template>
+
+<style>
+.feed-stage--assistant { height: 100%; width: 100%; margin: 0; }
+.feed-stage--assistant .feed-track { height: 100%; grid-template-rows: minmax(0, 1fr); }
+.feed-stage--assistant .feed-pane { height: 100%; min-height: 0; overflow: hidden; }
+</style>

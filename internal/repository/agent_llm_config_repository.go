@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"messagefeed/internal/domain"
 	"strings"
 	"time"
@@ -86,7 +88,12 @@ func (r *AgentRepository) CreateAgentLLMProviderConfig(ctx context.Context, conf
 	defer func() { finish(opErr) }()
 
 	model := agentLLMProviderConfigModelFromDomain(normalizeAgentLLMProviderConfig(config))
-	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+	if err := r.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		if err := transaction.Create(&model).Error; err != nil {
+			return err
+		}
+		return transaction.Table("agent_llm_models").Create(&domain.AgentLLMModel{ConfigID: model.ID, Model: model.Model, Enabled: true}).Error
+	}); err != nil {
 		opErr = mapRepositoryError(err)
 		return domain.AgentLLMProviderConfig{}, opErr
 	}
@@ -99,31 +106,36 @@ func (r *AgentRepository) UpdateAgentLLMProviderConfig(ctx context.Context, conf
 	defer func() { finish(opErr) }()
 
 	model := agentLLMProviderConfigModelFromDomain(normalizeAgentLLMProviderConfig(config))
-	result := r.db.WithContext(ctx).
-		Model(&agentLLMProviderConfigModel{}).
-		Where("id = ? AND user_id = ?", config.ID, config.UserID).
-		Select(
-			"Name",
-			"Provider",
-			"BaseURL",
-			"Model",
-			"APIKeyCiphertext",
-			"APIKeyHint",
-			"ProtocolMode",
-			"Enabled",
-			"IsDefault",
-			"TimeoutSeconds",
-			"MaxRetries",
-			"LastUsedAt",
-			"UpdatedAt",
-		).
-		Updates(&model)
-	if result.Error != nil {
-		opErr = mapRepositoryError(result.Error)
-		return domain.AgentLLMProviderConfig{}, opErr
-	}
-	if result.RowsAffected == 0 {
-		opErr = domain.ErrNotFound
+	err := r.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
+		result := transaction.
+			Model(&agentLLMProviderConfigModel{}).
+			Where("id = ? AND user_id = ?", config.ID, config.UserID).
+			Select(
+				"Name",
+				"Provider",
+				"BaseURL",
+				"Model",
+				"APIKeyCiphertext",
+				"APIKeyHint",
+				"ProtocolMode",
+				"Enabled",
+				"IsDefault",
+				"TimeoutSeconds",
+				"MaxRetries",
+				"LastUsedAt",
+				"UpdatedAt",
+			).
+			Updates(&model)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrNotFound
+		}
+		return transaction.Table("agent_llm_models").Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "config_id"}, {Name: "model"}}, DoUpdates: clause.Assignments(map[string]any{"enabled": true})}).Create(&domain.AgentLLMModel{ConfigID: model.ID, Model: model.Model, Enabled: true}).Error
+	})
+	if err != nil {
+		opErr = mapRepositoryError(err)
 		return domain.AgentLLMProviderConfig{}, opErr
 	}
 	return r.GetAgentLLMProviderConfig(ctx, config.UserID, config.ID)

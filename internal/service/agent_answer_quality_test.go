@@ -5,10 +5,36 @@ import (
 	"encoding/json"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestAgentRecordedSemanticReview(test *testing.T) {
+	path := os.Getenv("AGENT_RECORDED_SEMANTIC_REVIEW")
+	if path == "" {
+		test.Skip("提供实际质量评价记录后执行协议验收")
+	}
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		test.Fatal(err)
+	}
+	var recorded struct {
+		Raw          string
+		Reply        string
+		Sources      []domain.AgentFactSource
+		Requirements []agent.PlanEvidenceRequirement
+		Now          time.Time
+	}
+	if err := json.Unmarshal(encoded, &recorded); err != nil {
+		test.Fatal(err)
+	}
+	review, err := agentAnswerParseSemanticReview(recorded.Raw, recorded.Reply, recorded.Sources, recorded.Requirements, recorded.Now)
+	if err != nil || review.Status != "passed" {
+		test.Fatalf("实际质量评价未通过解析与引用校验：%v，状态：%s", err, review.Status)
+	}
+}
 
 func TestAgentAnswerQualityUsesCurrentFormatAndActualReply(test *testing.T) {
 	formats, _, requireJSON, err := agentAnswerEffectiveConstraints([]string{"只回答十个汉字"}, "只回复三个大写英文字母")
@@ -35,6 +61,24 @@ func TestAgentAnswerQualityKeepsUnrecognizedCurrentConstraint(test *testing.T) {
 	result, err := (&AgentConversationService{}).evaluateAgentAnswerQuality(context.Background(), agentAnswerQualityInput{Reply: "已经完成。", CurrentMessage: "必须按照时间顺序回答", Now: time.Now().UTC()})
 	if err == nil || result.Passed || result.Status != "unverified" {
 		test.Fatalf("无法验证的语义约束被标记为通过：%#v", result)
+	}
+}
+
+func TestAgentAnswerFormatSeparatesSourceDescriptionFromOutput(test *testing.T) {
+	for _, current := range []string{
+		"读取本会话最早一条用户消息中要求回复的三个大写英文字母，并转为小写。最终仅回复三个小写英文字母，不要附加解释。",
+		"从十个汉字的原文提取代号，只回复三个小写英文字母。",
+	} {
+		formats, _, _, err := agentAnswerEffectiveConstraints([]string{"只回复三个大写英文字母"}, current)
+		if err != nil || len(formats) != 1 || formats[0].Unit != "小写英文字母" || agentAnswerFormatViolation("abc", formats, false) != "" || agentAnswerFormatViolation("ABC", formats, false) == "" {
+			test.Fatalf("来源描述影响当前输出要求：%+v，%v", formats, err)
+		}
+	}
+	for _, current := range []string{"请仅回复这三个大写英文字母", "回复为三个大写英文字母", "字数为三个大写英文字母"} {
+		formats, _, err := agentAnswerParseFormat(current)
+		if err != nil || len(formats) != 1 || agentAnswerFormatViolation("ABC", formats, false) != "" || agentAnswerFormatViolation("AB", formats, false) == "" {
+			test.Fatalf("明确输出要求未执行：%+v，%v", formats, err)
+		}
 	}
 }
 
@@ -119,10 +163,15 @@ func TestAgentAnswerSemanticReviewValidatesEachRequirementAndQuote(test *testing
 	if err != nil {
 		test.Fatal(err)
 	}
-	if _, err := agentAnswerParseSemanticReview(string(encoded), "已经完成数据库验证。", sources, requirements, now); err != nil {
-		test.Fatalf("有效的逐项评价未通过：%v", err)
+	for _, content := range []string{string(encoded), "```json\n" + string(encoded) + "\n```", "```\r\n" + string(encoded) + "\r\n```"} {
+		if _, err := agentAnswerParseSemanticReview(content, "已经完成数据库验证。", sources, requirements, now); err != nil {
+			test.Fatalf("有效的逐项评价未通过：%v", err)
+		}
 	}
 	for _, invalid := range []string{
+		"```json\n" + string(encoded),
+		"```json\n" + string(encoded) + "\n```\n额外内容",
+		"```json\n" + string(encoded) + "\n{}\n```",
 		strings.Replace(string(encoded), "完成数据库验证", "发布了未经证实的内容", 1),
 		strings.ReplaceAll(string(encoded), "artifact:320", "artifact:999"),
 		strings.Replace(string(encoded), `"requirement_index":0`, `"requirement_index":1`, 1),
@@ -172,5 +221,38 @@ func TestAgentAnswerEvidenceDateUsesAccountDayAndRejectsUnknownWindow(test *test
 	}
 	if agentAnswerEvidenceDateValid("2020年11月15日发布。", "尚未定义的时效范围", now) {
 		test.Fatal("无法解析的时效条件被标记为通过")
+	}
+}
+
+func TestAgentAnswerHistoryRecallUsesConversationFreshness(test *testing.T) {
+	sources := []domain.AgentFactSource{{CanonicalRef: "artifact:320", FactType: domain.AgentFactTypeArtifact, Content: "用户：本次约定代号为 ABC。"}}
+	requirement := agent.PlanEvidenceRequirement{EvidenceType: "history_recall", Freshness: "recent_context", Required: true, MinimumCount: 1}
+	review := agentAnswerSemanticReview{
+		Status: "passed", ConstraintsStatus: "passed", EvidenceStatus: "passed", FreshnessStatus: "not_required", Reason: "会话历史工具产物包含用户约定的代号。",
+		SupportedClaims:  []agentAnswerSupportedClaim{{Claim: "abc", SourceRef: "artifact:320", Quote: sources[0].Content}},
+		RequiredEvidence: []agentAnswerEvidenceReview{{RequirementIndex: 0, Status: "passed", SourceRefs: []string{"artifact:320"}, FreshnessStatus: "not_required"}},
+	}
+	encoded, err := json.Marshal(review)
+	if err != nil {
+		test.Fatal(err)
+	}
+	if _, err := agentAnswerParseSemanticReview(string(encoded), "abc", sources, []agent.PlanEvidenceRequirement{requirement}, time.Now()); err != nil {
+		test.Fatalf("近期会话证据被要求提供外部事件日期：%v", err)
+	}
+	for _, unrestricted := range []agent.PlanEvidenceRequirement{
+		{EvidenceType: "conversation_history", Freshness: "any", Required: true, MinimumCount: 1},
+		{EvidenceType: "conversation_history", Freshness: "recent_context", Required: true, MinimumCount: 1},
+	} {
+		if _, err := agentAnswerParseSemanticReview(string(encoded), "abc", sources, []agent.PlanEvidenceRequirement{unrestricted}, time.Now()); err != nil {
+			test.Fatalf("无日期限制的会话证据未通过：%v", err)
+		}
+	}
+	for _, changed := range []agent.PlanEvidenceRequirement{
+		{EvidenceType: "external_fact", Freshness: "recent_context", Required: true, MinimumCount: 1},
+		{EvidenceType: "history_recall", Freshness: "今天", Required: true, MinimumCount: 1},
+	} {
+		if _, err := agentAnswerParseSemanticReview(string(encoded), "abc", sources, []agent.PlanEvidenceRequirement{changed}, time.Now()); err == nil {
+			test.Fatal("外部事实或明确日期要求未执行正文日期校验")
+		}
 	}
 }

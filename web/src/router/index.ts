@@ -7,6 +7,7 @@ const LoginView = () => import('@/views/LoginView.vue')
 const RegisterView = () => import('@/views/RegisterView.vue')
 const AgentApprovalView = () => import('@/views/AgentApprovalView.vue')
 const AgentPlanView = () => import('@/views/AgentPlanView.vue')
+const AgentWorkspaceView = () => import('@/views/AgentWorkspaceView.vue')
 const ItemDetailView = () => import('@/views/ItemDetailView.vue')
 const SettingsView = () => import('@/views/SettingsView.vue')
 const SubscriptionFeedView = () => import('@/views/SubscriptionFeedView.vue')
@@ -100,8 +101,12 @@ const router = createRouter({
     {
       path: '/agent',
       name: 'agent',
-      component: AgentPlanView,
-      meta: { title: '助理', section: 'agent' },
+      component: AgentWorkspaceView,
+      meta: { title: '助理', section: 'agent', public: true },
+    },
+    {
+      path: '/agent/progress',
+      redirect: (to) => ({ name: 'agent-plans', query: to.query }),
     },
     {
       path: '/agent/plans',

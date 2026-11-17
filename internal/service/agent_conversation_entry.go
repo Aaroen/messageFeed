@@ -289,6 +289,21 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 		return ReceiveWebAgentTaskResult{}, fmt.Errorf("%w: message is required", domain.ErrInvalidInput)
 	}
 	channel := normalizeWebAgentChannel(input.Channel)
+	var selection *domain.AgentModelSelection
+	if input.Model != "" || input.ModelConfigID != 0 {
+		selector, ok := s.llmClient.(interface {
+			ValidateModelSelection(context.Context, int64, int64, string) (domain.AgentModelSelection, error)
+		})
+		if !ok {
+			return ReceiveWebAgentTaskResult{}, fmt.Errorf("模型选择服务不可用")
+		}
+		chosen, err := selector.ValidateModelSelection(ctx, auth.User.ID, input.ModelConfigID, input.Model)
+		if err != nil {
+			return ReceiveWebAgentTaskResult{}, err
+		}
+		selection = &chosen
+		ctx = withAgentModelSelection(ctx, chosen)
+	}
 	now := s.now().UTC()
 	admission := s.agentTaskAdmissionDecision(ctx, auth.User.ID, "web", 0)
 	if !admission.Allowed {
@@ -327,6 +342,10 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 	}
 
 	providerMessageID := fmt.Sprintf("web:%d:%s", auth.User.ID, requestID)
+	payload := domain.AgentJSON{"channel": channel, "session_id": input.SessionID}
+	if selection != nil {
+		payload["model_selection"] = selection
+	}
 	inbound, created, err := s.repository.CreateInboundMessage(ctx, domain.AgentInboundMessage{
 		UserID:            account.UserID,
 		ExternalAccountID: account.ID,
@@ -339,13 +358,10 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 		ChatType:          channel,
 		MsgType:           "text",
 		TextContent:       input.Message,
-		Payload: domain.AgentJSON{
-			"channel":    channel,
-			"session_id": input.SessionID,
-		},
-		RequestID: requestID,
-		TraceID:   traceID,
-		Status:    domain.AgentInboundMessageStatusReceived,
+		Payload:           payload,
+		RequestID:         requestID,
+		TraceID:           traceID,
+		Status:            domain.AgentInboundMessageStatusReceived,
 	})
 	if err != nil {
 		return ReceiveWebAgentTaskResult{}, err

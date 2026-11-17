@@ -288,7 +288,10 @@ networkPolicy:
         - 10.43.0.0/16
       ports:
         - 80
-  llmEgress: []
+  llmEgress:
+    - cidr: 100.72.246.82/32
+      ports:
+        - 3425
   cloudflaredEgress:
     - cidr: 0.0.0.0/0
       except:
@@ -344,9 +347,9 @@ appConfig:
   authApprovalTokenTTL: "1800"
   wechatWorkCorpID: ""
   wechatWorkAgentID: ""
-  llmProvider: ""
-  llmBaseURL: ""
-  llmModel: ""
+  llmProvider: "magpie"
+  llmBaseURL: "http://100.72.246.82:3425/v1"
+  llmModel: "google/models/gemini-3.5-flash-lite"
   embeddingProvider: ""
   embeddingBaseURL: ""
   embeddingModel: ""
@@ -360,7 +363,7 @@ appSecret:
   wechatWorkSecret: ""
   wechatWorkCallbackToken: ""
   wechatWorkEncodingAESKey: ""
-  llmAPIKey: ""
+  llmAPIKey: "local"
   llmConfigSecret: ""
   embeddingAPIKey: ""
 

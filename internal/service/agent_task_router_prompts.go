@@ -15,6 +15,8 @@ func agentTaskRouterSystemPrompt() string {
 - rag_answer：用户明确要求结合历史上下文、之前记录、记忆、偏好、刚才内容或依据来源；需要 conversation.query_history 与 memory.fact_recall，但不需要外部网页工具。
 - deep_task：需要多步骤规划、外部工具、持续执行、审批、定时任务、联网搜索、复杂分析或不确定风险。若用户要求最新、今天、现在、当前热点、市场收盘或比赛结果等实时事实，且未明确限制只基于历史，应归为 deep_task 并候选 web.search。
 
+使用工具不代表需要子 Agent。单次查询、历史检索和依次读取后生成回答，均设置 requires_sub_agent=false。只有包含至少两个独立工作单元、涉及至少三种不同能力并且并行执行可以减少等待时间时，才设置 requires_sub_agent=true；复杂推理和最终决策由主 Agent 完成。
+
 输出必须是一个 JSON 对象，不要 Markdown，不要解释。`
 }
 

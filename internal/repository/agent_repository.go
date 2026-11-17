@@ -777,7 +777,17 @@ func (r *AgentRepository) QueryTranscriptEntries(ctx context.Context, options do
 		query = query.Where("agent_transcript_entries.role IN ?", transcriptRoleStrings(options.Roles))
 	}
 	if options.Keyword != "" {
-		query = query.Where("agent_transcript_entries.content ILIKE ? ESCAPE '\\'", "%"+escapeLike(options.Keyword)+"%")
+		terms := []string{options.Keyword}
+		if options.Mode == "search" {
+			terms = compactNonEmptyStrings(append(terms, agentFactSearchFragments(terms)...))
+		}
+		conditions := make([]string, 0, len(terms))
+		arguments := make([]any, 0, len(terms))
+		for _, term := range terms {
+			conditions = append(conditions, "agent_transcript_entries.content ILIKE ? ESCAPE '\\'")
+			arguments = append(arguments, "%"+escapeLike(term)+"%")
+		}
+		query = query.Where("("+strings.Join(conditions, " OR ")+")", arguments...)
 	}
 	if options.BeforeEntryID > 0 {
 		query = query.Where("agent_transcript_entries.id < ?", options.BeforeEntryID)

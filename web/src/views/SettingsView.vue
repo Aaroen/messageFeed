@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import QRCode from 'qrcode'
+import AgentModelManager from '@/components/agent/AgentModelManager.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -1711,6 +1712,8 @@ defineExpose({ refreshPage })
             </dl>
           </section>
         </div>
+
+        <AgentModelManager v-if="isSettingsSectionActive('model')" :configs="agentLLMConfigs" :owner="isOwner" />
 
         <section v-if="isSettingsSectionActive('overview') && isOwner" class="settings-panel settings-panel--wide">
           <div class="settings-panel__header">

@@ -60,6 +60,7 @@ type PlanSpec struct {
 	TaskType               string
 	Complexity             PlanningComplexity
 	RequiresSubAgent       bool
+	DelegationReason       string
 	DirectAnswerAllowed    bool
 	RequiredCapabilities   []string
 	Subtasks               []PlanSubtask
@@ -77,6 +78,7 @@ type PlanSpec struct {
 type PlanSubtask struct {
 	Title           string
 	Prompt          string
+	Independent     bool
 	ContextSummary  string
 	CapabilityKeys  []string
 	ExpectedOutput  string
@@ -116,9 +118,11 @@ func (p *Planner) Build(ctx context.Context, input PlanInput) PlanOutput {
 func (p *Planner) BuildFromSpec(ctx context.Context, input PlanInput, spec PlanSpec) PlanOutput {
 	normalized := normalizePlanSpec(input.Goal, spec)
 	capabilityKeys := capabilityKeysFromPlanSpec(normalized)
-	executionMode := "subagent_execution"
+	executionMode := "main_tool_execution"
 	if normalized.DirectAnswerAllowed && len(capabilityKeys) == 0 {
 		executionMode = "direct_answer"
+	} else if normalized.RequiresSubAgent {
+		executionMode = "subagent_execution"
 	}
 	return p.build(ctx, input, plannerBuildRequest{
 		CapabilityKeys:       capabilityKeys,
@@ -270,6 +274,10 @@ func (p *Planner) stepRequests(goal string, capabilityKeys []string, request pla
 	seen := map[string]struct{}{}
 	requests := []plannerStepRequest{}
 	for index, subtask := range request.Spec.Subtasks {
+		executionMode := request.ExecutionMode
+		if executionMode == "subagent_execution" && !subtask.Independent {
+			executionMode = "main_tool_execution"
+		}
 		for _, key := range uniqueStrings(subtask.CapabilityKeys) {
 			seen[key] = struct{}{}
 			requests = append(requests, plannerStepRequest{
@@ -282,7 +290,7 @@ func (p *Planner) stepRequests(goal string, capabilityKeys []string, request pla
 				SubtaskIndex:     index + 1,
 				SubtaskPrompt:    subtask.Prompt,
 				ContextSummary:   subtask.ContextSummary,
-				ExecutionMode:    request.ExecutionMode,
+				ExecutionMode:    executionMode,
 				EvidenceRequired: request.Spec.EvidenceRequirements,
 			})
 		}
@@ -297,7 +305,7 @@ func (p *Planner) stepRequests(goal string, capabilityKeys []string, request pla
 			ExpectedOutput:   expectedCapabilityOutput(key),
 			FailureStrategy:  defaultStepFailureStrategy(),
 			MaxRetries:       1,
-			ExecutionMode:    request.ExecutionMode,
+			ExecutionMode:    "main_tool_execution",
 			EvidenceRequired: request.Spec.EvidenceRequirements,
 		})
 	}
@@ -369,6 +377,8 @@ func normalizePlanSpec(goal string, spec PlanSpec) PlanSpec {
 	spec.ExpectedEvidenceScope = normalizeTextList(spec.ExpectedEvidenceScope, 120)
 	spec.FinalAnswerConstraints = normalizeTextList(spec.FinalAnswerConstraints, 300)
 	spec.Complexity = normalizePlanningComplexity(spec.Complexity, spec)
+	spec.DelegationReason = safePlanText(spec.DelegationReason, 500)
+	spec.RequiresSubAgent = spec.RequiresSubAgent && planAllowsDelegation(spec)
 	spec.MaxIterations = normalizeMaxIterations(spec.MaxIterations, spec)
 	return spec
 }
@@ -539,13 +549,29 @@ func inferPlanningComplexity(spec PlanSpec) PlanningComplexity {
 	if spec.DirectAnswerAllowed && capabilityCount == 0 {
 		return PlanningComplexitySimple
 	}
-	if spec.RequiresSubAgent || len(spec.Subtasks) > 1 || capabilityCount > 2 || len(spec.EvidenceRequirements) > 2 {
+	if len(spec.Subtasks) >= 2 && capabilityCount >= 3 {
 		return PlanningComplexityComplex
 	}
-	if capabilityCount > 0 || len(spec.Subtasks) == 1 {
+	if capabilityCount > 0 || len(spec.Subtasks) > 0 {
 		return PlanningComplexityStandard
 	}
 	return PlanningComplexitySimple
+}
+
+func planAllowsDelegation(spec PlanSpec) bool {
+	if spec.Complexity != PlanningComplexityComplex || spec.DelegationReason == "" {
+		return false
+	}
+	prompts := []string{}
+	capabilities := []string{}
+	for _, subtask := range spec.Subtasks {
+		if !subtask.Independent || subtask.Prompt == "" || subtask.ExpectedOutput == "" || len(subtask.CapabilityKeys) == 0 {
+			continue
+		}
+		prompts = append(prompts, subtask.Prompt)
+		capabilities = append(capabilities, subtask.CapabilityKeys...)
+	}
+	return len(uniqueStrings(prompts)) >= 2 && len(uniqueStrings(capabilities)) >= 3
 }
 
 func normalizeMaxIterations(value int, spec PlanSpec) int {
@@ -584,10 +610,10 @@ func structuredImpactSummary(spec PlanSpec, capabilityKeys []string) string {
 	if len(capabilityKeys) == 0 && spec.DirectAnswerAllowed {
 		return "主 Agent 可在不调用工具的情况下直接回答。"
 	}
-	if spec.RequiresSubAgent || len(spec.Subtasks) > 0 {
+	if spec.RequiresSubAgent {
 		return "主 Agent 在后端权限和预算校验后派发有界子 Agent 执行。"
 	}
-	return impactSummary(capabilityKeys)
+	return "主 Agent 按权限和预算执行工具调用，并汇总执行结果。"
 }
 
 func planSpecMetadata(spec PlanSpec) domain.AgentJSON {
@@ -597,6 +623,7 @@ func planSpecMetadata(spec PlanSpec) domain.AgentJSON {
 			"index":            index + 1,
 			"title":            subtask.Title,
 			"prompt":           subtask.Prompt,
+			"independent":      subtask.Independent,
 			"context_summary":  subtask.ContextSummary,
 			"capability_keys":  append([]string(nil), subtask.CapabilityKeys...),
 			"expected_output":  subtask.ExpectedOutput,
@@ -610,6 +637,7 @@ func planSpecMetadata(spec PlanSpec) domain.AgentJSON {
 		"task_type":                spec.TaskType,
 		"complexity":               string(spec.Complexity),
 		"requires_sub_agent":       spec.RequiresSubAgent,
+		"delegation_reason":        spec.DelegationReason,
 		"direct_answer_allowed":    spec.DirectAnswerAllowed,
 		"required_capabilities":    append([]string(nil), spec.RequiredCapabilities...),
 		"subtasks":                 subtasks,

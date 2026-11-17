@@ -61,6 +61,9 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	}
 
 	router := gin.New()
+	if err := router.SetTrustedProxies(options.NodeInfo.TrustedProxyCIDRs); err != nil {
+		panic(fmt.Errorf("invalid trusted proxy configuration: %w", err))
+	}
 	router.Use(RequestID(), otelgin.Middleware(options.ServiceName), UserContext(options.AuthService), CORS(), Recovery(options.Logger), AccessLog(options.Logger))
 
 	router.GET("/", rootHandler)
@@ -85,6 +88,7 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	registerAgentTaskRoutes(protectedAPI, options.AgentTaskService)
 	registerAgentEvalRoutes(protectedAPI, options.AgentEvalService)
 	registerAgentLLMConfigRoutes(protectedAPI, options.AgentLLMConfigService)
+	registerAgentModelsRoutes(protectedAPI, apiV1, options.AgentLLMConfigService)
 
 	router.NoRoute(func(c *gin.Context) {
 		Error(c, http.StatusNotFound, http.StatusNotFound, "request path not found")

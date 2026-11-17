@@ -35,6 +35,7 @@ type mainAgentPlanSpecJSON struct {
 	TaskType               string                             `json:"task_type"`
 	Complexity             string                             `json:"complexity"`
 	RequiresSubAgent       bool                               `json:"requires_sub_agent"`
+	DelegationReason       string                             `json:"delegation_reason"`
 	DirectAnswerAllowed    bool                               `json:"direct_answer_allowed"`
 	RequiredCapabilities   []string                           `json:"required_capabilities"`
 	Subtasks               []mainAgentPlanSubtaskJSON         `json:"subtasks"`
@@ -54,6 +55,7 @@ type mainAgentPlanSpecJSON struct {
 type mainAgentPlanSubtaskJSON struct {
 	Title           string   `json:"title"`
 	Prompt          string   `json:"prompt"`
+	Independent     bool     `json:"independent"`
 	ContextSummary  string   `json:"context_summary"`
 	CapabilityKeys  []string `json:"capability_keys"`
 	ExpectedOutput  string   `json:"expected_output"`
@@ -423,6 +425,7 @@ func (j mainAgentPlanSpecJSON) toAgentPlanSpec() agent.PlanSpec {
 		subtasks = append(subtasks, agent.PlanSubtask{
 			Title:           subtask.Title,
 			Prompt:          subtask.Prompt,
+			Independent:     subtask.Independent,
 			ContextSummary:  subtask.ContextSummary,
 			CapabilityKeys:  compactNonEmptyStrings(subtask.CapabilityKeys),
 			ExpectedOutput:  subtask.ExpectedOutput,
@@ -447,6 +450,7 @@ func (j mainAgentPlanSpecJSON) toAgentPlanSpec() agent.PlanSpec {
 		TaskType:               j.TaskType,
 		Complexity:             agent.PlanningComplexity(j.Complexity),
 		RequiresSubAgent:       j.RequiresSubAgent,
+		DelegationReason:       j.DelegationReason,
 		DirectAnswerAllowed:    j.DirectAnswerAllowed,
 		RequiredCapabilities:   compactNonEmptyStrings(j.RequiredCapabilities),
 		Subtasks:               subtasks,
@@ -542,6 +546,7 @@ func mainAgentPlanSpecMetadata(spec agent.PlanSpec) domain.AgentJSON {
 			"title":           subtask.Title,
 			"capability_keys": subtask.CapabilityKeys,
 			"prompt":          safeSummary(subtask.Prompt, 1000),
+			"independent":     subtask.Independent,
 		})
 	}
 	return domain.AgentJSON{
@@ -550,6 +555,7 @@ func mainAgentPlanSpecMetadata(spec agent.PlanSpec) domain.AgentJSON {
 		"task_type":             spec.TaskType,
 		"complexity":            string(spec.Complexity),
 		"requires_sub_agent":    spec.RequiresSubAgent,
+		"delegation_reason":     spec.DelegationReason,
 		"direct_answer_allowed": spec.DirectAnswerAllowed,
 		"required_capabilities": spec.RequiredCapabilities,
 		"subtasks":              subtasks,

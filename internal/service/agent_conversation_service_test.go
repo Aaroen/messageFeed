@@ -751,7 +751,7 @@ func TestAgentTaskRouterFallbacksWhenFullPlannerReturnsEmpty(t *testing.T) {
 		t.Fatalf("allowed scopes = %#v, want filtered web.search fallback", plan.AllowedScopes)
 	}
 	mainPlan := metadataMap(plan.Metadata, "main_agent_plan")
-	if mainPlan["requires_sub_agent"] != true || mainPlan["direct_answer_allowed"] != false {
+	if mainPlan["requires_sub_agent"] != false || mainPlan["direct_answer_allowed"] != false {
 		t.Fatalf("main agent plan = %#v", mainPlan)
 	}
 	if !fakeTraceEventExists(repository.traceEvents, "main_agent_plan_spec", domain.AgentTraceEventFailed) {

@@ -126,6 +126,10 @@ func (s *AgentConversationService) processClaimedAgentTurnUnlocked(ctx context.C
 	if err != nil {
 		return s.failClaimedAgentTurn(ctx, repository, turn, err)
 	}
+	ctx, err = agentSelectionFromInbound(ctx, inbound)
+	if err != nil {
+		return s.failClaimedAgentTurn(ctx, repository, turn, err)
+	}
 	session, err := repository.GetAgentSession(ctx, turn.UserID, turn.SessionID)
 	if err != nil {
 		return s.failClaimedAgentTurn(ctx, repository, turn, err)

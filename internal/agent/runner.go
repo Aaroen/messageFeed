@@ -183,6 +183,7 @@ type TurnRunInput struct {
 	HistoryQueryPlan PlanHistoryQueryPlan
 	ActiveGoal       string
 	ActivePlan       *ContextBlock
+	Complexity       PlanningComplexity
 }
 
 type TurnRunResult struct {
@@ -200,6 +201,13 @@ const plainTextReplyRepairLimit = 2
 const replyCompletenessRepairLimit = 2
 const maxToolRounds = 12
 const maxObservedToolRounds = 3
+
+func observedToolRoundLimit(input TurnRunInput) int {
+	if input.Complexity == PlanningComplexityComplex {
+		return maxToolRounds
+	}
+	return maxObservedToolRounds
+}
 
 func (r *TurnRunner) Run(ctx context.Context, input TurnRunInput) (TurnRunResult, error) {
 	ctx, span := observability.StartSpan(ctx, "agent.turn_runner.run",
@@ -372,9 +380,11 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 		}
 
 		messages = append(messages, llm.ChatMessage{
-			Role:      "assistant",
-			Content:   response.Content,
-			ToolCalls: response.ToolCalls,
+			Role:             "assistant",
+			Content:          response.Content,
+			ToolCalls:        response.ToolCalls,
+			ResponseItems:    response.ResponseItems,
+			ReasoningContent: response.ReasoningContent,
 		})
 		for _, call := range response.ToolCalls {
 			toolInteractionObserved = true
@@ -410,7 +420,7 @@ func (r *TurnRunner) chatWithTools(ctx context.Context, input TurnRunInput, snap
 		if hasObservationForMCPTools(snapshot.Observations, tools) {
 			observedToolRounds++
 		}
-		if observedToolRounds >= maxObservedToolRounds {
+		if observedToolRounds >= observedToolRoundLimit(input) {
 			response, finalMessages, err := r.finalizeWithToolObservations(ctx, input, snapshot, messages, "observed_round_limit")
 			return response, snapshot, finalMessages, err
 		}
@@ -437,7 +447,7 @@ func (r *TurnRunner) finalizeWithToolObservations(ctx context.Context, input Tur
 			"reason":                   reason,
 			"observation_count":        len(snapshot.Observations),
 			"max_tool_rounds":          maxToolRounds,
-			"max_observed_tool_rounds": maxObservedToolRounds,
+			"max_observed_tool_rounds": observedToolRoundLimit(input),
 		},
 		RequestID: input.RequestID,
 		TraceID:   input.TraceID,

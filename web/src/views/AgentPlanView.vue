@@ -144,7 +144,7 @@ const mainDecisionMetrics = computed<DisplayMetric[]>(() => {
     { label: '任务类型', value: taskTypeLabel(routeType || planType) },
     { label: '复杂度', value: complexityLabel(complexity) },
     { label: '需要历史召回', value: booleanLabel(boolValue(taskRoute.value?.needs_history_recall ?? mainPlan.value?.needs_history_recall)) },
-    { label: '需要子 Agent', value: booleanLabel(boolValue(taskRoute.value?.requires_sub_agent ?? mainPlan.value?.requires_sub_agent)) },
+    { label: '需要子 Agent', value: booleanLabel(boolValue(mainPlan.value?.requires_sub_agent)) },
     { label: '轻量计划', value: booleanLabel(boolValue(taskRoute.value?.light_plan)) },
     { label: '判断依据', value: reason || textValue(mainPlan.value?.intent) || plan.value?.summary || '暂无' },
   ]
@@ -363,7 +363,7 @@ function openProgressStream() {
     closeProgressStream(false)
     scheduleNextRefresh()
   }
-  progressStream.onmessage = (event) => {
+  progressStream.addEventListener('progress', (event) => {
     const data = parseProgressEvent(event.data)
     if (!data) {
       return
@@ -373,7 +373,7 @@ function openProgressStream() {
     if (isTerminalAgentProgressStatus(data.status)) {
       closeProgressStream()
     }
-  }
+  })
 }
 
 function parseProgressEvent(raw: string): AgentProgressSnapshot | null {
@@ -869,7 +869,7 @@ function boolValue(value: unknown) {
 
       <section class="panel">
         <div class="section-heading">
-          <h2>子 Agent 与步骤</h2>
+          <h2>执行步骤</h2>
           <span>{{ subAgentDetails.length }} 个步骤</span>
         </div>
         <div class="step-list">
@@ -906,7 +906,7 @@ function boolValue(value: unknown) {
                 </div>
               </dl>
               <details class="prompt-detail" open>
-                <summary>子 Agent 完整提示词</summary>
+                <summary>步骤完整提示词</summary>
                 <p>{{ item.prompt }}</p>
               </details>
               <p class="expected-output">期望输出：{{ item.expectedOutput }}</p>

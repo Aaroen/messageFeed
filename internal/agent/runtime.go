@@ -88,7 +88,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 				},
 				"query": map[string]any{
 					"type":        "string",
-					"description": "自然语言查询或关键词。earliest/latest 模式通常留空。",
+					"description": "搜索关键词，多个关键词使用空格分隔，匹配任意关键词。earliest/latest 模式通常留空。",
 				},
 				"time_hint": map[string]any{
 					"type":        "string",

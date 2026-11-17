@@ -19,7 +19,6 @@ const (
 	agentTaskRouteQuickAnswer = "quick_answer"
 	agentTaskRouteRAGAnswer   = "rag_answer"
 	agentTaskRouteDeepTask    = "deep_task"
-	agentTaskRouterTimeout    = 6 * time.Second
 )
 
 type agentTaskRouteClassification struct {
@@ -80,9 +79,7 @@ func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, a
 		"capabilities":       s.mainAgentCapabilityCatalog(),
 		"context_projection": contextProjection,
 	}
-	routeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), agentTaskRouterTimeout)
-	defer cancel()
-	routeCtx = WithAgentLLMCallContext(routeCtx, AgentLLMCallContext{
+	routeCtx := WithAgentLLMCallContext(ctx, AgentLLMCallContext{
 		UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID, ParentRunID: controllerRun.ID,
 		Stage: AgentLLMCallStageRoute, PromptVersion: "agent-task-router-v1",
 	})
@@ -162,10 +159,12 @@ func guardAgentTaskRoute(c agentTaskRouteClassification) agentTaskRouteClassific
 	default:
 		c.EstimatedLatencyClass = "normal"
 	}
+	c.RequiresSubAgent = c.RequiresSubAgent && len(compactStrings(c.CandidateCapabilities)) >= 3
 	if c.TaskType == agentTaskRouteQuickAnswer && (c.NeedsTools || c.RequiresSubAgent || c.NeedsHistoryRecall) {
 		c.TaskType = agentTaskRouteDeepTask
 	}
 	if c.TaskType == agentTaskRouteRAGAnswer {
+		c.RequiresSubAgent = false
 		c.NeedsHistoryRecall = true
 		c.NeedsTools = false
 		if strings.TrimSpace(c.HistoryQuery) == "" {
@@ -220,7 +219,7 @@ func fallbackAgentTaskRoute(reason string) agentTaskRouteClassification {
 		Confidence:            0,
 		NeedsHistoryRecall:    true,
 		NeedsTools:            true,
-		RequiresSubAgent:      true,
+		RequiresSubAgent:      false,
 		EstimatedLatencyClass: "slow",
 		Reason:                reason,
 	}
@@ -283,7 +282,21 @@ func llmModelKeyFromParts(provider string, model string) string {
 }
 
 func agentTaskRouteShouldUseLightPlan(route agentTaskRouteClassification) bool {
-	return route.Confidence >= 0.65 && (route.TaskType == agentTaskRouteQuickAnswer || route.TaskType == agentTaskRouteRAGAnswer)
+	if route.Confidence < 0.65 {
+		return false
+	}
+	if route.TaskType == agentTaskRouteQuickAnswer || route.TaskType == agentTaskRouteRAGAnswer {
+		return true
+	}
+	if route.TaskType != agentTaskRouteDeepTask || route.RequiresSubAgent || len(route.CandidateCapabilities) == 0 || len(route.CandidateCapabilities) > 2 {
+		return false
+	}
+	for _, capability := range route.CandidateCapabilities {
+		if capability != "conversation.query_history" && capability != "memory.fact_recall" {
+			return false
+		}
+	}
+	return true
 }
 
 func agentTaskRouteFallbackPlanSpec(route agentTaskRouteClassification, goal string) (agent.PlanSpec, bool) {
@@ -299,7 +312,7 @@ func agentTaskRouteFallbackPlanSpec(route agentTaskRouteClassification, goal str
 	}
 	spec := agentTaskRoutePlanSpec(route, goal)
 	spec.Complexity = agent.PlanningComplexityComplex
-	spec.RequiresSubAgent = true
+	spec.RequiresSubAgent = false
 	spec.DirectAnswerAllowed = false
 	spec.RequiredCapabilities = append([]string(nil), capabilities...)
 	spec.Subtasks = []agent.PlanSubtask{
@@ -354,7 +367,7 @@ func agentTaskRoutePlanSpec(route agentTaskRouteClassification, goal string) age
 	if route.TaskType == agentTaskRouteRAGAnswer {
 		query := firstNonEmptyString(route.HistoryQuery, goal)
 		spec.Complexity = agent.PlanningComplexityStandard
-		spec.RequiresSubAgent = true
+		spec.RequiresSubAgent = false
 		spec.DirectAnswerAllowed = false
 		spec.RequiredCapabilities = []string{"conversation.query_history", "memory.fact_recall"}
 		spec.Subtasks = []agent.PlanSubtask{
@@ -377,6 +390,15 @@ func agentTaskRoutePlanSpec(route agentTaskRouteClassification, goal string) age
 			TimeHint: "",
 		}
 		spec.ExpectedEvidenceScope = []string{"history", "long_term_fact_index"}
+	}
+	if route.TaskType == agentTaskRouteDeepTask {
+		spec.Complexity = agent.PlanningComplexityStandard
+		spec.DirectAnswerAllowed = false
+		spec.RequiredCapabilities = append([]string(nil), route.CandidateCapabilities...)
+		spec.NeedsHistoryRecall = route.NeedsHistoryRecall
+		if route.NeedsHistoryRecall {
+			spec.HistoryQueryPlan = agent.PlanHistoryQueryPlan{Mode: "search", Query: firstNonEmptyString(route.HistoryQuery, goal), Reason: route.Reason, Limit: 8}
+		}
 	}
 	return spec
 }

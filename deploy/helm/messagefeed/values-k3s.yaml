@@ -134,11 +134,12 @@ appConfig:
   defaultAppRole: all
   environment: wsl-k3s
   authSessionCookieSecure: "false"
+  trustedProxyCIDRs: "10.42.0.0/16"
   wechatWorkCorpID: ww8ee8972ac7733fed
   wechatWorkAgentID: "1000002"
-  llmProvider: openai_compatible
-  llmBaseURL: http://198.18.0.1:15721/v1
-  llmModel: gpt-5.6-sol
+  llmProvider: magpie
+  llmBaseURL: http://100.72.246.82:3425/v1
+  llmModel: google/models/gemini-3.5-flash-lite
   embeddingProvider: openai_compatible
   embeddingBaseURL: https://ai.hybgzs.com/v1
   embeddingModel: Qwen/Qwen3-Embedding-8B

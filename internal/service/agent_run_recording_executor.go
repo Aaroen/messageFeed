@@ -24,7 +24,7 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 		"message":        safeSummary(input.Message, 500),
 		"capability_key": input.Capability.Key,
 	})
-	dispatchErr := e.recordSubagentDispatchTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
+	dispatchErr := e.recordToolExecutorCreationTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
 	if err := errors.Join(runErr, dispatchErr); err != nil {
 		return agent.CapabilityExecuteResult{}, e.failExecutorRun(ctx, run, err)
 	}
@@ -79,7 +79,7 @@ func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCP
 		"tool_call_id":   input.CallID,
 		"tool_arguments": safeSummary(input.RawArguments, 1000),
 	})
-	dispatchErr := e.recordSubagentDispatchTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
+	dispatchErr := e.recordToolExecutorCreationTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
 	if err := errors.Join(runErr, dispatchErr); err != nil {
 		return agent.MCPCallToolResult{}, e.failExecutorRun(ctx, run, err)
 	}
@@ -146,7 +146,7 @@ type agentToolTraceEventInput struct {
 	Err             error
 }
 
-func (e agentRunRecordingExecutor) recordSubagentDispatchTraceEvent(ctx context.Context, userID int64, sessionID int64, turnID int64, parentRunID int64, run domain.AgentRun, capabilityKey string, err error) error {
+func (e agentRunRecordingExecutor) recordToolExecutorCreationTraceEvent(ctx context.Context, userID int64, sessionID int64, turnID int64, parentRunID int64, run domain.AgentRun, capabilityKey string, err error) error {
 	store, ok := any(e.base.repository).(agentTraceEventStore)
 	if !ok {
 		return nil
@@ -157,7 +157,6 @@ func (e agentRunRecordingExecutor) recordSubagentDispatchTraceEvent(ctx context.
 	} else if run.ID == 0 {
 		status = domain.AgentTraceEventSkipped
 	}
-	metrics.AgentSubagentDispatchesTotal.WithLabelValues(agentTraceLabelValue(capabilityKey), string(status)).Inc()
 	now := e.nowUTC()
 	event := domain.AgentTraceEvent{
 		RequestID:     observability.RequestID(ctx),
@@ -168,8 +167,8 @@ func (e agentRunRecordingExecutor) recordSubagentDispatchTraceEvent(ctx context.
 		TurnID:        turnID,
 		RunID:         run.ID,
 		ParentRunID:   parentRunID,
-		EventKind:     domain.AgentTraceEventSubagentDispatch,
-		EventName:     "executor_run_create",
+		EventKind:     domain.AgentTraceEventToolExecution,
+		EventName:     "tool_executor_create",
 		Status:        status,
 		StartedAt:     now,
 		FinishedAt:    &now,

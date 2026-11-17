@@ -165,6 +165,7 @@ func (s *AgentConversationService) processTurn(
 		HistoryQueryPlan: historyQueryPlan,
 		ActiveGoal:       plan.Goal,
 		ActivePlan:       activePlanContextBlock(plan),
+		Complexity:       agent.PlanningComplexity(metadataString(metadataMap(plan.Metadata, "main_agent_plan"), "complexity")),
 	})
 	if err != nil {
 		if isAgentProcessStopError(ctx, err, activeProcess) {

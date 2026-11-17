@@ -152,7 +152,7 @@ func ContextBudgetForProfile(profile ContextBudgetProfile) ContextBudgetSpec {
 			HistoryRecallTokens:  8000,
 			EvidenceTokens:       28000,
 			PlanTokens:           6000,
-			OutputReserveTokens:  6000,
+			OutputReserveTokens:  12000,
 			SafetyMarginTokens:   3000,
 		}
 	case ContextBudgetProfileSubagentSearch:

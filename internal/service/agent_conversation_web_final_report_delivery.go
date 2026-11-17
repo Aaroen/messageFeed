@@ -17,6 +17,9 @@ func (s *AgentConversationService) sendWebAgentTaskFinalReport(
 	reply string,
 	input ReceiveWeChatWorkAppMessageInput,
 ) error {
+	if input.ChatType == "assistant" {
+		return nil
+	}
 	if s == nil || s.repository == nil || account.UserID < 1 || plan.ID < 1 {
 		return nil
 	}

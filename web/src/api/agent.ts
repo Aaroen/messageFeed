@@ -103,6 +103,10 @@ export interface AgentTurn {
   status: string
   input_text: string
   output_text: string
+  model_provider?: string
+  model?: string
+  cancel_requested?: boolean
+  cancel_reason?: string
   error_message: string
   delivery_status?: string
   delivery_error?: string
@@ -441,6 +445,7 @@ export interface AgentTaskResult {
   reply: string
   progress_url: string
   duplicate: boolean
+  processing_async: boolean
 }
 
 export interface AgentTaskSummary {
@@ -2201,8 +2206,8 @@ export async function selectAgentSession(id: number) {
   return response.data.data
 }
 
-export async function createAgentTask(input: { message: string; session_id?: number; channel?: string }) {
-  const response = await apiClient.post<APIEnvelope<AgentTaskResult>>('/api/v1/agent/tasks', input)
+export async function createAgentTask(input: { message: string; session_id?: number; channel?: string; model_config_id?: number; model?: string }) {
+  const response = await apiClient.post<APIEnvelope<AgentTaskResult>>('/api/v1/agent/tasks', input, { timeout: 180000 })
   return response.data.data
 }
 

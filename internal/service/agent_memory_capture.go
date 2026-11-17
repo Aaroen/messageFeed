@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 	"messagefeed/internal/metrics"
@@ -334,7 +335,7 @@ func (s *AgentConversationService) classifyAgentMemoryCandidateWithModel(ctx con
 			{Role: "user", Content: agentMemoryClassificationUserPrompt(payload)},
 		},
 		Temperature: 0,
-		MaxTokens:   1800,
+		MaxTokens:   agent.ContextBudgetForProfile(agent.ContextBudgetProfileFinalSynthesis).OutputReserveTokens,
 	}
 	response, err := s.llmClient.Chat(ctx, request)
 	if err != nil {
@@ -383,7 +384,7 @@ func (s *AgentConversationService) retryAgentMemoryClassification(ctx context.Co
 			{Role: "user", Content: agentMemoryClassificationRetryUserPrompt(retryPayload, previousErr.Error())},
 		},
 		Temperature: 0,
-		MaxTokens:   1200,
+		MaxTokens:   agent.ContextBudgetForProfile(agent.ContextBudgetProfileFinalSynthesis).OutputReserveTokens,
 	})
 	if retryErr != nil {
 		return response, fmt.Errorf("%w; retry failed: %w", previousErr, retryErr)

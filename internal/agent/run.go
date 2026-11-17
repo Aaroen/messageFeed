@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"messagefeed/internal/domain"
 	"strings"
 	"time"
@@ -23,6 +24,16 @@ type RunStore interface {
 type RunManager struct {
 	store RunStore
 	now   func() time.Time
+}
+
+func (m *RunManager) AppendStreamEvents(ctx context.Context, events []domain.AgentStreamEvent) error {
+	store, ok := m.store.(interface {
+		AppendAgentStreamEvents(context.Context, []domain.AgentStreamEvent) error
+	})
+	if !ok {
+		return fmt.Errorf("agent stream event store is unavailable")
+	}
+	return store.AppendAgentStreamEvents(ctx, events)
 }
 
 type RunManagerOptions struct {

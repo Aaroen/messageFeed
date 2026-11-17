@@ -81,6 +81,32 @@ func TestRuntimeNodeRoute(t *testing.T) {
 	}
 }
 
+func TestRouterClientIPUsesConfiguredProxies(test *testing.T) {
+	for _, scenario := range []struct {
+		name    string
+		proxies []string
+		remote  string
+		want    string
+	}{
+		{name: "direct", remote: "198.51.100.7:1234", want: "198.51.100.7"},
+		{name: "trusted", proxies: []string{"10.42.0.0/16"}, remote: "10.42.0.8:1234", want: "203.0.113.9"},
+		{name: "untrusted", proxies: []string{"10.42.0.0/16"}, remote: "198.51.100.7:1234", want: "198.51.100.7"},
+	} {
+		test.Run(scenario.name, func(scenarioTest *testing.T) {
+			router := newTestRouter(scenarioTest, RouterOptions{NodeInfo: appRuntime.NodeInfo{TrustedProxyCIDRs: scenario.proxies}})
+			router.GET("/client-ip", func(ctx *gin.Context) { ctx.String(http.StatusOK, ctx.ClientIP()) })
+			request := httptest.NewRequest(http.MethodGet, "/client-ip", nil)
+			request.RemoteAddr = scenario.remote
+			request.Header.Set("X-Forwarded-For", "192.0.2.100, 203.0.113.9")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if recorder.Body.String() != scenario.want {
+				scenarioTest.Fatalf("客户端地址 = %q，预期 %q", recorder.Body.String(), scenario.want)
+			}
+		})
+	}
+}
+
 func TestBasicRoutes(t *testing.T) {
 	router := newTestRouter(t, RouterOptions{})
 

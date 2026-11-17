@@ -105,6 +105,8 @@ func mapError(err error, fallbackMessage string) (int, int, string) {
 
 func statusCodeForKind(kind domain.ErrorKind) int {
 	switch kind {
+	case domain.ErrorKindForbidden:
+		return http.StatusForbidden
 	case domain.ErrorKindInvalidInput:
 		return http.StatusBadRequest
 	case domain.ErrorKindNotFound:

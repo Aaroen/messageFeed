@@ -62,13 +62,22 @@ data:
     {
       local_certs
       default_sni {$GATEWAY_DEFAULT_SNI:localhost}
+      {{- if .Values.networkPolicy.gatewayIngressCIDRs }}
+      servers {
+        trusted_proxies static {{ join " " .Values.networkPolicy.gatewayIngressCIDRs }}
+        trusted_proxies_strict
+        client_ip_headers CF-Connecting-IP X-Forwarded-For
+      }
+      {{- end }}
     }
 
     (messagefeed_routes) {
       encode zstd gzip
       @api path /api /api/* /healthz /readyz /metrics
       handle @api {
-        reverse_proxy api:60001
+        reverse_proxy api:60001 {
+          header_up X-Forwarded-For {client_ip}
+        }
       }
       handle {
         reverse_proxy web:8080

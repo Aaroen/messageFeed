@@ -74,15 +74,24 @@ func TestPlannerBuildFromSpecCreatesStructuredSubAgentPlan(t *testing.T) {
 		TaskType:         "news_analysis",
 		Complexity:       PlanningComplexityComplex,
 		RequiresSubAgent: true,
+		DelegationReason: "公开网页与订阅数据可以独立读取，主 Agent 汇总两组证据。",
 		Subtasks: []PlanSubtask{
 			{
 				Title:           "检索港股消息",
 				Prompt:          "检索最新港股市场消息，优先返回新闻、行情、资金流向和公告来源。",
+				Independent:     true,
 				ContextSummary:  "用户需要事实依据和最终分析，不需要执行层治理说明。",
 				CapabilityKeys:  []string{"web.search", "web.fetch_page"},
 				ExpectedOutput:  "相关来源、发布时间、摘要和可支撑分析的事实。",
 				FailureStrategy: "搜索为空时调整查询并返回失败观察。",
 				MaxRetries:      2,
+			},
+			{
+				Title:          "读取订阅新闻",
+				Prompt:         "读取用户订阅中的港股新闻，提供原始条目。",
+				Independent:    true,
+				CapabilityKeys: []string{"feed.query_recent_items"},
+				ExpectedOutput: "订阅新闻条目及发布时间。",
 			},
 		},
 		EvidenceRequirements: []PlanEvidenceRequirement{
@@ -112,6 +121,67 @@ func TestPlannerBuildFromSpecCreatesStructuredSubAgentPlan(t *testing.T) {
 	mainPlan := testAgentJSONMap(output.Plan.Metadata["main_agent_plan"])
 	if mainPlan == nil || mainPlan["complexity"] != string(PlanningComplexityComplex) {
 		t.Fatalf("main agent plan metadata = %#v", output.Plan.Metadata["main_agent_plan"])
+	}
+}
+
+func TestPlannerDelegationRequiresIndependentWork(t *testing.T) {
+	valid := func() PlanSpec {
+		return PlanSpec{
+			Complexity: PlanningComplexityComplex, RequiresSubAgent: true,
+			DelegationReason: "公开网页与订阅数据能够独立获取，主 Agent 汇总证据。",
+			Subtasks: []PlanSubtask{
+				{Prompt: "获取公开网页资料", Independent: true, CapabilityKeys: []string{"web.search", "web.fetch_page"}, ExpectedOutput: "网页资料与引用"},
+				{Prompt: "获取订阅资料", Independent: true, CapabilityKeys: []string{"feed.query_recent_items"}, ExpectedOutput: "订阅条目"},
+			},
+		}
+	}
+	tests := []struct {
+		name   string
+		change func(*PlanSpec)
+		allow  bool
+	}{
+		{name: "独立工作单元", allow: true},
+		{name: "普通复杂度", change: func(spec *PlanSpec) { spec.Complexity = PlanningComplexityStandard }},
+		{name: "缺少并行依据", change: func(spec *PlanSpec) { spec.DelegationReason = "" }},
+		{name: "步骤存在依赖", change: func(spec *PlanSpec) { spec.Subtasks[1].Independent = false }},
+		{name: "重复拆分", change: func(spec *PlanSpec) { spec.Subtasks[1].Prompt = spec.Subtasks[0].Prompt }},
+		{name: "缺少明确产物", change: func(spec *PlanSpec) { spec.Subtasks[1].ExpectedOutput = "" }},
+		{name: "仅有两种能力", change: func(spec *PlanSpec) { spec.Subtasks[0].CapabilityKeys = []string{"web.search"} }},
+		{name: "单次历史读取", change: func(spec *PlanSpec) {
+			spec.Subtasks = []PlanSubtask{{Prompt: "读取历史并转换格式", Independent: true, CapabilityKeys: []string{"conversation.query_history"}, ExpectedOutput: "三个小写英文字母"}}
+		}},
+	}
+	for _, item := range tests {
+		t.Run(item.name, func(test *testing.T) {
+			spec := valid()
+			if item.change != nil {
+				item.change(&spec)
+			}
+			output := NewPlanner(PlannerOptions{}).BuildFromSpec(context.Background(), PlanInput{UserID: 1, Goal: "读取资料并回答"}, spec)
+			metadata := testAgentJSONMap(output.Plan.Metadata["main_agent_plan"])
+			if metadata["requires_sub_agent"] != item.allow {
+				test.Fatalf("委派判定 = %#v", metadata["requires_sub_agent"])
+			}
+			mode := "main_tool_execution"
+			if item.allow {
+				mode = "subagent_execution"
+			}
+			if output.Plan.Metadata["execution_mode"] != mode {
+				test.Fatalf("执行模式 = %#v", output.Plan.Metadata["execution_mode"])
+			}
+		})
+	}
+	if complexity := inferPlanningComplexity(PlanSpec{RequiresSubAgent: true, RequiredCapabilities: []string{"conversation.query_history"}}); complexity != PlanningComplexityStandard {
+		t.Fatalf("单次查询的复杂度 = %s", complexity)
+	}
+}
+
+func TestComplexExecutionWaitsForToolResultsWithinOverallBudget(test *testing.T) {
+	if observedToolRoundLimit(TurnRunInput{Complexity: PlanningComplexityComplex}) != maxToolRounds {
+		test.Fatal("复杂任务未使用整体工具执行预算")
+	}
+	if observedToolRoundLimit(TurnRunInput{Complexity: PlanningComplexitySimple}) != maxObservedToolRounds {
+		test.Fatal("简单任务扩大了工具执行预算")
 	}
 }
 

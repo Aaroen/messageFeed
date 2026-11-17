@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -33,7 +34,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	if err != nil || userID <= 0 || os.Getenv("AGENT_RUNTIME_CONFIG_SECRET") == "" {
 		test.Fatal("必须提供真实用户编号和生产配置加密凭据")
 	}
-	database, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	database, err := gorm.Open(postgres.New(postgres.Config{DSN: databaseURL, PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		test.Fatalf("连接真实数据库失败：%T", err)
 	}
@@ -80,7 +81,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	if err := transaction.Exec("SET LOCAL search_path TO " + pgx.Identifier{schema}.Sanitize() + ", " + pgx.Identifier{sourceSchema}.Sanitize()).Error; err != nil {
 		test.Fatal(err)
 	}
-	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql"} {
+	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql", "000042_expand_agent_stream_events.up.sql", "000043_expand_agent_llm_models.up.sql"} {
 		migration, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			test.Fatal(err)
@@ -91,15 +92,24 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	}
 	store := repository.NewAgentRepository(transaction)
 	runtime := NewAgentLLMRuntime(store, WithAgentLLMRuntimeSecret(os.Getenv("AGENT_RUNTIME_CONFIG_SECRET")), WithAgentLLMRuntimeRunManager(agent.NewRunManager(agent.RunManagerOptions{Store: store})))
+	selection := verifyRealAgentModelManagement(test, ctx, store, runtime, userID)
 	authService := NewAuthService(repository.NewAuthRepository(transaction), config.Defaults())
 	service := NewAgentConversationService(store, WithAgentConversationLLM(runtime), WithAgentConversationUserContextProvider(authService), WithAgentConversationInlineProcessing(true))
 	auth := CurrentAuth{Authenticated: true, User: domain.User{ID: userID}}
-	first, err := service.ReceiveWebAgentTask(ctx, auth, ReceiveWebAgentTaskInput{Message: "本次为上下文自动验收。我们约定的代号为 ABC。请仅回复这三个大写英文字母，不要附加解释。", Channel: "web"})
+	first, err := service.ReceiveWebAgentTask(ctx, auth, ReceiveWebAgentTaskInput{Message: "本次为上下文自动验收。我们约定的代号为 ABC。请仅回复这三个大写英文字母，不要附加解释。", Channel: "assistant", ModelConfigID: selection.ConfigID, Model: selection.Model})
 	if err != nil || first.Turn.Status != "succeeded" || first.Reply != "ABC" || first.Plan.Status != "completed" {
 		test.Fatalf("普通回答验收失败：turn=%s，plan=%s，reply=%q，error=%v", first.Turn.Status, first.Plan.Status, first.Reply, err)
 	}
 	test.Log("普通回答与最终格式验收通过")
-	followup, err := service.ReceiveWebAgentTask(ctx, auth, ReceiveWebAgentTaskInput{SessionID: first.Session.ID, Message: "对于上一轮已完成任务，刚才约定的代号是什么？请回答其小写形式，仅回复三个小写英文字母，不要附加解释。", Channel: "web"})
+	inbound, err := store.GetInboundMessage(ctx, userID, first.Turn.InboundMessageID)
+	if err != nil {
+		test.Fatal(err)
+	}
+	restored, err := agentSelectionFromInbound(ctx, inbound)
+	if err != nil || restored.Value(agentModelSelectionKey{}) != selection {
+		test.Fatalf("持久化回合模型选择恢复失败：%v", err)
+	}
+	followup, err := service.ReceiveWebAgentTask(ctx, auth, ReceiveWebAgentTaskInput{SessionID: first.Session.ID, Message: "对于上一轮已完成任务，刚才约定的代号是什么？请回答其小写形式，仅回复三个小写英文字母，不要附加解释。", Channel: "assistant", ModelConfigID: selection.ConfigID, Model: selection.Model})
 	if err != nil || followup.Turn.Status != "succeeded" || followup.Reply != "abc" || followup.Plan.ID != first.Plan.ID {
 		runs, _ := store.ListAgentRunsByTurn(ctx, userID, followup.Turn.ID)
 		for _, run := range runs {
@@ -116,7 +126,30 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 		test.Fatalf("追问上下文与当前格式验收失败：turn=%s，reply=%q，error=%v", followup.Turn.Status, followup.Reply, err)
 	}
 	test.Log("追问原始上下文与当前格式验收通过")
-	third, err := service.ReceiveWebAgentTask(ctx, auth, ReceiveWebAgentTaskInput{SessionID: first.Session.ID, Message: "新建独立任务：必须调用 conversation.query_history 读取本会话中我们约定的代号，并将查到的代号转换为小写，最终仅回复三个小写英文字母。", Channel: "web"})
+	history, err := store.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{UserID: userID, SessionID: first.Session.ID, Mode: "search", Keyword: "约定代号 ABC", BeforeTurnID: followup.Turn.ID + 1, Limit: 20})
+	if err != nil || len(history) == 0 {
+		test.Fatalf("多关键词历史查询没有命中已有原文：%v", err)
+	}
+	hasOriginal := false
+	for _, entry := range history {
+		if entry.TurnID == first.Turn.ID && entry.Role == domain.AgentTranscriptRoleUser {
+			hasOriginal = true
+		}
+	}
+	if !hasOriginal {
+		test.Fatal("多关键词历史查询缺少约定代号的原始消息")
+	}
+	for _, keyword := range []string{"%", "_"} {
+		entries, err := store.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{UserID: userID, SessionID: first.Session.ID, Mode: "search", Keyword: keyword, Limit: 20})
+		if err != nil || len(entries) != 0 {
+			test.Fatalf("历史查询没有转义通配符：%v", err)
+		}
+	}
+	otherHistory, err := store.QueryTranscriptEntries(ctx, domain.AgentTranscriptQueryOptions{UserID: userID + 1000000, SessionID: first.Session.ID, Mode: "search", Keyword: "ABC", Limit: 20})
+	if err != nil || len(otherHistory) != 0 {
+		test.Fatal("历史关键词查询没有隔离用户")
+	}
+	third, err := service.ReceiveWebAgentTask(ctx, auth, ReceiveWebAgentTaskInput{SessionID: first.Session.ID, Message: "新建独立任务：必须调用 conversation.query_history 读取本会话中我们约定的代号，并将查到的代号转换为小写，最终仅回复三个小写英文字母。", Channel: "assistant", ModelConfigID: selection.ConfigID, Model: selection.Model})
 	if err != nil || third.Turn.Status != "succeeded" || third.Reply != "abc" || third.Plan.ID == first.Plan.ID {
 		runs, _ := store.ListAgentRunsByTurn(ctx, userID, third.Turn.ID)
 		for _, run := range runs {
@@ -130,7 +163,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 				test.Logf("工具产物编号=%d，完整正文=%s", artifact.ID, artifact.Content)
 			}
 		}
-		test.Fatalf("真实工具与证据验收失败：turn=%s，plan=%s，reply=%q，error=%v", third.Turn.Status, third.Plan.Status, third.Reply, err)
+		test.Fatalf("真实工具与证据验收失败：turn=%s，plan=%s，reply=%q，质量=%v，error=%v", third.Turn.Status, third.Plan.Status, third.Reply, third.Plan.Metadata["answer_quality"], err)
 	}
 	stages := map[string]int{}
 	artifactCount := 0
@@ -165,6 +198,10 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 			for _, trace := range detail.ContextTraces {
 				if trace.TraceKind == "llm_request" {
 					requestCount++
+					configuration := metadataMap(trace.Content, "model_configuration")
+					if metadataString(configuration, "model") != selection.Model || metadataNumber(configuration, "config_id") != int(selection.ConfigID) {
+						test.Fatal("内部模型调用未保留用户选择")
+					}
 					if metadataMap(trace.Content, "request") == nil || trace.ContentHash == "" || trace.PromptVersion == "" {
 						test.Fatal("实际模型请求缺少完整快照")
 					}
@@ -177,7 +214,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 				}
 			}
 			if requestCount != 1 || responseCount != 1 || run.Status != domain.AgentRunStatusSucceeded {
-				test.Fatalf("实际模型调用与快照不一致：stage=%s，request=%d，response=%d，status=%s", stage, requestCount, responseCount, run.Status)
+				test.Fatalf("实际模型调用与快照不一致：stage=%s，request=%d，response=%d，status=%s，error=%s", stage, requestCount, responseCount, run.Status, run.ErrorMessage)
 			}
 		}
 	}
@@ -191,7 +228,121 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	if auditFacts != 0 {
 		test.Fatal("实际模型审计快照进入了事实召回索引")
 	}
+	workspace, err := NewAgentSessionService(store).GetWorkspace(ctx, auth, first.Session.ID, 0)
+	if err != nil || len(workspace.Turns) != 3 || len(workspace.Items) == 0 || workspace.Cursor < 1 {
+		test.Fatalf("真实会话和持久化增量读取失败：%v", err)
+	}
+	for _, turn := range workspace.Turns {
+		if turn.DeliveryStatus != "not_required" || turn.OutputText == "" {
+			test.Fatal("网页助理回合缺少正文或渠道状态异常")
+		}
+	}
+	var reportAudits int64
+	if err := transaction.Raw("SELECT count(*) FROM agent_audit_logs WHERE session_id = ? AND event_type IN ('wechat_work.reply_sent', 'agent.web_task_final_report_skipped')", first.Session.ID).Scan(&reportAudits).Error; err != nil {
+		test.Fatal(err)
+	}
+	if reportAudits != 0 {
+		test.Fatal("网页助理消息进入了渠道报告发送流程")
+	}
 	test.Logf("真实数据库与默认模型验收通过：普通回答=%q，追问=%q，工具回答=%q，模型阶段=%v，完整产物=%d。", first.Reply, followup.Reply, third.Reply, stages, artifactCount)
+}
+
+func verifyRealAgentModelManagement(test *testing.T, ctx context.Context, store *repository.AgentRepository, runtime *AgentLLMRuntime, userID int64) domain.AgentModelSelection {
+	test.Helper()
+	configuration, err := store.GetDefaultAgentLLMProviderConfig(ctx, userID)
+	if err != nil {
+		test.Fatal(err)
+	}
+	expectedModel := strings.TrimSpace(os.Getenv("AGENT_RUNTIME_MODEL"))
+	if expectedModel == "" || configuration.Model != expectedModel {
+		test.Fatal("必须通过 AGENT_RUNTIME_MODEL 指定需要验收的当前默认模型")
+	}
+	defaultID := configuration.ID
+	configuration.ID = 0
+	configuration.Name = "真实验收供应商"
+	configuration.IsDefault = false
+	configuration, err = store.CreateAgentLLMProviderConfig(ctx, configuration)
+	if err != nil || configuration.ID == defaultID {
+		test.Fatalf("创建独立供应商配置失败：%v", err)
+	}
+	selection, err := runtime.ValidateModelSelection(ctx, userID, configuration.ID, configuration.Model)
+	if err != nil {
+		test.Fatal(err)
+	}
+	modelsService := NewAgentLLMConfigService(store, WithAgentLLMConfigSecret(os.Getenv("AGENT_RUNTIME_CONFIG_SECRET")))
+	owner := CurrentAuth{Authenticated: true, User: domain.User{ID: userID, Role: domain.UserRoleOwner}}
+	catalog, err := modelsService.DiscoverModels(ctx, owner, configuration.ID)
+	if err != nil || len(catalog.Models) == 0 {
+		test.Fatalf("读取真实供应商模型目录失败：%v", err)
+	}
+	input := AgentProviderModelsInput{Models: []string{selection.Model}, GuestModels: []string{selection.Model}}
+	for _, model := range catalog.Models {
+		if model.ID < selection.Model {
+			input.Models = append(input.Models, model.ID)
+			break
+		}
+	}
+	member := owner
+	member.User.Role = domain.UserRoleUser
+	if err := modelsService.SaveModels(ctx, member, configuration.ID, input); domain.ClassifyError(err) != domain.ErrorKindForbidden {
+		test.Fatal("普通用户能够开放游客模型")
+	}
+	if _, err := modelsService.DiscoverModels(ctx, CurrentAuth{Authenticated: true, User: domain.User{ID: userID + 1000000}}, configuration.ID); !errors.Is(err, domain.ErrNotFound) {
+		test.Fatal("其他用户能够读取供应商模型")
+	}
+	if err := modelsService.SaveModels(ctx, owner, configuration.ID, input); err != nil {
+		test.Fatal(err)
+	}
+	selectable, err := modelsService.SelectableModels(ctx, owner)
+	if err != nil {
+		test.Fatal(err)
+	}
+	for _, model := range selectable {
+		if model.ConfigID == selection.ConfigID {
+			if model.Model != selection.Model {
+				test.Fatal("供应商默认模型没有优先排列")
+			}
+			break
+		}
+	}
+	guestModels, err := modelsService.GuestModels(ctx)
+	if err != nil || len(guestModels) != 1 || guestModels[0].Model != selection.Model {
+		test.Fatalf("游客模型目录没有遵循管理员授权：%v", err)
+	}
+	if _, err := runtime.ValidateModelSelection(ctx, userID+1000000, selection.ConfigID, selection.Model); !errors.Is(err, domain.ErrNotFound) {
+		test.Fatal("模型选择没有隔离用户配置")
+	}
+	if _, err := runtime.ValidateModelSelection(ctx, userID, selection.ConfigID, "unavailable-model"); !errors.Is(err, domain.ErrInvalidInput) {
+		test.Fatal("未启用模型没有被拒绝")
+	}
+	if _, err := store.GetGuestAgentModelConfig(ctx, selection.ConfigID, "unavailable-model"); !errors.Is(err, domain.ErrNotFound) {
+		test.Fatal("游客能够请求未授权模型")
+	}
+	if err := store.SetAgentLLMModels(ctx, userID, selection.ConfigID, nil); !errors.Is(err, domain.ErrInvalidInput) {
+		test.Fatal("默认模型停用校验没有生效")
+	}
+	publicEvents := 0
+	response, err := modelsService.GuestChat(ctx, "real-acceptance-guest", AgentGuestChatInput{ConfigID: selection.ConfigID, Model: selection.Model, Messages: []AgentGuestMessage{{Role: "user", Content: "请计算 21 加 21，说明计算结果。"}}}, func(event llm.StreamEvent) error { publicEvents++; return nil })
+	if err != nil || (!strings.Contains(response.Content, "42") && !strings.Contains(response.Content, "四十二")) || response.Model == "" || publicEvents == 0 {
+		test.Fatalf("真实游客模型流式对话失败：events=%d，model=%s，content=%q，error=%v", publicEvents, response.Model, response.Content, err)
+	}
+	for index := 0; index < 20; index++ {
+		if _, err := store.ReserveGuestAgentRequest(ctx, "quota-acceptance-guest", selection.ConfigID, selection.Model); err != nil {
+			test.Fatal(err)
+		}
+	}
+	if _, err := store.ReserveGuestAgentRequest(ctx, "quota-acceptance-guest", selection.ConfigID, selection.Model); !errors.Is(err, domain.ErrRateLimited) {
+		test.Fatal("游客每日调用额度没有生效")
+	}
+	input.GuestModels = nil
+	if err := modelsService.SaveModels(ctx, owner, selection.ConfigID, input); err != nil {
+		test.Fatal(err)
+	}
+	if _, err := store.GetGuestAgentModelConfig(ctx, selection.ConfigID, selection.Model); !errors.Is(err, domain.ErrNotFound) {
+		test.Fatal("管理员取消授权后游客仍能使用模型")
+	}
+	test.Logf("真实模型目录与授权验收通过：%d 个上游模型，游客流式事件=%d，用户隔离、停用校验与每日额度通过", len(catalog.Models), publicEvents)
+	return selection
 }
 
 func TestAgentConversationContextFromDatabase(test *testing.T) {

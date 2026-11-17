@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -94,7 +95,7 @@ func (p agentConversationMemoryProvider) BuildConversationMemory(ctx context.Con
 		return memory, err
 	}
 	memory.MemoryBlocks = append(memory.MemoryBlocks, blocks...)
-	if conversationHistoryPlanHasContent(input.HistoryQueryPlan) {
+	if conversationHistoryPlanHasContent(input.HistoryQueryPlan) && !slices.Contains(input.CapabilityKeys, "conversation.query_history") {
 		historyResults, historyContent, err := p.queryPlannedConversationHistory(ctx, input)
 		if err != nil {
 			return memory, err

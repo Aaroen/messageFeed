@@ -29,9 +29,6 @@ const defaultOpenAIBaseURL = "https://api.openai.com/v1"
 const openAICompatibleChatOperation = "auto_route"
 const openAICompatibleExternalHTTPOperation = "llm_openai_compatible"
 
-// llmDefaultHTTPTimeout 是非流式模型单次请求的思考等待窗口。
-// 参考项目通常把模型长响应与普通短 HTTP 请求区分处理；本项目暂不启用流式，
-// 因此先给非流式请求保留 180 秒，避免 30 秒级默认值误打断长思考模型。
 const llmDefaultHTTPTimeout = 180 * time.Second
 const llmDefaultHTTPMaxAttempts = 6
 const llmRetryableHTTPStatusDelay = 30 * time.Second
@@ -46,11 +43,13 @@ const (
 )
 
 type ChatMessage struct {
-	Role       string
-	Content    string
-	Name       string
-	ToolCallID string
-	ToolCalls  []ToolCall
+	Role             string
+	Content          string
+	Name             string
+	ToolCallID       string
+	ToolCalls        []ToolCall
+	ResponseItems    []json.RawMessage
+	ReasoningContent string
 }
 
 type ChatRequest struct {
@@ -59,6 +58,7 @@ type ChatRequest struct {
 	ToolChoice  string
 	Temperature float64
 	MaxTokens   int
+	OnEvent     func(StreamEvent) error `json:"-"`
 }
 
 type ChatResponse struct {
@@ -71,6 +71,8 @@ type ChatResponse struct {
 	FinishReason     string
 	IncompleteReason string
 	Usage            *TokenUsage
+	ResponseItems    []json.RawMessage
+	ReasoningContent string
 }
 
 type TokenUsage struct {
@@ -133,11 +135,12 @@ type chatCompletionRequest struct {
 }
 
 type chatCompletionMessage struct {
-	Role       string                   `json:"role"`
-	Content    string                   `json:"content,omitempty"`
-	Name       string                   `json:"name,omitempty"`
-	ToolCallID string                   `json:"tool_call_id,omitempty"`
-	ToolCalls  []chatCompletionToolCall `json:"tool_calls,omitempty"`
+	Role             string                   `json:"role"`
+	Content          string                   `json:"content,omitempty"`
+	Name             string                   `json:"name,omitempty"`
+	ToolCallID       string                   `json:"tool_call_id,omitempty"`
+	ToolCalls        []chatCompletionToolCall `json:"tool_calls,omitempty"`
+	ReasoningContent string                   `json:"reasoning_content,omitempty"`
 }
 
 type chatCompletionTool struct {
@@ -193,13 +196,14 @@ type responsesRequest struct {
 }
 
 type responsesInputItem struct {
-	Type      string `json:"type,omitempty"`
-	Role      string `json:"role,omitempty"`
-	Content   string `json:"content,omitempty"`
-	CallID    string `json:"call_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Output    string `json:"output,omitempty"`
+	Type      string          `json:"type,omitempty"`
+	Role      string          `json:"role,omitempty"`
+	Content   string          `json:"content,omitempty"`
+	CallID    string          `json:"call_id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Arguments string          `json:"arguments,omitempty"`
+	Output    string          `json:"output,omitempty"`
+	Raw       json.RawMessage `json:"-"`
 }
 
 type responsesTool struct {
@@ -237,10 +241,32 @@ type responsesOutputItem struct {
 	ID        string                   `json:"id"`
 	Status    string                   `json:"status"`
 	Role      string                   `json:"role"`
+	Phase     string                   `json:"phase,omitempty"`
 	Content   []responsesOutputContent `json:"content,omitempty"`
+	Summary   []responsesOutputContent `json:"summary,omitempty"`
 	CallID    string                   `json:"call_id,omitempty"`
 	Name      string                   `json:"name,omitempty"`
 	Arguments string                   `json:"arguments,omitempty"`
+	Raw       json.RawMessage          `json:"-"`
+}
+
+func (item responsesInputItem) MarshalJSON() ([]byte, error) {
+	if len(item.Raw) > 0 {
+		return item.Raw, nil
+	}
+	type plainItem responsesInputItem
+	return json.Marshal(plainItem(item))
+}
+
+func (item *responsesOutputItem) UnmarshalJSON(data []byte) error {
+	type plainItem responsesOutputItem
+	var decoded plainItem
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*item = responsesOutputItem(decoded)
+	item.Raw = append(json.RawMessage(nil), data...)
+	return nil
 }
 
 type responsesOutputContent struct {
@@ -411,6 +437,9 @@ func (c *OpenAICompatibleClient) rememberProtocol(protocol llmProtocol) {
 // chatWithProtocol 将统一的业务 ChatRequest 映射到指定上游协议。
 // 协议尝试顺序由 protocolOrder 统一决定，默认优先 Responses，再降级到 Chat Completions。
 func (c *OpenAICompatibleClient) chatWithProtocol(ctx context.Context, request ChatRequest, protocol llmProtocol, host string, span trace.Span) (ChatResponse, error) {
+	if request.OnEvent != nil {
+		return c.chatWithStream(ctx, request, protocol, host, span)
+	}
 	switch protocol {
 	case llmProtocolResponses:
 		return c.chatWithResponses(ctx, request, host, span)
@@ -483,6 +512,7 @@ func chatResponseFromChatCompletion(decoded chatCompletionResponse) (ChatRespons
 	}
 	choice := decoded.Choices[0]
 	response.Content = strings.TrimSpace(choice.Message.Content)
+	response.ReasoningContent = choice.Message.ReasoningContent
 	response.ToolCalls = domainToolCallsFromChatCompletion(choice.Message.ToolCalls)
 	response.FinishReason = strings.TrimSpace(choice.FinishReason)
 	if encodedCall, ok := encodedToolCallFromText(response.Content, "encoded_call_0_0"); ok {
@@ -514,11 +544,12 @@ func chatCompletionMessagesFromDomain(messages []ChatMessage) []chatCompletionMe
 			name = ""
 		}
 		output = append(output, chatCompletionMessage{
-			Role:       role,
-			Content:    content,
-			Name:       name,
-			ToolCallID: toolCallID,
-			ToolCalls:  toolCalls,
+			Role:             role,
+			Content:          content,
+			Name:             name,
+			ToolCallID:       toolCallID,
+			ToolCalls:        toolCalls,
+			ReasoningContent: message.ReasoningContent,
 		})
 	}
 	return output
@@ -639,6 +670,9 @@ func (c *OpenAICompatibleClient) chatWithResponses(ctx context.Context, request 
 }
 
 func chatResponseFromResponses(decoded responsesResponse) (ChatResponse, error) {
+	if decoded.Error != nil {
+		return ChatResponse{}, fmt.Errorf("模型调用失败：%s", decoded.Error.Message)
+	}
 	content, encodedToolCalls := responsesOutputTextAndEncodedToolCalls(decoded.Output)
 	response := ChatResponse{
 		ResponseID:   strings.TrimSpace(decoded.ID),
@@ -647,6 +681,14 @@ func chatResponseFromResponses(decoded responsesResponse) (ChatResponse, error) 
 		Content:      content,
 		ToolCalls:    append(domainToolCallsFromResponses(decoded.Output), encodedToolCalls...),
 		FinishReason: strings.TrimSpace(decoded.Status),
+	}
+	for _, item := range decoded.Output {
+		response.ResponseItems = append(response.ResponseItems, item.Raw)
+		if item.Type == "reasoning" {
+			for _, part := range item.Summary {
+				response.ReasoningContent += part.Text
+			}
+		}
 	}
 	if decoded.Usage != nil {
 		response.Usage = &TokenUsage{InputTokens: decoded.Usage.InputTokens, OutputTokens: decoded.Usage.OutputTokens, TotalTokens: decoded.Usage.TotalTokens}
@@ -679,6 +721,12 @@ func responsesInputFromChatMessages(messages []ChatMessage) []responsesInputItem
 		role := strings.TrimSpace(message.Role)
 		content := strings.TrimSpace(message.Content)
 		if role == "" {
+			continue
+		}
+		if role == "assistant" && len(message.ResponseItems) > 0 {
+			for _, item := range message.ResponseItems {
+				items = append(items, responsesInputItem{Raw: item})
+			}
 			continue
 		}
 		if role == "tool" {
@@ -745,8 +793,17 @@ func responsesToolsFromDomain(tools []ToolDefinition) []responsesTool {
 func responsesOutputTextAndEncodedToolCalls(items []responsesOutputItem) (string, []ToolCall) {
 	var builder strings.Builder
 	calls := make([]ToolCall, 0)
+	hasFinal := false
+	for _, item := range items {
+		if item.Type == "message" && item.Phase == "final_answer" {
+			hasFinal = true
+		}
+	}
 	for itemIndex, item := range items {
 		if item.Type != "message" {
+			continue
+		}
+		if hasFinal && item.Phase != "final_answer" {
 			continue
 		}
 		for contentIndex, content := range item.Content {

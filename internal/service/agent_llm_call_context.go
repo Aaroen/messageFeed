@@ -110,12 +110,49 @@ func (r *AgentLLMRuntime) clientForUser(ctx context.Context, userID int64) (agen
 	if r == nil {
 		return agentLLMResolvedClient{}, domain.NewAppError(domain.ErrorKindUnavailable, "llm_unavailable", "llm runtime is unavailable", "service.agent_llm_runtime.chat", true, nil)
 	}
+	selection, selected := ctx.Value(agentModelSelectionKey{}).(domain.AgentModelSelection)
+	if selected && (selection.UserID != userID || selection.ConfigID < 1 || selection.Model == "") {
+		return agentLLMResolvedClient{}, fmt.Errorf("%w: 模型选择与当前用户不匹配", domain.ErrInvalidInput)
+	}
 	if r.store != nil {
-		configuration, err := r.store.GetDefaultAgentLLMProviderConfig(ctx, userID)
+		var configuration domain.AgentLLMProviderConfig
+		var err error
+		if selected {
+			configuration, err = r.store.GetAgentLLMProviderConfig(ctx, userID, selection.ConfigID)
+		} else {
+			configuration, err = r.store.GetDefaultAgentLLMProviderConfig(ctx, userID)
+		}
+		if selected && err != nil {
+			return agentLLMResolvedClient{}, err
+		}
 		if err != nil && !errors.Is(err, domain.ErrNotFound) {
 			return agentLLMResolvedClient{}, err
 		}
 		if err == nil {
+			if selected {
+				if !configuration.Enabled {
+					return agentLLMResolvedClient{}, fmt.Errorf("%w: 模型供应商已停用", domain.ErrInvalidInput)
+				}
+				store, ok := r.store.(agentLLMModelStore)
+				if !ok {
+					return agentLLMResolvedClient{}, fmt.Errorf("模型目录存储不可用")
+				}
+				models, err := store.ListAgentLLMModels(ctx, userID, selection.ConfigID)
+				if err != nil {
+					return agentLLMResolvedClient{}, err
+				}
+				allowed := false
+				for _, model := range models {
+					if model.Model == selection.Model && model.Enabled {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					return agentLLMResolvedClient{}, fmt.Errorf("%w: 选择的模型尚未启用", domain.ErrInvalidInput)
+				}
+				configuration.Model = selection.Model
+			}
 			client, err := r.clientForConfig(configuration)
 			if err != nil {
 				return agentLLMResolvedClient{}, err
@@ -137,6 +174,9 @@ func (r *AgentLLMRuntime) clientForUser(ctx context.Context, userID int64) (agen
 				},
 			}, nil
 		}
+	}
+	if selected {
+		return agentLLMResolvedClient{}, fmt.Errorf("模型选择的供应商不可用")
 	}
 	if r.defaultClient == nil {
 		return agentLLMResolvedClient{}, domain.NewAppError(domain.ErrorKindUnavailable, "llm_unavailable", "llm client is unavailable", "service.agent_llm_runtime.chat", true, nil)
@@ -235,6 +275,8 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 	}
 	var response llm.ChatResponse
 	callErr := budgetErr
+	record, flush := r.streamRecorder(ctx, metadata, run.ID, resolved.modelKey)
+	request.OnEvent = record
 	if callErr == nil {
 		response, callErr = resolved.client.Chat(ctx, request)
 	}
@@ -243,6 +285,7 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 	}
 	traceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
+	callErr = errors.Join(callErr, flush(traceCtx))
 	if callErr == nil && resolved.configID > 0 {
 		callErr = r.store.MarkAgentLLMProviderConfigUsed(traceCtx, metadata.UserID, resolved.configID, r.now().UTC())
 	}
@@ -325,6 +368,8 @@ func agentLLMResponseSnapshot(metadata AgentLLMCallContext, response llm.ChatRes
 		"request_content_hash": requestTrace.ContentHash,
 		"response_id":          response.ResponseID,
 		"protocol":             response.Protocol,
+		"response_items":       response.ResponseItems,
+		"reasoning_content":    response.ReasoningContent,
 		"provider":             response.Provider,
 		"model":                response.Model,
 		"finish_reason":        response.FinishReason,
