@@ -289,6 +289,21 @@ func TestAgentAnswerCitationValidatesOrderedSourceSegments(test *testing.T) {
 	}
 }
 
+func TestAgentFeedbackHidesProtocolFields(test *testing.T) {
+	for _, failure := range []string{
+		`模型流式调用失败：{"response":{"id":"resp_internal","error":{"message":"This model is currently experiencing high demand."}}}`,
+		"最终回答质量校验未通过。: evaluation citation is absent from complete source body",
+		"context deadline exceeded",
+		"database internal request failed",
+	} {
+		request := agentWeChatFeedbackRequest{Stage: "failed", ErrorText: failure}
+		data := request.templateData()
+		if data.Error == "" || strings.Contains(data.Error, failure) || strings.ContainsAny(data.Error, "{}") || strings.Contains(data.Error, "resp_") {
+			test.Fatal("失败提示包含内部协议内容")
+		}
+	}
+}
+
 func TestAgentAnswerHistoryRecallUsesConversationFreshness(test *testing.T) {
 	sources := []domain.AgentFactSource{{CanonicalRef: "artifact:320", FactType: domain.AgentFactTypeArtifact, Content: "用户：本次约定代号为 ABC。"}}
 	requirement := agent.PlanEvidenceRequirement{EvidenceType: "history_recall", Freshness: "recent_context", Required: true, MinimumCount: 1}

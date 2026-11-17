@@ -96,7 +96,7 @@ func (request agentWeChatFeedbackRequest) templateData() agentWeChatFeedbackTemp
 		Summary:             safeSummary(request.Plan.Summary, 300),
 		StepTitle:           safeSummary(request.Step.Title, 160),
 		StepSummary:         safeSummary(firstNonEmptyString(request.Step.OutputSummary, request.Step.InputSummary), 220),
-		Error:               safeSummary(errorText, 300),
+		Error:               agentUserFacingFailureReason(errorText),
 		ErrorType:           agentFeedbackErrorType(request.Cause, errorText),
 		TimedOut:            thinkingTimedOut || isAgentTimeoutError(request.Cause) || strings.Contains(strings.ToLower(errorText), "deadline exceeded"),
 		ThinkingTimedOut:    thinkingTimedOut,
@@ -111,6 +111,23 @@ func (request agentWeChatFeedbackRequest) templateData() agentWeChatFeedbackTemp
 		ScheduledTaskID:     request.Control.ScheduledTaskID,
 		ScheduledTaskStatus: strings.TrimSpace(request.Control.ScheduledTaskStatus),
 	}
+}
+
+func agentUserFacingFailureReason(errorText string) string {
+	if strings.TrimSpace(errorText) == "" {
+		return ""
+	}
+	lower := strings.ToLower(errorText)
+	if strings.Contains(lower, "high demand") || strings.Contains(lower, "server_overloaded") {
+		return "所选模型当前繁忙，请稍后重新发送。"
+	}
+	if strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded") {
+		return "处理时间超过限制，请稍后重新发送。"
+	}
+	if strings.Contains(errorText, "最终回答质量校验未通过") {
+		return "回答未通过资料或格式核验，请重新发送或补充要求。"
+	}
+	return "任务处理遇到异常，请稍后重新发送。"
 }
 
 func (request agentWeChatFeedbackRequest) templateKey() string {

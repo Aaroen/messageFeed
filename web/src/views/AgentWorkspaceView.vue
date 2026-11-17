@@ -76,7 +76,10 @@ function toggleDetails() {
 }
 
 function turnRuns(turnID: number) { return (store.workspace?.runs || []).filter((run) => run.turn_id === turnID) }
-function turnText(turn: AgentTurn) { return turn.output_text || liveTurnText(store.workspace?.items || [], turn.id) }
+function turnText(turn: AgentTurn) {
+  const content = turn.output_text || liveTurnText(store.workspace?.items || [], turn.id)
+  return turn.status === 'failed' ? assistantErrorMessage(content) : content
+}
 function turnState(turn: AgentTurn) { return turn.cancel_requested && isActiveStatus(turn.status) ? '正在停止' : turn.error_message === '用户停止执行' ? '已停止' : statusLabel(turn.status) }
 function turnItems(turnID: number) { return (store.workspace?.items || []).filter((item) => item.turn_id === turnID) }
 
@@ -183,7 +186,7 @@ async function stopTurn() {
 
 async function copyReply(turn: AgentTurn) {
   try {
-    await navigator.clipboard.writeText(turn.output_text)
+    await navigator.clipboard.writeText(turnText(turn))
     copiedTurnID.value = turn.id
     if (copyTimer) clearTimeout(copyTimer)
     copyTimer = setTimeout(() => { copiedTurnID.value = 0 }, 1800)
