@@ -3,12 +3,12 @@ import { computed } from 'vue'
 import type { AgentRun } from '@/api/agent'
 import type { AgentStreamItem } from '@/api/assistant'
 import AgentMarkdown from './AgentMarkdown.vue'
-import { flattenRuns, formatDuration, isActiveStatus, runLabel, runRoleLabel, statusLabel } from '@/utils/assistant'
+import { assistantErrorMessage, capabilityLabel, flattenRuns, formatDuration, isActiveStatus, readableActivityText, runLabel, runRoleLabel, statusLabel } from '@/utils/assistant'
 
 const props = defineProps<{ runs: AgentRun[]; items: AgentStreamItem[]; selectedID: number; detail: AgentRun | null; loading: boolean; error: string }>()
 const emit = defineEmits<{ select: [id: number] }>()
 const tree = computed(() => flattenRuns(props.runs))
-const selected = computed(() => props.detail?.id === props.selectedID ? props.detail : props.runs.find((run) => run.id === props.selectedID))
+const selected = computed(() => props.runs.some((run) => run.id === props.selectedID) ? props.detail?.id === props.selectedID ? props.detail : props.runs.find((run) => run.id === props.selectedID) : undefined)
 const selectedItems = computed(() => props.items.filter((item) => item.run_id === props.selectedID))
 const request = computed(() => selected.value?.context_traces?.find((trace) => trace.trace_kind === 'llm_request')?.content)
 const response = computed(() => selected.value?.context_traces?.find((trace) => trace.trace_kind === 'llm_response')?.content)
@@ -17,19 +17,21 @@ const requestedModel = computed(() => {
   return String(configuration?.model || selected.value?.model_key || '未记录')
 })
 const actualModel = computed(() => String(response.value?.model || selected.value?.model_key || '等待返回'))
-const responseText = computed(() => typeof response.value?.content === 'string' ? response.value.content : '')
-const responseReasoning = computed(() => typeof response.value?.reasoning_content === 'string' ? response.value.reasoning_content : '')
+const displaysAnswer = computed(() => !selected.value?.task_packet.stage || ['generation', 'followup_answer', 'feedback'].includes(String(selected.value.task_packet.stage)))
+const responseText = computed(() => displaysAnswer.value && typeof response.value?.content === 'string' ? readableActivityText(response.value.content) : '')
+const responseReasoning = computed(() => displaysAnswer.value && selected.value?.role !== 'controller' && typeof response.value?.reasoning_content === 'string' ? response.value.reasoning_content : '')
 const usage = computed(() => response.value?.usage as Record<string, number> | undefined)
+const description = computed(() => ['goal', 'description', 'task'].map((key) => selected.value?.task_packet[key]).find((value) => typeof value === 'string' && readableActivityText(value)))
 </script>
 
 <template>
   <div class="agent-details-content">
-    <div class="agent-tree-heading"><span>执行树</span><span>{{ runs.length }} 个节点</span></div>
-    <div v-if="!runs.length" class="agent-details-empty">提交消息后，在这里查看执行过程。</div>
+    <div class="agent-tree-heading"><span>任务进度</span><span>{{ runs.length }} 项活动</span></div>
+    <div v-if="!runs.length" class="agent-details-empty">当前对话没有子代理任务。</div>
     <div v-else class="agent-run-tree" role="list" aria-label="代理执行节点">
       <button v-for="entry in tree" :key="entry.run.id" type="button" class="agent-run-node" :class="{ selected: selectedID === entry.run.id }" :style="{ paddingLeft: `${12 + Math.min(entry.depth, 6) * 14}px` }" :aria-pressed="selectedID === entry.run.id" @click="emit('select', entry.run.id)">
         <span class="agent-node-status" :class="{ active: isActiveStatus(entry.run.status), failed: entry.run.status === 'failed' }" />
-        <span class="agent-node-copy"><strong>{{ runLabel(entry.run) }}</strong><small>{{ entry.run.model_key || statusLabel(entry.run.status) }}</small></span>
+        <span class="agent-node-copy"><strong>{{ runLabel(entry.run) }}</strong><small>{{ entry.run.task_packet.capability_key ? '工具活动' : entry.run.role === 'controller' ? '主代理' : entry.run.model_key || statusLabel(entry.run.status) }}</small></span>
         <span class="agent-node-state">{{ statusLabel(entry.run.status) }}</span>
       </button>
     </div>
@@ -38,25 +40,24 @@ const usage = computed(() => response.value?.usage as Record<string, number> | u
       <dl class="agent-detail-facts">
         <div><dt>状态</dt><dd>{{ statusLabel(selected.status) }}</dd></div>
         <div><dt>执行类型</dt><dd>{{ runRoleLabel(selected) }}</dd></div>
-        <div><dt>请求模型</dt><dd>{{ requestedModel }}</dd></div>
-        <div><dt>实际模型</dt><dd>{{ actualModel }}</dd></div>
+        <div v-if="!selected.task_packet.capability_key && selected.role !== 'controller'"><dt>请求模型</dt><dd>{{ requestedModel }}</dd></div>
+        <div v-if="!selected.task_packet.capability_key && selected.role !== 'controller'"><dt>实际模型</dt><dd>{{ actualModel }}</dd></div>
         <div><dt>耗时</dt><dd>{{ formatDuration(selected.started_at, selected.completed_at) }}</dd></div>
-        <div v-if="selected.parent_run_id"><dt>父节点</dt><dd>#{{ selected.parent_run_id }}</dd></div>
         <div v-if="usage"><dt>Token 用量</dt><dd>{{ usage.TotalTokens ?? usage.total_tokens ?? '—' }}</dd></div>
       </dl>
       <p v-if="loading" class="agent-detail-muted" role="status">正在读取详情…</p>
-      <p v-if="error" class="agent-detail-error" role="alert">{{ error }}</p>
-      <p v-if="selected.error_message" class="agent-detail-error">{{ selected.error_message }}</p>
-      <details v-if="Object.keys(selected.task_packet).length" class="agent-detail-block"><summary>任务说明</summary><pre>{{ JSON.stringify(selected.task_packet, null, 2) }}</pre></details>
+      <p v-if="error" class="agent-detail-error" role="alert">{{ assistantErrorMessage(error) }}</p>
+      <p v-if="selected.error_message" class="agent-detail-error">本项活动未完成，请查看对话中的提示。</p>
+      <p v-if="description" class="agent-detail-block">{{ description }}</p>
       <section v-for="item in selectedItems" :key="`${item.kind}:${item.item_id}`" class="agent-detail-block">
-        <details v-if="item.kind === 'reasoning'" open><summary>公开推理摘要</summary><AgentMarkdown :content="item.content" /></details>
-        <details v-else-if="item.kind === 'tool'" open><summary>工具调用 · {{ item.name || '生成参数' }}</summary><pre>{{ item.content }}</pre></details>
-        <template v-else-if="item.kind === 'text'"><h4>{{ item.phase === 'final_answer' ? '回答内容' : '模型输出' }}</h4><AgentMarkdown :content="item.content" /></template>
+        <details v-if="item.kind === 'reasoning' && displaysAnswer && selected.role !== 'controller'" open><summary>公开推理摘要</summary><AgentMarkdown :content="item.content" /></details>
+        <p v-else-if="item.kind === 'tool'">{{ capabilityLabel(item.name) }}</p>
+        <template v-else-if="item.kind === 'text' && displaysAnswer && readableActivityText(item.content)"><h4>回答内容</h4><AgentMarkdown :content="item.content" /></template>
       </section>
       <section v-if="responseText && !selectedItems.some((item) => item.kind === 'text')" class="agent-detail-block"><h4>模型输出</h4><AgentMarkdown :content="responseText" /></section>
       <details v-if="responseReasoning && !selectedItems.some((item) => item.kind === 'reasoning')" class="agent-detail-block" open><summary>公开推理摘要</summary><AgentMarkdown :content="responseReasoning" /></details>
-      <section v-for="observation in selected.observations" :key="observation.id" class="agent-detail-block"><h4>{{ observation.capability_key }} · {{ statusLabel(observation.status) }}</h4><p>{{ observation.input_summary }}</p><AgentMarkdown :content="observation.output_summary" /><p v-if="observation.error" class="agent-detail-error">{{ observation.error }}</p></section>
-      <section v-for="artifact in selected.artifacts" :key="artifact.id" class="agent-detail-block"><h4>执行产物 · {{ artifact.artifact_type }}</h4><AgentMarkdown :content="artifact.summary" /><code>{{ artifact.content_ref }}</code></section>
+      <section v-for="observation in selected.observations" :key="observation.id" class="agent-detail-block"><h4>{{ capabilityLabel(observation.capability_key) }} · {{ statusLabel(observation.status) }}</h4><p v-if="observation.error" class="agent-detail-error">资料处理未完成。</p></section>
+      <section v-for="artifact in (selected.artifacts || []).filter((entry) => readableActivityText(entry.summary))" :key="artifact.id" class="agent-detail-block"><h4>资料结果</h4><AgentMarkdown :content="readableActivityText(artifact.summary)" /></section>
     </section>
   </div>
 </template>

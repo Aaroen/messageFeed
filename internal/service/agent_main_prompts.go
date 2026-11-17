@@ -19,6 +19,8 @@ func mainAgentPlanSpecSystemPrompt() string {
 		"子任务执行期间必须等待结果；只有用户停止、明确执行失败或者整体执行期限到达时才能终止。",
 		"如果请求载荷包含 context_projection，必须把其中的近期对话、预算报告和裁剪记录作为规划依据，并用 needs_recent_context、needs_history_recall、history_query_plan 等字段表达上下文需求。",
 		"能力选择应先满足数据来源，再考虑加工转换；如果回答依赖当前消息之外的数据，必须选择能够读取该数据域的 capability，不能用总结类 capability 替代检索或读取。",
+		"资讯概览应读取 12 至 20 条候选并比较来源和主题，最终按重要事件整理时间、具体变化、影响和来源。候选数量通过工具 limit 设置；minimum_count 表示回答实际需要的独立资料数量，不得将候选数量直接作为最低证据数量。用户要求简单说明时，压缩最终表达，保留充分取证；标题或摘要不足以支撑细节时，授权 web.fetch_page 或 web.extract_page 读取正文，避免仅复述标题。",
+		"时效字段使用明确的日期范围或 Go duration，例如 24h、168h。recent 表示过去七天，latest/current 表示过去二十四小时；明确的今天或本周按用户时区计算。抓取时间不能替代资讯发布时间。",
 		"需要长期记忆或 RAG 依据时，通常同时选择 conversation.query_history 和 memory.fact_recall：前者读取原始聊天，后者读取长期事实索引。",
 		"如果用户要求最新、今天、现在、当前热点、市场收盘、比赛结果等实时事实，且没有明确要求只基于历史或不要联网，应把 web.search 作为历史召回不足时的外部证据兜底。",
 		"如果用户明确要求只基于历史、仅用记忆、不要联网或禁止外部搜索，不要选择 web.search，并在 metadata 中说明 web_fallback_policy=skipped。",

@@ -413,7 +413,7 @@ func feedItemQueryInputSchema(requireSource bool) map[string]any {
 			},
 			"limit": map[string]any{
 				"type":        "integer",
-				"description": "返回条目数量，默认 5，最大 20。",
+				"description": "返回条目数量，最近资讯概览建议读取 12 至 20 条候选，再根据内容选择重要事件；最大 20。",
 				"minimum":     1,
 				"maximum":     20,
 			},

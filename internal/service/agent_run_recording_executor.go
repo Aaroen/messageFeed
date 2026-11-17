@@ -48,7 +48,11 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 	normalized, executionErr := agent.NormalizeToolResult(agent.MCPCallToolResult{Observation: result.Observation}, callErr)
 	result.Observation = normalized.Observation
 	var recordErr error
-	result.Observation, recordErr = e.recordExecutorResult(ctx, run, input.Capability.Key, input.Message, result.Observation, contextBlocksContent(result.Blocks), executionErr)
+	bodies := make([]string, 0, len(result.Blocks))
+	for _, block := range result.Blocks {
+		bodies = append(bodies, block.Content)
+	}
+	result.Observation, recordErr = e.recordExecutorResult(ctx, run, input.Capability.Key, input.Message, result.Observation, contextBlocksContent(result.Blocks), executionErr, bodies...)
 	traceErr := e.recordToolTraceEvent(ctx, agentToolTraceEventInput{
 		UserID:          input.UserID,
 		SessionID:       input.SessionID,
@@ -102,7 +106,13 @@ func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCP
 	result, callErr := e.base.CallTool(ctx, input)
 	result, executionErr := agent.NormalizeToolResult(result, callErr)
 	var recordErr error
-	result.Observation, recordErr = e.recordExecutorResult(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.TextContent(), executionErr)
+	bodies := make([]string, 0, len(result.Result.Content))
+	for _, block := range result.Result.Content {
+		if block.Type == "text" {
+			bodies = append(bodies, block.Text)
+		}
+	}
+	result.Observation, recordErr = e.recordExecutorResult(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.TextContent(), executionErr, bodies...)
 	traceErr := e.recordToolTraceEvent(ctx, agentToolTraceEventInput{
 		UserID:          input.UserID,
 		SessionID:       input.SessionID,
@@ -293,7 +303,7 @@ func (e agentRunRecordingExecutor) createExecutorRun(ctx context.Context, parent
 	})
 }
 
-func (e agentRunRecordingExecutor) recordExecutorResult(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, observation agent.CapabilityObservation, output string, executionErr error) (agent.CapabilityObservation, error) {
+func (e agentRunRecordingExecutor) recordExecutorResult(ctx context.Context, run domain.AgentRun, capabilityKey string, input string, observation agent.CapabilityObservation, output string, executionErr error, evidenceBodies ...string) (agent.CapabilityObservation, error) {
 	if observation.Capability == "" {
 		observation.Capability = capabilityKey
 	}
@@ -307,22 +317,29 @@ func (e agentRunRecordingExecutor) recordExecutorResult(ctx context.Context, run
 	}
 	observation.RunID = run.ID
 	evidenceRefs := append(capabilityEvidenceRefs(capabilityKey, run), observation.ArtifactRefs...)
+	sourceRefs := append([]string(nil), evidenceRefs...)
 	artifactCount := 0
-	if outcome.EvidenceUsable && strings.TrimSpace(output) != "" {
+	if len(evidenceBodies) == 0 {
+		evidenceBodies = []string{output}
+	}
+	for index, body := range evidenceBodies {
+		if !outcome.EvidenceUsable || strings.TrimSpace(body) == "" {
+			continue
+		}
 		artifact, err := e.runManager.RecordArtifact(ctx, domain.AgentArtifact{
 			RunID:        run.ID,
 			ArtifactType: "capability_output",
-			ContentRef:   fmt.Sprintf("agent_run:%d:capability_output", run.ID),
-			Content:      output,
-			Summary:      safeSummary(output, 1000),
-			SourceRefs:   evidenceRefs,
+			ContentRef:   fmt.Sprintf("agent_run:%d:capability_output:%d", run.ID, index+1),
+			Content:      body,
+			Summary:      safeSummary(body, 1000),
+			SourceRefs:   sourceRefs,
 		})
 		if err != nil {
 			return observation, fmt.Errorf("记录工具结果正文: %w", err)
 		}
 		if artifact.ID > 0 {
 			evidenceRefs = append(evidenceRefs, fmt.Sprintf("agent_artifact:%d", artifact.ID), fmt.Sprintf("agent_artifacts/%d", artifact.ID))
-			artifactCount = 1
+			artifactCount++
 		}
 	}
 	errorMessage := ""

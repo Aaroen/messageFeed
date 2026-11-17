@@ -1,22 +1,28 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { IconArrowUp, IconClose, IconCode, IconPlus, IconStop } from '@arco-design/web-vue/es/icon'
-import { listAssistantModels, modelSelectionKey, streamGuestChat, type AgentModel, type GuestChatMessage } from '@/api/agentModels'
+import { IconArrowUp, IconCode, IconPlus, IconStop } from '@arco-design/web-vue/es/icon'
+import { getGuestHistory, listAssistantModels, modelSelectionKey, streamGuestChat, type AgentModel, type GuestChatMessage, type GuestHistory } from '@/api/agentModels'
 import { formatAPIError } from '@/api/client'
 import AgentMarkdown from '@/components/agent/AgentMarkdown.vue'
 import AgentModelSelect from '@/components/agent/AgentModelSelect.vue'
 
 const models = ref<AgentModel[]>([])
 const selectedKey = ref('')
-const messages = ref<(GuestChatMessage & { model?: string; reasoning?: string; failed?: boolean })[]>([])
+type Message = GuestChatMessage & { model?: string; reasoning?: string; failed?: boolean; expanded?: boolean }
+const messages = ref<Message[]>([])
+const history = ref<GuestHistory | null>(null)
+const conversationID = ref(0)
 const draft = ref('')
 const error = ref('')
 const loading = ref(true)
 const sending = ref(false)
-const detailsOpen = ref(false)
 const scrollArea = ref<HTMLElement | null>(null)
 const selectedModel = computed(() => models.value.find((model) => modelSelectionKey(model) === selectedKey.value))
-const latestAnswer = computed(() => [...messages.value].reverse().find((message) => message.role === 'assistant'))
+const conversations = computed(() => {
+  const entries = new Map<number, string>()
+  for (const turn of history.value?.turns || []) if (!entries.has(turn.conversation_id)) entries.set(turn.conversation_id, turn.input_text.slice(0, 32))
+  return [...entries].reverse()
+})
 let controller: AbortController | null = null
 
 async function scrollBottom() {
@@ -28,8 +34,6 @@ async function send() {
   const model = selectedModel.value
   const content = draft.value.trim()
   if (sending.value || !model || !content) return
-  const previous = messages.value.filter((message) => !message.failed && message.content).map(({ role, content }) => ({ role, content }))
-  if (previous.length >= 40) { error.value = '当前游客对话已达到消息数量限制，请新建对话'; return }
   sending.value = true
   error.value = ''
   draft.value = ''
@@ -40,8 +44,8 @@ async function send() {
   controller = new AbortController()
   await scrollBottom()
   try {
-    await streamGuestChat(model, [...previous, { role: 'user', content }], controller.signal, (kind, event) => {
-      if (kind === 'completed') reply.content = event.content || ''
+    await streamGuestChat(model, [{ role: 'user', content }], controller.signal, (kind, event) => {
+      if (kind === 'completed') { reply.content = event.content || ''; conversationID.value = event.conversation_id || conversationID.value }
       if (kind === 'delta' && (event.kind === 'text' || event.kind === 'reasoning')) {
         const item = items.get(event.item_id || event.kind) || { kind: event.kind, text: '' }
         item.text = event.replace ? event.delta || '' : item.text + (event.delta || '')
@@ -50,7 +54,7 @@ async function send() {
         reply.reasoning = [...items.values()].filter((entry) => entry.kind === 'reasoning').map((entry) => entry.text).join('\n')
       }
       void scrollBottom()
-    })
+    }, conversationID.value)
   } catch (cause) {
     messages.value[userIndex]!.failed = true
     reply.failed = true
@@ -58,18 +62,38 @@ async function send() {
   } finally {
     sending.value = false
     controller = null
+    try { history.value = await getGuestHistory() }
+    catch (cause) { error.value = formatAPIError(cause) }
   }
 }
 
 function clearConversation() {
   if (sending.value) return
   messages.value = []
+  conversationID.value = 0
   error.value = ''
+}
+
+function restoreConversation() {
+  error.value = ''
+  messages.value = (history.value?.turns || []).filter((turn) => turn.conversation_id === conversationID.value).flatMap((turn): Message[] => [
+    { role: 'user', content: turn.input_text },
+    { role: 'assistant', content: turn.output_text, model: turn.model, reasoning: turn.reasoning_content, failed: turn.status !== 'succeeded' },
+  ])
+  void scrollBottom()
+}
+
+function reasoningOpen(message: Message, index: number) {
+  return message.expanded ?? (sending.value && index === messages.value.length - 1 && (message.reasoning?.length || 0) <= 800)
 }
 
 onMounted(async () => {
   try {
-    models.value = await listAssistantModels(true)
+    const [available, saved] = await Promise.all([listAssistantModels(true), getGuestHistory()])
+    models.value = available
+    history.value = saved
+    conversationID.value = conversations.value[0]?.[0] || 0
+    restoreConversation()
     selectedKey.value = models.value[0] ? modelSelectionKey(models.value[0]) : ''
   } catch (cause) { error.value = formatAPIError(cause) }
   finally { loading.value = false }
@@ -79,15 +103,14 @@ onBeforeUnmount(() => controller?.abort())
 
 <template>
   <section class="guest-assistant" aria-label="游客助理" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
-    <header><span><IconCode /> 助理 <small>游客</small></span><div><button type="button" :disabled="sending" aria-label="新建游客对话" @click="clearConversation"><IconPlus /></button><button type="button" :aria-expanded="detailsOpen" aria-label="游客执行详情" @click="detailsOpen = !detailsOpen"><IconCode /></button><router-link :to="{ name: 'login', query: { redirect: '/agent' } }">登录</router-link></div></header>
+    <header><span><IconCode /> 助理 <small>游客</small></span><div><select v-model="conversationID" aria-label="游客历史对话" :disabled="sending || loading" @change="restoreConversation"><option :value="0">新建对话</option><option v-for="[identifier, title] in conversations" :key="identifier" :value="identifier">{{ title }}</option></select><button type="button" :disabled="sending" aria-label="新建游客对话" @click="clearConversation"><IconPlus /></button><router-link :to="{ name: 'login', query: { redirect: '/agent' } }">登录</router-link></div></header>
     <main ref="scrollArea" class="guest-messages" aria-live="polite">
-      <div v-if="!messages.length" class="guest-welcome"><IconCode /><h1>向助理发送消息</h1><p>{{ loading ? '正在读取可用模型…' : models.length ? '选择管理员开放的模型开始对话。' : '管理员暂未开放游客模型。' }}</p><small>游客对话保留在当前页面。每个网络地址每日最多调用 20 次。</small></div>
+      <div v-if="!messages.length" class="guest-welcome"><IconCode /><h1>向助理发送消息</h1><p>{{ loading ? '正在读取可用模型…' : models.length ? '选择管理员开放的模型开始对话。' : '管理员暂未开放游客模型。' }}</p><small v-if="history">历史最多保留 {{ history.retention_days }} 天，同一公网 IP 可以访问对应历史。<br />每个 IP 每日最多 {{ history.client_daily_limit }} 次，全部游客每日合计最多 {{ history.total_daily_limit }} 次。</small></div>
       <article v-for="(message, index) in messages" :key="index" :class="['guest-message', message.role]">
         <p v-if="message.role === 'user'">{{ message.content }}</p>
-        <template v-else><div class="guest-answer-heading"><IconCode /><span>助理</span><small>{{ message.model }}</small></div><AgentMarkdown v-if="message.content" :content="message.content" /><p v-else>{{ sending && index === messages.length - 1 ? '正在生成…' : '本次未完成回答' }}</p><small v-if="message.failed" class="guest-error">回答未完成</small></template>
+        <template v-else><div class="guest-answer-heading"><IconCode /><span>助理</span><small>{{ message.model }}</small></div><section v-if="message.reasoning || (sending && index === messages.length - 1)" class="guest-activity" aria-label="执行详情"><button type="button" :aria-expanded="reasoningOpen(message, index)" @click="message.expanded = !reasoningOpen(message, index)">执行详情 · {{ reasoningOpen(message, index) ? '收起' : '展开' }}</button><div v-if="reasoningOpen(message, index)"><p>{{ sending && index === messages.length - 1 ? '正在生成回答' : message.failed ? '回答未完成' : '回答已完成' }}</p><small v-if="message.reasoning">公开推理摘要</small><AgentMarkdown v-if="message.reasoning" :content="message.reasoning" /></div></section><AgentMarkdown v-if="message.content" :content="message.content" /><p v-else>{{ sending && index === messages.length - 1 ? '正在生成…' : '本次未完成回答' }}</p><small v-if="message.failed" class="guest-error">回答未完成</small></template>
       </article>
     </main>
-    <aside v-if="detailsOpen" class="guest-details" aria-label="游客执行详情面板"><div><strong>执行详情</strong><button type="button" aria-label="关闭游客执行详情" @click="detailsOpen = false"><IconClose /></button></div><dl><dt>模型</dt><dd>{{ latestAnswer?.model || selectedModel?.model || '尚未选择' }}</dd><dt>状态</dt><dd>{{ sending ? '正在生成' : latestAnswer?.failed ? '未完成' : latestAnswer ? '已完成' : '尚未开始' }}</dd><dt>公开推理摘要</dt><dd class="guest-reasoning">{{ latestAnswer?.reasoning || '供应商尚未返回公开推理摘要。' }}</dd></dl></aside>
     <div class="guest-composer"><p v-if="error" class="guest-error" role="alert">{{ error }}</p><form @submit.prevent="send"><textarea v-model="draft" aria-label="发送给游客助理的消息" placeholder="向助理发送消息…" rows="2" :disabled="sending || !models.length" @keydown.enter.exact.prevent="send" /><div><AgentModelSelect v-model="selectedKey" :models="models" :disabled="sending" /><button v-if="sending" type="button" aria-label="停止游客回答" @click="controller?.abort()"><IconStop /></button><button v-else type="submit" aria-label="发送游客消息" :disabled="!draft.trim() || !selectedModel"><IconArrowUp /></button></div></form></div>
   </section>
 </template>
@@ -97,6 +120,7 @@ onBeforeUnmount(() => controller?.abort())
 .guest-assistant header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--mf-border); }
 .guest-assistant header span, .guest-assistant header div { display: flex; align-items: center; gap: 12px; }
 .guest-assistant header small, .guest-answer-heading small { color: var(--mf-text-muted); font-size: 11px; }
+.guest-assistant header select { max-width: min(30vw, 240px); padding: 6px; border: 1px solid var(--mf-border); border-radius: 6px; background: var(--mf-surface, #fff); color: var(--mf-text); }
 .guest-assistant button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--mf-border); border-radius: 7px; background: var(--mf-surface, #fff); color: var(--mf-text); cursor: pointer; }
 .guest-assistant button:disabled { opacity: .4; cursor: default; }
 .guest-messages { flex: 1; min-height: 0; overflow: auto; padding: 24px max(18px, calc((100% - 760px) / 2)); }
@@ -113,9 +137,7 @@ onBeforeUnmount(() => controller?.abort())
 .guest-composer textarea { width: 100%; resize: none; border: 0; background: transparent; color: var(--mf-text); font: inherit; outline: none; }
 .guest-composer form > div { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .guest-error { color: #bf4343; font-size: 12px; }
-.guest-details { position: absolute; top: 60px; right: 0; bottom: 0; width: min(360px, 100%); box-sizing: border-box; background: var(--mf-surface, #fff); border-left: 1px solid var(--mf-border); padding: 18px; overflow: auto; z-index: 5; box-shadow: -6px 0 20px #0000000d; }
-.guest-details > div { display: flex; justify-content: space-between; align-items: center; }
-.guest-details dt { margin-top: 20px; color: var(--mf-text-muted); font-size: 12px; }
-.guest-details dd { margin: 6px 0 0; font-size: 13px; overflow-wrap: anywhere; }
-.guest-reasoning { white-space: pre-wrap; line-height: 1.8; }
+.guest-activity { border: 1px solid var(--mf-border); border-radius: 9px; margin: 0 0 16px; overflow: hidden; }
+.guest-activity > button { width: 100%; height: auto; padding: 10px 12px; border: 0; border-radius: 0; justify-content: flex-start; color: var(--mf-text-muted); font-size: 12px; }
+.guest-activity > div { padding: 0 12px 12px; max-height: 400px; overflow: auto; font-size: 12px; }
 </style>

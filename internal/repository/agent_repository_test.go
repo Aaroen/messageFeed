@@ -15,10 +15,103 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+func TestAgentGuestHistoryAndQuotasDatabase(test *testing.T) {
+	databaseURL := os.Getenv("AGENT_WORKSPACE_DATABASE_URL")
+	if databaseURL == "" {
+		test.Skip("设置 AGENT_WORKSPACE_DATABASE_URL 后验证游客历史与额度")
+	}
+	database, err := gorm.Open(postgres.New(postgres.Config{DSN: databaseURL, PreferSimpleProtocol: true}), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		test.Fatal(err)
+	}
+	connection, err := database.DB()
+	if err != nil {
+		test.Fatal(err)
+	}
+	defer connection.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	transaction := database.WithContext(ctx).Begin()
+	if transaction.Error != nil {
+		test.Fatal(transaction.Error)
+	}
+	defer transaction.Rollback()
+	schema := pgx.Identifier{fmt.Sprintf("guest_acceptance_%d", time.Now().UnixNano())}.Sanitize()
+	for _, statement := range []string{"CREATE SCHEMA " + schema, "CREATE TABLE " + schema + ".agent_guest_model_requests (LIKE public.agent_guest_model_requests INCLUDING ALL)", "SET LOCAL search_path TO " + schema + ", public"} {
+		if err := transaction.Exec(statement).Error; err != nil {
+			test.Fatal(err)
+		}
+	}
+	var selected domain.AgentLLMModel
+	if err := transaction.Table("public.agent_llm_models").Where("enabled = TRUE").First(&selected).Error; err != nil {
+		test.Fatal(err)
+	}
+	store := NewAgentRepository(transaction)
+	request := domain.AgentGuestTurn{ConfigID: selected.ConfigID, Model: selected.Model, InputText: "游客历史与额度验收"}
+	first, err := store.ReserveGuestAgentRequest(ctx, "acceptance-client-one", request)
+	if err != nil || first.ConversationID != first.ID || first.Status != "running" {
+		test.Fatalf("首次对话持久化失败：%v", err)
+	}
+	request.ConversationID = first.ConversationID
+	if _, err := store.ReserveGuestAgentRequest(ctx, "acceptance-client-two", request); !errors.Is(err, domain.ErrNotFound) {
+		test.Fatalf("其他 IP 可以继续历史对话：%v", err)
+	}
+	if _, err := store.ReserveGuestAgentRequest(ctx, "acceptance-client-one", request); !errors.Is(err, domain.ErrConflict) {
+		test.Fatalf("同一对话允许并发生成：%v", err)
+	}
+	first.Status, first.OutputText, first.ReasoningContent = "succeeded", "历史验收完成。", "正在验证历史保留。"
+	if err := store.CompleteGuestAgentRequest(ctx, "acceptance-client-two", first); !errors.Is(err, domain.ErrNotFound) {
+		test.Fatalf("其他 IP 可以更新历史对话：%v", err)
+	}
+	if err := store.CompleteGuestAgentRequest(ctx, "acceptance-client-one", first); err != nil {
+		test.Fatal(err)
+	}
+	for client, expected := range map[string]int{"acceptance-client-one": 1, "acceptance-client-two": 0} {
+		history, err := store.ListGuestAgentHistory(ctx, client)
+		if err != nil || len(history) != expected {
+			test.Fatalf("游客历史未按 IP 隔离：%v", err)
+		}
+		if expected == 1 && (history[0].OutputText != first.OutputText || history[0].ReasoningContent != first.ReasoningContent) {
+			test.Fatal("游客回答内容未持久化")
+		}
+	}
+	request.ConversationID = 0
+	for index := 1; index < domain.AgentGuestClientDailyLimit; index++ {
+		if _, err := store.ReserveGuestAgentRequest(ctx, "acceptance-client-one", request); err != nil {
+			test.Fatal(err)
+		}
+	}
+	if _, err := store.ReserveGuestAgentRequest(ctx, "acceptance-client-one", request); !errors.Is(err, domain.ErrRateLimited) {
+		test.Fatalf("第 21 次请求未被拒绝：%v", err)
+	}
+	for client := 2; client <= 5; client++ {
+		for index := 0; index < domain.AgentGuestClientDailyLimit; index++ {
+			if _, err := store.ReserveGuestAgentRequest(ctx, fmt.Sprintf("acceptance-client-%d", client), request); err != nil {
+				test.Fatal(err)
+			}
+		}
+	}
+	if _, err := store.ReserveGuestAgentRequest(ctx, "acceptance-client-six", request); !errors.Is(err, domain.ErrRateLimited) {
+		test.Fatalf("全部游客第 101 次请求未被拒绝：%v", err)
+	}
+	if err := transaction.Exec("UPDATE agent_guest_model_requests SET created_at = NOW() - INTERVAL '7 days' WHERE client_hash = ?", "acceptance-client-one").Error; err != nil {
+		test.Fatal(err)
+	}
+	history, err := store.ListGuestAgentHistory(ctx, "acceptance-client-one")
+	if err != nil || len(history) != 0 {
+		test.Fatalf("超过七天的历史仍然可见：%v", err)
+	}
+	var remaining int64
+	if err := transaction.Table("agent_guest_model_requests").Where("client_hash = ?", "acceptance-client-one").Count(&remaining).Error; err != nil || remaining != 0 {
+		test.Fatalf("超过七天的历史未被清理：%v", err)
+	}
+}
 
 func TestAgentLLMCallSnapshotsStayOutsideFactRecall(test *testing.T) {
 	now := time.Now().UTC()

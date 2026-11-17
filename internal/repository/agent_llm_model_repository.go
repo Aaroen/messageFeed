@@ -75,31 +75,89 @@ func (r *AgentRepository) GetGuestAgentModelConfig(ctx context.Context, configID
 	return configuration, nil
 }
 
-func (r *AgentRepository) ReserveGuestAgentRequest(ctx context.Context, clientHash string, configID int64, model string) (int64, error) {
-	var request struct {
-		ID         int64
-		ClientHash string
-		ConfigID   int64
-		Model      string
-		CreatedAt  time.Time
+func (r *AgentRepository) ListGuestAgentHistory(ctx context.Context, clientHash string) ([]domain.AgentGuestTurn, error) {
+	if err := r.PurgeExpiredGuestAgentHistory(ctx); err != nil {
+		return nil, err
+	}
+	turns := []domain.AgentGuestTurn{}
+	if err := r.db.WithContext(ctx).Table("agent_guest_model_requests").Where("client_hash = ? AND created_at > NOW() - INTERVAL '7 days' AND input_text <> ''", clientHash).Order("created_at, id").Limit(200).Find(&turns).Error; err != nil {
+		return nil, mapRepositoryError(err)
+	}
+	return turns, nil
+}
+
+func (r *AgentRepository) PurgeExpiredGuestAgentHistory(ctx context.Context) error {
+	return r.db.WithContext(ctx).Exec("DELETE FROM agent_guest_model_requests WHERE created_at <= NOW() - INTERVAL '7 days'").Error
+}
+
+func (r *AgentRepository) ReserveGuestAgentRequest(ctx context.Context, clientHash string, request domain.AgentGuestTurn) (domain.AgentGuestTurn, error) {
+	if clientHash == "" || request.ConfigID < 1 || request.Model == "" || request.InputText == "" || request.ConversationID < 0 {
+		return domain.AgentGuestTurn{}, fmt.Errorf("%w: 游客对话参数无效", domain.ErrInvalidInput)
 	}
 	err := r.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		if err := transaction.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "agent-guest-model-quota").Error; err != nil {
 			return err
 		}
+		if request.ConversationID > 0 {
+			if err := transaction.Table("agent_guest_model_requests").Where("client_hash = ? AND conversation_id = ? AND status = 'running' AND created_at < NOW() - INTERVAL '3 minutes'", clientHash, request.ConversationID).Updates(map[string]any{"status": "failed", "completed_at": time.Now().UTC()}).Error; err != nil {
+				return err
+			}
+			var count int64
+			if err := transaction.Table("agent_guest_model_requests").Where("client_hash = ? AND conversation_id = ? AND created_at > NOW() - INTERVAL '7 days'", clientHash, request.ConversationID).Count(&count).Error; err != nil {
+				return err
+			}
+			if count == 0 {
+				return domain.ErrNotFound
+			}
+			if err := transaction.Table("agent_guest_model_requests").Where("client_hash = ? AND conversation_id = ? AND status = 'running'", clientHash, request.ConversationID).Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return fmt.Errorf("%w: 当前游客对话仍在生成回答", domain.ErrConflict)
+			}
+		}
+		now := time.Now().UTC()
+		dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		var clientCount, totalCount int64
-		query := transaction.Table("agent_guest_model_requests").Where("created_at >= CURRENT_DATE")
+		query := transaction.Table("agent_guest_model_requests").Where("created_at >= ? AND created_at < ?", dayStart, dayStart.AddDate(0, 0, 1))
 		if err := query.Count(&totalCount).Error; err != nil {
 			return err
 		}
 		if err := query.Where("client_hash = ?", clientHash).Count(&clientCount).Error; err != nil {
 			return err
 		}
-		if clientCount >= 20 || totalCount >= 200 {
-			return domain.NewAppError(domain.ErrorKindRateLimited, "guest_model_quota_exceeded", "游客模型调用额度已用完", "repository.agent_guest.reserve", false, nil)
+		if clientCount >= domain.AgentGuestClientDailyLimit {
+			return domain.NewAppError(domain.ErrorKindRateLimited, "guest_client_daily_quota_exceeded", "当前 IP 今日已达到 20 次游客请求额度", "repository.agent_guest.reserve", false, nil)
 		}
-		request.ClientHash, request.ConfigID, request.Model, request.CreatedAt = clientHash, configID, model, time.Now().UTC()
-		return transaction.Table("agent_guest_model_requests").Create(&request).Error
+		if totalCount >= domain.AgentGuestTotalDailyLimit {
+			return domain.NewAppError(domain.ErrorKindRateLimited, "guest_total_daily_quota_exceeded", "今日全部游客已达到 100 次请求额度", "repository.agent_guest.reserve", false, nil)
+		}
+		request.ID, request.ClientHash, request.CreatedAt, request.Status = 0, clientHash, now.UTC(), "running"
+		request.OutputText, request.ReasoningContent, request.CompletedAt = "", "", nil
+		if err := transaction.Table("agent_guest_model_requests").Create(&request).Error; err != nil {
+			return err
+		}
+		if request.ConversationID == 0 {
+			request.ConversationID = request.ID
+			return transaction.Table("agent_guest_model_requests").Where("id = ?", request.ID).Update("conversation_id", request.ConversationID).Error
+		}
+		return nil
 	})
-	return request.ID, err
+	return request, err
+}
+
+func (r *AgentRepository) CompleteGuestAgentRequest(ctx context.Context, clientHash string, turn domain.AgentGuestTurn) error {
+	if turn.Status != "succeeded" && turn.Status != "failed" {
+		return fmt.Errorf("%w: 游客回答状态无效", domain.ErrInvalidInput)
+	}
+	result := r.db.WithContext(ctx).Table("agent_guest_model_requests").Where("id = ? AND client_hash = ? AND status = 'running'", turn.ID, clientHash).Updates(map[string]any{
+		"output_text": turn.OutputText, "reasoning_content": turn.ReasoningContent, "status": turn.Status, "completed_at": time.Now().UTC(),
+	})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return domain.ErrNotFound
+	}
+	return nil
 }

@@ -14,6 +14,27 @@ import (
 	"messagefeed/internal/llm"
 )
 
+func TestAgentGuestClientHashUsesCanonicalIPAddress(t *testing.T) {
+	service := &AgentLLMConfigService{codec: newAgentLLMConfigCodec("guest-address-acceptance")}
+	first, err := service.guestClientHash("192.0.2.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := service.guestClientHash("::ffff:192.0.2.10")
+	if err != nil || first != canonical || len(first) != 64 {
+		t.Fatal("等价 IP 未使用相同游客身份")
+	}
+	other, err := service.guestClientHash("192.0.2.11")
+	if err != nil || first == other {
+		t.Fatal("不同 IP 使用相同游客身份")
+	}
+	for _, invalid := range []string{"", "guest", "192.0.2.10, 192.0.2.11", "192.0.2.10:80"} {
+		if _, err := service.guestClientHash(invalid); err == nil {
+			t.Fatalf("无效来源地址未被拒绝：%q", invalid)
+		}
+	}
+}
+
 func TestAgentLLMConfigServiceCreateMasksAndDefaults(t *testing.T) {
 	store := newAgentLLMConfigMemoryStore()
 	service := NewAgentLLMConfigService(

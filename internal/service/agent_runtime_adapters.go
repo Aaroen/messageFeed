@@ -399,14 +399,26 @@ func (e agentP0CapabilityExecutor) CallTool(ctx context.Context, input agent.MCP
 }
 
 func capabilityExecuteResultToToolResult(result agent.CapabilityExecuteResult) agent.MCPCallToolResult {
-	parts := make([]string, 0, len(result.Blocks))
+	converted := agent.NewMCPTextCallToolResult("", false, result.Observation)
+	converted.Result.Content = nil
 	for _, block := range result.Blocks {
 		content := strings.TrimSpace(block.Content)
 		if content != "" {
-			parts = append(parts, content)
+			converted.Result.Content = append(converted.Result.Content, agent.MCPTextContent{Type: "text", Text: content})
 		}
 	}
-	return agent.NewMCPTextCallToolResult(strings.Join(parts, "\n\n"), false, result.Observation)
+	return converted
+}
+
+func agentItemContextBlocks(items []domain.Item, capabilityKey string, generatedAt time.Time) []agent.ContextBlock {
+	if len(items) == 0 {
+		return []agent.ContextBlock{{Name: "最近条目", CapabilityKey: capabilityKey, Content: "暂无可用条目。", GeneratedAt: generatedAt, TrustLevel: "database"}}
+	}
+	blocks := make([]agent.ContextBlock, 0, len(items))
+	for _, item := range items {
+		blocks = append(blocks, agent.ContextBlock{Name: item.Title, CapabilityKey: capabilityKey, Content: formatRecentItemsBlock([]domain.Item{item}), ItemCount: 1, GeneratedAt: generatedAt, TrustLevel: "database"})
+	}
+	return blocks
 }
 
 func (e agentP0CapabilityExecutor) queryRecentItems(ctx context.Context, input agent.CapabilityExecuteInput) (agent.CapabilityExecuteResult, error) {
@@ -420,7 +432,7 @@ func (e agentP0CapabilityExecutor) queryRecentItems(ctx context.Context, input a
 		return agent.CapabilityExecuteResult{Observation: observation}, nil
 	}
 	args := parseAgentItemToolArgs(input.RawArguments)
-	query, err := e.parseItemQuery(ctx, input.UserID, args, 5)
+	query, err := e.parseItemQuery(ctx, input.UserID, args, 12)
 	if err != nil {
 		return agent.CapabilityExecuteResult{}, err
 	}
@@ -443,16 +455,7 @@ func (e agentP0CapabilityExecutor) queryRecentItems(ctx context.Context, input a
 	}
 	observation.Summary = fmt.Sprintf("loaded %d recent items with filters %s", len(items), formatItemQuerySummary(query))
 	return agent.CapabilityExecuteResult{
-		Blocks: []agent.ContextBlock{
-			{
-				Name:          "最近条目",
-				CapabilityKey: input.Capability.Key,
-				Content:       "新鲜度提示：订阅源结果 12 小时后建议刷新。\n" + formatRecentItemsBlock(items),
-				ItemCount:     len(items),
-				GeneratedAt:   e.currentTime(),
-				TrustLevel:    "database",
-			},
-		},
+		Blocks:      agentItemContextBlocks(items, input.Capability.Key, e.currentTime()),
 		Observation: observation,
 	}, nil
 }
@@ -502,16 +505,7 @@ func (e agentP0CapabilityExecutor) querySourceLatestItems(ctx context.Context, i
 	}
 	observation.Summary = fmt.Sprintf("loaded %d latest items for source %s with filters %s", len(items), source.Name, formatItemQuerySummary(query))
 	return agent.CapabilityExecuteResult{
-		Blocks: []agent.ContextBlock{
-			{
-				Name:          "匹配来源最新条目",
-				CapabilityKey: input.Capability.Key,
-				Content:       "新鲜度提示：订阅源结果 12 小时后建议刷新。\n" + formatSourceLatestItemsBlock(source, items),
-				ItemCount:     len(items),
-				GeneratedAt:   e.currentTime(),
-				TrustLevel:    "database",
-			},
-		},
+		Blocks:      agentItemContextBlocks(items, input.Capability.Key, e.currentTime()),
 		Observation: observation,
 	}, nil
 }
@@ -2905,35 +2899,12 @@ func formatRecentItemsBlock(items []domain.Item) string {
 		builder.WriteString(strconv.FormatInt(item.ID, 10))
 		if item.Summary != "" {
 			builder.WriteString("\n摘要：")
-			builder.WriteString(truncateError(item.Summary, 160))
+			builder.WriteString(truncateError(item.Summary, 600))
 		}
-	}
-	return builder.String()
-}
-
-func formatSourceLatestItemsBlock(source domain.Source, items []domain.Item) string {
-	var builder strings.Builder
-	builder.WriteString(source.Name)
-	builder.WriteString("：")
-	if len(items) == 0 {
-		builder.WriteString("暂无可用条目。")
-		return builder.String()
-	}
-	for i, item := range items {
-		builder.WriteString("\n")
-		builder.WriteString(strconv.Itoa(i + 1))
-		builder.WriteString(". ")
-		builder.WriteString(item.Title)
-		if item.PublishedAt != nil {
-			builder.WriteString("\n发布时间：")
-			builder.WriteString(item.PublishedAt.UTC().Format(time.RFC3339))
+		if item.ContentSnippet != "" && item.ContentSnippet != item.Summary {
+			builder.WriteString("\n正文片段：")
+			builder.WriteString(truncateError(item.ContentSnippet, 1200))
 		}
-		if item.URL != "" {
-			builder.WriteString("\nURL：")
-			builder.WriteString(item.URL)
-		}
-		builder.WriteString("\nEvidence ref：item:")
-		builder.WriteString(strconv.FormatInt(item.ID, 10))
 	}
 	return builder.String()
 }

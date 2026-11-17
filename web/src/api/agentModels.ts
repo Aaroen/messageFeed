@@ -44,13 +44,39 @@ export interface GuestChatEvent {
   content?: string
   model?: string
   message?: string
+  conversation_id?: number
+  turn_id?: number
 }
 
-export async function streamGuestChat(model: AgentModel, messages: GuestChatMessage[], signal: AbortSignal, onEvent: (kind: string, event: GuestChatEvent) => void) {
+export interface GuestHistoryTurn {
+  id: number
+  conversation_id: number
+  input_text: string
+  output_text: string
+  reasoning_content: string
+  model: string
+  status: string
+  created_at: string
+}
+
+export interface GuestHistory {
+  turns: GuestHistoryTurn[]
+  retention_days: number
+  client_daily_limit: number
+  total_daily_limit: number
+  daily_reset_time_zone: string
+}
+
+export async function getGuestHistory() {
+  const response = await apiClient.get<{ data: GuestHistory }>('/api/v1/public/agent/history')
+  return response.data.data
+}
+
+export async function streamGuestChat(model: AgentModel, messages: GuestChatMessage[], signal: AbortSignal, onEvent: (kind: string, event: GuestChatEvent) => void, conversationID = 0) {
   const response = await fetch('/api/v1/public/agent/chat', {
     method: 'POST', credentials: 'same-origin', signal,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config_id: model.config_id, model: model.model, messages }),
+    body: JSON.stringify({ config_id: model.config_id, model: model.model, messages, conversation_id: conversationID }),
   })
   if (!response.ok) {
     const error = await response.json() as { message?: string }

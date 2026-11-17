@@ -10,6 +10,27 @@ import (
 	"time"
 )
 
+func TestAgentRecentItemsRetainsBodyWithoutSummary(test *testing.T) {
+	publishedAt := time.Date(2026, 11, 17, 8, 49, 51, 0, time.UTC)
+	item := domain.Item{ID: 1, Title: "资讯正文验证", ContentSnippet: "正文记录事件变化、时间以及影响。", PublishedAt: &publishedAt}
+	content := formatRecentItemsBlock([]domain.Item{item})
+	if !strings.Contains(content, item.ContentSnippet) || !strings.Contains(content, publishedAt.Format(time.RFC3339)) {
+		test.Fatal("缺少摘要的资讯未保留正文与发布时间")
+	}
+	item.Summary = item.ContentSnippet
+	content = formatRecentItemsBlock([]domain.Item{item})
+	if strings.Count(content, item.ContentSnippet) != 1 {
+		test.Fatal("相同正文与摘要被重复写入上下文")
+	}
+	second := item
+	second.ID, second.Title, second.ContentSnippet, second.Summary = 2, "另一条资讯正文验证", "另一项独立事件的正文。", ""
+	blocks := agentItemContextBlocks([]domain.Item{item, second}, "feed.query_recent_items", publishedAt)
+	result := capabilityExecuteResultToToolResult(agent.CapabilityExecuteResult{Blocks: blocks})
+	if len(blocks) != 2 || len(result.Result.Content) != 2 || blocks[0].ItemCount != 1 || strings.Contains(result.Result.Content[0].Text, second.ContentSnippet) || !strings.Contains(result.Result.Content[1].Text, second.ContentSnippet) {
+		test.Fatal("多条资讯未保留独立的正文与协议内容块")
+	}
+}
+
 func TestAgentWebSearchRejectsUnauthorizedFutureQueryDate(t *testing.T) {
 	now := time.Date(2026, 6, 29, 4, 0, 0, 0, time.UTC)
 	fetchCalled := false

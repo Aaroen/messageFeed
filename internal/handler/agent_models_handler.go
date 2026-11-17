@@ -17,7 +17,8 @@ type agentModelsService interface {
 	SaveModels(context.Context, service.CurrentAuth, int64, service.AgentProviderModelsInput) error
 	SelectableModels(context.Context, service.CurrentAuth) ([]domain.AgentLLMModel, error)
 	GuestModels(context.Context) ([]domain.AgentLLMModel, error)
-	GuestChat(context.Context, string, service.AgentGuestChatInput, func(llm.StreamEvent) error) (llm.ChatResponse, error)
+	GuestChat(context.Context, string, service.AgentGuestChatInput, func(llm.StreamEvent) error) (service.AgentGuestChatResult, error)
+	GuestHistory(context.Context, string) (service.AgentGuestHistory, error)
 }
 
 func registerAgentModelsRoutes(private, public *gin.RouterGroup, configService agentLLMConfigService) {
@@ -70,6 +71,15 @@ func registerAgentModelsRoutes(private, public *gin.RouterGroup, configService a
 		}
 		Success(c, result)
 	})
+	public.GET("/public/agent/history", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		result, err := models.GuestHistory(c.Request.Context(), c.ClientIP())
+		if err != nil {
+			RenderError(c, err, "读取游客历史失败")
+			return
+		}
+		Success(c, result)
+	})
 	public.POST("/public/agent/chat", func(c *gin.Context) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 96<<10)
 		var input service.AgentGuestChatInput
@@ -87,7 +97,7 @@ func registerAgentModelsRoutes(private, public *gin.RouterGroup, configService a
 			}
 			if !started {
 				c.Header("Content-Type", "text/event-stream")
-				c.Header("Cache-Control", "no-cache")
+				c.Header("Cache-Control", "no-store")
 				c.Header("X-Accel-Buffering", "no")
 				started = true
 			}
@@ -108,6 +118,6 @@ func registerAgentModelsRoutes(private, public *gin.RouterGroup, configService a
 			}
 			return
 		}
-		_ = write("completed", gin.H{"content": response.Content, "model": response.Model, "usage": response.Usage})
+		_ = write("completed", gin.H{"content": response.Content, "model": response.Model, "usage": response.Usage, "conversation_id": response.ConversationID, "turn_id": response.TurnID})
 	})
 }

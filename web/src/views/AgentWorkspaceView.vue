@@ -12,8 +12,9 @@ import AgentModelSelect from '@/components/agent/AgentModelSelect.vue'
 import AgentGuestChat from '@/components/agent/AgentGuestChat.vue'
 import AgentMarkdown from '@/components/agent/AgentMarkdown.vue'
 import AgentRunDetails from '@/components/agent/AgentRunDetails.vue'
+import AgentTurnActivity from '@/components/agent/AgentTurnActivity.vue'
 import { useAssistantStore } from '@/stores/assistant'
-import { isActiveStatus, liveTurnText, runLabel, statusLabel } from '@/utils/assistant'
+import { assistantErrorMessage, isActiveStatus, liveTurnText, subagentRuns, statusLabel } from '@/utils/assistant'
 
 const store = useAssistantStore()
 const authenticated = ref(false)
@@ -48,13 +49,13 @@ let copyTimer: ReturnType<typeof setTimeout> | null = null
 
 const turns = computed(() => store.workspace?.turns || [])
 const latestTurn = computed(() => turns.value[turns.value.length - 1])
-const detailRuns = computed(() => (store.workspace?.runs || []).filter((run) => !selectedTurnID.value || run.turn_id === selectedTurnID.value))
+const detailRuns = computed(() => subagentRuns((store.workspace?.runs || []).filter((run) => !selectedTurnID.value || run.turn_id === selectedTurnID.value)))
 const detailItems = computed(() => (store.workspace?.items || []).filter((item) => !selectedTurnID.value || item.turn_id === selectedTurnID.value))
 const connectionLabel = computed(() => ({ idle: '尚未连接', connecting: '正在连接', connected: '实时连接', reconnecting: '正在重连', failed: '连接失败' })[store.connection])
 const title = computed(() => store.workspace?.session.title || '新对话')
 const pendingVisible = computed(() => store.pendingMessage && !turns.value.some((turn) => turn.input_text === store.pendingMessage && isActiveStatus(turn.status)))
 const sessionToggleLabel = computed(() => mobileViewport.value ? '打开会话列表' : sessionsCollapsed.value ? '展开会话侧栏' : '收起会话侧栏')
-const detailToggleLabel = computed(() => desktopViewport.value ? detailsCollapsed.value ? '展开执行详情' : '收起执行详情' : '执行详情')
+const detailToggleLabel = computed(() => desktopViewport.value ? detailsCollapsed.value ? '展开子代理侧栏' : '收起子代理侧栏' : '查看子代理')
 
 function updateViewport() {
   desktopViewport.value = desktopMedia.matches
@@ -77,11 +78,7 @@ function toggleDetails() {
 function turnRuns(turnID: number) { return (store.workspace?.runs || []).filter((run) => run.turn_id === turnID) }
 function turnText(turn: AgentTurn) { return turn.output_text || liveTurnText(store.workspace?.items || [], turn.id) }
 function turnState(turn: AgentTurn) { return turn.cancel_requested && isActiveStatus(turn.status) ? '正在停止' : turn.error_message === '用户停止执行' ? '已停止' : statusLabel(turn.status) }
-function turnActivity(turnID: number) {
-  const runs = turnRuns(turnID)
-  const active = [...runs].reverse().find((run) => isActiveStatus(run.status))
-  return active ? runLabel(active) : `${runs.length} 个执行节点`
-}
+function turnItems(turnID: number) { return (store.workspace?.items || []).filter((item) => item.turn_id === turnID) }
 
 async function selectSession(id: number) {
   if (store.sending) return
@@ -117,7 +114,7 @@ async function loadDetail(id: number) {
 
 function showDetails(turnID: number, openDrawer = true) {
   selectedTurnID.value = turnID
-  const runs = turnRuns(turnID)
+  const runs = subagentRuns(turnRuns(turnID))
   const selected = [...runs].reverse().find((run) => isActiveStatus(run.status)) || runs[runs.length - 1]
   if (selected) void loadDetail(selected.id)
   else { selectedRunID.value = 0; runDetail.value = null; detailLoading.value = false; detailError.value = ''; ++detailVersion }
@@ -219,7 +216,7 @@ watch(() => store.workspace?.runs, (runs) => {
   if (!selectedTurnID.value) selectedTurnID.value = latestTurn.value?.id || 0
   const selected = runs.find((run) => run.id === selectedRunID.value)
   if (!selected) {
-    const candidates = runs.filter((run) => run.turn_id === selectedTurnID.value)
+    const candidates = subagentRuns(runs.filter((run) => run.turn_id === selectedTurnID.value))
     const latest = candidates[candidates.length - 1]
     if (latest) void loadDetail(latest.id)
   } else if (runDetail.value && runDetail.value.updated_at !== selected.updated_at) void loadDetail(selected.id)
@@ -258,20 +255,20 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
     </aside>
 
     <main class="assistant-conversation">
-      <header class="assistant-conversation-header"><button type="button" class="assistant-icon-button" :aria-label="sessionToggleLabel" :title="sessionToggleLabel" :aria-expanded="mobileViewport ? sessionDrawer : !sessionsCollapsed" @click="toggleSessions"><IconMenu /></button><div class="assistant-conversation-title"><strong>{{ title }}</strong><span v-if="store.sessionID" class="assistant-connection" :class="store.connection"><i />{{ connectionLabel }}</span></div><button v-if="store.connection === 'failed' || store.connection === 'reconnecting'" type="button" class="assistant-icon-button" aria-label="重新连接" @click="store.selectSession(store.sessionID)"><IconRefresh /></button><button type="button" class="assistant-detail-toggle" :aria-label="detailToggleLabel" :title="detailToggleLabel" :aria-expanded="desktopViewport ? !detailsCollapsed : detailDrawer" @click="toggleDetails"><IconCode /><span>执行详情</span></button></header>
-      <div v-if="store.error" class="assistant-error" role="alert"><span>{{ store.error }}</span><button class="assistant-icon-button" type="button" aria-label="关闭错误提示" @click="store.error = ''"><IconClose /></button></div>
+      <header class="assistant-conversation-header"><button type="button" class="assistant-icon-button" :aria-label="sessionToggleLabel" :title="sessionToggleLabel" :aria-expanded="mobileViewport ? sessionDrawer : !sessionsCollapsed" @click="toggleSessions"><IconMenu /></button><div class="assistant-conversation-title"><strong>{{ title }}</strong><span v-if="store.sessionID" class="assistant-connection" :class="store.connection"><i />{{ connectionLabel }}</span></div><button v-if="store.connection === 'failed' || store.connection === 'reconnecting'" type="button" class="assistant-icon-button" aria-label="重新连接" @click="store.selectSession(store.sessionID)"><IconRefresh /></button><button type="button" class="assistant-detail-toggle" :aria-label="detailToggleLabel" :title="detailToggleLabel" :aria-expanded="desktopViewport ? !detailsCollapsed : detailDrawer" @click="toggleDetails"><IconCode /><span>子代理</span></button></header>
+      <div v-if="store.error" class="assistant-error" role="alert"><span>{{ assistantErrorMessage(store.error) }}</span><button class="assistant-icon-button" type="button" aria-label="关闭错误提示" @click="store.error = ''"><IconClose /></button></div>
       <div ref="messageList" class="assistant-message-list" aria-label="对话消息" @scroll.passive="handleScroll">
         <div v-if="store.loading && !turns.length" class="assistant-state-note" role="status">正在读取对话…</div>
-        <div v-else-if="!turns.length && !store.pendingMessage" class="assistant-welcome"><span class="assistant-welcome-symbol"><IconCode /></span><h1>有什么需要处理？</h1><p>继续已有对话，或者开始新的任务。<br />执行过程、工具调用与子代理活动会显示在详情中。</p><div class="assistant-suggestions"><button type="button" @click="draft = '整理最近订阅中的重要信息'; composer?.focus()">整理最近订阅</button><button type="button" @click="draft = '查看当前任务的执行情况'; composer?.focus()">查看任务进展</button></div></div>
+        <div v-else-if="!turns.length && !store.pendingMessage" class="assistant-welcome"><span class="assistant-welcome-symbol"><IconCode /></span><h1>有什么需要处理？</h1><p>继续已有对话，或者开始新的任务。<br />执行过程随回答实时显示，子代理活动可在右侧查看。</p><div class="assistant-suggestions"><button type="button" @click="draft = '整理最近订阅中的重要信息'; composer?.focus()">整理最近订阅</button><button type="button" @click="draft = '查看当前任务的执行情况'; composer?.focus()">查看任务进展</button></div></div>
         <div v-if="store.workspace?.has_more" class="assistant-load-older"><button type="button" :disabled="loadingOlder" @click="loadOlder">{{ loadingOlder ? '正在读取…' : '读取更早的对话' }}</button></div>
         <div class="assistant-message-column">
           <article v-for="turn in turns" :key="turn.id" class="assistant-turn">
             <div class="assistant-user-message"><p>{{ turn.input_text }}</p></div>
             <div class="assistant-answer"><div class="assistant-answer-heading"><span class="assistant-avatar"><IconCode /></span><span>助理</span><small v-if="turn.model">{{ turn.model }}</small></div>
-              <button v-if="turnRuns(turn.id).length" class="assistant-activity" type="button" @click="showDetails(turn.id)"><i :class="{ active: isActiveStatus(turn.status) }" /><span>{{ turnActivity(turn.id) }}</span><span class="assistant-activity-state">{{ turnState(turn) }} ›</span></button>
+              <AgentTurnActivity v-if="turnRuns(turn.id).length" :runs="turnRuns(turn.id)" :items="turnItems(turn.id)" :status="turn.status" />
               <AgentMarkdown v-if="turnText(turn)" :content="turnText(turn)" />
               <div v-else-if="isActiveStatus(turn.status)" class="assistant-state-note" role="status"><span class="assistant-thinking-dot" />{{ turnState(turn) }}…</div>
-              <p v-if="turn.error_message" class="assistant-turn-error" role="alert">{{ turn.error_message }}</p>
+              <p v-if="turn.error_message" class="assistant-turn-error" role="alert">{{ assistantErrorMessage(turn.error_message) }}</p>
               <p v-if="turn.delivery_status === 'failed'" class="assistant-delivery-error" role="alert">回复已保存，渠道发送失败。{{ turn.delivery_error }}</p>
               <p v-else-if="turn.delivery_status === 'pending'" class="assistant-state-note">回复已保存，等待渠道发送。</p>
               <div class="assistant-answer-footer"><span>{{ isActiveStatus(turn.status) && turnText(turn) ? '生成中，等待结果校验' : turnState(turn) }}</span><button v-if="turn.output_text" class="assistant-icon-button" type="button" :aria-label="copiedTurnID === turn.id ? '已经复制' : '复制回答'" @click="copyReply(turn)"><IconCopy /><span v-if="copiedTurnID === turn.id">已复制</span></button></div>
@@ -283,11 +280,11 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
       <div class="assistant-composer-area"><button v-if="!followBottom" class="assistant-jump-button" type="button" @click="followBottom = true; scrollBottom()">查看最新消息 ↓</button><form class="assistant-composer" @submit.prevent="sendMessage"><textarea ref="composer" v-model="draft" rows="2" :disabled="store.sending" aria-label="发送给助理的消息" placeholder="向助理发送消息…" @keydown="handleComposerKey" /><div class="assistant-composer-toolbar"><AgentModelSelect v-model="store.selectedModelKey" :models="store.models" :disabled="store.sending || store.active" /><button v-if="store.active" type="button" class="assistant-send-button stop" :disabled="stopping || latestTurn?.cancel_requested" aria-label="停止当前任务" @click="stopTurn"><IconStop /></button><button v-else type="submit" class="assistant-send-button" :disabled="!draft.trim() || store.sending || !store.selectedModel" aria-label="发送消息"><IconArrowUp /></button></div></form><p class="assistant-composer-hint"><router-link v-if="!store.models.length" :to="{ name: 'settings-model' }">前往设置启用模型</router-link><template v-else>回答请结合来源核验。完整执行过程可在详情中查看。</template></p></div>
     </main>
 
-    <div class="assistant-resizer" role="separator" aria-label="调整执行详情宽度" aria-orientation="vertical" :aria-valuenow="detailWidth" :aria-valuemin="280" :aria-valuemax="560" tabindex="0" @pointerdown="beginResize" @keydown.left.prevent="detailWidth = Math.min(560, detailWidth + 20)" @keydown.right.prevent="detailWidth = Math.max(280, detailWidth - 20)" />
-    <aside class="assistant-details" aria-label="执行详情"><header><span><IconCode /> 执行详情</span><small>回合 {{ selectedTurnID ? `#${selectedTurnID}` : '尚未开始' }}</small><button type="button" class="assistant-icon-button" aria-label="收起执行详情" @click="detailsCollapsed = true"><IconClose /></button></header><AgentRunDetails :runs="detailRuns" :items="detailItems" :selected-i-d="selectedRunID" :detail="runDetail" :loading="detailLoading" :error="detailError" @select="loadDetail" /></aside>
+    <div class="assistant-resizer" role="separator" aria-label="调整子代理侧栏宽度" aria-orientation="vertical" :aria-valuenow="detailWidth" :aria-valuemin="280" :aria-valuemax="560" tabindex="0" @pointerdown="beginResize" @keydown.left.prevent="detailWidth = Math.min(560, detailWidth + 20)" @keydown.right.prevent="detailWidth = Math.max(280, detailWidth - 20)" />
+    <aside class="assistant-details" aria-label="子代理"><header><span><IconCode /> 子代理</span><small>{{ detailRuns.filter((run) => !run.task_packet.stage && !run.task_packet.capability_key).length }} 项任务</small><button type="button" class="assistant-icon-button" aria-label="收起子代理侧栏" @click="detailsCollapsed = true"><IconClose /></button></header><AgentRunDetails :runs="detailRuns" :items="detailItems" :selected-i-d="selectedRunID" :detail="runDetail" :loading="detailLoading" :error="detailError" @select="loadDetail" /></aside>
 
     <ArcoDrawer :visible="sessionDrawer" placement="left" :width="'min(320px, 90vw)'" title="会话列表" :footer="false" @cancel="sessionDrawer = false"><button class="assistant-new-session" type="button" @click="selectSession(0)"><IconPlus /> 新建对话</button><div class="assistant-session-list"><button v-for="session in store.sessions" :key="session.id" type="button" :class="['assistant-session', { selected: store.sessionID === session.id }]" @click="selectSession(session.id)"><span>{{ session.title || '未命名对话' }}</span></button></div><router-link class="assistant-history-link" :to="{ name: 'agent-plans' }"><IconHistory /> 任务与执行记录</router-link></ArcoDrawer>
-    <ArcoDrawer :visible="detailDrawer" placement="right" :width="'min(520px, 100vw)'" title="执行详情" :footer="false" @cancel="detailDrawer = false"><AgentRunDetails :runs="detailRuns" :items="detailItems" :selected-i-d="selectedRunID" :detail="runDetail" :loading="detailLoading" :error="detailError" @select="loadDetail" /></ArcoDrawer>
+    <ArcoDrawer :visible="detailDrawer" placement="right" :width="'min(520px, 100vw)'" title="子代理" :footer="false" @cancel="detailDrawer = false"><AgentRunDetails :runs="detailRuns" :items="detailItems" :selected-i-d="selectedRunID" :detail="runDetail" :loading="detailLoading" :error="detailError" @select="loadDetail" /></ArcoDrawer>
   </section>
 </template>
 

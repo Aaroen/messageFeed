@@ -81,7 +81,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	if err := transaction.Exec("SET LOCAL search_path TO " + pgx.Identifier{schema}.Sanitize() + ", " + pgx.Identifier{sourceSchema}.Sanitize()).Error; err != nil {
 		test.Fatal(err)
 	}
-	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql", "000042_expand_agent_stream_events.up.sql", "000043_expand_agent_llm_models.up.sql"} {
+	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql", "000042_expand_agent_stream_events.up.sql", "000043_expand_agent_llm_models.up.sql", "000044_expand_guest_chat_history.up.sql"} {
 		migration, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			test.Fatal(err)
@@ -322,16 +322,16 @@ func verifyRealAgentModelManagement(test *testing.T, ctx context.Context, store 
 		test.Fatal("默认模型停用校验没有生效")
 	}
 	publicEvents := 0
-	response, err := modelsService.GuestChat(ctx, "real-acceptance-guest", AgentGuestChatInput{ConfigID: selection.ConfigID, Model: selection.Model, Messages: []AgentGuestMessage{{Role: "user", Content: "请计算 21 加 21，说明计算结果。"}}}, func(event llm.StreamEvent) error { publicEvents++; return nil })
+	response, err := modelsService.GuestChat(ctx, "192.0.2.10", AgentGuestChatInput{ConfigID: selection.ConfigID, Model: selection.Model, Messages: []AgentGuestMessage{{Role: "user", Content: "请计算 21 加 21，说明计算结果。"}}}, func(event llm.StreamEvent) error { publicEvents++; return nil })
 	if err != nil || (!strings.Contains(response.Content, "42") && !strings.Contains(response.Content, "四十二")) || response.Model == "" || publicEvents == 0 {
 		test.Fatalf("真实游客模型流式对话失败：events=%d，model=%s，content=%q，error=%v", publicEvents, response.Model, response.Content, err)
 	}
 	for index := 0; index < 20; index++ {
-		if _, err := store.ReserveGuestAgentRequest(ctx, "quota-acceptance-guest", selection.ConfigID, selection.Model); err != nil {
+		if _, err := store.ReserveGuestAgentRequest(ctx, "quota-acceptance-guest", domain.AgentGuestTurn{ConfigID: selection.ConfigID, Model: selection.Model, InputText: "游客额度验收"}); err != nil {
 			test.Fatal(err)
 		}
 	}
-	if _, err := store.ReserveGuestAgentRequest(ctx, "quota-acceptance-guest", selection.ConfigID, selection.Model); !errors.Is(err, domain.ErrRateLimited) {
+	if _, err := store.ReserveGuestAgentRequest(ctx, "quota-acceptance-guest", domain.AgentGuestTurn{ConfigID: selection.ConfigID, Model: selection.Model, InputText: "游客额度验收"}); !errors.Is(err, domain.ErrRateLimited) {
 		test.Fatal("游客每日调用额度没有生效")
 	}
 	input.GuestModels = nil

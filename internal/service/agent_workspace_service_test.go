@@ -100,6 +100,65 @@ func TestAgentWorkspaceDatabaseRead(test *testing.T) {
 	}
 }
 
+func TestAgentBatchEvidenceDatabaseRoundTrip(test *testing.T) {
+	databaseURL := os.Getenv("AGENT_WORKSPACE_DATABASE_URL")
+	if databaseURL == "" {
+		test.Skip("设置 AGENT_WORKSPACE_DATABASE_URL 后验证多条资讯的独立证据")
+	}
+	userID, err := strconv.ParseInt(os.Getenv("AGENT_WORKSPACE_USER_ID"), 10, 64)
+	if err != nil || userID < 1 {
+		test.Fatal("必须提供真实用户编号")
+	}
+	database, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		test.Fatal(err)
+	}
+	connection, err := database.DB()
+	if err != nil {
+		test.Fatal(err)
+	}
+	defer connection.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	transaction := database.WithContext(ctx).Begin()
+	if transaction.Error != nil {
+		test.Fatal(transaction.Error)
+	}
+	defer transaction.Rollback()
+	var turn domain.AgentTurn
+	if err := transaction.Table("agent_turns").Where("user_id = ?", userID).Order("id DESC").First(&turn).Error; err != nil {
+		test.Fatal(err)
+	}
+	var items []domain.Item
+	if err := transaction.Table("items").Order("id DESC").Limit(3).Find(&items).Error; err != nil || len(items) != 3 {
+		test.Fatalf("读取真实资讯失败：%v", err)
+	}
+	store := repository.NewAgentRepository(transaction)
+	manager := agent.NewRunManager(agent.RunManagerOptions{Store: store})
+	run, err := manager.CreateExecutorRun(ctx, agent.CreateRunInput{SessionID: turn.SessionID, TurnID: turn.ID, TaskPacket: domain.AgentJSON{"capability_key": "feed.query_recent_items"}})
+	if err != nil {
+		test.Fatal(err)
+	}
+	blocks := agentItemContextBlocks(items, "feed.query_recent_items", time.Now())
+	bodies := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		bodies = append(bodies, block.Content)
+	}
+	executor := agentRunRecordingExecutor{runManager: manager}
+	if _, err := executor.recordExecutorResult(ctx, run, "feed.query_recent_items", "读取最近资讯", agent.CapabilityObservation{Status: "succeeded"}, contextBlocksContent(blocks), nil, bodies...); err != nil {
+		test.Fatal(err)
+	}
+	detail, err := store.GetAgentRunDetail(ctx, userID, run.ID)
+	if err != nil || len(detail.Artifacts) != len(items) {
+		test.Fatalf("资讯未被保存为独立证据：%v", err)
+	}
+	for index, artifact := range detail.Artifacts {
+		if artifact.Content != bodies[index] || artifact.ContentHash != agentAnswerContentHash(bodies[index]) {
+			test.Fatal("独立证据的正文或校验值不完整")
+		}
+	}
+}
+
 func TestAgentStreamItemsReconcileCompleteContent(test *testing.T) {
 	events := []domain.AgentStreamEvent{
 		{RunID: 1, TurnID: 2, Kind: "text", ItemID: "message", Delta: "片段", Metadata: domain.AgentJSON{"stage": "generation"}},

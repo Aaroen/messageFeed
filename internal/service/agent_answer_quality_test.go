@@ -184,6 +184,26 @@ func TestAgentAnswerSemanticReviewValidatesEachRequirementAndQuote(test *testing
 	if agentAnswerEvidenceDateValid("2026年11月14日发布。", "今天", now) || agentAnswerEvidenceDateValid("今天抓取。", "今天", now) {
 		test.Fatal("过期正文或抓取时间被当作有效事件日期")
 	}
+	sources = append(sources, domain.AgentFactSource{CanonicalRef: "artifact:321", Content: "2026年11月15日，项目完成独立资料审查。"})
+	requirements[0].MinimumCount = 2
+	review.RequiredEvidence[0].SourceRefs = append(review.RequiredEvidence[0].SourceRefs, "artifact:321")
+	review.RequiredEvidence[0].FreshnessQuotes["artifact:321"] = sources[1].Content
+	encoded, err = json.Marshal(review)
+	if err != nil {
+		test.Fatal(err)
+	}
+	if _, err := agentAnswerParseSemanticReview(string(encoded), "已经完成数据库验证。", sources, requirements, now); err != nil {
+		test.Fatalf("充分取证的简短回答未通过：%v", err)
+	}
+	review.RequiredEvidence[0].SourceRefs = []string{"artifact:321"}
+	requirements[0].MinimumCount = 1
+	encoded, err = json.Marshal(review)
+	if err != nil {
+		test.Fatal(err)
+	}
+	if _, err := agentAnswerParseSemanticReview(string(encoded), "已经完成数据库验证。", sources, requirements, now); err == nil {
+		test.Fatal("与回答主张没有关联的证据被标记为通过")
+	}
 }
 
 func TestAgentAnswerConversationSourcesCannotReplaceExternalEvidence(test *testing.T) {
@@ -221,6 +241,51 @@ func TestAgentAnswerEvidenceDateUsesAccountDayAndRejectsUnknownWindow(test *test
 	}
 	if agentAnswerEvidenceDateValid("2020年11月15日发布。", "尚未定义的时效范围", now) {
 		test.Fatal("无法解析的时效条件被标记为通过")
+	}
+}
+
+func TestAgentAnswerEvidenceDateAcceptsPublicationTimestamps(test *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	for _, value := range []struct {
+		quote     string
+		freshness string
+		valid     bool
+	}{
+		{"发布时间：2026-11-17T08:49:51Z", "recent", true},
+		{"抓取时间：2026-11-17T08:49:51Z", "recent", false},
+		{"发布时间：2026-11-17T17:49:51+09:00", "latest", true},
+		{"发布时间：2026-11-17T08:49:51.123456789Z", "24h", true},
+		{"发布时间：2026-11-10T12:00:00Z", "recent", false},
+		{"发布时间：2026-11-16T11:59:59Z", "current", false},
+		{"发布时间：2026-11-17T12:00:01Z", "recent", false},
+		{"发布时间：2026-02-30T08:49:51Z", "recent", false},
+		{"发布时间：2026年11月16日", "recent", true},
+		{"发布时间：2026-11-15T08:00:00Z", "本周", false},
+		{"发布时间：2026-11-16T08:00:00Z", "本周", true},
+		{"发布时间：2026-11-01T08:00:00Z", "本月", true},
+	} {
+		if actual := agentAnswerEvidenceDateValid(value.quote, value.freshness, now); actual != value.valid {
+			test.Errorf("正文时间 %q，时效 %q：得到 %t，期望 %t", value.quote, value.freshness, actual, value.valid)
+		}
+	}
+}
+
+func TestAgentAnswerCitationValidatesOrderedSourceSegments(test *testing.T) {
+	body := "日本理化学研究所超算富岳的运行系统遭到外部非法访问，用户信息可能已经外泄。除大学等研究机构外，产业界也可使用“富岳”。因遭到非法访问，理研已暂停富岳运行，据悉恢复时间未定。"
+	for _, value := range []struct {
+		quote string
+		valid bool
+	}{
+		{body, true},
+		{"日本理化学研究所超算富岳的运行系统遭到外部非法访问，用户信息可能已经外泄。……因遭到非法访问，理研已暂停富岳运行", true},
+		{"因遭到非法访问，理研已暂停富岳运行……日本理化学研究所超算富岳的运行系统遭到外部非法访问", false},
+		{"日本理化学研究所超算富岳的运行系统遭到外部非法访问……已经确认全部用户密码外泄", false},
+		{"富岳……外泄", false},
+		{"……因遭到非法访问，理研已暂停富岳运行", false},
+	} {
+		if actual := agentAnswerCitationMatches(body, value.quote); actual != value.valid {
+			test.Errorf("引文 %q：得到 %t，期望 %t", value.quote, actual, value.valid)
+		}
 	}
 }
 

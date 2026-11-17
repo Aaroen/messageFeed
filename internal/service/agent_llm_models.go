@@ -15,7 +15,9 @@ type agentLLMModelStore interface {
 	SetAgentLLMModels(context.Context, int64, int64, []domain.AgentLLMModel) error
 	ListGuestAgentModels(context.Context) ([]domain.AgentLLMModel, error)
 	GetGuestAgentModelConfig(context.Context, int64, string) (domain.AgentLLMProviderConfig, error)
-	ReserveGuestAgentRequest(context.Context, string, int64, string) (int64, error)
+	ReserveGuestAgentRequest(context.Context, string, domain.AgentGuestTurn) (domain.AgentGuestTurn, error)
+	CompleteGuestAgentRequest(context.Context, string, domain.AgentGuestTurn) error
+	ListGuestAgentHistory(context.Context, string) ([]domain.AgentGuestTurn, error)
 }
 
 type AgentProviderModels struct {
