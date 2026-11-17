@@ -5,10 +5,11 @@ import { getGuestHistory, listAssistantModels, modelSelectionKey, streamGuestCha
 import { formatAPIError } from '@/api/client'
 import AgentMarkdown from '@/components/agent/AgentMarkdown.vue'
 import AgentModelSelect from '@/components/agent/AgentModelSelect.vue'
+import AgentReasoningStream from '@/components/agent/AgentReasoningStream.vue'
 
 const models = ref<AgentModel[]>([])
 const selectedKey = ref('')
-type Message = GuestChatMessage & { model?: string; reasoning?: string; failed?: boolean; expanded?: boolean }
+type Message = GuestChatMessage & { model?: string; reasoning?: string; failed?: boolean }
 const messages = ref<Message[]>([])
 const history = ref<GuestHistory | null>(null)
 const conversationID = ref(0)
@@ -83,10 +84,6 @@ function restoreConversation() {
   void scrollBottom()
 }
 
-function reasoningOpen(message: Message, index: number) {
-  return message.expanded ?? (sending.value && index === messages.value.length - 1 && (message.reasoning?.length || 0) <= 800)
-}
-
 onMounted(async () => {
   try {
     const [available, saved] = await Promise.all([listAssistantModels(true), getGuestHistory()])
@@ -108,7 +105,7 @@ onBeforeUnmount(() => controller?.abort())
       <div v-if="!messages.length" class="guest-welcome"><IconCode /><h1>向助理发送消息</h1><p>{{ loading ? '正在读取可用模型…' : models.length ? '选择管理员开放的模型开始对话。' : '管理员暂未开放游客模型。' }}</p><small v-if="history">历史最多保留 {{ history.retention_days }} 天，同一公网 IP 可以访问对应历史。<br />每个 IP 每日最多 {{ history.client_daily_limit }} 次，全部游客每日合计最多 {{ history.total_daily_limit }} 次。</small></div>
       <article v-for="(message, index) in messages" :key="index" :class="['guest-message', message.role]">
         <p v-if="message.role === 'user'">{{ message.content }}</p>
-        <template v-else><div class="guest-answer-heading"><IconCode /><span>助理</span><small>{{ message.model }}</small></div><section v-if="message.reasoning || (sending && index === messages.length - 1)" class="guest-activity" aria-label="执行详情"><button type="button" :aria-expanded="reasoningOpen(message, index)" @click="message.expanded = !reasoningOpen(message, index)">执行详情 · {{ reasoningOpen(message, index) ? '收起' : '展开' }}</button><div v-if="reasoningOpen(message, index)"><p>{{ sending && index === messages.length - 1 ? '正在生成回答' : message.failed ? '回答未完成' : '回答已完成' }}</p><small v-if="message.reasoning">公开推理摘要</small><AgentMarkdown v-if="message.reasoning" :content="message.reasoning" /></div></section><AgentMarkdown v-if="message.content" :content="message.content" /><p v-else>{{ sending && index === messages.length - 1 ? '正在生成…' : '本次未完成回答' }}</p><small v-if="message.failed" class="guest-error">回答未完成</small></template>
+        <template v-else><div class="guest-answer-heading"><IconCode /><span>助理</span><small>{{ message.model }}</small></div><AgentReasoningStream v-if="message.reasoning" :content="message.reasoning" :active="sending && index === messages.length - 1" /><AgentMarkdown v-if="message.content" :content="message.content" /><p v-else>{{ sending && index === messages.length - 1 ? '正在生成…' : '本次未完成回答' }}</p><small v-if="message.failed" class="guest-error">回答未完成</small></template>
       </article>
     </main>
     <div class="guest-composer"><p v-if="error" class="guest-error" role="alert">{{ error }}</p><form @submit.prevent="send"><textarea v-model="draft" aria-label="发送给游客助理的消息" placeholder="向助理发送消息…" rows="2" :disabled="sending || !models.length" @keydown.enter.exact.prevent="send" /><div><AgentModelSelect v-model="selectedKey" :models="models" :disabled="sending" /><button v-if="sending" type="button" aria-label="停止游客回答" @click="controller?.abort()"><IconStop /></button><button v-else type="submit" aria-label="发送游客消息" :disabled="!draft.trim() || !selectedModel"><IconArrowUp /></button></div></form></div>
@@ -137,7 +134,4 @@ onBeforeUnmount(() => controller?.abort())
 .guest-composer textarea { width: 100%; resize: none; border: 0; background: transparent; color: var(--mf-text); font: inherit; outline: none; }
 .guest-composer form > div { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .guest-error { color: #bf4343; font-size: 12px; }
-.guest-activity { border: 1px solid var(--mf-border); border-radius: 9px; margin: 0 0 16px; overflow: hidden; }
-.guest-activity > button { width: 100%; height: auto; padding: 10px 12px; border: 0; border-radius: 0; justify-content: flex-start; color: var(--mf-text-muted); font-size: 12px; }
-.guest-activity > div { padding: 0 12px 12px; max-height: 400px; overflow: auto; font-size: 12px; }
 </style>

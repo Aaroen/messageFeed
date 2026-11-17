@@ -268,7 +268,7 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
           <article v-for="turn in turns" :key="turn.id" class="assistant-turn">
             <div class="assistant-user-message"><p>{{ turn.input_text }}</p></div>
             <div class="assistant-answer"><div class="assistant-answer-heading"><span class="assistant-avatar"><IconCode /></span><span>助理</span><small v-if="turn.model">{{ turn.model }}</small></div>
-              <AgentTurnActivity v-if="turnRuns(turn.id).length" :runs="turnRuns(turn.id)" :items="turnItems(turn.id)" :status="turn.status" />
+              <AgentTurnActivity v-if="turnRuns(turn.id).length || turnItems(turn.id).some((item) => item.kind === 'reasoning')" :runs="turnRuns(turn.id)" :items="turnItems(turn.id)" :status="turn.status" />
               <AgentMarkdown v-if="turnText(turn)" :content="turnText(turn)" />
               <div v-else-if="isActiveStatus(turn.status)" class="assistant-state-note" role="status"><span class="assistant-thinking-dot" />{{ turnState(turn) }}…</div>
               <p v-if="turn.error_message" class="assistant-turn-error" role="alert">{{ assistantErrorMessage(turn.error_message) }}</p>

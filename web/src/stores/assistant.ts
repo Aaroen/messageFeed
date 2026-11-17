@@ -52,6 +52,10 @@ export const useAssistantStore = defineStore('assistant', () => {
       snapshot.items = [...previous!.items.filter((item) => turnIDs.has(item.turn_id)), ...snapshot.items]
       snapshot.has_more = previous!.has_more
     }
+    if (previous && previous.cursor > snapshot.cursor) {
+      snapshot.items = previous.items
+      snapshot.cursor = previous.cursor
+    }
     workspaces.value[snapshot.session.id] = snapshot
     const index = sessions.value.findIndex((session) => session.id === snapshot.session.id)
     if (index >= 0) sessions.value[index] = snapshot.session

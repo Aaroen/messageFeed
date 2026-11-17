@@ -43,6 +43,9 @@ func (c *OpenAICompatibleClient) chatWithStream(ctx context.Context, request Cha
 		return ChatResponse{}, err
 	}
 	body["stream"] = true
+	if protocol == llmProtocolResponses {
+		body["reasoning"] = map[string]any{"summary": "auto"}
+	}
 	if request.ToolChoice == "" {
 		delete(body, "tool_choice")
 	}

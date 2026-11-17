@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { createApp, h, nextTick, reactive } from 'vue'
 import type { AgentRun } from '@/api/agent'
 import type { AgentStreamItem } from '@/api/assistant'
+import AgentReasoningStream from '@/components/agent/AgentReasoningStream.vue'
+import AgentTurnActivity from '@/components/agent/AgentTurnActivity.vue'
 import { applyStreamEvent, assistantErrorMessage, flattenRuns, liveTurnText, readableActivityText, runLabel, runRoleLabel, subagentRuns } from './assistant'
 
 describe('助理事件与执行树', () => {
@@ -55,5 +58,46 @@ describe('助理事件与执行树', () => {
     const tree = flattenRuns(runs)
     expect(tree.map((entry) => entry.run.id)).toEqual([1, 2, 3, 4, 5])
     expect(tree[1]?.depth).toBe(1)
+  })
+
+  it('长思考收起后持续显示最新片段并保留手动展开状态', async () => {
+    const props = reactive({ content: '正在核验资料。', active: true })
+    const element = document.createElement('div')
+    const app = createApp({ render: () => h(AgentReasoningStream, props) })
+    app.mount(element)
+    try {
+      expect(element.querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
+      props.content = '资料核验过程。'.repeat(120) + '最新思考片段。'
+      await nextTick()
+      expect(element.querySelector('button')?.getAttribute('aria-expanded')).toBe('false')
+      expect(element.querySelector('.reasoning-preview')?.textContent).toContain('最新思考片段。')
+      props.content += '继续读取正文。'
+      await nextTick()
+      expect(element.querySelector('.reasoning-preview')?.textContent).toContain('继续读取正文。')
+      element.querySelector('button')!.click()
+      await nextTick()
+      expect(element.querySelector('.reasoning-content')?.textContent).toContain('资料核验过程。'.repeat(120))
+      props.active = false
+      await nextTick()
+      expect(element.querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
+    } finally { app.unmount() }
+  })
+
+  it('执行详情收起时仍然显示规划阶段的模型思考', async () => {
+    const runs: AgentRun[] = Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1, parent_run_id: 0, session_id: 1, turn_id: 1, role: 'executor', status: 'succeeded', task_packet: { stage: 'planning' },
+      capability_scope: [], model_key: '', context_budget: {}, context_trace_ref: '', result_ref: '', error_message: '', trace_id: '',
+      started_at: '2026-11-17T00:00:00Z', created_at: '2026-11-17T00:00:00Z', updated_at: '2026-11-17T00:00:00Z',
+    }))
+    const items = [{ run_id: 7, turn_id: 1, item_id: 'thinking', kind: 'reasoning', content: '正在制定检索计划。', stage: 'planning', name: '', phase: '', model_key: '' }] as AgentStreamItem[]
+    const element = document.createElement('div')
+    const app = createApp({ render: () => h(AgentTurnActivity, { runs, items, status: 'running' }) })
+    app.mount(element)
+    try {
+      await nextTick()
+      expect(element.querySelector('.turn-activity-toggle')?.getAttribute('aria-expanded')).toBe('false')
+      expect(element.querySelector('[aria-label="模型思考"]')?.textContent).toContain('正在制定检索计划。')
+      expect(element.querySelector('.turn-activity-body')).toBeNull()
+    } finally { app.unmount() }
   })
 })
