@@ -40,5 +40,3 @@ body[arco-theme='dark'] {
   --mf-page-tint: linear-gradient(135deg, #1d1d1d, transparent 45%);
   --mf-tab-active-bg: #373737;
 }
-
-body { --mf-assistant-details: color-mix(in oklab, var(--mf-surface-muted) 54%, var(--mf-surface)); }

@@ -2,14 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   IconApps, IconArrowDown, IconArrowLeft, IconArrowUp, IconBook, IconBranch, IconBulb, IconCheck,
-  IconClose, IconCompass, IconCopy, IconDown, IconFile, IconList, IconMenuUnfold,
-  IconMoonFill, IconRight, IconSearch, IconStar, IconStarFill, IconStop, IconSunFill, IconThunderbolt,
+  IconClose, IconCompass, IconCopy, IconFile, IconList, IconMenuUnfold,
+  IconMoonFill, IconRight, IconStop, IconSunFill,
 } from '@arco-design/web-vue/es/icon'
 import AgentComposer from '../src/components/agent/AgentComposer.vue'
 import AgentMarkdown from '../src/components/agent/AgentMarkdown.vue'
 import AgentWorkspaceShell from '../src/components/agent/AgentWorkspaceShell.vue'
 import AgentSubagentList from '../src/components/agent/AgentSubagentList.vue'
 import AgentEffortSlider from '../src/components/agent/AgentEffortSlider.vue'
+import AgentModelPicker from '../src/components/agent/AgentModelPicker.vue'
 import { useThemeState } from '../src/composables/useThemeState'
 import PreviewFeed from './PreviewFeed.vue'
 import { agents, examples, feeds, models, stages, type FeedArticle, type FeedPage } from './examples'
@@ -57,7 +58,7 @@ function syncPage() {
   }
   if (next.page === 'subscriptions' || next.page === 'recommendations') {
     shell.value?.closePanels()
-    modelDialog.value?.close()
+    modelPicker.value?.dismiss()
     effortSlider.value?.dismiss()
   }
   route.value = next
@@ -85,25 +86,15 @@ const session = computed(() => sessions.value.find(entry => entry.id === activeI
 const selectedModel = ref(defaultModel.id)
 const model = computed(() => models.find(entry => entry.id === selectedModel.value)!)
 const effort = ref('')
-const query = ref('')
-const pinned = ref<string[]>([])
-const modelMatches = computed(() => models.filter(entry => [entry.alias, entry.id, entry.provider]
-  .some(value => value.toLowerCase().includes(query.value.trim().toLowerCase()))))
-const providers = [...new Set(models.map(entry => entry.provider))]
-const modelGroups = computed(() => [
-  { title: '已置顶', entries: modelMatches.value.filter(entry => pinned.value.includes(entry.id)) },
-  ...providers.map(title => ({ title, entries: modelMatches.value.filter(entry => entry.provider === title && !pinned.value.includes(entry.id)) })),
-].filter(group => group.entries.length))
+const modelChoices = models.map(entry => ({ key: entry.id, id: entry.id, name: entry.alias, provider: entry.provider, providerKey: entry.provider }))
+watch(selectedModel, () => { effort.value = '' })
 
 const leftMedia = window.matchMedia('(min-width: 800px)')
-const rightMedia = window.matchMedia('(min-width: 1190px)')
 const shell = ref<InstanceType<typeof AgentWorkspaceShell> | null>(null)
 const siteDialog = ref<HTMLDialogElement | null>(null)
 const siteNavigationOpen = ref(false)
-const modelDialog = ref<HTMLDialogElement | null>(null)
+const modelPicker = ref<InstanceType<typeof AgentModelPicker> | null>(null)
 const effortSlider = ref<InstanceType<typeof AgentEffortSlider> | null>(null)
-const modelButton = ref<HTMLButtonElement | null>(null)
-const modelsSearch = ref<HTMLInputElement | null>(null)
 const timeline = ref<HTMLElement | null>(null)
 const composer = ref<InstanceType<typeof AgentComposer> | null>(null)
 const followLatest = ref(true)
@@ -119,40 +110,27 @@ const surface = ref<HTMLElement | null>(null)
 let replayTimer: ReturnType<typeof setInterval> | undefined
 let nextID = examples.length + 1
 
-function viewportChanged() {
-  placeControls()
-}
-
 function adaptKeyboard() {
   const viewport = window.visualViewport
   const keyboardInset = viewport && viewport.scale === 1 && !leftMedia.matches
     ? window.innerHeight - viewport.height - viewport.offsetTop : 0
   if (keyboardInset > 100 && viewport) {
     surface.value?.style.setProperty('--keyboard-height', `${Math.round(viewport.height)}px`)
-    surface.value?.style.setProperty('--keyboard-inset', `${Math.round(keyboardInset)}px`)
   } else {
     surface.value?.style.removeProperty('--keyboard-height')
-    surface.value?.style.removeProperty('--keyboard-inset')
   }
-  if (effortOpen.value) placeControls()
 }
 
 onMounted(() => {
   window.addEventListener('hashchange', syncPage)
   window.addEventListener('storage', loadTheme)
   syncPage()
-  leftMedia.addEventListener('change', viewportChanged)
-  rightMedia.addEventListener('change', viewportChanged)
-  window.addEventListener('resize', placeControls)
   window.visualViewport?.addEventListener('resize', adaptKeyboard)
   window.visualViewport?.addEventListener('scroll', adaptKeyboard)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('hashchange', syncPage)
   window.removeEventListener('storage', loadTheme)
-  leftMedia.removeEventListener('change', viewportChanged)
-  rightMedia.removeEventListener('change', viewportChanged)
-  window.removeEventListener('resize', placeControls)
   window.visualViewport?.removeEventListener('resize', adaptKeyboard)
   window.visualViewport?.removeEventListener('scroll', adaptKeyboard)
   clearInterval(replayTimer)
@@ -195,32 +173,6 @@ function newSession() {
   sessions.value.unshift({ id, title: '新建对话', draft: '', turns: [] })
   chooseSession(id)
   if (leftMedia.matches) nextTick(() => composer.value?.focus())
-}
-
-function placeControls() {
-  const bounds = modelButton.value?.getBoundingClientRect()
-  if (bounds && modelDialog.value) {
-    modelDialog.value.style.setProperty('--chooser-x', `${Math.max(16, Math.min(bounds.left, window.innerWidth - 426))}px`)
-    modelDialog.value.style.setProperty('--chooser-bottom', `${window.innerHeight - bounds.top + 8}px`)
-  }
-}
-
-function openModels() {
-  query.value = ''
-  placeControls()
-  modelDialog.value?.showModal()
-  if (leftDocked.value) modelsSearch.value?.focus()
-}
-
-function chooseModel(id: string) {
-  if (selectedModel.value !== id) effort.value = ''
-  selectedModel.value = id
-  modelDialog.value?.close()
-}
-
-function togglePin(id: string) {
-  pinned.value = pinned.value.includes(id) ? pinned.value.filter(entry => entry !== id) : [...pinned.value, id]
-  nextTick(() => modelDialog.value?.querySelector<HTMLButtonElement>(`[data-pin="${models.findIndex(entry => entry.id === id)}"]`)?.focus())
 }
 
 function jumpToLatest() {
@@ -382,7 +334,7 @@ async function copyReply(reply: string, index: number) {
             <button v-if="!followLatest" type="button" class="jump-button" @click="jumpToLatest"><IconArrowDown />查看最新消息</button>
             <AgentComposer ref="composer" v-model="session.draft" label="对话输入" @submit="submit">
               <div class="composer-controls">
-                <button ref="modelButton" type="button" class="model-button" :aria-label="`选择对话模型：${model.alias}`" aria-haspopup="dialog" :disabled="Boolean(activeTurn)" @click="openModels"><IconThunderbolt /><span>{{ model.alias }}</span><IconDown /></button>
+                <AgentModelPicker ref="modelPicker" v-model="selectedModel" :choices="modelChoices" :disabled="Boolean(activeTurn)" />
                 <AgentEffortSlider ref="effortSlider" v-model="effort" :levels="model.levels" :model="model.alias" :disabled="Boolean(activeTurn)" />
               </div>
               <button v-if="activeTurn" type="button" class="send-button stop-button" aria-label="停止演示" title="停止演示" @click="stop"><IconStop /></button>
@@ -393,21 +345,5 @@ async function copyReply(reply: string, index: number) {
         </footer>
     </AgentWorkspaceShell>
 
-      <dialog ref="modelDialog" class="model-dialog" aria-labelledby="model-title" @click="dismissOutside">
-        <div class="model-sheet">
-          <header><h2 id="model-title">选择对话模型</h2><button type="button" class="icon-button" aria-label="关闭模型选择" title="关闭模型选择" autofocus @click="modelDialog?.close()"><IconClose /></button></header>
-          <label class="model-search"><IconSearch aria-hidden="true" /><input ref="modelsSearch" v-model="query" type="search" placeholder="搜索模型或供应商" aria-label="搜索模型或供应商" /></label>
-          <div class="model-list">
-            <p v-if="!modelGroups.length" class="model-empty" role="status">没有匹配的模型</p>
-            <section v-for="group in modelGroups" :key="group.title" class="model-group" :aria-label="group.title">
-              <h3>{{ group.title }}</h3>
-              <div v-for="entry in group.entries" :key="entry.id" class="model-row">
-                <button type="button" class="model-option" :aria-pressed="entry.id === selectedModel" @click="chooseModel(entry.id)"><span><strong>{{ entry.alias }}</strong><small>{{ entry.id }}</small></span><IconCheck v-if="entry.id === selectedModel" /></button>
-                <button type="button" class="icon-button pin-button" :data-pin="models.indexOf(entry)" :aria-label="`${pinned.includes(entry.id) ? '取消置顶' : '置顶'} ${entry.alias}`" :title="pinned.includes(entry.id) ? '取消置顶' : '置顶'" @click="togglePin(entry.id)"><IconStarFill v-if="pinned.includes(entry.id)" /><IconStar v-else /></button>
-              </div>
-            </section>
-          </div>
-        </div>
-      </dialog>
   </div>
 </template>

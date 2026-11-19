@@ -44,7 +44,7 @@ function show() {
     const progress = (zone + start) / 3
     const distance = 8 + progress * 12 + Math.random() * 7
     const speed = 7 + 62 * progress ** 1.5
-    const duration = 1650 * distance / speed
+    const duration = 1240 * distance / speed
     return {
       '--flow-start': `${start * 100}%`,
       '--flow-height': `${18 + Math.random() * 64}%`,
@@ -61,7 +61,7 @@ function show() {
     const direction = index % 2 ? -1 : 1
     const angle = kind === 'spill' ? 40 + Math.random() * 30 : kind === 'spark' ? 3 + Math.random() * 8 : 9 + Math.random() * 25
     const distance = kind === 'spill' ? 15 + Math.random() * 14 : kind === 'ember' ? -(32 + Math.random() * 55) : -(56 + Math.random() * 112)
-    const duration = kind === 'spark' ? 440 + Math.random() * 470 : 920 + Math.random() * 1100
+    const duration = kind === 'spark' ? 340 + Math.random() * 360 : 700 + Math.random() * 820
     return {
       kind,
       style: {
@@ -197,7 +197,7 @@ function handleKey(event: KeyboardEvent) {
 .effort-heading > div { min-width: 0; flex: 1; display: grid; }
 .effort-heading label { font-weight: 700; }
 .effort-heading small { overflow: hidden; color: var(--mf-text-muted); text-overflow: ellipsis; white-space: nowrap; }
-.effort-range-wrap { --effort-track-height: 24px; --effort-progress-end: calc(14px + (100% - 28px) * var(--effort-ratio)); position: relative; container-type: inline-size; height: 46px; margin-block-start: 8px; }
+.effort-range-wrap { --effort-track-height: 26px; --effort-progress-end: calc(14px + (100% - 28px) * var(--effort-ratio)); position: relative; container-type: inline-size; height: 46px; margin-block-start: 8px; }
 .at-limit .effort-range-wrap { --effort-progress-end: 100%; }
 .effort-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; appearance: none; background: transparent; cursor: pointer; touch-action: none; }
 .effort-input::-webkit-slider-thumb { appearance: none; width: 28px; height: 28px; }
@@ -205,6 +205,7 @@ function handleKey(event: KeyboardEvent) {
 .effort-track { position: absolute; inset: calc((100% - var(--effort-track-height)) / 2) 0; overflow: clip; border-radius: 999px; background: var(--mf-surface-muted); }
 .effort-range-wrap:has(:focus-visible) .effort-track { outline: 2px solid var(--mf-primary); outline-offset: 4px; }
 .effort-progress { position: absolute; inset: 0; visibility: hidden; clip-path: inset(0 calc(100% - var(--effort-progress-end)) 0 0); background: linear-gradient(90deg, var(--mf-primary), var(--mf-aqua)); }
+:global(body[arco-theme='dark']) .effort-progress { background: linear-gradient(90deg, #3a3a3a, #606060); }
 .lit .effort-progress { visibility: visible; }
 .effort-flow { position: absolute; inset: 0 4px; display: grid; grid-template-columns: repeat(3, 1fr); }
 .effort-flow-zone { position: relative; }

@@ -58,8 +58,8 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 .local-indicator { flex: none; border-radius: 6px; padding: 3px 7px; background: var(--detail); color: var(--muted); font-size: 11px; white-space: nowrap; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; flex: none; min-width: 34px; min-height: 34px; border-radius: 6px; color: var(--muted); }
 .preview-surface .icon-button svg { width: 17px; height: 17px; }
-.icon-button:hover, .model-button:hover:not(:disabled), .turn-agents:hover { background: var(--hover); color: var(--ink); }
-.icon-button:active, .model-button:active:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+.icon-button:hover, .turn-agents:hover { background: var(--hover); color: var(--ink); }
+.icon-button:active { background: var(--accent-soft); color: var(--accent); }
 
 .sidebar { position: absolute; z-index: 2; inset-block: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .sidebar-header { flex: none; display: flex; align-items: center; gap: 10px; min-height: 70px; padding: 12px 17px; }
@@ -121,11 +121,6 @@ summary::-webkit-details-marker { display: none; }
 .preview-surface .agent-composer textarea { padding-inline: 4px; caret-color: var(--mf-primary); }
 .preview-surface .agent-composer-toolbar { gap: 7px; }
 .composer-controls { min-width: 0; display: flex; align-items: center; gap: 8px; }
-.model-button { flex: 0 1 auto; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 6px; min-height: 34px; border-radius: 5px; font-size: 13px; }
-.model-button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-button svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--muted); }
-.model-button svg:last-child { width: 10px; height: 10px; }
-.model-button:disabled { color: var(--muted); }
 .send-button { flex: none; display: grid; place-items: center; width: 35px; height: 35px; border-radius: 50%; background: var(--mf-primary); color: var(--surface); font-size: 18px; }
 .send-button:hover:not(:disabled) { background: var(--accent); }
 .send-button:disabled { background: var(--hover); color: var(--muted); }
@@ -146,29 +141,12 @@ dialog::backdrop { background: var(--scrim); }
 .site-drawer-actions { flex: none; padding: 10px 16px 14px; }
 .site-drawer .preview-theme { width: 40px; height: 40px; border-radius: 10px; background: var(--detail); }
 .site-drawer .preview-theme:hover { background: var(--hover); }
-.model-dialog { inset: auto auto var(--chooser-bottom, 100px) var(--chooser-x, 20px); width: min(410px, calc(100% - 32px)); max-width: none; max-height: min(420px, 65dvh); margin: 0; overflow: auto; overscroll-behavior: contain; border-radius: 14px; background: var(--surface); box-shadow: var(--mf-panel-shadow); }
-.model-dialog::backdrop { background: color-mix(in srgb, var(--scrim) 36%, transparent); }
 @media (forced-colors: active) {
   .preview-surface .agent-composer:focus-within { border-color: Highlight; }
   .preview-nav nav a[aria-current='page'] { outline: 1px solid Highlight; }
 }
-.model-sheet { padding: 12px; }
-.model-sheet > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 8px 3px; }
-.model-sheet h2 { margin: 0; font-size: 16px; }
-.model-search { display: flex; align-items: center; gap: 7px; min-height: 40px; padding-inline: 9px; border-radius: 9px; background: var(--detail); color: var(--muted); }
-.model-search:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-.model-search input { border: 0; outline: none; background: transparent; padding: 7px 0; min-width: 0; flex: 1; }
-.model-group h3, .model-empty { margin: 12px 7px 4px; font-size: 12px; color: var(--muted); }
-.model-row { display: flex; align-items: center; gap: 3px; min-width: 0; }
-.model-option { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 7px; border-radius: 6px; text-align: start; }
-.model-option > span { display: grid; min-width: 0; }
-.model-option strong, .model-option small { overflow-wrap: anywhere; }
-.model-option small { color: var(--muted); font-size: 11px; }
-.model-option:hover, .model-option[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); }
-.preview-surface .pin-button svg { width: 15px; height: 15px; }
-
 @media (prefers-reduced-motion: no-preference) {
-  .sidebar, .disclosure, .model-dialog { transition: transform var(--motion); }
+  .sidebar, .disclosure { transition: transform var(--motion); }
   .preview-nav { transition: transform var(--motion), opacity var(--motion); }
   .preview-surface .agent-composer::after { transition: opacity var(--motion); }
   .feed-reading:not(.feed-pulling) { transition: transform var(--motion); }
@@ -181,7 +159,6 @@ dialog::backdrop { background: var(--scrim); }
     .side-dialog[open]::backdrop { opacity: 0; }
     .side-dialog.from-left[open] > .sidebar { transform: translateX(-100%); }
     .side-dialog.from-right[open] > .sidebar { transform: translateX(100%); }
-    .model-dialog[open] { transform: translateY(10px); }
   }
 }
 
@@ -204,13 +181,10 @@ dialog::backdrop { background: var(--scrim); }
   .composer-column { padding-top: 3px; }
   .preview-surface .agent-composer { border-radius: 22px; padding: 10px 11px 7px; gap: 2px; }
   .preview-note { min-height: 20px; padding-top: 3px; }
-  .model-dialog { inset: auto 0 var(--keyboard-inset, 0px); width: 100%; max-height: min(460px, var(--keyboard-height, 75dvh)); border-radius: 16px 16px 0 0; }
-  .model-sheet { padding: 12px 14px max(14px, var(--safe-bottom)); }
-  .model-search input { font-size: 16px; }
 }
 
 @media (max-width: 799px), (pointer: coarse) {
   .icon-button, .send-button { min-width: 44px; min-height: 44px; }
-  .activity-toggle, .turn-agents, .model-button, .session-item, .suggestions button, .jump-button { min-height: 44px; }
+  .activity-toggle, .turn-agents, .session-item, .suggestions button, .jump-button { min-height: 44px; }
   .sidebar-header .icon-button { margin-inline-end: -5px; }
 }

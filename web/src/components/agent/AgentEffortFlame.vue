@@ -40,22 +40,22 @@ void main() {
     return;
   }
 
-  float stream = clock * mix(1.5, 5.6, ratio);
+  float stream = clock * mix(2.0, 7.4, ratio);
   vec2 sampleAt = vec2(distance * 0.055 - stream, vertical * 0.073);
   float curl = noise(sampleAt * 0.72) - 0.5;
   float shear = noise(sampleAt * 1.9 + vec2(14.0, curl * 1.8)) - 0.5;
   float filament = noise(sampleAt * vec2(2.7, 5.1) + vec2(6.0, shear * 2.2));
   float crossSection = vertical / radius + (curl * 0.49 + shear * 0.24) * smoothstep(0.0, 0.42, travel);
   float spread = abs(crossSection) + shear * 0.18 + filament * 0.11;
-  float fade = (1.0 - 0.78 * smoothstep(0.25, 1.0, travel)) * smoothstep(0.0, 5.0, nozzle - 14.0);
-  float plume = (0.25 + 0.75 * (1.0 - smoothstep(0.45, 1.1, spread))) * fade;
+  float fade = (1.0 - 0.68 * smoothstep(0.25, 1.0, travel)) * smoothstep(0.0, 5.0, nozzle - 14.0);
+  float plume = (0.38 + 0.62 * (1.0 - smoothstep(0.62, 1.24, spread))) * fade;
   float heat = smoothstep(0.28, 0.76, filament + curl * 0.31);
   float cells = pow(0.5 + 0.5 * cos(distance * 0.34 + shear * 2.6), 3.0);
-  float core = (1.0 - smoothstep(0.04, 0.40, spread)) * fade * (0.51 + heat * 0.36 + cells * 0.13);
-  float brightness = clamp(core * 1.48 + heat * 0.27, 0.0, 1.0);
-  vec3 edge = mix(vec3(0.41, 0.45, 0.47), vec3(0.22), dark);
+  float core = (1.0 - smoothstep(0.1, 0.62, spread)) * fade * (0.51 + heat * 0.36 + cells * 0.13);
+  float brightness = clamp(core * 1.25 + heat * mix(0.30, 0.47, dark), 0.0, 1.0);
+  vec3 edge = mix(vec3(0.44, 0.46, 0.48), vec3(0.52), dark);
   vec3 body = mix(edge, vec3(1.0), brightness);
-  float alpha = clamp(plume * (0.49 + heat * 0.34) + core * 0.42, 0.0, 1.0);
+  float alpha = clamp(plume * (0.47 + heat * 0.42) + core * 0.44, 0.0, 1.0);
   gl_FragColor = vec4(body * alpha, alpha);
 }
 `
