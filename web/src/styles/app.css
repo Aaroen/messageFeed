@@ -406,8 +406,9 @@ body[arco-theme='dark'] .nav-item:hover {
 }
 
 .app-header-slot--feed {
+  --feed-tabs-width: min(278px, calc(100vw - 116px));
   position: relative;
-  width: min(278px, calc(100vw - 116px));
+  width: var(--feed-tabs-width);
   min-height: 44px;
   margin: 0 auto;
 }
@@ -603,7 +604,7 @@ body[arco-theme='dark'] .app-header {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   box-sizing: border-box;
-  width: 100%;
+  inline-size: var(--feed-tabs-width);
   padding: 3px;
   border: 0;
   border-radius: 12px;
@@ -2943,7 +2944,7 @@ body[arco-theme='dark'] .empty-surface {
   .nav-open-button { left: 8px; }
   .feed-header-brand { display: none; }
   .feed-tab { height: 44px; gap: 5px; }
-  .app-header-slot--feed { width: min(360px, calc(100vw - 116px)); }
+  .app-header-slot--feed { --feed-tabs-width: min(360px, calc(100vw - 116px)); }
 }
 
 @media (max-width: 420px) {

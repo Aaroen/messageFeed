@@ -97,7 +97,7 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
     if (payload.detailReaderOpen) {
       return layerStyle(payload.returnProgress > 0.001, payload.returnProgress, {
         shift: 7,
-        scaleStart: 0.98,
+        scaleStart: 1,
         disableTransition: payload.readerBackDragging,
         pointerEnabled: !payload.detailBlocksGestures,
       })

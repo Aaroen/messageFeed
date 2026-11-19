@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   base: './',
+  publicDir: '../public/icons',
   plugins: [vue()],
   resolve: { alias: { '@': new URL('../src', import.meta.url).pathname } },
 })
