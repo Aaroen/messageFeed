@@ -12,7 +12,7 @@ const levelsLoading = ref(false)
 const levelsUnavailable = ref(false)
 const selected = computed(() => props.models.find(model => modelSelectionKey(model) === modelValue.value))
 const choices = computed(() => props.models.map(model => ({
-  key: modelSelectionKey(model), id: model.model, name: model.display_name || model.model, provider: model.provider_name, providerKey: model.config_id,
+  key: modelSelectionKey(model), name: model.display_name || model.model, icon: model.icon,
 })))
 
 watch(selected, async (model, _previous, onCleanup) => {

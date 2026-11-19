@@ -138,11 +138,10 @@ defineExpose({ openDetails, closePanels })
 .assistant-shell-button svg { width: 17px; height: 17px; }
 .assistant-shell-button:hover, .assistant-shell-session:hover:not(:disabled), .assistant-shell-foot :slotted(a:hover) { background: color-mix(in oklab, var(--mf-text-muted) 12%, var(--mf-surface)); color: var(--mf-text); }
 .assistant-shell-details-toggle { padding-inline: 8px; white-space: nowrap; font-size: 13px; }
-.assistant-shell-sidebar { --assistant-sidebar-interpolation: ; position: absolute; z-index: 2; inset-block: 0; display: flex; flex-direction: column; min-height: 0; overflow: clip; background: linear-gradient(var(--assistant-sidebar-direction) var(--assistant-sidebar-interpolation), var(--mf-surface-muted) calc(100% - 56px), color-mix(in oklab, var(--mf-surface-muted) 37%, var(--mf-surface)) calc(100% - 28px), var(--mf-surface)); }
-@supports (background: linear-gradient(in oklab, white, black)) { .assistant-shell-sidebar { --assistant-sidebar-interpolation: in oklab; } }
-.assistant-shell-sessions { --assistant-sidebar-direction: to right; inset-inline-start: 0; width: 236px; transform: translateX(-100%); }
-.assistant-shell-details { --assistant-sidebar-direction: to left; inset-inline-end: 0; width: var(--assistant-panel-width, 288px); transform: translateX(100%); }
-.has-sessions > .assistant-shell-sessions, .has-details > .assistant-shell-details { transform: translateX(0); }
+.assistant-shell-sidebar { position: absolute; z-index: 2; inset-block: 0; display: flex; flex-direction: column; min-height: 0; overflow: clip; background: var(--mf-surface-muted); }
+.assistant-shell-sessions { --assistant-shadow-offset: 4px; inset-inline-start: 0; width: 236px; transform: translateX(-100%); }
+.assistant-shell-details { --assistant-shadow-offset: -4px; inset-inline-end: 0; width: var(--assistant-panel-width, 288px); transform: translateX(100%); }
+.has-sessions > .assistant-shell-sessions, .has-details > .assistant-shell-details { transform: translateX(0); box-shadow: var(--assistant-shadow-offset) 0 12px -6px rgb(0 0 0 / 22%); }
 .assistant-shell-sidebar-header { flex: none; display: flex; align-items: center; gap: 10px; min-height: 70px; padding: 12px 17px; }
 .assistant-shell-mark { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 7px; color: var(--mf-primary-strong); background: color-mix(in oklab, var(--mf-primary) 14%, var(--mf-surface)); font-size: 18px; }
 .assistant-shell-brand { flex: 1; display: grid; min-width: 0; }

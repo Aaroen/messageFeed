@@ -27,6 +27,7 @@ type AgentLLMModel struct {
 	ProviderName string `json:"provider_name" gorm:"column:provider_name;->"`
 	Model        string `json:"model" gorm:"column:model"`
 	DisplayName  string `json:"display_name"`
+	Icon         string `json:"icon"`
 	Enabled      bool   `json:"enabled"`
 	GuestEnabled bool   `json:"guest_enabled"`
 }

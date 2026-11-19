@@ -81,7 +81,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	if err := transaction.Exec("SET LOCAL search_path TO " + pgx.Identifier{schema}.Sanitize() + ", " + pgx.Identifier{sourceSchema}.Sanitize()).Error; err != nil {
 		test.Fatal(err)
 	}
-	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql", "000042_expand_agent_stream_events.up.sql", "000043_expand_agent_llm_models.up.sql", "000044_expand_guest_chat_history.up.sql", "000045_expand_agent_model_display_name.up.sql"} {
+	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql", "000042_expand_agent_stream_events.up.sql", "000043_expand_agent_llm_models.up.sql", "000044_expand_guest_chat_history.up.sql", "000045_expand_agent_model_display_name.up.sql", "000046_expand_agent_model_icon.up.sql"} {
 		migration, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			test.Fatal(err)
@@ -245,6 +245,73 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 		test.Fatal("网页助理消息进入了渠道报告发送流程")
 	}
 	test.Logf("真实数据库与默认模型验收通过：普通回答=%q，追问=%q，工具回答=%q，模型阶段=%v，完整产物=%d。", first.Reply, followup.Reply, third.Reply, stages, artifactCount)
+}
+
+func TestAgentModelIconDatabaseRoundTrip(test *testing.T) {
+	databaseURL := os.Getenv("AGENT_WORKSPACE_DATABASE_URL")
+	if databaseURL == "" {
+		test.Skip("设置 AGENT_WORKSPACE_DATABASE_URL 后验证模型图标持久化")
+	}
+	database, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		test.Fatalf("连接数据库失败：%T", err)
+	}
+	connection, err := database.DB()
+	if err != nil {
+		test.Fatal(err)
+	}
+	defer connection.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	transaction := database.WithContext(ctx).Begin()
+	if transaction.Error != nil {
+		test.Fatal(transaction.Error)
+	}
+	defer transaction.Rollback()
+	for _, table := range []string{"agent_llm_provider_configs", "agent_llm_models"} {
+		statement := "CREATE TEMP TABLE " + table + " (LIKE " + table + " INCLUDING ALL)"
+		if err := transaction.Exec(statement).Error; err != nil {
+			test.Fatal(err)
+		}
+	}
+	migration, err := os.ReadFile("../../migrations/000046_expand_agent_model_icon.up.sql")
+	if err != nil {
+		test.Fatal(err)
+	}
+	if err := transaction.Exec(string(migration)).Error; err != nil {
+		test.Fatal(err)
+	}
+	var ownerID int64
+	if err := transaction.Table("users").Select("id").Where("role = ? AND status = ?", domain.UserRoleOwner, domain.UserStatusActive).Order("id").Limit(1).Scan(&ownerID).Error; err != nil || ownerID == 0 {
+		test.Fatalf("没有可用管理员用于验收：%v", err)
+	}
+	const configID, modelID = 1, "google/models/gemini-3.5-flash-lite"
+	if err := transaction.Exec("INSERT INTO agent_llm_provider_configs (id, user_id, name, provider, model, api_key_ciphertext) VALUES (?, ?, ?, ?, ?, '')", configID, ownerID, "图标验收", "openai-compatible", modelID).Error; err != nil {
+		test.Fatal(err)
+	}
+	service := NewAgentLLMConfigService(repository.NewAgentRepository(transaction))
+	owner := CurrentAuth{Authenticated: true, User: domain.User{ID: ownerID, Role: domain.UserRoleOwner}}
+	input := AgentProviderModelsInput{Models: []string{modelID}, GuestModels: []string{modelID}, DisplayNames: map[string]string{modelID: "图标验收模型"}}
+	for _, icons := range []map[string]string{{modelID: "unknown"}, {"disabled-model": "brain"}} {
+		input.Icons = icons
+		if err := service.SaveModels(ctx, owner, configID, input); !errors.Is(err, domain.ErrInvalidInput) {
+			test.Fatalf("无效模型图标未被拒绝：%v", err)
+		}
+	}
+	for _, icon := range []string{"lightning", "brain", ""} {
+		input.Icons = map[string]string{modelID: icon}
+		if err := service.SaveModels(ctx, owner, configID, input); err != nil {
+			test.Fatal(err)
+		}
+		input.Icons = nil
+		if err := service.SaveModels(ctx, owner, configID, input); err != nil {
+			test.Fatal(err)
+		}
+		models, err := service.GuestModels(ctx)
+		if err != nil || len(models) != 1 || models[0].Icon != icon || models[0].DisplayName != input.DisplayNames[modelID] {
+			test.Fatalf("模型图标或显示名称未完整保存：%v", err)
+		}
+	}
 }
 
 func verifyRealAgentModelManagement(test *testing.T, ctx context.Context, store *repository.AgentRepository, runtime *AgentLLMRuntime, userID int64) domain.AgentModelSelection {

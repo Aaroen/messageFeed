@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { AgentLLMProviderConfig } from '@/api/agent'
-import { discoverProviderModels, listSavedProviderModels, saveProviderModels } from '@/api/agentModels'
+import { discoverProviderModels, listSavedProviderModels, saveProviderModels, type AgentModelIcon } from '@/api/agentModels'
 import { formatAPIError } from '@/api/client'
 
 const props = defineProps<{ configs: AgentLLMProviderConfig[]; owner: boolean }>()
@@ -9,6 +9,7 @@ const configID = ref(0)
 const search = ref('')
 const identifiers = ref<string[]>([])
 const aliases = ref<Record<string, string>>(Object.create(null))
+const icons = ref<Record<string, AgentModelIcon>>(Object.create(null))
 const manualModel = ref('')
 const ready = ref(false)
 const enabled = ref<string[]>([])
@@ -40,6 +41,7 @@ async function load() {
     enabled.value = result.filter((model) => model.enabled).map((model) => model.model)
     guest.value = result.filter((model) => model.guest_enabled).map((model) => model.model)
     aliases.value = Object.assign(Object.create(null), Object.fromEntries(result.map((model) => [model.model, model.display_name])))
+    icons.value = Object.assign(Object.create(null), Object.fromEntries(result.map((model) => [model.model, model.icon])))
     ready.value = true
   } catch (cause) {
     if (version === requestVersion) error.value = formatAPIError(cause)
@@ -82,7 +84,8 @@ async function save() {
   notice.value = ''
   try {
     const names = Object.fromEntries(enabled.value.filter((id) => id in aliases.value).map((id) => [id, aliases.value[id]!.trim()]))
-    await saveProviderModels(configID.value, enabled.value, guest.value, names)
+    const modelIcons = Object.fromEntries(enabled.value.map(id => [id, icons.value[id] ?? '']))
+    await saveProviderModels(configID.value, enabled.value, guest.value, names, modelIcons)
     notice.value = '模型选择已保存'
   } catch (cause) { error.value = formatAPIError(cause) }
   finally { saving.value = false }
@@ -114,7 +117,10 @@ watch(() => [configuration.value?.id, configuration.value?.updated_at], load, { 
       <div v-for="id in visibleModels" :key="id" class="model-manager-row">
         <div class="model-manager-entry">
           <label class="model-manager-model"><input type="checkbox" :checked="enabled.includes(id)" :disabled="saving || id === configuration?.model" :aria-label="`启用 ${id}`" @change="toggleEnabled(id, ($event.target as HTMLInputElement).checked)" /><span>{{ id }}<small v-if="id === configuration?.model">默认模型</small></span></label>
-          <input v-if="enabled.includes(id)" v-model="aliases[id]" class="settings-input" type="text" maxlength="80" :disabled="saving" :aria-label="`${id} 的显示名称`" placeholder="自定义显示名称（可选）" />
+          <div v-if="enabled.includes(id)" class="model-manager-display">
+            <input v-model="aliases[id]" class="settings-input" type="text" maxlength="80" :disabled="saving" :aria-label="`${id} 的显示名称`" placeholder="自定义显示名称（可选）" />
+            <label><span>图标</span><select class="settings-input" :value="icons[id] ?? ''" :disabled="saving" :aria-label="`${id} 的图标`" @change="icons[id] = ($event.target as HTMLSelectElement).value as AgentModelIcon"><option value="">不显示</option><option value="lightning">闪电</option><option value="brain">大脑</option></select></label>
+          </div>
         </div>
         <label v-if="owner" class="model-manager-guest"><input v-model="guest" type="checkbox" :value="id" :disabled="saving || !enabled.includes(id)" :aria-label="`向游客开放 ${id}`" /><span class="model-manager-mobile-label">游客</span></label>
       </div>
@@ -133,7 +139,10 @@ watch(() => [configuration.value?.id, configuration.value?.updated_at], load, { 
 .model-manager-list-heading { position: sticky; top: 0; background: var(--mf-surface, #fff); font-size: 12px; z-index: 1; }
 .model-manager-row { border-top: 1px solid var(--mf-border); }
 .model-manager-entry { display: grid; gap: 8px; flex: 1; min-width: 0; }
-.model-manager-entry > input { width: min(100%, 26rem); }
+.model-manager-display { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.model-manager-display > input { flex: 1 1 11rem; min-width: 0; max-width: 26rem; }
+.model-manager-display > label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.model-manager-display > label select { width: auto; }
 .model-manager-model { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; }
 .model-manager-model span { overflow-wrap: anywhere; }
 .model-manager-model small { display: inline-block; margin-left: 8px; color: var(--mf-text-muted); }

@@ -86,7 +86,7 @@ const session = computed(() => sessions.value.find(entry => entry.id === activeI
 const selectedModel = ref(defaultModel.id)
 const model = computed(() => models.find(entry => entry.id === selectedModel.value)!)
 const effort = ref('')
-const modelChoices = models.map(entry => ({ key: entry.id, id: entry.id, name: entry.alias, provider: entry.provider, providerKey: entry.provider }))
+const modelChoices = models.map(entry => ({ key: entry.id, name: entry.alias, icon: entry.icon }))
 watch(selectedModel, () => { effort.value = '' })
 
 const leftMedia = window.matchMedia('(min-width: 800px)')

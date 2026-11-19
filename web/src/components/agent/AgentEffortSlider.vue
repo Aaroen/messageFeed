@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
-import { IconBulb, IconClose, IconDown } from '@arco-design/web-vue/es/icon'
+import { IconClose, IconDown } from '@arco-design/web-vue/es/icon'
 import AgentEffortFlame from './AgentEffortFlame.vue'
 
 const props = defineProps<{ levels: string[]; model: string; disabled?: boolean }>()
@@ -147,7 +147,7 @@ function handleKey(event: KeyboardEvent) {
 
 <template>
   <button ref="trigger" class="effort-trigger" type="button" :aria-label="`思考强度：${label(effort)}`" :disabled="disabled" :aria-expanded="open" :aria-controls="`${id}-dialog`" aria-haspopup="dialog" @click="show">
-    <IconBulb aria-hidden="true" /><strong>{{ label(effort) }}</strong><IconDown aria-hidden="true" />
+    <strong>{{ label(effort) }}</strong><IconDown aria-hidden="true" />
   </button>
   <Teleport to="body">
     <dialog :id="`${id}-dialog`" ref="dialog" class="effort-panel" :aria-labelledby="`${id}-title`" @close="close" @pointerdown="recordBackdropPress" @click="closeBackdrop">

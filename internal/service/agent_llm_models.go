@@ -46,6 +46,7 @@ type AgentProviderModelsInput struct {
 	Models       []string          `json:"models"`
 	GuestModels  []string          `json:"guest_models"`
 	DisplayNames map[string]string `json:"display_names"`
+	Icons        map[string]string `json:"icons"`
 }
 
 func (s *AgentLLMConfigService) SavedModels(ctx context.Context, auth CurrentAuth, configID int64) ([]domain.AgentLLMModel, error) {
@@ -174,7 +175,7 @@ func (s *AgentLLMConfigService) SaveModels(ctx context.Context, auth CurrentAuth
 	if err := requireAgentLLMConfigAuth(auth); err != nil {
 		return err
 	}
-	if len(input.Models) > 4096 || len(input.GuestModels) > 4096 || len(input.DisplayNames) > 4096 {
+	if len(input.Models) > 4096 || len(input.GuestModels) > 4096 || len(input.DisplayNames) > 4096 || len(input.Icons) > 4096 {
 		return fmt.Errorf("%w: 模型选择数量超过限制", domain.ErrInvalidInput)
 	}
 	if len(input.GuestModels) > 0 && (!auth.Authenticated || auth.User.Role != domain.UserRoleOwner) {
@@ -189,8 +190,10 @@ func (s *AgentLLMConfigService) SaveModels(ctx context.Context, auth CurrentAuth
 		return err
 	}
 	aliases := make(map[string]string, len(saved))
+	icons := make(map[string]string, len(saved))
 	for _, model := range saved {
 		aliases[model.Model] = model.DisplayName
+		icons[model.Model] = model.Icon
 	}
 	selected := map[string]bool{}
 	for _, model := range input.Models {
@@ -209,6 +212,12 @@ func (s *AgentLLMConfigService) SaveModels(ctx context.Context, auth CurrentAuth
 		}
 		aliases[model] = name
 	}
+	for model, icon := range input.Icons {
+		if !selected[model] || (icon != "" && icon != "lightning" && icon != "brain") {
+			return fmt.Errorf("%w: 图标无效或不属于已启用模型", domain.ErrInvalidInput)
+		}
+		icons[model] = icon
+	}
 	guests := map[string]bool{}
 	for _, model := range input.GuestModels {
 		if !selected[model] || guests[model] {
@@ -218,7 +227,7 @@ func (s *AgentLLMConfigService) SaveModels(ctx context.Context, auth CurrentAuth
 	}
 	models := make([]domain.AgentLLMModel, 0, len(input.Models))
 	for _, model := range input.Models {
-		models = append(models, domain.AgentLLMModel{ConfigID: configID, Model: model, DisplayName: aliases[model], Enabled: true, GuestEnabled: guests[model]})
+		models = append(models, domain.AgentLLMModel{ConfigID: configID, Model: model, DisplayName: aliases[model], Icon: icons[model], Enabled: true, GuestEnabled: guests[model]})
 	}
 	return s.store.(agentLLMModelStore).SetAgentLLMModels(ctx, auth.User.ID, configID, models)
 }

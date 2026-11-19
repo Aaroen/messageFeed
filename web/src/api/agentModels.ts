@@ -1,10 +1,13 @@
 import { apiClient } from '@/api/client'
 
+export type AgentModelIcon = '' | 'lightning' | 'brain'
+
 export interface AgentModel {
   config_id: number
   provider_name: string
   model: string
   display_name: string
+  icon: AgentModelIcon
   enabled: boolean
   guest_enabled: boolean
 }
@@ -39,8 +42,8 @@ export async function listSavedProviderModels(configID: number) {
   return response.data.data
 }
 
-export async function saveProviderModels(configID: number, models: string[], guestModels: string[], displayNames: Record<string, string>) {
-  await apiClient.put(`/api/v1/agent/llm-provider-configs/${configID}/models`, { models, guest_models: guestModels, display_names: displayNames })
+export async function saveProviderModels(configID: number, models: string[], guestModels: string[], displayNames: Record<string, string>, icons: Record<string, AgentModelIcon>) {
+  await apiClient.put(`/api/v1/agent/llm-provider-configs/${configID}/models`, { models, guest_models: guestModels, display_names: displayNames, icons })
 }
 
 export interface GuestChatMessage {
