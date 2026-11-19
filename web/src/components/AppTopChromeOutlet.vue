@@ -35,8 +35,6 @@ type TopChromeFeedProps = {
   feedTabs?: FeedTab[]
   activeKey?: string | symbol | null
   feedTabsLayerStyle?: StyleValue
-  feedTabsTargetLayerStyle?: StyleValue
-  viewSwipeTargetKey?: string | null
   feedPullActive?: boolean
   pullStatusStyle?: StyleValue
   pullRefreshing?: boolean
@@ -97,8 +95,6 @@ const emit = defineEmits<{
         :feed-tabs="feed.feedTabs"
         :active-key="feed.activeKey"
         :feed-tabs-layer-style="feed.feedTabsLayerStyle"
-        :feed-tabs-target-layer-style="feed.feedTabsTargetLayerStyle"
-        :view-swipe-target-key="feed.viewSwipeTargetKey"
         :feed-pull-active="feed.feedPullActive"
         :pull-status-style="feed.pullStatusStyle"
         :pull-refreshing="feed.pullRefreshing"

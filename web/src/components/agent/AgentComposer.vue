@@ -68,7 +68,7 @@ defineExpose({ focus: () => input.value?.focus() })
 </template>
 
 <style scoped>
-.agent-composer { position: relative; display: grid; gap: 6px; padding: 12px 14px 9px; border: 1px solid transparent; border-radius: 24px; background: var(--mf-surface); box-shadow: 0 2px 5px rgb(0 0 0 / 10%), 0 6px 22px rgb(0 0 0 / 10%); }
+.agent-composer { position: relative; display: grid; gap: 5px; padding: 13px 14px 9px; border: 1px solid transparent; border-radius: 24px; background: var(--mf-surface); box-shadow: 0 2px 5px rgb(0 0 0 / 12%), 0 6px 20px rgb(0 0 0 / 9%); }
 .agent-composer::after { content: ''; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; opacity: 0; box-shadow: 0 4px 12px color-mix(in srgb, var(--mf-primary) 22%, transparent), 0 10px 24px rgb(0 0 0 / 17%); }
 .agent-composer:has(textarea:focus)::after { opacity: 1; }
 .agent-composer:has(textarea:focus-visible) { border-color: var(--mf-primary); }
@@ -82,8 +82,8 @@ defineExpose({ focus: () => input.value?.focus() })
 .agent-composer textarea:focus { outline: none; }
 .agent-composer textarea::placeholder { color: var(--mf-text-muted); }
 .agent-composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
-@media (max-width: 767px), (pointer: coarse) {
-  .agent-composer { border-radius: 22px; padding: 10px 11px 7px; }
+@media (max-width: 799px), (pointer: coarse) {
+  .agent-composer { border-radius: 22px; padding: 10px 11px 7px; gap: 2px; }
   .agent-composer-handle { display: none; }
   .agent-composer textarea { field-sizing: content; height: auto; min-height: 48px; max-height: min(180px, 30dvh); font-size: 16px; }
   @supports not (field-sizing: content) {

@@ -90,22 +90,6 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     clampProgress(Math.abs(dragOffset.value) / Math.max(1, Math.min(options.getWindowWidth(), 320))),
   )
 
-  const targetKey = computed(() => {
-    const baseIndex = dragBaseIndex.value
-    if (dragOffset.value < -dragThreshold && baseIndex < lastFeedPagerIndex) {
-      return feedPagerPages[baseIndex + 1].key
-    }
-    if (dragOffset.value > dragThreshold && baseIndex > 0) {
-      return feedPagerPages[baseIndex - 1].key
-    }
-    return ''
-  })
-
-  const targetVisible = computed(() => options.isFeedRoute() && !options.isDetailReaderOpen() && Boolean(targetKey.value))
-  const targetProgress = computed(() =>
-    targetVisible.value ? clampProgress((swipeProgress.value - 0.26) / 0.48) : 0,
-  )
-
   function surfaceFromOffset(offset: number): FeedSwipeSurface | null {
     const baseIndex = dragBaseIndex.value
     if (offset < -dragThreshold && baseIndex < lastFeedPagerIndex) {
@@ -513,9 +497,6 @@ export function useFeedPagerTransition(options: FeedPagerTransitionOptions) {
     activeIndex,
     activeSurface,
     trackStyle,
-    targetKey,
-    targetVisible,
-    targetProgress,
     resolveDragCommitPath,
     swipeTransitionBeginPayload,
     swipeTransitionUpdatePayload,

@@ -115,10 +115,17 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
 </template>
 
 <style>
-.feed-stage--assistant { height: 100%; width: 100%; margin: 0; }
+.app-content--feed:has(.feed-stage--assistant) { --app-content-top-offset: 0px; padding-bottom: 0; }
+.feed-stage--assistant { height: 100%; }
 .feed-stage--assistant .feed-track { height: 100%; grid-template-rows: minmax(0, 1fr); }
 .feed-stage--assistant .feed-pane { height: 100%; min-height: 0; overflow: hidden; }
-.app-shell:has(.feed-stage--fullscreen) .app-main--feed > .app-header { visibility: hidden; }
-.app-shell:has(.feed-stage--fullscreen) .app-content--feed { padding: env(safe-area-inset-top, 0px) 0 0 !important; }
-.feed-stage--fullscreen .feed-pane--agent { padding-inline: 0; }
+.feed-stage--assistant .feed-pane--agent { padding-inline: 0; }
+.app-main--feed:has(.feed-stage--assistant) > .app-header { box-shadow: none; }
+.app-main--feed:has(.feed-stage--fullscreen) > .app-header { display: none; }
+.app-content--feed:has(.feed-stage--fullscreen) { padding-top: env(safe-area-inset-top, 0px) !important; }
+.app-shell:has(.feed-stage--fullscreen) .nav-open-button { top: calc(env(safe-area-inset-top, 0px) + 9px); left: 18px; }
+.app-shell:has(.feed-stage--fullscreen .assistant-shell.has-sessions) .nav-open-button { left: 254px; }
+@media (max-width: 799px) {
+  .app-shell:has(.feed-stage--fullscreen) .nav-open-button { top: calc(env(safe-area-inset-top, 0px) + 5px); left: 9px; }
+}
 </style>

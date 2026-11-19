@@ -109,25 +109,6 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
     })
   }
 
-  function feedTabsTargetStyle(payload: {
-    visible: boolean
-    feedPullActive: boolean
-    headerProgress: number
-    targetProgress: number
-    dragging: boolean
-  }) {
-    return layerStyle(
-      payload.visible && !payload.feedPullActive,
-      payload.headerProgress * payload.targetProgress,
-      {
-        shift: 0,
-        scaleStart: 1,
-        disableTransition: payload.dragging || !payload.visible || payload.feedPullActive,
-        pointerEnabled: false,
-      },
-    )
-  }
-
   function navOpenButtonStyle(progress: number, headerHeight: number, visible: boolean) {
     const safeProgress = clampProgress(visible ? progress : 0)
     return {
@@ -182,7 +163,6 @@ export function useChromeLayerMotion(options: ChromeLayerMotionOptions = {}) {
     refreshStatusStyle,
     refreshIconStyle,
     feedTabsStyle,
-    feedTabsTargetStyle,
     layerStyle,
   }
 }

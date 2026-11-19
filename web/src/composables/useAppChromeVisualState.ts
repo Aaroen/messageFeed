@@ -16,7 +16,6 @@ export function useAppChromeVisualState(options: AppChromeVisualStateOptions) {
     pagePullStatusStyle: layerState.pagePullStatusStyle,
     pagePullIconStyle: layerState.pagePullIconStyle,
     feedTabsLayerStyle: layerState.feedTabsLayerStyle,
-    feedTabsTargetLayerStyle: layerState.feedTabsTargetLayerStyle,
     sourcePullStatusStyle: layerState.sourcePullStatusStyle,
     sourcePullIconStyle: layerState.sourcePullIconStyle,
     sourceHeaderStyle: layerState.sourceHeaderStyle,

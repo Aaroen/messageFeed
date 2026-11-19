@@ -421,9 +421,6 @@ const {
   activeFeedIndex,
   activeFeedSurface,
   feedTrackStyle,
-  viewSwipeTargetKey,
-  viewSwipeTargetVisible,
-  viewSwipeTargetProgress,
   resetFeedViewSwipeTracking,
   clearFeedViewStartedWithHiddenChrome,
   resetFeedPagerTransition,
@@ -455,7 +452,6 @@ const chromeRuntime = useAppChromeRuntime({
       sourceReaderOpen,
     },
     layout: {
-      windowWidth,
       isFeedRoute,
       feedScrollTop,
       topChromePhase,
@@ -487,9 +483,6 @@ const chromeRuntime = useAppChromeRuntime({
     detailReaderOpen,
     readerBackDragging,
     detailBlocksGestures,
-    viewSwipeActive,
-    viewSwipeTargetVisible,
-    viewSwipeTargetProgress,
     sourceReaderVisible,
     sourceReaderUnderDetail,
     topChromeProgress,
@@ -544,7 +537,6 @@ const pullIconStyle = chromeRuntime.pullIconStyle
 const pagePullStatusStyle = chromeRuntime.pagePullStatusStyle
 const pagePullIconStyle = chromeRuntime.pagePullIconStyle
 const feedTabsLayerStyle = chromeRuntime.feedTabsLayerStyle
-const feedTabsTargetLayerStyle = chromeRuntime.feedTabsTargetLayerStyle
 const sourcePullStatusStyle = chromeRuntime.sourcePullStatusStyle
 const sourcePullIconStyle = chromeRuntime.sourcePullIconStyle
 const sourceHeaderStyle = chromeRuntime.sourceHeaderStyle
@@ -1215,8 +1207,6 @@ const mainOutletRuntime = useAppMainOutletRuntime({
     feedTabs,
     activeKey: () => activeTopTabKey.value,
     feedTabsLayerStyle,
-    feedTabsTargetLayerStyle,
-    viewSwipeTargetKey,
     feedPullActive,
     feedPullRefreshing,
     pullStatusStyle,

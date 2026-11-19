@@ -87,8 +87,6 @@ export function useAppMainOutletBindings(options: AppMainOutletBindingOptions) {
           feedTabs: topChrome.feed.feedTabs,
           activeKey: topChrome.feed.activeKey.value,
           feedTabsLayerStyle: topChrome.feed.feedTabsLayerStyle.value,
-          feedTabsTargetLayerStyle: topChrome.feed.feedTabsTargetLayerStyle.value,
-          viewSwipeTargetKey: topChrome.feed.viewSwipeTargetKey.value,
           feedPullActive: topChrome.feed.feedPullActive.value,
           pullRefreshing: topChrome.feed.pullRefreshing.value,
           pullStatusStyle: topChrome.feed.pullStatusStyle.value,

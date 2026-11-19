@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { IconFile, IconLaunch, IconRefresh } from '@arco-design/web-vue/es/icon'
 
 import { formatAPIError } from '@/api/client'
 import {
@@ -82,6 +83,7 @@ const motionTimings = useMotionTimings()
 const items = ref<FeedItem[]>([])
 const loading = ref(false)
 const loadingMore = ref(false)
+const buttonRefreshing = ref(false)
 const error = ref('')
 const backgroundRefreshing = ref(false)
 const lastUpdatedAt = ref('')
@@ -138,10 +140,13 @@ const canLoadMore = computed(
     hasItems.value &&
     !loading.value &&
     !refreshing.value &&
+    !buttonRefreshing.value &&
     !loadingMore.value &&
     !reachedEnd.value,
 )
 const isRecommendations = computed(() => props.mode === 'recommendations')
+const isMainFeed = computed(() => props.mode === 'subscriptions' || isRecommendations.value)
+const feedTitle = computed(() => isRecommendations.value ? '推荐' : '订阅')
 const isSourceMode = computed(() => props.mode === 'source')
 const isFavoritesMode = computed(() => props.mode === 'favorites')
 const isHistoryMode = computed(() => props.mode === 'history')
@@ -214,6 +219,7 @@ const pullStatusText = computed(() => {
 const pullStatusMeta = computed(() => (lastUpdatedAt.value ? `最近更新 ${lastUpdatedAt.value}` : '尚未更新'))
 const errorMessage = computed(() => error.value.trim())
 const pageClass = computed(() => ({
+  'feed-list-page--reading': isMainFeed.value,
   'feed-list-page--pulling': pullActive.value,
   'feed-list-page--empty': !hasItems.value && !loading.value,
 }))
@@ -556,16 +562,18 @@ function completeBlockedForegroundRefresh() {
 }
 
 async function loadItems(
-  options: { refresh?: boolean; append?: boolean; background?: boolean } = {},
+  options: { refresh?: boolean; append?: boolean; background?: boolean; fromButton?: boolean } = {},
 ) {
   const isRefresh = Boolean(options.refresh)
   const isAppend = Boolean(options.append)
   const isBackground = Boolean(options.background)
   const isBackgroundRefresh = isBackground || props.backgroundRefresh
+  const isButtonRefresh = isRefresh && !isBackgroundRefresh && Boolean(options.fromButton)
   const sequencesRefreshNotice = isRefresh && !isBackgroundRefresh
   if (
     loading.value ||
     refreshing.value ||
+    buttonRefreshing.value ||
     loadingMore.value ||
     (isBackgroundRefresh && backgroundRefreshing.value) ||
     (isAppend && !canLoadMore.value)
@@ -583,13 +591,16 @@ async function loadItems(
     clearBackgroundRefresh()
   }
   const releaseRefreshLayoutFreeze =
-    isRefresh && !isBackgroundRefresh ? refreshLayoutFreeze.capture() : undefined
+    isRefresh && !isBackgroundRefresh && !isButtonRefresh ? refreshLayoutFreeze.capture() : undefined
   if (sequencesRefreshNotice) {
     refreshNoticeSequence.begin()
   }
   const previousItemIDs = isRefresh && !isAppend ? currentItemIDSet() : new Set<number>()
   error.value = ''
-  if (isAppend) {
+  if (isButtonRefresh) {
+    buttonRefreshing.value = true
+    clearFeedNotice()
+  } else if (isAppend) {
     loadingMore.value = true
   } else if (isRefresh && !isBackgroundRefresh) {
     if (shouldRefreshVisibleSource.value && pullOffset.value <= 0) {
@@ -669,18 +680,23 @@ async function loadItems(
     }
     loading.value = false
     loadingMore.value = false
+    if (isButtonRefresh) buttonRefreshing.value = false
     scheduleLoadMoreObserver()
 
-    feedPullRefreshCompletion.completeLoad({
-      isRefresh,
-      isBackgroundRefresh,
-      afterRelease: sequencesRefreshNotice
-        ? () => refreshNoticeSequence.completeRefreshRelease()
-        : undefined,
-      afterSettled: sequencesRefreshNotice
-        ? () => releaseRefreshLayoutAfterSettled(releaseRefreshLayoutFreeze)
-        : releaseRefreshLayoutFreeze,
-    })
+    if (isButtonRefresh) {
+      refreshNoticeSequence.completeRefreshRelease()
+    } else {
+      feedPullRefreshCompletion.completeLoad({
+        isRefresh,
+        isBackgroundRefresh,
+        afterRelease: sequencesRefreshNotice
+          ? () => refreshNoticeSequence.completeRefreshRelease()
+          : undefined,
+        afterSettled: sequencesRefreshNotice
+          ? () => releaseRefreshLayoutAfterSettled(releaseRefreshLayoutFreeze)
+          : releaseRefreshLayoutFreeze,
+      })
+    }
   }
 }
 
@@ -891,6 +907,7 @@ function resetTransientLoadState(
   invalidateLoadRequests()
   loading.value = false
   loadingMore.value = false
+  buttonRefreshing.value = false
   error.value = ''
   pullRefresh.reset()
   refreshLayoutFreeze.release()
@@ -921,6 +938,7 @@ function handleTouchStart(event: TouchEvent) {
     event.touches.length !== 1 ||
     loading.value ||
     refreshing.value ||
+    buttonRefreshing.value ||
     loadingMore.value
   ) {
     cancelPullGesture()
@@ -1175,7 +1193,15 @@ watch(
       </Transition>
     </Teleport>
 
-    <div ref="feedBodyRef" class="feed-list-body" :style="feedBodyStyle">
+    <div ref="feedBodyRef" class="feed-list-body" :class="{ 'feed-reading': isMainFeed }" :style="feedBodyStyle">
+      <header v-if="isMainFeed" class="feed-heading">
+        <div class="feed-title-row">
+          <h1>{{ feedTitle }}</h1>
+          <span class="feed-refresh-notice" role="status">{{ refreshing || buttonRefreshing ? '正在刷新' : '' }}</span>
+          <button class="feed-refresh-button" type="button" :disabled="loading || loadingMore || refreshing || buttonRefreshing" :aria-label="`刷新${feedTitle}`" :title="`刷新${feedTitle}`" @click="loadItems({ refresh: true, fromButton: true })"><IconRefresh aria-hidden="true" /></button>
+        </div>
+        <p>{{ isRecommendations ? '值得继续阅读的内容' : '来自已关注来源的文章' }}</p>
+      </header>
       <a-alert v-if="errorMessage" class="feed-alert" type="warning" :content="errorMessage" show-icon />
 
       <section v-if="loading && !hasItems" class="empty-surface">
@@ -1190,20 +1216,21 @@ watch(
         <p>{{ copy.emptyDescription }}</p>
       </section>
 
-      <div v-else class="feed-item-list">
+      <div v-else class="feed-articles">
         <article
           v-for="item in items"
           :key="item.id"
-          class="feed-item"
+          class="feed-item feed-article"
           :class="{ 'feed-item--morphing': morphingItemId === item.id }"
           :data-feed-item-id="item.id"
           :style="feedItemStyle(item)"
         >
-          <div class="feed-item__meta" :style="feedItemPreviewStyle(item)">
+          <div class="feed-item__meta feed-article-meta" :style="feedItemPreviewStyle(item)">
+            <IconFile aria-hidden="true" />
             <span class="feed-item__source">
               {{ item.source_name || '未知来源' }}
             </span>
-            <span>{{ formatDate(item.published_at || item.fetched_at) }}</span>
+            <time :datetime="item.published_at || item.fetched_at">{{ formatDate(item.published_at || item.fetched_at) }}</time>
           </div>
           <button
             class="feed-item__read-target"
@@ -1215,7 +1242,7 @@ watch(
             <p>{{ itemSummary(item) }}</p>
           </button>
           <div
-            class="feed-item__actions"
+            class="feed-item__actions feed-article-footer"
             :style="feedItemPreviewStyle(item)"
             @pointerdown.stop
             @touchstart.stop
@@ -1230,7 +1257,7 @@ watch(
               @toggle-favorite="updateItemState(item, 'favorite')"
               @toggle-hidden="updateItemState(item, 'hidden')"
             />
-            <a :href="item.url" target="_blank" rel="noreferrer">阅读原文</a>
+            <a :href="item.url" target="_blank" rel="noreferrer">阅读原文<IconLaunch aria-hidden="true" /></a>
           </div>
         </article>
         <div v-if="loadingMore" class="feed-load-more" role="status" aria-label="加载更多">

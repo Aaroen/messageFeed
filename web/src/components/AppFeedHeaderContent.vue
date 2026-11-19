@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { StyleValue } from 'vue'
+import { IconApps, IconBook, IconCompass } from '@arco-design/web-vue/es/icon'
 
 import RefreshStatusLayer from '@/components/RefreshStatusLayer.vue'
 
@@ -8,6 +9,8 @@ type FeedTab = {
   label: string
   path: string
 }
+
+const tabIcons = { subscriptions: IconBook, recommendations: IconCompass, agent: IconApps }
 
 withDefaults(
   defineProps<{
@@ -23,8 +26,6 @@ withDefaults(
     feedTabs?: FeedTab[]
     activeKey?: string | symbol | null
     feedTabsLayerStyle?: StyleValue
-    feedTabsTargetLayerStyle?: StyleValue
-    viewSwipeTargetKey?: string | null
     feedPullActive?: boolean
     pullStatusStyle?: StyleValue
     pullRefreshing?: boolean
@@ -45,8 +46,6 @@ withDefaults(
     feedTabs: () => [],
     activeKey: null,
     feedTabsLayerStyle: undefined,
-    feedTabsTargetLayerStyle: undefined,
-    viewSwipeTargetKey: null,
     feedPullActive: false,
     pullStatusStyle: undefined,
     pullRefreshing: false,
@@ -89,6 +88,9 @@ const emit = defineEmits<{
       :style="feedTabsLayerStyle"
       :aria-hidden="!chromeInteractive || detailReaderOpen || feedPullActive ? 'true' : undefined"
     >
+      <button class="feed-header-brand" type="button" aria-label="MessageFeed 推荐" :tabindex="!chromeInteractive || detailReaderOpen || feedPullActive ? -1 : undefined" @pointerdown.stop @click="emit('navigate', '/recommendations')">
+        <IconApps aria-hidden="true" /> MessageFeed
+      </button>
       <div class="feed-tabs" role="tablist" aria-label="阅读视图">
         <button
           v-for="tab in feedTabs"
@@ -102,25 +104,7 @@ const emit = defineEmits<{
           @pointerdown.stop
           @click="emit('navigate', tab.path)"
         >
-          {{ tab.label }}
-        </button>
-      </div>
-    </div>
-    <div
-      v-if="isFeedRoute"
-      class="feed-header-layer feed-header-layer--tabs feed-header-layer--view-target"
-      :style="feedTabsTargetLayerStyle"
-      aria-hidden="true"
-    >
-      <div class="feed-tabs" role="presentation">
-        <button
-          v-for="tab in feedTabs"
-          :key="`target-${tab.key}`"
-          class="feed-tab"
-          :class="{ 'feed-tab--active': viewSwipeTargetKey === tab.key }"
-          type="button"
-          tabindex="-1"
-        >
+          <component :is="tabIcons[tab.key as keyof typeof tabIcons]" aria-hidden="true" />
           {{ tab.label }}
         </button>
       </div>

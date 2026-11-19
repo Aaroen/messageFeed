@@ -18,9 +18,6 @@ type AppChromeLayerStateOptions = {
   readerBackDragging: ReadableRef<boolean>
   detailBlocksGestures: () => boolean
   feedHeaderProgress: ReadableRef<number>
-  viewSwipeActive: ReadableRef<boolean>
-  viewSwipeTargetVisible: ReadableRef<boolean>
-  viewSwipeTargetProgress: ReadableRef<number>
   sourcePullActive: ReadableRef<boolean>
   sourcePullRefreshing: () => boolean
   sourcePullProgress: ReadableRef<number>
@@ -61,15 +58,6 @@ export function useAppChromeLayerState(options: AppChromeLayerStateOptions) {
       detailBlocksGestures: options.detailBlocksGestures(),
       feedPullActive: options.feedPullActive.value,
       headerProgress: options.feedHeaderProgress.value,
-    }),
-  )
-  const feedTabsTargetLayerStyle = computed(() =>
-    chromeLayerMotion.feedTabsTargetStyle({
-      visible: options.viewSwipeTargetVisible.value,
-      feedPullActive: options.feedPullActive.value,
-      headerProgress: options.feedHeaderProgress.value,
-      targetProgress: options.viewSwipeTargetProgress.value,
-      dragging: options.viewSwipeActive.value,
     }),
   )
   const sourcePullStatusStyle = computed(() =>
@@ -126,7 +114,6 @@ export function useAppChromeLayerState(options: AppChromeLayerStateOptions) {
     pagePullStatusStyle,
     pagePullIconStyle,
     feedTabsLayerStyle,
-    feedTabsTargetLayerStyle,
     sourcePullStatusStyle,
     sourcePullIconStyle,
     sourceHeaderStyle,

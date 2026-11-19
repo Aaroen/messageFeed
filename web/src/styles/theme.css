@@ -15,8 +15,8 @@
   --mf-header-bg: linear-gradient(180deg, rgba(247, 247, 247, 0.96), rgba(247, 247, 247, 0.74)), transparent;
   --mf-header-refresh-bg: linear-gradient(180deg, rgba(247, 247, 247, 0.98), rgba(247, 247, 247, 0.82)), transparent;
   --mf-header-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
-  --mf-page-tint: linear-gradient(135deg, #edf3f8, transparent 37%), linear-gradient(225deg, #eef5f4, transparent 35%);
-  --mf-tab-active-bg: #e9eef2;
+  --mf-page-tint: linear-gradient(135deg, #f2f2f2, transparent 37%);
+  --mf-tab-active-bg: #e9e9e9;
   --mf-font-family: ui-sans-serif, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
@@ -40,3 +40,5 @@ body[arco-theme='dark'] {
   --mf-page-tint: linear-gradient(135deg, #1d1d1d, transparent 45%);
   --mf-tab-active-bg: #373737;
 }
+
+body { --mf-assistant-details: color-mix(in oklab, var(--mf-surface-muted) 54%, var(--mf-surface)); }

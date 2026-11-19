@@ -1,0 +1,61 @@
+.feed-reading {
+  position: relative;
+  inline-size: min(100%, 808px);
+  margin-inline: auto;
+  padding: 24px 24px 48px;
+  font: 14px/1.5 var(--mf-font-family);
+}
+
+.feed-heading { padding-bottom: 18px; }
+.feed-title-row { display: flex; align-items: center; gap: 8px; }
+.feed-heading h1 { margin: 0; font-size: 26px; }
+.feed-heading p { margin: 6px 0 0; color: var(--mf-text-muted); }
+.feed-refresh-notice { margin-inline-start: auto; color: var(--mf-primary-strong); font-size: 12px; }
+.feed-refresh-button {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 34px;
+  block-size: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mf-text-muted);
+  cursor: pointer;
+}
+.feed-refresh-button svg { inline-size: 17px; block-size: 17px; }
+.feed-refresh-button:hover:not(:disabled) { background: var(--mf-tab-active-bg); color: var(--mf-text); }
+.feed-refresh-button:disabled { opacity: .55; cursor: default; }
+
+.feed-articles { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.feed-article { padding: 16px 18px 10px; border-radius: 8px; background: var(--mf-surface); overflow-wrap: anywhere; }
+.feed-article-meta, .feed-article-footer { display: flex; align-items: center; gap: 7px; color: var(--mf-text-muted); font-size: 12px; }
+.feed-article-meta svg { inline-size: 1em; block-size: 1em; flex: none; }
+.feed-article-meta time { margin-inline-start: auto; white-space: nowrap; }
+.feed-article h2 { margin: 7px 0 4px; color: var(--mf-text); font-size: 17px; }
+.feed-article p { margin: 0; color: var(--mf-text-muted); line-height: 1.7; }
+.feed-article-footer { justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.feed-article-footer a, .original-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding-inline: 8px;
+  border-radius: 6px;
+  color: var(--mf-primary-strong);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.feed-article-footer a:hover, .original-back:hover { background: var(--mf-tab-active-bg); }
+.feed-article-footer a svg { inline-size: 1em; block-size: 1em; flex: none; }
+
+@media (max-width: 799px) {
+  .feed-reading { padding: 18px 14px 26px; }
+  .feed-heading h1 { font-size: 22px; }
+  .feed-article-footer a, .original-back { min-height: 44px; }
+}
+
+@media (max-width: 799px), (pointer: coarse) {
+  .feed-refresh-button { inline-size: 44px; block-size: 44px; }
+}

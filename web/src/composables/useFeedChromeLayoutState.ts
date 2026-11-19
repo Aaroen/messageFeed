@@ -4,7 +4,7 @@ import {
   chromePhaseConsumesCollapsedLayout,
   clampProgress,
   feedContentTopOffset,
-  feedHeaderHeightForWidth,
+  feedHeaderHeight,
   feedTopScrollInset,
   feedVisibleContentTopOffset,
 } from '@/composables/feedChromeMetrics'
@@ -15,7 +15,6 @@ type ReadableRef<T> = {
 }
 
 type FeedChromeLayoutStateOptions = {
-  windowWidth: ReadableRef<number>
   isFeedRoute: ReadableRef<boolean>
   feedScrollTop: ReadableRef<number>
   topChromePhase: ReadableRef<ChromePhase>
@@ -33,7 +32,7 @@ type FeedChromeLayoutStateOptions = {
 }
 
 export function useFeedChromeLayoutState(options: FeedChromeLayoutStateOptions) {
-  const headerHeight = computed(() => feedHeaderHeightForWidth(options.windowWidth.value))
+  const headerHeight = computed(() => feedHeaderHeight)
   const contentTopOffset = computed(() => feedContentTopOffset(headerHeight.value))
   const visibleContentTopOffset = computed(() => feedVisibleContentTopOffset(headerHeight.value))
   const topChromeProgress = computed(() => clampProgress(options.topChromeProgress.value))

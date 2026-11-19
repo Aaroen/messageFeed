@@ -27,8 +27,6 @@ type AppTopChromeOutletStateOptions = {
   feedTabs: FeedTab[]
   activeKey: () => string | symbol | null | undefined
   feedTabsLayerStyle: ReadableRef<StyleValue>
-  feedTabsTargetLayerStyle: ReadableRef<StyleValue>
-  viewSwipeTargetKey: ReadableRef<string | null>
   feedPullActive: ReadableRef<boolean>
   feedPullRefreshing: ReadableRef<boolean>
   pullStatusStyle: ReadableRef<StyleValue>
@@ -66,8 +64,6 @@ export type AppTopChromeOutletState = {
     feedTabs: FeedTab[]
     activeKey: ReadableRef<string | symbol | null>
     feedTabsLayerStyle: ReadableRef<StyleValue>
-    feedTabsTargetLayerStyle: ReadableRef<StyleValue>
-    viewSwipeTargetKey: ReadableRef<string | null>
     feedPullActive: ReadableRef<boolean>
     pullRefreshing: ReadableRef<boolean>
     pullStatusStyle: ReadableRef<StyleValue>
@@ -117,8 +113,6 @@ export function useAppTopChromeOutletState(
       feedTabs: options.feedTabs,
       activeKey,
       feedTabsLayerStyle: options.feedTabsLayerStyle,
-      feedTabsTargetLayerStyle: options.feedTabsTargetLayerStyle,
-      viewSwipeTargetKey: options.viewSwipeTargetKey,
       feedPullActive: options.feedPullActive,
       pullRefreshing: options.feedPullRefreshing,
       pullStatusStyle: options.pullStatusStyle,
