@@ -127,7 +127,7 @@ onBeforeUnmount(() => controller?.abort())
       </div>
       <article v-for="(message, index) in messages" :key="message.id" :class="['guest-message', message.role]">
         <p v-if="message.role === 'user'">{{ message.content }}</p>
-        <template v-else><div class="guest-answer-heading"><span class="guest-answer-mark"><IconApps aria-hidden="true" /></span><strong>助理</strong><small>{{ message.model }}</small></div><AgentReasoningStream v-if="message.reasoning" :content="message.reasoning" :active="sending && index === messages.length - 1" /><AgentMarkdown v-if="message.content" :content="message.content" /><p v-else>{{ sending && index === messages.length - 1 ? '正在生成…' : '本次未完成回答' }}</p><small v-if="message.failed" class="guest-error">回答未完成</small></template>
+        <template v-else><div class="guest-answer-heading"><span class="guest-answer-mark"><IconApps aria-hidden="true" /></span><strong>助理</strong><small>{{ message.model }}</small></div><AgentReasoningStream v-if="message.reasoning" :content="message.reasoning" :active="sending && index === messages.length - 1 && !message.content" /><AgentMarkdown v-if="message.content" :content="message.content" /><p v-else>{{ sending && index === messages.length - 1 ? '正在生成…' : '本次未完成回答' }}</p><small v-if="message.failed" class="guest-error">回答未完成</small></template>
       </article>
       </div>
     </div>

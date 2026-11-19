@@ -48,6 +48,9 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 	if err != nil {
 		return false, ReceiveWeChatWorkAppMessageResult{}, err
 	}
+	if routing, _ := ctx.Value(agentTurnRoutingKey{}).(*agentTurnRouting); routing != nil {
+		routing.route = decision.Route
+	}
 	intent := decision.Intent
 	now := s.now().UTC()
 	if candidates.ActiveFound && (intent == agentFollowupIntentNewTask || intent == agentFollowupIntentDeriveTask || intent == agentFollowupIntentAppendConstraints) {
@@ -159,12 +162,14 @@ type agentFollowupDecision struct {
 	Intent     agentFollowupIntent
 	Confidence float64
 	Reason     string
+	Route      *agentTaskRouteClassification
 }
 
 type agentFollowupDecisionJSON struct {
-	Intent     string  `json:"intent"`
-	Confidence float64 `json:"confidence"`
-	Reason     string  `json:"reason"`
+	Intent     string          `json:"intent"`
+	Confidence float64         `json:"confidence"`
+	Reason     string          `json:"reason"`
+	Route      json.RawMessage `json:"route"`
 }
 
 type multiTurnPlanCandidates struct {
@@ -270,7 +275,7 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 	if s == nil || s.llmClient == nil {
 		return agentFollowupDecision{}, domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_llm_unavailable", "agent followup classifier is unavailable", "service.agent.followup_intent", true, nil)
 	}
-	contextProjection, err := s.mainAgentPlanningContextProjection(ctx, account, session, turn, input)
+	contextProjection, err := s.turnPlanningProjection(ctx, account, session, turn, input)
 	if err != nil {
 		return agentFollowupDecision{}, err
 	}
@@ -281,6 +286,7 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 		"session_id":         session.ID,
 		"turn_id":            turn.ID,
 		"active_plan":        multiTurnPlanDecisionSummary(candidates.Active, candidates.ActiveFound),
+		"capabilities":       s.mainAgentCapabilityCatalog(),
 		"failed_plan":        multiTurnPlanDecisionSummary(candidates.Failed, candidates.FailedFound),
 		"completed_plan": multiTurnPlanDecisionSummary(
 			candidates.Completed,
@@ -302,7 +308,7 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 	}
 	ctx = WithAgentLLMCallContext(ctx, AgentLLMCallContext{
 		UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID,
-		Stage: AgentLLMCallStageFollowupIntent, PromptVersion: "agent-followup-intent-v1",
+		Stage: AgentLLMCallStageFollowupIntent, PromptVersion: "agent-followup-intent-v2",
 	})
 	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
 		Messages: []llm.ChatMessage{
@@ -324,6 +330,11 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 			"model":        response.Model,
 		})
 		return agentFollowupDecision{}, parseErr
+	}
+	if decision.Route != nil {
+		decision.Route.Provider = response.Provider
+		decision.Route.Model = response.Model
+		decision.Route.CandidateCapabilities = s.validAgentTaskRouteCapabilities(decision.Route.CandidateCapabilities)
 	}
 	s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "succeeded", decision.Reason, domain.AgentJSON{
 		"intent":     string(decision.Intent),
@@ -353,11 +364,21 @@ func parseAgentFollowupDecision(raw string) (agentFollowupDecision, error) {
 	if intent == "" {
 		return agentFollowupDecision{}, fmt.Errorf("followup intent is invalid: %s", decoded.Intent)
 	}
-	return agentFollowupDecision{
+	decision := agentFollowupDecision{
 		Intent:     intent,
 		Confidence: decoded.Confidence,
 		Reason:     strings.TrimSpace(decoded.Reason),
-	}, nil
+	}
+	if len(decoded.Route) > 0 && string(decoded.Route) != "null" {
+		route, err := parseAgentTaskRouteJSON(string(decoded.Route))
+		if err != nil {
+			return agentFollowupDecision{}, err
+		}
+		route = guardAgentTaskRoute(route)
+		route.Raw = string(decoded.Route)
+		decision.Route = &route
+	}
+	return decision, nil
 }
 
 func normalizeAgentFollowupIntent(value string) agentFollowupIntent {
@@ -712,8 +733,9 @@ func (s *AgentConversationService) generateMultiTurnFollowupAnswer(
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_followup_answer", "failed", err.Error())
 		return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_failed", "agent followup answer generation failed", "service.agent.followup_answer", true, err)
 	}
-	reply, err := s.repairMultiTurnFollowupPlainText(ctx, request.Messages, response)
-	if err != nil {
+	reply := strings.TrimSpace(response.Content)
+	if reply == "" {
+		err := domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_empty", "agent followup answer is empty", "service.agent.followup_answer", true, nil)
 		s.recordMultiTurnAudit(ctx, account.UserID, session.ID, turn.ID, plan, input, "agent.plan_followup_answer", "failed", err.Error())
 		return "", err
 	}
@@ -812,41 +834,6 @@ func multiTurnFollowupStepPayload(plan domain.AgentPlan) []domain.AgentJSON {
 		})
 	}
 	return steps
-}
-
-func (s *AgentConversationService) repairMultiTurnFollowupPlainText(ctx context.Context, messages []llm.ChatMessage, response llm.ChatResponse) (string, error) {
-	current := strings.TrimSpace(response.Content)
-	if current == "" {
-		return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_empty", "agent followup answer is empty", "service.agent.followup_answer", true, nil)
-	}
-	for attempt := 0; attempt < 2; attempt++ {
-		violation := agent.PlainTextReplyViolation(current)
-		if violation == "" {
-			return current, nil
-		}
-		repairMessages := append([]llm.ChatMessage(nil), messages...)
-		repairMessages = append(repairMessages, llm.ChatMessage{Role: "assistant", Content: current})
-		repairMessages = append(repairMessages, llm.ChatMessage{Role: "user", Content: agent.PlainTextReplyRepairPrompt(current, violation, attempt+1)})
-		metadata, err := agentLLMCallContextFromContext(ctx)
-		if err != nil {
-			return "", err
-		}
-		metadata.Stage = AgentLLMCallStageRepair
-		metadata.PromptVersion = "agent-followup-answer-repair-v1"
-		repairCtx := WithAgentLLMCallContext(ctx, metadata)
-		repaired, err := s.llmClient.Chat(repairCtx, llm.ChatRequest{
-			Messages:    repairMessages,
-			Temperature: 0.2,
-		})
-		if err != nil {
-			return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_repair_failed", "agent followup answer repair failed", "service.agent.followup_answer", true, err)
-		}
-		current = strings.TrimSpace(repaired.Content)
-		if current == "" {
-			return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_empty", "agent followup answer is empty", "service.agent.followup_answer", true, nil)
-		}
-	}
-	return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_plain_text_violation", "agent followup answer does not satisfy plain text format", "service.agent.followup_answer", true, nil)
 }
 
 func formatOptionalAgentTime(value *time.Time) string {

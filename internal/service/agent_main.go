@@ -44,6 +44,7 @@ type AgentConversationService struct {
 	scheduledTasks         AgentScheduleEvalRepository
 	sessionTaskLocker      AgentSessionTaskLocker
 	webFetcher             agentWebFetcher
+	firecrawl              *firecrawlMCP
 	contextBuilder         *agent.DefaultContextBuilder
 	turnRunner             *agent.TurnRunner
 	runManager             *agent.RunManager
@@ -280,6 +281,7 @@ func (s *AgentConversationService) agentCapabilityExecutor() agentRunRecordingEx
 			notificationJobs: s.notificationJobs,
 			scheduledTasks:   s.scheduledTasks,
 			webFetcher:       s.webFetcher,
+			firecrawl:        s.firecrawl,
 			factRetriever:    newAgentFactRetriever(s.repository, s.embeddingClient, s.embeddingModel, s.now),
 			now:              s.now,
 		},

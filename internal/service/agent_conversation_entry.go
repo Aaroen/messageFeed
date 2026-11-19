@@ -16,6 +16,7 @@ import (
 
 // ReceiveWeChatWorkAppMessage 接收企业微信消息，完成入口校验、幂等入库和执行调度。
 func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Context, input ReceiveWeChatWorkAppMessageInput) (ReceiveWeChatWorkAppMessageResult, error) {
+	ctx = context.WithValue(ctx, agentTurnRoutingKey{}, &agentTurnRouting{})
 	startedAt := time.Now()
 	if s == nil || s.repository == nil {
 		metrics.AgentTurnsTotal.WithLabelValues(domain.AgentProviderWeChatWorkApp, "failed").Inc()
@@ -429,6 +430,7 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 		}, nil
 	}
 
+	ctx = context.WithValue(ctx, agentTurnRoutingKey{}, &agentTurnRouting{})
 	if handled, handledResult, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, ReceiveWeChatWorkAppMessageInput{
 		Provider:          domain.AgentProviderWeb,
 		ProviderMessageID: providerMessageID,

@@ -203,7 +203,7 @@ func runAgentWorker(ctx context.Context, logger *slog.Logger, workerID string, w
 	defer ticker.Stop()
 	for {
 		runCtx, cancel := context.WithTimeout(ctx, 12*time.Minute)
-		result, err := workerService.RunAgentWorkerOnce(runCtx, service.RunAgentWorkerOnceInput{WorkerID: workerID, Limit: 10, LeaseDuration: 2 * time.Minute})
+		result, err := workerService.RunAgentWorkerOnce(runCtx, service.RunAgentWorkerOnceInput{WorkerID: workerID, Limit: 4, LeaseDuration: 2 * time.Minute})
 		cancel()
 		if err != nil && ctx.Err() == nil {
 			logger.Warn("agent worker run failed", "error", err)

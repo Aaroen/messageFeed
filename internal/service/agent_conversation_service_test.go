@@ -674,6 +674,38 @@ func TestAgentTaskRouterBuildsQuickAnswerLightPlan(t *testing.T) {
 	}
 }
 
+func TestAgentTaskRouterUsesPlanFromCombinedRequest(test *testing.T) {
+	now := time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
+	repository := newFakeAgentConversationRepository()
+	route := domain.AgentJSON{
+		"task_type": "deep_task", "confidence": 0.98, "needs_tools": true,
+		"plan_spec": domain.AgentJSON{
+			"goal": "继续查找公开网页", "intent": "搜索公开网页", "task_type": "research", "complexity": "standard",
+			"required_capabilities": []string{"web.search"},
+		},
+	}
+	for _, followup := range []bool{false, true} {
+		llmClient := &fakeAgentConversationLLM{routeResponses: []llm.ChatResponse{fakeAgentTaskRouteResponse(route)}}
+		service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
+		ctx := context.Background()
+		if followup {
+			body, err := json.Marshal(domain.AgentJSON{"intent": "derive_task", "confidence": 0.98, "route": route})
+			if err != nil {
+				test.Fatal(err)
+			}
+			decision, err := parseAgentFollowupDecision(string(body))
+			if err != nil || decision.Intent != agentFollowupIntentDeriveTask || decision.Route == nil {
+				test.Fatalf("无法读取续做计划：%+v，%v", decision, err)
+			}
+			ctx = context.WithValue(ctx, agentTurnRoutingKey{}, &agentTurnRouting{route: decision.Route})
+		}
+		plan, _, err := service.createPlanForTurn(ctx, testAgentExternalAccount(now), domain.AgentSession{ID: 2, UserID: 1}, domain.AgentTurn{ID: 3, UserID: 1, SessionID: 2}, domain.AgentRun{ID: 4, SessionID: 2, TurnID: 3}, ReceiveWeChatWorkAppMessageInput{Provider: domain.AgentProviderWeb, MsgType: "text", TextContent: "继续查找公开网页"})
+		if err != nil || !strings.Contains(strings.Join(plan.AllowedScopes, ","), "web.search") || llmClient.calls > 1 || followup && llmClient.calls != 0 {
+			test.Fatalf("没有直接使用合并返回的计划：%v，%v，调用次数 %d", plan.AllowedScopes, err, llmClient.calls)
+		}
+	}
+}
+
 func TestAgentTaskRouterBuildsRAGAnswerLightPlan(t *testing.T) {
 	now := time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
 	repository := newFakeAgentConversationRepository()
@@ -1548,7 +1580,7 @@ func TestAgentConversationServiceReusesCompletedPlanForFollowup(t *testing.T) {
 	}}
 	llmClient := &fakeAgentConversationLLM{
 		followupIntent: agentFollowupIntentQuestion,
-		followupAnswer: "依据主要来自已记录的网页观察和产物，结论是模型发布节奏加快。",
+		followupAnswer: "**依据**：已记录的网页观察和产物，结论是模型发布节奏加快。",
 	}
 	service := NewAgentConversationService(
 		repository,
@@ -1563,7 +1595,7 @@ func TestAgentConversationServiceReusesCompletedPlanForFollowup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReceiveWebAgentTask() error = %v", err)
 	}
-	if result.Plan.ID != 22 || result.Reply != "依据主要来自已记录的网页观察和产物，结论是模型发布节奏加快。" {
+	if result.Plan.ID != 22 || result.Turn.Status != string(domain.AgentTurnStatusSucceeded) || result.Turn.OutputText != llmClient.followupAnswer || result.Reply != llmClient.followupAnswer {
 		t.Fatalf("result = %#v reply = %q", result.Plan, result.Reply)
 	}
 	if strings.Contains(result.Reply, "已关联到计划") || strings.Contains(result.Reply, "agent_artifact:41") {
@@ -3400,6 +3432,19 @@ func TestAgentConversationServiceTemplateFeedbackUsesPlainText(t *testing.T) {
 	}
 	if llmClient.feedbackIdx != 0 {
 		t.Fatalf("feedback calls = %d, want 0", llmClient.feedbackIdx)
+	}
+}
+
+func TestAgentFeedbackHidesProtocolFields(test *testing.T) {
+	for _, failure := range []string{
+		`模型流式调用失败：{"response":{"id":"resp_internal","error":{"message":"This model is currently experiencing high demand."}}}`,
+		"context deadline exceeded",
+		"database internal request failed",
+	} {
+		data := (agentWeChatFeedbackRequest{Stage: "failed", ErrorText: failure}).templateData()
+		if data.Error == "" || strings.Contains(data.Error, failure) || strings.ContainsAny(data.Error, "{}") || strings.Contains(data.Error, "resp_") {
+			test.Fatal("失败提示包含内部协议内容")
+		}
 	}
 }
 

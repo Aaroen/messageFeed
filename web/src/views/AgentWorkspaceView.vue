@@ -270,7 +270,7 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
           <article v-for="turn in turns" :key="turn.id" class="assistant-turn">
             <div class="assistant-user-message"><p>{{ turn.input_text }}</p></div>
             <div class="assistant-answer"><div class="assistant-answer-heading"><span class="assistant-avatar"><IconApps aria-hidden="true" /></span><strong>助理</strong><small v-if="turn.model">{{ modelName(turn) }}</small></div>
-              <AgentTurnActivity v-if="turnRuns(turn.id).length || turnItems(turn.id).some((item) => item.kind === 'reasoning')" :runs="turnRuns(turn.id)" :items="turnItems(turn.id)" :status="turn.status" />
+              <AgentTurnActivity v-if="turnRuns(turn.id).length || turnItems(turn.id).some((item) => item.kind === 'reasoning')" :runs="turnRuns(turn.id)" :items="turnItems(turn.id)" :status="turn.status" :replying="Boolean(turnText(turn))" />
               <AgentMarkdown v-if="turnText(turn)" :content="turnText(turn)" />
               <p v-else-if="missingAnswer(turn)" class="assistant-turn-error" role="alert">没有收到回答正文，请重试。</p>
               <div v-else-if="isActiveStatus(turn.status)" class="assistant-state-note" role="status"><span class="assistant-thinking-dot" />{{ turnState(turn) }}…</div>

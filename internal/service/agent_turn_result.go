@@ -23,70 +23,31 @@ func (s *AgentConversationService) finishTurnWithReply(
 	observations []agent.CapabilityObservation,
 	auditStatus string,
 ) (ReceiveWeChatWorkAppMessageResult, error) {
-	return s.finishAgentTurnCandidate(ctx, account, inbound, session, turn, input, plan, reply, agent.ContextSnapshot{Observations: observations}, auditStatus)
-}
-
-func (s *AgentConversationService) finishAgentTurnCandidate(
-	ctx context.Context,
-	account domain.ExternalAccount,
-	inbound domain.AgentInboundMessage,
-	session domain.AgentSession,
-	turn domain.AgentTurn,
-	input ReceiveWeChatWorkAppMessageInput,
-	plan domain.AgentPlan,
-	reply string,
-	snapshot agent.ContextSnapshot,
-	auditStatus string,
-) (ReceiveWeChatWorkAppMessageResult, error) {
 	now := s.now().UTC()
 	reply = sanitizeAgentReportText(reply)
 	if strings.TrimSpace(reply) == "" {
 		cause := domain.NewAppError(domain.ErrorKindUnavailable, "agent_direct_reply_empty", "agent direct reply is empty", "service.agent.finish_turn", true, nil)
+		if auditStatus == "failed" {
+			return ReceiveWeChatWorkAppMessageResult{}, cause
+		}
 		return s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, plan, cause)
-	}
-	quality := agentAnswerQualityResult{Passed: true, Status: "not_applicable", AnswerQuality: domain.AgentJSON{"status": "not_applicable", "reason": "system_receipt"}}
-	var qualityErr error
-	if auditStatus == "" || auditStatus == "succeeded" || auditStatus == "followup_stale" || auditStatus == "followup_reused" {
-		var sourceMessages []agent.ContextMessage
-		if plan.ID > 0 && plan.TurnID != turn.ID {
-			snapshot, qualityErr = s.buildAgentConversationContext(ctx, account, session, turn, input, agent.ContextBudgetProfileFinalSynthesis, &plan)
-			if qualityErr == nil {
-				sourceMessages, qualityErr = s.agentPlanSourceMessages(ctx, account.UserID, plan)
-			}
-		}
-		ctx = WithAgentLLMCallContext(ctx, AgentLLMCallContext{UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID, ParentRunID: plan.ControllerRunID, Stage: AgentLLMCallStageEvaluation})
-		if qualityErr == nil {
-			quality, qualityErr = s.evaluateAgentAnswerQuality(ctx, agentAnswerQualityInput{Plan: plan, Reply: reply, CurrentMessage: input.TextContent, Context: snapshot, SourceMessages: sourceMessages, Now: now})
-		} else {
-			quality, qualityErr = agentAnswerQualityFailure(agentAnswerQualityResult{AnswerQuality: domain.AgentJSON{}}, "unverified", "followup_evaluation_context_unavailable", qualityErr)
-		}
 	}
 	failureRequested := auditStatus == "failed"
 	failureMessage := turn.ErrorMessage
 	turn.Status = domain.AgentTurnStatusSucceeded
 	turn.OutputText = reply
 	turn.ErrorMessage = ""
-	if qualityErr != nil || !quality.Passed {
-		if qualityErr == nil {
-			qualityErr = domain.NewAppError(domain.ErrorKindUnavailable, "agent_answer_quality_failed", "agent answer quality validation did not pass", "service.agent.finish_turn", false, nil)
-		}
-		turn.Status = domain.AgentTurnStatusFailed
-		turn.OutputText = ""
-		turn.ErrorMessage = qualityErr.Error()
-	}
 	if failureRequested {
 		turn.Status = domain.AgentTurnStatusFailed
 		turn.ErrorMessage = failureMessage
-		quality.AnswerQuality = domain.AgentJSON{"status": "not_evaluated", "score": 0.0, "reason": "generation_failed"}
 	}
 	completionPlan := domain.AgentPlan{}
 	controllerRunID := int64(0)
-	if plan.ID > 0 && plan.TurnID == turn.ID && (failureRequested || plan.Status == domain.AgentPlanStatusCompleted || plan.Status == domain.AgentPlanStatusFailed) {
+	if plan.ID > 0 && plan.TurnID == turn.ID && plan.FailedAt == nil && (failureRequested || plan.Status == domain.AgentPlanStatusCompleted || plan.Status == domain.AgentPlanStatusFailed) {
 		plan.Metadata = cloneApprovalMetadata(plan.Metadata)
-		plan.Metadata["execution_completeness"] = quality.ExecutionCompleteness
-		plan.Metadata["answer_quality"] = quality.AnswerQuality
-		plan.Metadata["result_quality"] = quality.AnswerQuality
-		if qualityErr != nil || failureRequested {
+		delete(plan.Metadata, "answer_quality")
+		delete(plan.Metadata, "result_quality")
+		if failureRequested {
 			plan.Status = domain.AgentPlanStatusFailed
 			plan.ErrorMessage = turn.ErrorMessage
 			for index, step := range plan.Steps {
@@ -96,15 +57,17 @@ func (s *AgentConversationService) finishAgentTurnCandidate(
 		if plan.Status == domain.AgentPlanStatusFailed {
 			turn.Status = domain.AgentTurnStatusFailed
 			turn.ErrorMessage = plan.ErrorMessage
-			turn.OutputText = ""
 		}
-		completionPlan = plan
-		controllerRunID = plan.ControllerRunID
+		plan.Metadata["execution_completeness"] = buildAgentExecutionCompletenessMetadata(plan, now)
 		plan.Metadata["handoff"] = buildAgentHandoffMetadata(plan, s.agentNotificationPreference(ctx, account.UserID), now)
 		plan.Metadata["runtime_observability"] = buildAgentRuntimeObservabilityMetadata(plan, metadataMap(plan.Metadata, "admission_policy"), now)
+		completionPlan = plan
+		controllerRunID = plan.ControllerRunID
 	}
 	if turn.Status == domain.AgentTurnStatusFailed {
-		reply = s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{Stage: "failed", UserMessage: input.TextContent, Plan: plan, ErrorText: turn.ErrorMessage, ProgressURL: s.agentPlanURLIfAvailable(plan.ID)})
+		if !failureRequested {
+			reply = s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{Stage: "failed", UserMessage: input.TextContent, Plan: plan, ErrorText: turn.ErrorMessage, ProgressURL: s.agentPlanURLIfAvailable(plan.ID)})
+		}
 		turn.OutputText = reply
 		auditStatus = "failed"
 	}
@@ -120,7 +83,7 @@ func (s *AgentConversationService) finishAgentTurnCandidate(
 	now = s.now().UTC()
 	completed, err := s.repository.CommitAgentTurnResult(ctx, domain.AgentTurnCompletion{
 		Turn: turn, Plan: completionPlan, ControllerRunID: controllerRunID, WorkerID: s.workerID, CompletedAt: now,
-		TranscriptMetadata: domain.AgentJSON{"model_provider": turn.ModelProvider, "model": turn.Model, "observations": agent.ObservationMetadata(snapshot.Observations), "answer_quality": quality.AnswerQuality, "execution_completeness": quality.ExecutionCompleteness},
+		TranscriptMetadata: domain.AgentJSON{"model_provider": turn.ModelProvider, "model": turn.Model, "observations": agent.ObservationMetadata(observations)},
 	})
 	if err != nil {
 		return ReceiveWeChatWorkAppMessageResult{ExternalAccount: account, InboundMessage: inbound, Session: session, Plan: plan}, err
@@ -187,7 +150,7 @@ func (s *AgentConversationService) finishAgentTurnCandidate(
 			"reply_bytes":         len([]byte(reply)),
 			"text_chunks":         len(replyChunks),
 			"text_chunk_bytes":    utf8ByteLengths(replyChunks),
-			"observations":        agent.ObservationMetadata(snapshot.Observations),
+			"observations":        agent.ObservationMetadata(observations),
 			"message_type":        finalDelivery.DeliveryMode,
 			"template_status":     finalDelivery.TemplateStatus,
 			"text_status":         finalDelivery.TextStatus,
@@ -232,5 +195,5 @@ func (s *AgentConversationService) failTurnWithFeedback(
 	}
 	turn.ErrorMessage = cause.Error()
 	reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{Stage: "failed", UserMessage: input.TextContent, Plan: plan, ErrorText: cause.Error(), Cause: cause, ProgressURL: s.agentPlanURLIfAvailable(plan.ID)})
-	return s.finishAgentTurnCandidate(ctx, account, inbound, session, turn, input, plan, reply, agent.ContextSnapshot{}, "failed")
+	return s.finishTurnWithReply(ctx, account, inbound, session, turn, input, plan, reply, nil, "failed")
 }

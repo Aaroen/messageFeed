@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -163,7 +164,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 				test.Logf("工具产物编号=%d，完整正文=%s", artifact.ID, artifact.Content)
 			}
 		}
-		test.Fatalf("真实工具与证据验收失败：turn=%s，plan=%s，reply=%q，质量=%v，error=%v", third.Turn.Status, third.Plan.Status, third.Reply, third.Plan.Metadata["answer_quality"], err)
+		test.Fatalf("真实工具与证据验收失败：turn=%s，plan=%s，reply=%q，error=%v", third.Turn.Status, third.Plan.Status, third.Reply, err)
 	}
 	stages := map[string]int{}
 	artifactCount := 0
@@ -179,7 +180,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 				test.Fatal(err)
 			}
 			for _, artifact := range detail.Artifacts {
-				if artifact.Content == "" || artifact.ContentHash != agentAnswerContentHash(artifact.Content) {
+				if artifact.Content == "" || artifact.ContentHash != fmt.Sprintf("%x", sha256.Sum256([]byte(artifact.Content))) {
 					test.Fatal("真实工具产物缺少完整正文或有效散列")
 				}
 				artifactCount++
@@ -218,7 +219,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 			}
 		}
 	}
-	if stages["generation"] == 0 || stages["followup_answer"] == 0 || stages["evaluation"] == 0 || artifactCount == 0 || historyToolCount == 0 {
+	if stages["generation"] == 0 || stages["followup_answer"] == 0 || stages["evaluation"] != 0 || artifactCount == 0 || historyToolCount == 0 {
 		test.Fatalf("实际验收路径覆盖不足：stages=%v，artifacts=%d", stages, artifactCount)
 	}
 	var auditFacts int64

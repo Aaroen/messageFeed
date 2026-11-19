@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { IconCheck, IconClose, IconClockCircle } from '@arco-design/web-vue/es/icon'
 import type { AgentActivity } from '@/api/assistant'
 import AgentMarkdown from './AgentMarkdown.vue'
 import { assistantErrorMessage, flattenRuns, formatDuration, isActiveStatus, readableActivityText, runLabel, runRoleLabel, statusLabel } from '@/utils/assistant'
@@ -13,12 +14,11 @@ const results = computed(() => (selected.value?.results || []).map(readableActiv
 
 <template>
   <div class="agent-details-content">
-    <div class="agent-tree-heading"><span>{{ subagents ? '子代理任务' : '任务进度' }}</span><span>{{ runs.length }} 项</span></div>
     <div v-if="!runs.length" class="agent-details-empty">{{ subagents ? '当前对话没有子代理任务。' : '暂无执行活动。' }}</div>
     <div v-else class="agent-run-tree" role="group" aria-label="执行活动">
       <button v-for="entry in tree" :key="entry.run.id" type="button" class="agent-run-node" :class="{ selected: selectedID === entry.run.id }" :style="{ paddingLeft: `${12 + Math.min(entry.depth, 6) * 14}px` }" :aria-pressed="selectedID === entry.run.id" @click="emit('select', entry.run.id)">
-        <span class="agent-node-status" :class="{ active: isActiveStatus(entry.run.status), failed: entry.run.status === 'failed' }" />
-        <span class="agent-node-copy"><strong>{{ runLabel(entry.run) }}</strong><small v-if="!subagents">{{ runRoleLabel(entry.run) }}</small></span>
+        <component :is="entry.run.status === 'succeeded' ? IconCheck : isActiveStatus(entry.run.status) ? IconClockCircle : IconClose" class="agent-node-icon" aria-hidden="true" />
+        <span class="agent-node-copy"><strong>{{ runLabel(entry.run) }}</strong></span>
         <span class="agent-node-state">{{ statusLabel(entry.run.status) }}</span>
       </button>
     </div>
@@ -37,17 +37,12 @@ const results = computed(() => (selected.value?.results || []).map(readableActiv
 </template>
 
 <style scoped>
-.agent-details-content { font-size: 12px; color: var(--mf-text); }
-.agent-tree-heading { display: flex; justify-content: space-between; padding: 18px 18px 10px; color: var(--mf-text-muted); font-size: 11px; }
-.agent-run-tree { padding: 0 8px 14px; }
-.agent-run-node { display: flex; align-items: center; gap: 9px; width: 100%; border: 0; border-radius: 7px; background: transparent; padding: 10px 9px; cursor: pointer; color: inherit; text-align: left; }
+.agent-details-content { font-size: 13px; color: var(--mf-text-muted); max-height: 360px; overflow: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.agent-run-node { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; border-radius: 6px; background: transparent; padding: 3px 6px; min-height: 28px; cursor: pointer; color: inherit; text-align: left; }
 .agent-run-node:hover, .agent-run-node.selected { background: var(--mf-surface-muted, #f1f2f4); }
-.agent-node-status { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; background: #399b72; }
-.agent-node-status.active { background: #b98336; box-shadow: 0 0 0 3px #b9833619; }
-.agent-node-status.failed { background: #c15454; }
+.agent-node-icon { color: var(--mf-primary-strong); flex: none; }
 .agent-node-copy { display: grid; gap: 4px; flex: 1; min-width: 0; }
 .agent-node-copy strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-node-copy small { color: var(--mf-text-muted); font-size: 10px; overflow-wrap: anywhere; }
 .agent-node-state { color: var(--mf-text-muted); font-size: 10px; white-space: nowrap; }
 .agent-selected-detail { border-top: 1px solid var(--mf-border); padding: 18px; }
 .agent-selected-detail h3 { margin: 0 0 18px; font-size: 14px; font-weight: 600; }
@@ -61,4 +56,5 @@ const results = computed(() => (selected.value?.results || []).map(readableActiv
 .agent-detail-block pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Consolas, monospace; font-size: 11px; line-height: 1.7; }
 .agent-detail-error { color: #b84747; overflow-wrap: anywhere; line-height: 1.7; }
 .agent-details-empty { padding: 24px 18px; color: var(--mf-text-muted); line-height: 1.8; }
+@media (max-width: 760px) { .agent-run-node { min-height: 44px; } }
 </style>

@@ -8,6 +8,7 @@ import (
 	"messagefeed/internal/domain"
 	"messagefeed/internal/observability"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -211,7 +212,7 @@ func (s *AgentConversationService) processTurn(
 	)
 
 	stopPeriodicProgress()
-	result, err := s.finishAgentTurnCandidate(ctx, account, inbound, session, turn, input, plan, reply, runResult.Context, "succeeded")
+	result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, plan, reply, observations, "succeeded")
 	opErr = err
 	if err == nil && result.Turn.Status == domain.AgentTurnStatusSucceeded {
 		processStatus = domain.AgentTraceEventSucceeded
@@ -432,9 +433,6 @@ func (s *AgentConversationService) applyAgentPlanTerminalMetadata(ctx context.Co
 	now := s.now().UTC()
 	plan.Metadata = cloneApprovalMetadata(plan.Metadata)
 	plan.Metadata["execution_completeness"] = buildAgentExecutionCompletenessMetadata(plan, now)
-	if metadataMap(plan.Metadata, "answer_quality") == nil {
-		plan.Metadata["result_quality"] = domain.AgentJSON{"status": "not_evaluated", "score": 0.0, "reason": "final_answer_not_evaluated"}
-	}
 	plan.Metadata["cost_summary"] = buildAgentCostSummaryMetadata(plan, s.relatedScheduledTasksForPlan(ctx, userID, plan.ID), 0, now)
 	plan.Metadata["handoff"] = buildAgentHandoffMetadata(plan, s.agentNotificationPreference(ctx, userID), now)
 	plan.Metadata["runtime_observability"] = buildAgentRuntimeObservabilityMetadata(plan, metadataMap(plan.Metadata, "admission_policy"), now)
@@ -539,9 +537,17 @@ func (s *AgentConversationService) createPlanForTurn(
 		ControllerRunID: controllerRun.ID,
 		Goal:            input.TextContent,
 	}
-	route, routeErr := s.classifyAgentTaskRoute(ctx, account, session, turn, controllerRun, input)
-	if routeErr != nil {
-		return domain.AgentPlan{}, "", routeErr
+	loadProjection := sync.OnceValues(func() (domain.AgentJSON, error) {
+		return s.turnPlanningProjection(ctx, account, session, turn, input)
+	})
+	var route agentTaskRouteClassification
+	if routing, _ := ctx.Value(agentTurnRoutingKey{}).(*agentTurnRouting); routing != nil && routing.route != nil {
+		route = *routing.route
+	} else {
+		route, err = s.classifyAgentTaskRoute(ctx, account, session, turn, controllerRun, input, loadProjection)
+		if err != nil {
+			return domain.AgentPlan{}, "", err
+		}
 	}
 	mainPlan := mainAgentPlanSpecResult{}
 	if agentTaskRouteShouldUseLightPlan(route) {
@@ -554,9 +560,19 @@ func (s *AgentConversationService) createPlanForTurn(
 			Attempts:  1,
 			Validated: true,
 		}
+	} else if len(route.PlanSpec) > 0 && string(route.PlanSpec) != "null" {
+		spec, specErr := parseMainAgentPlanSpecJSON(string(route.PlanSpec))
+		if specErr == nil {
+			specErr = s.validateMainAgentPlanSpec(spec)
+		}
+		if specErr != nil {
+			failedPlan, createErr := s.createPlanningFailedPlan(ctx, account, session, turn, controllerRun, input, specErr)
+			return failedPlan, "", errors.Join(specErr, createErr)
+		}
+		mainPlan = mainAgentPlanSpecResult{Spec: spec, Provider: route.Provider, Model: route.Model, Raw: string(route.PlanSpec), Attempts: 1, Validated: true}
 	} else {
 		// 主 Agent 先由模型生成 PlanSpec，避免 service 层继续通过关键词硬编码推断用户意图。
-		mainPlan, err = s.buildMainAgentPlanSpec(ctx, account, session, turn, controllerRun, input)
+		mainPlan, err = s.buildMainAgentPlanSpec(ctx, account, session, turn, controllerRun, input, loadProjection)
 		if err != nil {
 			if fallbackSpec, ok := agentTaskRouteFallbackPlanSpec(route, input.TextContent); ok && mainAgentPlannerErrorAllowsRouteFallback(err) {
 				mainPlan = mainAgentPlanSpecResult{

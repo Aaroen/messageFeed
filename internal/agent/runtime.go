@@ -244,7 +244,7 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 	registry.Register(Capability{
 		Key:            "web.search",
 		Name:           "搜索网页",
-		Description:    "根据查询词返回候选网页，输出来源、抓取时间和摘要。",
+		Description:    "搜索公开网页，提供来源和摘要。支持正文的供应商可在同一次调用中返回正文；已有正文时按需补充读取。",
 		Mode:           CapabilityModeDeferred,
 		Risk:           CapabilityRiskLow,
 		DataDomain:     "external_web",
@@ -255,7 +255,11 @@ func NewP0CapabilityRegistry() *CapabilityRegistry {
 			"properties": map[string]any{
 				"query": map[string]any{
 					"type":        "string",
-					"description": "搜索关键词或自然语言查询。",
+					"description": "用于公开搜索的关键词，避免包含凭据、私人对话和账号信息。",
+				},
+				"include_content": map[string]any{
+					"type":        "boolean",
+					"description": "供应商支持时同时读取最多三篇正文，默认开启；只需要候选列表时填写 false。",
 				},
 				"limit": map[string]any{
 					"type":        "integer",

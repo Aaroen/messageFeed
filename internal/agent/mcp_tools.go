@@ -75,8 +75,9 @@ type MCPCallToolInput struct {
 // MCPCallToolResult 是内部 tools/call 的执行结果。
 // Result 使用 MCP 原生 ToolResult；Observation 保存本项目的审计与证据索引。
 type MCPCallToolResult struct {
-	Result      MCPToolResult
-	Observation CapabilityObservation
+	Result         MCPToolResult
+	Observation    CapabilityObservation
+	EvidenceBodies []string
 }
 
 // MCPToolsListResult 对应 MCP tools/list 的 result。

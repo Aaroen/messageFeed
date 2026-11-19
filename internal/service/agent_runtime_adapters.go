@@ -316,6 +316,7 @@ type agentP0CapabilityExecutor struct {
 	notificationJobs AgentNotificationJobStore
 	scheduledTasks   AgentScheduleEvalRepository
 	webFetcher       agentWebFetcher
+	firecrawl        *firecrawlMCP
 	factRetriever    *agentFactRetriever
 	now              func() time.Time
 }
@@ -702,8 +703,9 @@ type scheduleMessageToolArgs struct {
 }
 
 type webSearchToolArgs struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit"`
+	Query          string `json:"query"`
+	Limit          int    `json:"limit"`
+	IncludeContent *bool  `json:"include_content"`
 }
 
 type webURLToolArgs struct {
@@ -1285,6 +1287,9 @@ func (e agentP0CapabilityExecutor) summarizeTextTool(input agent.MCPCallToolInpu
 
 func (e agentP0CapabilityExecutor) webSearch(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	args := parseWebSearchToolArgs(input.RawArguments)
+	if e.firecrawl != nil {
+		return e.firecrawlSearch(ctx, input, args)
+	}
 	if args.Query == "" {
 		args.Query = strings.TrimSpace(input.Message)
 	}
@@ -1892,6 +1897,7 @@ type agentWebSearchResult struct {
 	Snippet     string
 	Source      string
 	PublishedAt string
+	Body        string
 }
 
 type agentWebExtractedPage struct {

@@ -55,11 +55,18 @@ func (r *AgentRepository) CommitAgentTurnResult(ctx context.Context, completion 
 			}
 			result.Plan = plan
 		}
-		if completion.ControllerRunID > 0 {
-			status := domain.AgentRunStatusSucceeded
-			if turn.Status == domain.AgentTurnStatusFailed {
-				status = domain.AgentRunStatusFailed
+		if turn.Status == domain.AgentTurnStatusFailed {
+			status := domain.AgentRunStatusFailed
+			if current.CancelRequested {
+				status = domain.AgentRunStatusCanceled
 			}
+			if err := transaction.Model(&agentRunModel{}).
+				Where("session_id = ? AND turn_id = ? AND status IN ?", turn.SessionID, turn.ID, []domain.AgentRunStatus{domain.AgentRunStatusRunning, domain.AgentRunStatusInputRequired}).
+				Updates(map[string]any{"status": status, "result_ref": fmt.Sprintf("turn:%d", turn.ID), "error_message": turn.ErrorMessage, "completed_at": now, "updated_at": now}).Error; err != nil {
+				return mapRepositoryError(err)
+			}
+		} else if completion.ControllerRunID > 0 {
+			status := domain.AgentRunStatusSucceeded
 			update := transaction.Model(&agentRunModel{}).
 				Where("id = ? AND session_id = ? AND turn_id = ? AND role = ? AND status = ?", completion.ControllerRunID, turn.SessionID, turn.ID, domain.AgentRunRoleController, domain.AgentRunStatusRunning).
 				Updates(map[string]any{"status": status, "result_ref": fmt.Sprintf("turn:%d", turn.ID), "error_message": turn.ErrorMessage, "completed_at": now, "updated_at": now})

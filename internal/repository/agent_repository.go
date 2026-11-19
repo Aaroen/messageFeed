@@ -598,7 +598,12 @@ func (r *AgentRepository) ClaimQueuedAgentTurns(ctx context.Context, input domai
 		if err := tx.WithContext(ctx).
 			Model(&agentTurnModel{}).
 			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("status = ?", string(domain.AgentTurnStatusQueued)).
+			Where("agent_turns.status = ?", domain.AgentTurnStatusQueued).
+			Where(`NOT EXISTS (
+				SELECT 1 FROM agent_turns AS earlier
+				WHERE earlier.session_id = agent_turns.session_id
+				AND (earlier.status = ? OR (earlier.status = ? AND (earlier.created_at, earlier.id) < (agent_turns.created_at, agent_turns.id)))
+			)`, domain.AgentTurnStatusRunning, domain.AgentTurnStatusQueued).
 			Order("created_at ASC, id ASC").
 			Limit(input.Limit).
 			Pluck("id", &ids).Error; err != nil {

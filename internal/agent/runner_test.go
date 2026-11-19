@@ -780,12 +780,11 @@ func TestTurnRunnerDoesNotReplaceModelReplyWithKeywordQualityGate(t *testing.T) 
 	}
 }
 
-func TestTurnRunnerRepairsMarkdownFinalReply(t *testing.T) {
+func TestTurnRunnerReturnsMarkdownFinalReplyWithoutAnotherCall(t *testing.T) {
 	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
 	chat := &runnerFakeChatClient{
 		responses: []llm.ChatResponse{
 			{Provider: "openai_compatible", Model: "custom-model", Content: "## 结论\n- 当前消息面偏谨慎\n- 继续观察资金流"},
-			{Provider: "openai_compatible", Model: "custom-model", Content: "结论：当前消息面偏谨慎。继续观察资金流。"},
 		},
 	}
 	audit := &runnerFakeAuditLogger{}
@@ -808,31 +807,22 @@ func TestTurnRunnerRepairsMarkdownFinalReply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.Reply != "结论：当前消息面偏谨慎。继续观察资金流。" {
+	if result.Reply != "## 结论\n- 当前消息面偏谨慎\n- 继续观察资金流" {
 		t.Fatalf("reply = %q", result.Reply)
 	}
-	if PlainTextReplyViolation(result.Reply) != "" {
-		t.Fatalf("reply still violates plain text format: %q", result.Reply)
+	if chat.calls != 1 {
+		t.Fatalf("chat calls = %d, want 1", chat.calls)
 	}
-	if chat.calls != 2 {
-		t.Fatalf("chat calls = %d, want 2", chat.calls)
-	}
-	if !runnerAuditContains(audit.events, "agent.plain_text_reply_repair_retry") {
+	if runnerAuditContains(audit.events, "agent.plain_text_reply_repair_retry") {
 		t.Fatalf("audit events = %#v", audit.events)
-	}
-	lastRequest := chat.requests[len(chat.requests)-1]
-	lastMessage := lastRequest.Messages[len(lastRequest.Messages)-1]
-	if lastMessage.Role != "user" || !strings.Contains(lastMessage.Content, "violation") {
-		t.Fatalf("repair prompt message = %#v", lastMessage)
 	}
 }
 
-func TestTurnRunnerRepairsIncompleteFinalReply(t *testing.T) {
+func TestTurnRunnerReturnsFinalReplyWithoutPunctuationReview(t *testing.T) {
 	now := time.Date(2026, 7, 4, 19, 0, 0, 0, time.UTC)
 	chat := &runnerFakeChatClient{
 		responses: []llm.ChatResponse{
-			{Provider: "openai_compatible", Model: "custom-model", Content: "央视网已发布完整赛程（链接：https"},
-			{Provider: "openai_compatible", Model: "custom-model", Content: "央视网已发布完整赛程。来源链接在本轮证据中不完整，建议以任务详情中的来源记录为准。"},
+			{Provider: "openai_compatible", Model: "custom-model", Content: "原文最后一个标点是："},
 		},
 	}
 	audit := &runnerFakeAuditLogger{}
@@ -854,13 +844,13 @@ func TestTurnRunnerRepairsIncompleteFinalReply(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if violation := PlainTextReplyCompletenessViolation(result.Reply); violation != "" {
-		t.Fatalf("reply completeness violation = %q reply=%q", violation, result.Reply)
+	if result.Reply != "原文最后一个标点是：" {
+		t.Fatalf("reply = %q", result.Reply)
 	}
-	if chat.calls != 2 {
-		t.Fatalf("chat calls = %d, want 2", chat.calls)
+	if chat.calls != 1 {
+		t.Fatalf("chat calls = %d, want 1", chat.calls)
 	}
-	if !runnerAuditContains(audit.events, "agent.reply_completeness_repair_retry") {
+	if runnerAuditContains(audit.events, "agent.reply_completeness_repair_retry") {
 		t.Fatalf("audit events = %#v", audit.events)
 	}
 }

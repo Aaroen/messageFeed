@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createApp, h, nextTick, reactive } from 'vue'
 import type { AgentActivity, AgentStreamItem } from '@/api/assistant'
 import AgentComposer from '@/components/agent/AgentComposer.vue'
@@ -65,20 +65,22 @@ describe('助理事件与执行树', () => {
     const app = createApp({ render: () => h(AgentReasoningStream, props) })
     app.mount(element)
     try {
-      expect(element.querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
+      const details = element.querySelector('details')!
+      expect(details.open).toBe(true)
       props.content = '资料核验过程。'.repeat(120) + '最新思考片段。'
       await nextTick()
-      expect(element.querySelector('button')?.getAttribute('aria-expanded')).toBe('false')
-      expect(element.querySelector('.reasoning-preview')?.textContent).toContain('最新思考片段。')
+      expect(details.open).toBe(false)
+      expect(element.querySelector('.reasoning-tail')?.textContent).toContain('最新思考片段。')
       props.content += '继续读取正文。'
       await nextTick()
-      expect(element.querySelector('.reasoning-preview')?.textContent).toContain('继续读取正文。')
-      element.querySelector('button')!.click()
-      await nextTick()
+      expect(element.querySelector('.reasoning-tail')?.textContent).toContain('继续读取正文。')
+      element.querySelector('summary')!.click()
+      expect(details.open).toBe(true)
+      await vi.waitFor(() => expect(element.querySelector('.reasoning-tail')).toBeNull())
       expect(element.querySelector('.reasoning-content')?.textContent).toContain('资料核验过程。'.repeat(120))
       props.active = false
       await nextTick()
-      expect(element.querySelector('button')?.getAttribute('aria-expanded')).toBe('true')
+      expect(details.open).toBe(true)
     } finally { app.unmount() }
   })
 
@@ -89,13 +91,15 @@ describe('助理事件与执行树', () => {
     }))
     const items = [{ run_id: 7, turn_id: 1, item_id: 'thinking', kind: 'reasoning', content: '正在制定检索计划。', stage: 'planning', name: '', phase: '', model_key: '' }] as AgentStreamItem[]
     const element = document.createElement('div')
-    const app = createApp({ render: () => h(AgentTurnActivity, { runs, items, status: 'running' }) })
+    const app = createApp({ render: () => h(AgentTurnActivity, { runs, items, status: 'running', replying: false }) })
     app.mount(element)
     try {
       await nextTick()
-      expect(element.querySelector('.turn-activity-toggle')?.getAttribute('aria-expanded')).toBe('false')
-      expect(element.querySelector('[aria-label="模型思考"]')?.textContent).toContain('正在制定检索计划。')
-      expect(element.querySelector('.turn-activity-body')).toBeNull()
+      const [reasoning, execution] = element.querySelectorAll('details')
+      expect(reasoning?.open).toBe(true)
+      expect(reasoning?.textContent).toContain('正在制定检索计划。')
+      expect(execution?.open).toBe(false)
+      expect(execution?.querySelector('.agent-details-content')).toBeNull()
     } finally { app.unmount() }
   })
 

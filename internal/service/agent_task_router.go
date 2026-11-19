@@ -21,6 +21,25 @@ const (
 	agentTaskRouteDeepTask    = "deep_task"
 )
 
+type agentTurnRoutingKey struct{}
+
+type agentTurnRouting struct {
+	route      *agentTaskRouteClassification
+	projection domain.AgentJSON
+}
+
+func (s *AgentConversationService) turnPlanningProjection(ctx context.Context, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, input ReceiveWeChatWorkAppMessageInput) (domain.AgentJSON, error) {
+	routing, _ := ctx.Value(agentTurnRoutingKey{}).(*agentTurnRouting)
+	if routing != nil && routing.projection != nil {
+		return routing.projection, nil
+	}
+	projection, err := s.mainAgentPlanningContextProjection(ctx, account, session, turn, input)
+	if err == nil && routing != nil {
+		routing.projection = projection
+	}
+	return projection, err
+}
+
 type agentTaskRouteClassification struct {
 	TaskType              string
 	Confidence            float64
@@ -34,21 +53,23 @@ type agentTaskRouteClassification struct {
 	Provider              string
 	Model                 string
 	Raw                   string
+	PlanSpec              json.RawMessage
 }
 
 type agentTaskRouteJSON struct {
-	TaskType              string   `json:"task_type"`
-	Confidence            float64  `json:"confidence"`
-	NeedsHistoryRecall    bool     `json:"needs_history_recall"`
-	NeedsTools            bool     `json:"needs_tools"`
-	RequiresSubAgent      bool     `json:"requires_sub_agent"`
-	EstimatedLatencyClass string   `json:"estimated_latency_class"`
-	HistoryQuery          string   `json:"history_query"`
-	CandidateCapabilities []string `json:"candidate_capabilities"`
-	Reason                string   `json:"reason"`
+	TaskType              string          `json:"task_type"`
+	Confidence            float64         `json:"confidence"`
+	NeedsHistoryRecall    bool            `json:"needs_history_recall"`
+	NeedsTools            bool            `json:"needs_tools"`
+	RequiresSubAgent      bool            `json:"requires_sub_agent"`
+	EstimatedLatencyClass string          `json:"estimated_latency_class"`
+	HistoryQuery          string          `json:"history_query"`
+	CandidateCapabilities []string        `json:"candidate_capabilities"`
+	Reason                string          `json:"reason"`
+	PlanSpec              json.RawMessage `json:"plan_spec"`
 }
 
-func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, controllerRun domain.AgentRun, input ReceiveWeChatWorkAppMessageInput) (agentTaskRouteClassification, error) {
+func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, controllerRun domain.AgentRun, input ReceiveWeChatWorkAppMessageInput, loadProjection func() (domain.AgentJSON, error)) (agentTaskRouteClassification, error) {
 	var startedAt time.Time
 	if s != nil {
 		startedAt = s.now().UTC()
@@ -64,7 +85,7 @@ func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, a
 		s.recordAgentTaskRouteTrace(ctx, input, account, session, turn, controllerRun, c, domain.AgentTraceEventDegraded, startedAt, "route_classifier_unavailable", "")
 		return c, nil
 	}
-	contextProjection, err := s.mainAgentPlanningContextProjection(ctx, account, session, turn, input)
+	contextProjection, err := loadProjection()
 	if err != nil {
 		return agentTaskRouteClassification{}, err
 	}
@@ -138,6 +159,7 @@ func parseAgentTaskRouteJSON(raw string) (agentTaskRouteClassification, error) {
 		HistoryQuery:          safeSummary(decoded.HistoryQuery, 300),
 		CandidateCapabilities: compactStrings(decoded.CandidateCapabilities),
 		Reason:                safeSummary(decoded.Reason, 500),
+		PlanSpec:              decoded.PlanSpec,
 	}, nil
 }
 

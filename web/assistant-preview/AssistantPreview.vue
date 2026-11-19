@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
-  IconApps, IconArrowDown, IconArrowLeft, IconArrowUp, IconBook, IconBranch, IconBulb, IconCheck,
-  IconClose, IconCompass, IconCopy, IconFile, IconList, IconMenuUnfold,
-  IconMoonFill, IconRight, IconStop, IconSunFill,
+  IconApps, IconArrowDown, IconArrowLeft, IconArrowUp, IconBook, IconBranch, IconCheck,
+  IconClose, IconCompass, IconCopy, IconFile, IconMenuUnfold,
+  IconMoonFill, IconStop, IconSunFill,
 } from '@arco-design/web-vue/es/icon'
 import AgentComposer from '../src/components/agent/AgentComposer.vue'
 import AgentMarkdown from '../src/components/agent/AgentMarkdown.vue'
+import AgentActivityDisclosure from '../src/components/agent/AgentActivityDisclosure.vue'
+import AgentReasoningStream from '../src/components/agent/AgentReasoningStream.vue'
 import AgentWorkspaceShell from '../src/components/agent/AgentWorkspaceShell.vue'
 import AgentSubagentList from '../src/components/agent/AgentSubagentList.vue'
 import AgentEffortSlider from '../src/components/agent/AgentEffortSlider.vue'
@@ -21,7 +23,6 @@ type Turn = {
   reasoning: string
   reply: string
   status: 'reasoning' | 'replying' | 'complete' | 'stopped'
-  summaryOpen: boolean | null
 }
 type Session = { id: number; title: string; draft: string; turns: Turn[] }
 type PreviewPage = FeedPage | 'agent' | 'agent/fullscreen'
@@ -94,7 +95,7 @@ const sessions = ref<Session[]>(examples.map((example, index) => ({
   id: index + 1,
   title: example.title,
   draft: '',
-  turns: [{ ...example, model: defaultModel.alias, status: 'complete', summaryOpen: null }],
+  turns: [{ ...example, model: defaultModel.alias, status: 'complete' }],
 })))
 const activeID = ref(1)
 const session = computed(() => sessions.value.find(entry => entry.id === activeID.value)!)
@@ -207,17 +208,13 @@ watch(activeTurn, async () => {
   if (followLatest.value) jumpToLatest()
 }, { deep: true, flush: 'post' })
 
-function summaryIsOpen(turn: Turn) {
-  return turn.summaryOpen ?? (turn.status === 'reasoning' && turn.reasoning.length <= 112)
-}
-
 function submit() {
   const prompt = session.value.draft.trim()
   if (!prompt || playing.value) return
   const example = examples.find(entry => entry.prompt === prompt) ?? examples[0]!
   if (!session.value.turns.length) session.value.title = prompt.replace(/\s+/g, ' ')
   session.value.draft = ''
-  const turnIndex = session.value.turns.push({ prompt, model: model.value.alias, reasoning: '', reply: '', status: 'reasoning', summaryOpen: null }) - 1
+  const turnIndex = session.value.turns.push({ prompt, model: model.value.alias, reasoning: '', reply: '', status: 'reasoning' }) - 1
   const turn = session.value.turns[turnIndex]!
   inspectedTurn.value = null
   selectedAgent.value = null
@@ -322,12 +319,10 @@ async function copyReply(reply: string, index: number) {
                 <div class="answer-byline"><span class="assistant-mark" aria-hidden="true"><IconApps /></span><strong>助理</strong><span class="turn-model">{{ turn.model }}</span></div>
 
                 <div class="activity" :aria-label="`第 ${index + 1} 次回复的活动`">
-                  <button v-if="turn.reasoning" type="button" class="activity-toggle" :aria-expanded="summaryIsOpen(turn)" @click="turn.summaryOpen = !summaryIsOpen(turn)"><IconBulb /><span>思考摘要</span><span class="activity-meta">{{ turn.status === 'reasoning' ? '正在播放' : '示例' }}</span><IconRight class="disclosure" /></button>
-                  <p v-if="summaryIsOpen(turn) && turn.reasoning" class="summary-text">{{ turn.reasoning }}</p>
-                  <details v-if="turn.reply || turn.status === 'complete'" class="execution">
-                    <summary class="activity-toggle"><IconList /><span>执行详情</span><span class="activity-meta">{{ stages.length }} 项示例活动</span><IconRight class="disclosure" /></summary>
-                    <ol><li v-for="stage in stages" :key="stage"><IconCheck aria-hidden="true" />{{ stage }}</li></ol>
-                  </details>
+                  <AgentReasoningStream v-if="turn.reasoning" :content="turn.reasoning" :active="turn.status === 'reasoning'" preview-mode />
+                  <AgentActivityDisclosure v-if="turn.reply || turn.status === 'complete'" kind="execution" :meta="`${stages.length} 项示例活动`">
+                    <ol class="execution"><li v-for="stage in stages" :key="stage"><IconCheck aria-hidden="true" />{{ stage }}</li></ol>
+                  </AgentActivityDisclosure>
                 </div>
 
                 <AgentMarkdown v-if="turn.reply" :content="turn.reply" />

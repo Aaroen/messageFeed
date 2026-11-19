@@ -17,6 +17,8 @@ func agentTaskRouterSystemPrompt() string {
 
 使用工具不代表需要子 Agent。单次查询、历史检索和依次读取后生成回答，均设置 requires_sub_agent=false。只有包含至少两个独立工作单元、涉及至少三种不同能力并且并行执行可以减少等待时间时，才设置 requires_sub_agent=true；复杂推理和最终决策由主 Agent 完成。
 
+需要执行 deep_task 时同时输出 plan_spec，按其字段提供可执行计划，保留当前消息的约束、必要证据和确认条件。通过 capability key 指定计划步骤。quick_answer 和 rag_answer 的 plan_spec 为 null。
+
 输出必须是一个 JSON 对象，不要 Markdown，不要解释。`
 }
 
@@ -39,6 +41,7 @@ func agentTaskRouterSchemaHint() domain.AgentJSON {
 		"history_query":           "需要历史召回时填写简短查询；否则为空字符串",
 		"candidate_capabilities":  "string[]，当 needs_tools 或 requires_sub_agent 为 true 时，从 payload.capabilities 中选择后续执行可能需要的 capability key；quick_answer 可为空",
 		"reason":                  "一句中文说明，用于用户侧展示主 Agent 判断依据",
+		"plan_spec":               mainAgentPlanSpecSchemaHint(),
 	}
 }
 

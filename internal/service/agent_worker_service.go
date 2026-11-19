@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"messagefeed/internal/domain"
 	"strings"
@@ -56,18 +57,21 @@ func (s *AgentConversationService) RunAgentWorkerOnce(ctx context.Context, input
 	if err != nil {
 		return AgentWorkerResult{}, err
 	}
-	result := AgentWorkerResult{ClaimedCount: len(claimed)}
+	statuses := make(chan domain.AgentTurn, len(claimed))
 	for _, turn := range claimed {
-		if err := s.processClaimedAgentTurn(ctx, workerRepository, turn); err != nil {
-			latest, getErr := workerRepository.GetAgentTurn(ctx, turn.UserID, turn.ID)
-			if getErr == nil && latest.CancelRequested {
-				result.Canceled++
-			} else {
-				result.Failed++
+		go func() {
+			processErr := s.processClaimedAgentTurn(ctx, workerRepository, turn)
+			latest, err := workerRepository.GetAgentTurn(ctx, turn.UserID, turn.ID)
+			if err != nil || processErr != nil && latest.Status != domain.AgentTurnStatusSucceeded {
+				latest.Status = domain.AgentTurnStatusFailed
 			}
-			continue
-		}
-		switch turnStatus, _ := workerRepository.GetAgentTurn(ctx, turn.UserID, turn.ID); turnStatus.Status {
+			statuses <- latest
+		}()
+	}
+	result := AgentWorkerResult{ClaimedCount: len(claimed)}
+	for range claimed {
+		turnStatus := <-statuses
+		switch turnStatus.Status {
 		case domain.AgentTurnStatusSucceeded:
 			result.Succeeded++
 		case domain.AgentTurnStatusFailed:
@@ -150,6 +154,7 @@ func (s *AgentConversationService) processClaimedAgentTurnUnlocked(ctx context.C
 
 	entry := s.userTranscriptForTurn(ctx, turn, inbound)
 	defer s.captureMemoryCandidateFromTranscriptAsync(ctx, entry)
+	ctx = context.WithValue(ctx, agentTurnRoutingKey{}, &agentTurnRouting{})
 	if handled, handledResult, processErr := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, input); processErr != nil {
 		if handledResult.Turn.ID > 0 {
 			return s.failClaimedAgentTurn(ctx, repository, handledResult.Turn, processErr)
@@ -187,6 +192,8 @@ func (s *AgentConversationService) failClaimedAgentTurn(ctx context.Context, rep
 	if cause == nil {
 		cause = fmt.Errorf("agent worker failed")
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	current, err := repository.GetAgentTurn(ctx, turn.UserID, turn.ID)
 	if err != nil {
 		return err
@@ -197,19 +204,40 @@ func (s *AgentConversationService) failClaimedAgentTurn(ctx context.Context, rep
 		}
 		return cause
 	}
-	turn = current
+	completed, err := s.commitFailedAgentTurn(ctx, current, cause)
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	return errors.Join(cause, s.releaseClaimedAgentTurn(ctx, repository, completed.Turn))
+}
+
+func (s *AgentConversationService) commitFailedAgentTurn(ctx context.Context, turn domain.AgentTurn, cause error) (domain.AgentTurnCompletionResult, error) {
 	now := s.now().UTC()
 	turn.Status = domain.AgentTurnStatusFailed
 	turn.ErrorMessage = cause.Error()
-	turn.FinishedAt = &now
-	turn.LockedBy = ""
-	turn.LockedAt = nil
-	turn.LeaseUntil = nil
-	if _, err := repository.UpdateTurnIfOwned(ctx, turn, strings.TrimSpace(s.workerID)); err != nil {
-		return err
+	if turn.CancelRequested && strings.TrimSpace(turn.CancelReason) != "" {
+		turn.ErrorMessage = turn.CancelReason
 	}
-	_, _ = s.repository.UpdateInboundMessageStatus(ctx, turn.UserID, turn.InboundMessageID, domain.AgentInboundMessageStatusFailed, now)
-	return cause
+	plans, err := s.repository.ListAgentPlans(ctx, turn.UserID, turn.SessionID, turn.ID, 1)
+	if err != nil {
+		return domain.AgentTurnCompletionResult{}, err
+	}
+	completion := domain.AgentTurnCompletion{Turn: turn, WorkerID: s.workerID, CompletedAt: now}
+	if len(plans) > 0 && agentPlanCanStop(plans[0].Status) {
+		plan, err := s.repository.GetAgentPlan(ctx, turn.UserID, plans[0].ID)
+		if err != nil {
+			return domain.AgentTurnCompletionResult{}, err
+		}
+		plan.Status = domain.AgentPlanStatusFailed
+		plan.ErrorMessage = turn.ErrorMessage
+		for index, step := range plan.Steps {
+			plan.Steps[index] = convergeUnobservedPlanStep(step, now)
+		}
+		plan.Metadata = cloneApprovalMetadata(plan.Metadata)
+		plan.Metadata["execution_completeness"] = buildAgentExecutionCompletenessMetadata(plan, now)
+		completion.Plan = plan
+	}
+	return s.repository.CommitAgentTurnResult(ctx, completion)
 }
 
 func (s *AgentConversationService) releaseClaimedAgentTurn(ctx context.Context, repository AgentTurnWorkerRepository, turn domain.AgentTurn) error {

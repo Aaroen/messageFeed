@@ -2,21 +2,23 @@
 import { computed, ref, watch } from 'vue'
 import { getAgentActivity, type AgentActivity, type AgentStreamItem } from '@/api/assistant'
 import { formatAPIError } from '@/api/client'
-import { isActiveStatus, runLabel } from '@/utils/assistant'
+import { isActiveStatus, readableActivityText } from '@/utils/assistant'
+import AgentActivityDisclosure from './AgentActivityDisclosure.vue'
 import AgentReasoningStream from './AgentReasoningStream.vue'
 import AgentRunDetails from './AgentRunDetails.vue'
 
-const props = defineProps<{ runs: AgentActivity[]; items: AgentStreamItem[]; status: string }>()
-const manualOpen = ref<boolean | null>(null)
+const props = defineProps<{ runs: AgentActivity[]; items: AgentStreamItem[]; status: string; replying: boolean }>()
+const executionOpen = ref(false)
 const selectedID = ref(0)
 const detail = ref<AgentActivity | null>(null)
 const loading = ref(false)
 const error = ref('')
 let version = 0
-const reasoning = computed(() => props.items.filter((item) => item.kind === 'reasoning' && item.content).map((item) => item.content).join('\n\n'))
-const lengthy = computed(() => props.runs.length > 6)
-const expanded = computed(() => manualOpen.value ?? (isActiveStatus(props.status) && !lengthy.value))
-const current = computed(() => [...props.runs].reverse().find((run) => isActiveStatus(run.status)))
+const privateStages = ['evaluation', 'memory_classification', 'repair', 'rerank', 'feedback']
+const activities = computed(() => props.runs.filter((run) => ['model', 'tool'].includes(run.kind) && !privateStages.includes(run.stage ?? '')))
+const reasoning = computed(() => props.items
+  .filter((item) => item.kind === 'reasoning' && item.content && !privateStages.includes(item.stage))
+  .map((item) => readableActivityText(item.content)).filter(Boolean).join('\n\n'))
 
 async function select(id: number) {
   const currentVersion = ++version
@@ -32,26 +34,19 @@ async function select(id: number) {
 }
 
 watch(() => props.runs.find((run) => run.id === selectedID.value)?.updated_at, (updated) => {
-  if (expanded.value && detail.value && updated !== detail.value.updated_at) void select(selectedID.value)
+  if (executionOpen.value && detail.value && updated !== detail.value.updated_at) void select(selectedID.value)
 })
 </script>
 
 <template>
-  <AgentReasoningStream v-if="reasoning" :content="reasoning" :active="isActiveStatus(status)" />
-  <section v-if="runs.length" class="turn-activity" aria-label="执行详情">
-    <button type="button" class="turn-activity-toggle" :aria-expanded="expanded" @click="manualOpen = !expanded"><i :class="{ active: isActiveStatus(status) }" /><span>{{ current ? runLabel(current) : '执行详情' }}</span><small>{{ runs.length }} 项活动 · {{ expanded ? '收起' : '展开' }}</small></button>
-    <div v-if="expanded" class="turn-activity-body">
-      <AgentRunDetails :runs="runs" :selected-i-d="selectedID" :detail="detail" :loading="loading" :error="error" @select="select" />
-    </div>
-  </section>
+  <div v-if="reasoning || activities.length" class="turn-activity" aria-label="回复活动">
+    <AgentReasoningStream v-if="reasoning" :content="reasoning" :active="isActiveStatus(status) && !replying" />
+    <AgentActivityDisclosure v-if="activities.length" kind="execution" :meta="`${activities.length} 项活动`" @toggle-open="executionOpen = $event">
+      <AgentRunDetails v-if="executionOpen" :runs="activities" :selected-i-d="selectedID" :detail="detail" :loading="loading" :error="error" @select="select" />
+    </AgentActivityDisclosure>
+  </div>
 </template>
 
 <style scoped>
-.turn-activity { margin: 0 0 18px; border: 1px solid var(--mf-border); border-radius: 10px; overflow: hidden; }
-.turn-activity-toggle { display: flex; align-items: center; gap: 9px; width: 100%; padding: 12px; background: transparent; border: 0; color: var(--mf-text-muted); font: inherit; font-size: 12px; cursor: pointer; text-align: left; }
-.turn-activity-toggle i { width: 6px; height: 6px; border-radius: 50%; background: #399b72; flex-shrink: 0; }
-.turn-activity-toggle i.active { background: #b98336; }
-.turn-activity-toggle span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.turn-activity-toggle small { white-space: nowrap; font-size: 10px; }
-.turn-activity-body { border-top: 1px solid var(--mf-border); max-height: 560px; overflow: auto; overscroll-behavior: contain; }
+.turn-activity { margin: 0 0 17px; }
 </style>

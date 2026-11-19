@@ -161,6 +161,7 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	)
 	agentConversationService := service.NewAgentConversationService(agentRepository,
 		service.WithAgentConversationLLM(agentLLMRuntime),
+		service.WithAgentConversationFirecrawl(cfg.FirecrawlAPIKey),
 		service.WithAgentConversationSender(sender),
 		service.WithAgentConversationExternalAccountResolver(authService),
 		service.WithAgentConversationUserContextProvider(authService),
@@ -174,6 +175,7 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	if plan.API {
 		agentConversationService = service.NewAgentConversationService(agentRepository,
 			service.WithAgentConversationLLM(agentLLMRuntime),
+			service.WithAgentConversationFirecrawl(cfg.FirecrawlAPIKey),
 			service.WithAgentConversationSender(sender),
 			service.WithAgentConversationExternalAccountResolver(authService),
 			service.WithAgentConversationUserContextProvider(authService),

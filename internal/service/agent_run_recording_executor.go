@@ -106,10 +106,12 @@ func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCP
 	result, callErr := e.base.CallTool(ctx, input)
 	result, executionErr := agent.NormalizeToolResult(result, callErr)
 	var recordErr error
-	bodies := make([]string, 0, len(result.Result.Content))
-	for _, block := range result.Result.Content {
-		if block.Type == "text" {
-			bodies = append(bodies, block.Text)
+	bodies := result.EvidenceBodies
+	if len(bodies) == 0 {
+		for _, block := range result.Result.Content {
+			if block.Type == "text" {
+				bodies = append(bodies, block.Text)
+			}
 		}
 	}
 	result.Observation, recordErr = e.recordExecutorResult(ctx, run, input.Capability.Key, input.RawArguments, result.Observation, result.TextContent(), executionErr, bodies...)

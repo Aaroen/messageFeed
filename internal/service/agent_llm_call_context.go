@@ -30,7 +30,6 @@ const (
 	AgentLLMCallStageMemoryClassification AgentLLMCallStage = "memory_classification"
 	AgentLLMCallStageRerank               AgentLLMCallStage = "rerank"
 	AgentLLMCallStageEvidence             AgentLLMCallStage = "evidence"
-	AgentLLMCallStageEvaluation           AgentLLMCallStage = "evaluation"
 	AgentLLMCallPromptVersion                               = "agent-llm-call-v1"
 )
 
@@ -85,7 +84,7 @@ func agentLLMCallContextFromContext(ctx context.Context) (AgentLLMCallContext, e
 	case AgentLLMCallStageRoute, AgentLLMCallStagePlanning, AgentLLMCallStageFollowupIntent,
 		AgentLLMCallStageFollowupAnswer, AgentLLMCallStageGeneration, AgentLLMCallStageFeedback,
 		AgentLLMCallStageRepair, AgentLLMCallStageMemoryClassification, AgentLLMCallStageRerank,
-		AgentLLMCallStageEvidence, AgentLLMCallStageEvaluation:
+		AgentLLMCallStageEvidence:
 	default:
 		return AgentLLMCallContext{}, agentLLMCallContextError("agent llm call stage is invalid")
 	}

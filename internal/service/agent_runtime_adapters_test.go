@@ -5,10 +5,23 @@ import (
 	"errors"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestAgentFirecrawlMCPProvider(test *testing.T) {
+	if os.Getenv("RUN_FIRECRAWL_MCP_TEST") != "1" {
+		test.Skip("设置 RUN_FIRECRAWL_MCP_TEST=1 后执行真实联网验收")
+	}
+	provider := newFirecrawlMCP(os.Getenv("FIRECRAWL_API_KEY"))
+	results, err := provider.search(context.Background(), "site:go.dev Go release notes", 1, true)
+	if err != nil || len(results) != 1 || results[0].Body == "" || results[0].URL == "" {
+		test.Fatalf("Firecrawl MCP 未返回来源与正文：%d 条，%v", len(results), err)
+	}
+	test.Logf("Firecrawl 已返回 %s 的正文，共 %d 字节，发布日期：%s", results[0].URL, len(results[0].Body), firstNonEmptyString(results[0].PublishedAt, "未知"))
+}
 
 func TestAgentRecentItemsRetainsBodyWithoutSummary(test *testing.T) {
 	publishedAt := time.Date(2026, 11, 17, 8, 49, 51, 0, time.UTC)

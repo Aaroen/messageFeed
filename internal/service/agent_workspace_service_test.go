@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/repository"
@@ -20,9 +22,9 @@ import (
 func TestAgentWorkspacePublicActivity(test *testing.T) {
 	run := AgentRunResponse{
 		ID: 3, ParentRunID: 2, TurnID: 1, Role: "executor", Status: "succeeded",
-		TaskPacket: domain.AgentJSON{"goal": "整理公开资料", "tool_arguments": "内部参数"},
+		TaskPacket:    domain.AgentJSON{"goal": "整理公开资料", "tool_arguments": "内部参数"},
 		ContextTraces: []AgentRunContextTraceResponse{{Content: domain.AgentJSON{"messages": "内部上下文"}}},
-		Artifacts: []AgentArtifactResponse{{Summary: `{"tool_arguments":"内部参数"}`}, {Summary: "已整理三项资料。"}},
+		Artifacts:     []AgentArtifactResponse{{Summary: `{"tool_arguments":"内部参数"}`}, {Summary: "已整理三项资料。"}},
 	}
 	activity := PublicAgentActivity(run)
 	if activity.Kind != "subagent" || activity.Title != "整理公开资料" || len(activity.Results) != 1 || activity.Results[0] != "已整理三项资料。" {
@@ -177,7 +179,7 @@ func TestAgentBatchEvidenceDatabaseRoundTrip(test *testing.T) {
 		test.Fatalf("资讯未被保存为独立证据：%v", err)
 	}
 	for index, artifact := range detail.Artifacts {
-		if artifact.Content != bodies[index] || artifact.ContentHash != agentAnswerContentHash(bodies[index]) {
+		if artifact.Content != bodies[index] || artifact.ContentHash != fmt.Sprintf("%x", sha256.Sum256([]byte(bodies[index]))) {
 			test.Fatal("独立证据的正文或校验值不完整")
 		}
 	}

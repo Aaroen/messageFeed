@@ -207,9 +207,17 @@ func buildAgentScheduledTaskRecoveryMetadata(task domain.AgentScheduledTask, rea
 }
 
 func buildAgentExecutionCompletenessMetadata(plan domain.AgentPlan, now time.Time) domain.AgentJSON {
-	metadata := agentAnswerExecutionCompleteness(plan)
-	metadata["recorded_at"] = now.UTC().Format(time.RFC3339)
-	return metadata
+	counts := map[string]int{}
+	for _, step := range plan.Steps {
+		counts[string(step.Status)]++
+	}
+	status := "completed"
+	if counts[string(domain.AgentPlanStepStatusFailed)] > 0 {
+		status = "failed"
+	} else if counts[string(domain.AgentPlanStepStatusCompleted)]+counts[string(domain.AgentPlanStepStatusSkipped)] != len(plan.Steps) {
+		status = "incomplete"
+	}
+	return domain.AgentJSON{"status": status, "total_steps": len(plan.Steps), "step_status_counts": counts, "evaluates_answer_content": false, "recorded_at": now.UTC().Format(time.RFC3339)}
 }
 
 func buildAgentCostSummaryMetadata(plan domain.AgentPlan, relatedTasks []domain.AgentScheduledTask, notificationCount int, now time.Time) domain.AgentJSON {

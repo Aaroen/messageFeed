@@ -89,6 +89,7 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 	turn domain.AgentTurn,
 	controllerRun domain.AgentRun,
 	input ReceiveWeChatWorkAppMessageInput,
+	loadProjection func() (domain.AgentJSON, error),
 ) (mainAgentPlanSpecResult, error) {
 	startedAt := s.now().UTC()
 	ctx, span := observability.StartSpan(ctx, "service.agent.planner",
@@ -147,7 +148,7 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 		return mainAgentPlanSpecResult{}, plannerErr
 	}
 	contextStartedAt := s.now().UTC()
-	contextProjection, err := s.mainAgentPlanningContextProjection(ctx, account, session, turn, input)
+	contextProjection, err := loadProjection()
 	contextFinishedAt, contextDurationMS := agentTraceFinish(contextStartedAt, s.now)
 	contextStatus := agentTraceStatusFromError(err)
 	s.recordAgentTraceEvent(ctx, domain.AgentTraceEvent{

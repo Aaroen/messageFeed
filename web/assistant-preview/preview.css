@@ -85,16 +85,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 .turn-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
 .activity { margin-bottom: 17px; }
 .activity:empty { display: none; }
-.activity-toggle { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 33px; border-radius: 6px; padding-inline: 6px; color: var(--muted); text-align: start; font-size: 13px; }
-.activity-toggle:hover { background: var(--detail); }
-.activity-toggle svg:first-child { color: var(--accent); flex: none; }
-.activity-meta { padding-inline-start: 2px; font-size: 11px; }
-.activity-toggle .disclosure { margin-inline-start: auto; }
-.preview-surface .disclosure { width: 12px; height: 12px; color: var(--muted); flex: none; }
-[aria-expanded='true'] > .disclosure, details[open] > summary .disclosure { transform: rotate(90deg); }
-summary::-webkit-details-marker { display: none; }
-.summary-text, .execution ol { margin: 3px 0 7px; padding: 8px 14px; border-radius: 6px; background: var(--detail); color: var(--muted); font-size: 13px; line-height: 1.7; }
-.summary-text { max-height: 180px; overflow: auto; overscroll-behavior: contain; }
+.execution { margin: 0; padding: 0; }
 .execution li { display: flex; align-items: center; gap: 8px; padding-block: 3px; }
 .execution li svg { color: var(--mf-aqua); flex: none; }
 .turn-footer { margin-top: 15px; display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
@@ -185,6 +176,6 @@ dialog::backdrop { background: var(--scrim); }
 
 @media (max-width: 799px), (pointer: coarse) {
   .icon-button, .send-button { min-width: 44px; min-height: 44px; }
-  .activity-toggle, .turn-agents, .session-item, .suggestions button, .jump-button { min-height: 44px; }
+  .turn-agents, .session-item, .suggestions button, .jump-button { min-height: 44px; }
   .sidebar-header .icon-button { margin-inline-end: -5px; }
 }
