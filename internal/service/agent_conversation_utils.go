@@ -260,6 +260,7 @@ func agentTurnResponse(turn domain.AgentTurn) AgentTurnResponse {
 		OutputText:       turn.OutputText,
 		ModelProvider:    turn.ModelProvider,
 		Model:            turn.Model,
+		ModelConfigID:    turn.ModelConfigID,
 		CancelRequested:  turn.CancelRequested,
 		CancelReason:     turn.CancelReason,
 		ErrorMessage:     turn.ErrorMessage,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"messagefeed/internal/domain"
+	"strings"
 	"time"
 )
 
@@ -45,11 +46,68 @@ type AgentStreamItem struct {
 type AgentWorkspaceResponse struct {
 	Session AgentSessionResponse `json:"session"`
 	Turns   []AgentTurnResponse  `json:"turns"`
-	Runs    []AgentRunResponse   `json:"runs"`
+	Runs    []AgentActivity      `json:"runs"`
 	Plans   []AgentPlanResponse  `json:"plans"`
 	Items   []AgentStreamItem    `json:"items"`
 	Cursor  int64                `json:"cursor"`
 	HasMore bool                 `json:"has_more"`
+}
+
+type AgentActivity struct {
+	ID          int64    `json:"id"`
+	ParentRunID int64    `json:"parent_run_id"`
+	TurnID      int64    `json:"turn_id"`
+	Kind        string   `json:"kind"`
+	Stage       string   `json:"stage,omitempty"`
+	Capability  string   `json:"capability,omitempty"`
+	Title       string   `json:"title,omitempty"`
+	Status      string   `json:"status"`
+	StartedAt   string   `json:"started_at"`
+	CompletedAt string   `json:"completed_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at"`
+	Results     []string `json:"results,omitempty"`
+}
+
+func PublicAgentActivity(run AgentRunResponse) AgentActivity {
+	activity := AgentActivity{
+		ID: run.ID, ParentRunID: run.ParentRunID, TurnID: run.TurnID, Status: run.Status,
+		StartedAt: run.StartedAt, CompletedAt: run.CompletedAt, UpdatedAt: run.UpdatedAt,
+	}
+	activity.Stage, _ = run.TaskPacket["stage"].(string)
+	activity.Capability, _ = run.TaskPacket["capability_key"].(string)
+	switch {
+	case run.Role == "controller":
+		activity.Kind = "controller"
+	case activity.Capability != "":
+		activity.Kind = "tool"
+	case activity.Stage != "":
+		activity.Kind = "model"
+	default:
+		activity.Kind = "subagent"
+		for _, key := range []string{"title", "goal", "task", "description"} {
+			value, _ := run.TaskPacket[key].(string)
+			if title := publicActivityText(value); title != "" {
+				activity.Title = title
+				break
+			}
+		}
+	}
+	if activity.Kind == "subagent" || activity.Kind == "tool" {
+		for _, artifact := range run.Artifacts {
+			if summary := publicActivityText(artifact.Summary); summary != "" {
+				activity.Results = append(activity.Results, summary)
+			}
+		}
+	}
+	return activity
+}
+
+func publicActivityText(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "{") || strings.HasPrefix(value, "[") || strings.HasPrefix(value, "```") {
+		return ""
+	}
+	return value
 }
 
 func (s *AgentSessionService) GetWorkspace(ctx context.Context, auth CurrentAuth, sessionID, beforeTurnID int64) (AgentWorkspaceResponse, error) {
@@ -83,12 +141,12 @@ func (s *AgentSessionService) GetWorkspaceState(ctx context.Context, auth Curren
 }
 
 func agentWorkspaceResponse(data domain.AgentWorkspaceData) AgentWorkspaceResponse {
-	result := AgentWorkspaceResponse{Session: agentSessionResponse(data.Session, domain.AgentSessionStats{}, false), Turns: []AgentTurnResponse{}, Runs: []AgentRunResponse{}, Plans: []AgentPlanResponse{}, Items: agentStreamItems(data.Events), Cursor: data.Cursor, HasMore: data.HasMore}
+	result := AgentWorkspaceResponse{Session: agentSessionResponse(data.Session, domain.AgentSessionStats{}, false), Turns: []AgentTurnResponse{}, Runs: []AgentActivity{}, Plans: []AgentPlanResponse{}, Items: agentStreamItems(data.Events), Cursor: data.Cursor, HasMore: data.HasMore}
 	for _, turn := range data.Turns {
 		result.Turns = append(result.Turns, agentTurnResponse(turn))
 	}
 	for _, run := range data.Runs {
-		result.Runs = append(result.Runs, agentRunResponse(run, false))
+		result.Runs = append(result.Runs, PublicAgentActivity(agentRunResponse(run, false)))
 	}
 	for _, plan := range data.Plans {
 		result.Plans = append(result.Plans, agentPlanResponse(plan, false))

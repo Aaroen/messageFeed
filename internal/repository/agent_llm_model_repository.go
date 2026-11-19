@@ -47,7 +47,7 @@ func (r *AgentRepository) SetAgentLLMModels(ctx context.Context, userID, configI
 			if model.ConfigID != configID || model.Model == "" {
 				return fmt.Errorf("%w: 模型所属供应商无效", domain.ErrInvalidInput)
 			}
-			if err := transaction.Table("agent_llm_models").Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "config_id"}, {Name: "model"}}, DoUpdates: clause.AssignmentColumns([]string{"enabled", "guest_enabled"})}).Create(&model).Error; err != nil {
+			if err := transaction.Table("agent_llm_models").Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "config_id"}, {Name: "model"}}, DoUpdates: clause.AssignmentColumns([]string{"enabled", "guest_enabled", "display_name"})}).Create(&model).Error; err != nil {
 				return err
 			}
 		}

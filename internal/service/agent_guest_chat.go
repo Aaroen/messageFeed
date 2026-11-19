@@ -21,10 +21,11 @@ type AgentGuestMessage struct {
 }
 
 type AgentGuestChatInput struct {
-	ConfigID       int64               `json:"config_id"`
-	Model          string              `json:"model"`
-	Messages       []AgentGuestMessage `json:"messages"`
-	ConversationID int64               `json:"conversation_id"`
+	ConfigID        int64               `json:"config_id"`
+	Model           string              `json:"model"`
+	Messages        []AgentGuestMessage `json:"messages"`
+	ConversationID  int64               `json:"conversation_id"`
+	ReasoningEffort string              `json:"reasoning_effort"`
 }
 
 type AgentGuestChatResult struct {
@@ -96,6 +97,9 @@ func (s *AgentLLMConfigService) GuestChat(ctx context.Context, clientAddress str
 	if err != nil {
 		return AgentGuestChatResult{}, err
 	}
+	if err := s.validateReasoningEffort(ctx, configuration, input.ReasoningEffort); err != nil {
+		return AgentGuestChatResult{}, err
+	}
 	client, err := s.clientForConfig(configuration)
 	if err != nil {
 		return AgentGuestChatResult{}, err
@@ -145,7 +149,7 @@ func (s *AgentLLMConfigService) GuestChat(ctx context.Context, clientAddress str
 		}
 	}
 	messages = append(messages, llm.ChatMessage{Role: "user", Content: input.Messages[len(input.Messages)-1].Content})
-	response, err := client.Chat(ctx, llm.ChatRequest{Messages: messages, MaxTokens: 2048, OnEvent: emit})
+	response, err := client.Chat(ctx, llm.ChatRequest{Messages: messages, MaxTokens: 2048, ReasoningEffort: input.ReasoningEffort, OnEvent: emit})
 	if err == nil && strings.TrimSpace(response.Content) == "" {
 		err = fmt.Errorf("供应商未返回回答正文")
 	}

@@ -169,6 +169,7 @@ type AgentTurn struct {
 	OutputText       string
 	ModelProvider    string
 	Model            string
+	ModelConfigID    int64
 	ErrorMessage     string
 	DeliveryStatus   string
 	DeliveryError    string

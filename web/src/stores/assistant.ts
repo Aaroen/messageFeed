@@ -13,8 +13,8 @@ export const useAssistantStore = defineStore('assistant', () => {
   const loading = ref(false)
   const sending = ref(false)
   const error = ref('')
-  const connection = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'>('idle')
-  const pendingMessage = ref('')
+  const pending = ref<{ sessionID: number; message: string } | null>(null)
+  const pendingMessage = computed(() => pending.value?.sessionID === sessionID.value ? pending.value.message : '')
   const models = ref<AgentModel[]>([])
   const selectedModelKey = ref(localStorage.getItem('mf-assistant-selected-model') || '')
   const selectedModel = computed(() => models.value.find((model) => modelSelectionKey(model) === selectedModelKey.value))
@@ -26,7 +26,6 @@ export const useAssistantStore = defineStore('assistant', () => {
   function disconnect() {
     source?.close()
     source = null
-    connection.value = 'idle'
   }
 
   async function loadSessions() {
@@ -43,6 +42,9 @@ export const useAssistantStore = defineStore('assistant', () => {
 
   function applySnapshot(snapshot: AgentWorkspace) {
     const previous = workspaces.value[snapshot.session.id]
+    const previousLatest = previous?.turns[previous.turns.length - 1]
+    const snapshotLatest = snapshot.turns[snapshot.turns.length - 1]
+    if (previousLatest && isActiveStatus(previousLatest.status) && previousLatest.id > (snapshotLatest?.id || 0)) return
     const earlierTurns = previous?.turns.filter((turn) => turn.id < (snapshot.turns[0]?.id || 0)) || []
     if (earlierTurns.length) {
       snapshot.turns = [...earlierTurns, ...snapshot.turns]
@@ -62,20 +64,28 @@ export const useAssistantStore = defineStore('assistant', () => {
     else sessions.value.unshift(snapshot.session)
   }
 
+  async function refreshWorkspace(id: number, version: number) {
+    const snapshot = await getAgentWorkspace(id)
+    if (version !== selectionVersion) return
+    applySnapshot(snapshot)
+    if (active.value) connect(id)
+  }
+
   function connect(id: number) {
-    disconnect()
-    connection.value = 'connecting'
+    if (source) return
+    const version = selectionVersion
     const cursor = workspaces.value[id]?.cursor || 0
     const stream = new EventSource(`/api/v1/agent/sessions/${id}/events?after_id=${cursor}`, { withCredentials: true })
     source = stream
-    stream.onopen = () => { if (source === stream) connection.value = 'connected' }
     stream.onerror = () => {
-      if (source !== stream) return
-      connection.value = stream.readyState === EventSource.CLOSED ? 'failed' : 'reconnecting'
+      if (source !== stream || stream.readyState !== EventSource.CLOSED) return
+      disconnect()
+      error.value = '暂时无法读取回答，请刷新对话后查看。'
     }
     stream.addEventListener('snapshot', (event) => {
       if (source !== stream) return
       applySnapshot(JSON.parse((event as MessageEvent).data) as AgentWorkspace)
+      if (!active.value && !sending.value) disconnect()
     })
     stream.addEventListener('state', (event) => {
       if (source !== stream) return
@@ -86,6 +96,12 @@ export const useAssistantStore = defineStore('assistant', () => {
       update.items = current.items.filter((item) => visibleTurns.has(item.turn_id))
       update.cursor = current.cursor
       applySnapshot(update)
+      if (!active.value && !sending.value) {
+        disconnect()
+        void refreshWorkspace(id, version).catch((cause) => {
+          if (version === selectionVersion) error.value = formatAPIError(cause)
+        })
+      }
     })
     stream.addEventListener('delta', (event) => {
       if (source !== stream) return
@@ -98,8 +114,7 @@ export const useAssistantStore = defineStore('assistant', () => {
     stream.addEventListener('stream_error', (event) => {
       if (source !== stream) return
       error.value = (JSON.parse((event as MessageEvent).data) as { message: string }).message
-      stream.close()
-      connection.value = 'failed'
+      disconnect()
     })
   }
 
@@ -111,10 +126,7 @@ export const useAssistantStore = defineStore('assistant', () => {
     if (!id) { loading.value = false; return }
     loading.value = true
     try {
-      const snapshot = await getAgentWorkspace(id)
-      if (version !== selectionVersion) return
-      applySnapshot(snapshot)
-      connect(id)
+      await refreshWorkspace(id, version)
     } catch (cause) {
       if (version === selectionVersion) error.value = formatAPIError(cause)
     } finally {
@@ -122,7 +134,7 @@ export const useAssistantStore = defineStore('assistant', () => {
     }
   }
 
-  async function send(message: string) {
+  async function send(message: string, reasoningEffort: string) {
     if (sending.value || !message.trim()) return false
     const model = selectedModel.value
     if (!model) { error.value = '请先在设置中启用并选择模型'; return false }
@@ -130,24 +142,34 @@ export const useAssistantStore = defineStore('assistant', () => {
     sending.value = true
     error.value = ''
     let targetID = sessionID.value
+    let version = selectionVersion
     let accepted = false
     try {
       if (!targetID) {
         const session = await createAgentSession({ external_account_id: 0, title: message.trim().slice(0, 50) })
+        if (version !== selectionVersion) return false
         targetID = session.id
+        version += 1
         await selectSession(targetID)
+        if (version !== selectionVersion) return false
         if (!workspace.value) throw new Error(error.value || '会话加载失败')
       }
-      pendingMessage.value = message
-      await createAgentTask({ message, session_id: targetID, channel: 'assistant', model_config_id: model.config_id, model: model.model })
+      pending.value = { sessionID: targetID, message }
+      const result = await createAgentTask({ message, session_id: targetID, channel: 'assistant', model_config_id: model.config_id, model: model.model, reasoning_effort: reasoningEffort || undefined })
       accepted = true
-      applySnapshot(await getAgentWorkspace(targetID))
+      if (version !== selectionVersion) return true
+      const current = workspaces.value[targetID]
+      if (current && result.turn?.id && !current.turns.some((turn) => turn.id === result.turn.id)) {
+        current.turns.push(result.turn)
+      }
+      if (active.value) connect(targetID)
+      else await refreshWorkspace(targetID, version)
       return true
     } catch (cause) {
-      error.value = formatAPIError(cause)
+      if (version === selectionVersion) error.value = formatAPIError(cause)
       return accepted
     } finally {
-      pendingMessage.value = ''
+      pending.value = null
       sending.value = false
     }
   }
@@ -177,5 +199,5 @@ export const useAssistantStore = defineStore('assistant', () => {
     models.value = []
   }
 
-  return { sessions, sessionID, workspace, loading, sending, error, connection, active, pendingMessage, models, selectedModelKey, selectedModel, loadModels, loadSessions, selectSession, send, loadOlder, disconnect, reset }
+  return { sessions, sessionID, workspace, loading, sending, error, active, pendingMessage, models, selectedModelKey, selectedModel, loadModels, loadSessions, selectSession, send, loadOlder, reset }
 })

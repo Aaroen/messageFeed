@@ -24,7 +24,7 @@ function cssTranslate3d(x: number, y: number, z = 0) {
 }
 
 const sourceUnderlayTransition =
-  'opacity var(--motion-quick) var(--ease-linear), filter var(--motion-quick) var(--ease-linear)'
+  'opacity var(--motion-quick) var(--ease-linear)'
 const sourceContentShiftTransition = [
   'transform var(--motion-chrome) var(--ease-emphasized)',
   sourceUnderlayTransition,
@@ -41,9 +41,6 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
   const contentStyle = computed(() => {
     const revealProgress = clampProgress(options.revealProgress.value)
     const underlayBaseOpacity = options.darkTheme.value ? 0.74 : 0.54
-    const underlayBlur = options.underDetail.value
-      ? (1 - revealProgress) * (options.darkTheme.value ? 5 : 8)
-      : 0
     const underlayOpacity = options.underDetail.value
       ? underlayBaseOpacity + revealProgress * (1 - underlayBaseOpacity)
       : 1
@@ -58,7 +55,6 @@ export function useSourceContentMotion(options: SourceContentMotionOptions) {
     return {
       paddingTop: cssPx(options.headerSpace.value + topOffset),
       opacity: underlayOpacity.toFixed(3),
-      filter: `blur(${underlayBlur.toFixed(2)}px)`,
       transform: cssTranslate3d(0, settleOffset.value),
       transition,
     }

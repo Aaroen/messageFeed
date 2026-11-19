@@ -168,13 +168,14 @@ type ReceiveWeChatWorkAppMessageResult struct {
 }
 
 type ReceiveWebAgentTaskInput struct {
-	Message       string
-	SessionID     int64
-	Channel       string
-	RequestID     string
-	TraceID       string
-	ModelConfigID int64
-	Model         string
+	Message         string
+	SessionID       int64
+	Channel         string
+	RequestID       string
+	TraceID         string
+	ModelConfigID   int64
+	Model           string
+	ReasoningEffort string
 }
 
 type AgentTurnResponse struct {
@@ -186,6 +187,7 @@ type AgentTurnResponse struct {
 	OutputText       string `json:"output_text"`
 	ModelProvider    string `json:"model_provider"`
 	Model            string `json:"model"`
+	ModelConfigID    int64  `json:"model_config_id,omitempty"`
 	CancelRequested  bool   `json:"cancel_requested"`
 	CancelReason     string `json:"cancel_reason"`
 	ErrorMessage     string `json:"error_message"`

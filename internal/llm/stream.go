@@ -30,9 +30,9 @@ func (c *OpenAICompatibleClient) chatWithStream(ctx context.Context, request Cha
 	path := "/chat/completions"
 	if protocol == llmProtocolResponses {
 		path = "/responses"
-		payload = responsesRequest{Model: c.model, Input: responsesInputFromChatMessages(request.Messages), Tools: responsesToolsFromDomain(request.Tools), ToolChoice: request.ToolChoice, Temperature: request.Temperature, MaxOutputTokens: request.MaxTokens}
+		payload = responsesRequest{Model: c.model, Input: responsesInputFromChatMessages(request.Messages), Tools: responsesToolsFromDomain(request.Tools), ToolChoice: request.ToolChoice, Temperature: request.Temperature, MaxOutputTokens: request.MaxTokens, Reasoning: reasoningForResponses(request.ReasoningEffort, true)}
 	} else {
-		payload = chatCompletionRequest{Model: c.model, Messages: chatCompletionMessagesFromDomain(request.Messages), Tools: chatCompletionToolsFromDomain(request.Tools), ToolChoice: request.ToolChoice, Temperature: request.Temperature, MaxTokens: request.MaxTokens}
+		payload = chatCompletionRequest{Model: c.model, Messages: chatCompletionMessagesFromDomain(request.Messages), Tools: chatCompletionToolsFromDomain(request.Tools), ToolChoice: request.ToolChoice, Temperature: request.Temperature, MaxTokens: request.MaxTokens, ReasoningEffort: request.ReasoningEffort}
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -43,9 +43,6 @@ func (c *OpenAICompatibleClient) chatWithStream(ctx context.Context, request Cha
 		return ChatResponse{}, err
 	}
 	body["stream"] = true
-	if protocol == llmProtocolResponses {
-		body["reasoning"] = map[string]any{"summary": "auto"}
-	}
 	if request.ToolChoice == "" {
 		delete(body, "tool_choice")
 	}

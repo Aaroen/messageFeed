@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createApp, h, nextTick, reactive } from 'vue'
-import type { AgentRun } from '@/api/agent'
-import type { AgentStreamItem } from '@/api/assistant'
+import type { AgentActivity, AgentStreamItem } from '@/api/assistant'
+import AgentComposer from '@/components/agent/AgentComposer.vue'
 import AgentReasoningStream from '@/components/agent/AgentReasoningStream.vue'
 import AgentTurnActivity from '@/components/agent/AgentTurnActivity.vue'
 import { applyStreamEvent, assistantErrorMessage, flattenRuns, liveTurnText, readableActivityText, runLabel, runRoleLabel, subagentRuns } from './assistant'
@@ -13,16 +13,16 @@ describe('助理事件与执行树', () => {
     expect(assistantErrorMessage('当前 IP 今日已达到 20 次游客请求额度')).toBe('当前 IP 今日已达到 20 次游客请求额度')
   })
 
-  it('侧栏只包含独立子代理及其后续活动', () => {
+  it('侧栏只包含子代理任务', () => {
     const runs = [
-      { id: 1, parent_run_id: 0, role: 'controller', task_packet: {} },
-      { id: 2, parent_run_id: 1, role: 'executor', task_packet: { stage: 'route' } },
-      { id: 3, parent_run_id: 1, role: 'executor', task_packet: { capability_key: 'web.search' } },
-      { id: 4, parent_run_id: 1, role: 'executor', task_packet: { goal: '独立收集资料' } },
-      { id: 5, parent_run_id: 6, role: 'executor', task_packet: { stage: 'generation' } },
-      { id: 6, parent_run_id: 4, role: 'executor', task_packet: { capability_key: 'web.search' } },
-    ] as AgentRun[]
-    expect(subagentRuns(runs).map((run) => run.id)).toEqual([4, 5, 6])
+      { id: 1, parent_run_id: 0, kind: 'controller' },
+      { id: 2, parent_run_id: 1, kind: 'model', stage: 'route' },
+      { id: 3, parent_run_id: 1, kind: 'tool', capability: 'web.search' },
+      { id: 4, parent_run_id: 1, kind: 'subagent', title: '独立收集资料' },
+      { id: 5, parent_run_id: 6, kind: 'model', stage: 'generation' },
+      { id: 6, parent_run_id: 4, kind: 'tool', capability: 'web.search' },
+    ] as AgentActivity[]
+    expect(subagentRuns(runs).map((run) => run.id)).toEqual([4])
     expect(subagentRuns(runs.slice(0, 3))).toEqual([])
     expect(runLabel(runs[2]!)).toBe('搜索网页')
     expect(readableActivityText('{"task_packet":{"stage":"route"}}')).toBe('')
@@ -32,14 +32,13 @@ describe('助理事件与执行树', () => {
   })
 
   it('区分主代理、模型阶段、工具调用和子代理', () => {
-    const run = { role: 'controller', task_packet: {} } as AgentRun
+    const run = { kind: 'controller' } as AgentActivity
     expect(runRoleLabel(run)).toBe('主代理')
-    run.role = 'executor'
-    run.task_packet = { stage: 'route' }
+    run.kind = 'model'
     expect(runRoleLabel(run)).toBe('模型调用')
-    run.task_packet = { capability_key: 'conversation.query_history' }
+    run.kind = 'tool'
     expect(runRoleLabel(run)).toBe('工具调用')
-    run.task_packet = { goal: '独立收集资料' }
+    run.kind = 'subagent'
     expect(runRoleLabel(run)).toBe('子代理')
   })
 
@@ -54,7 +53,7 @@ describe('助理事件与执行树', () => {
   })
 
   it('在执行树中保留父子关系并处理缺失父节点和循环', () => {
-    const runs = [{ id: 2, parent_run_id: 1 }, { id: 1, parent_run_id: 0 }, { id: 3, parent_run_id: 99 }, { id: 4, parent_run_id: 5 }, { id: 5, parent_run_id: 4 }] as AgentRun[]
+    const runs = [{ id: 2, parent_run_id: 1 }, { id: 1, parent_run_id: 0 }, { id: 3, parent_run_id: 99 }, { id: 4, parent_run_id: 5 }, { id: 5, parent_run_id: 4 }] as AgentActivity[]
     const tree = flattenRuns(runs)
     expect(tree.map((entry) => entry.run.id)).toEqual([1, 2, 3, 4, 5])
     expect(tree[1]?.depth).toBe(1)
@@ -84,10 +83,9 @@ describe('助理事件与执行树', () => {
   })
 
   it('执行详情收起时仍然显示规划阶段的模型思考', async () => {
-    const runs: AgentRun[] = Array.from({ length: 7 }, (_, index) => ({
-      id: index + 1, parent_run_id: 0, session_id: 1, turn_id: 1, role: 'executor', status: 'succeeded', task_packet: { stage: 'planning' },
-      capability_scope: [], model_key: '', context_budget: {}, context_trace_ref: '', result_ref: '', error_message: '', trace_id: '',
-      started_at: '2026-11-17T00:00:00Z', created_at: '2026-11-17T00:00:00Z', updated_at: '2026-11-17T00:00:00Z',
+    const runs: AgentActivity[] = Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1, parent_run_id: 0, turn_id: 1, kind: 'model', status: 'succeeded', stage: 'planning',
+      started_at: '2026-11-17T00:00:00Z', updated_at: '2026-11-17T00:00:00Z',
     }))
     const items = [{ run_id: 7, turn_id: 1, item_id: 'thinking', kind: 'reasoning', content: '正在制定检索计划。', stage: 'planning', name: '', phase: '', model_key: '' }] as AgentStreamItem[]
     const element = document.createElement('div')
@@ -98,6 +96,27 @@ describe('助理事件与执行树', () => {
       expect(element.querySelector('.turn-activity-toggle')?.getAttribute('aria-expanded')).toBe('false')
       expect(element.querySelector('[aria-label="模型思考"]')?.textContent).toContain('正在制定检索计划。')
       expect(element.querySelector('.turn-activity-body')).toBeNull()
+    } finally { app.unmount() }
+  })
+
+  it('确认输入法候选词时保留草稿，支持键盘调节输入高度', async () => {
+    const element = document.createElement('div')
+    let submissions = 0
+    const app = createApp({ render: () => h(AgentComposer, { label: '发送消息', modelValue: '草稿', onSubmit: () => { submissions += 1 } }) })
+    app.mount(element)
+    try {
+      const input = element.querySelector('textarea')!
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true }))
+      expect(submissions).toBe(0)
+      expect(input.value).toBe('草稿')
+      const handle = element.querySelector('[role="separator"]')!
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+      await nextTick()
+      expect(handle.getAttribute('aria-valuenow')).toBe('64')
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      await nextTick()
+      expect(handle.getAttribute('aria-valuenow')).toBe('48')
     } finally { app.unmount() }
   })
 })

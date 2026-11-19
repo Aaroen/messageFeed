@@ -1,5 +1,20 @@
 import { apiClient } from '@/api/client'
-import type { AgentPlan, AgentRun, AgentSession, AgentTurn } from '@/api/agent'
+import type { AgentPlan, AgentSession, AgentTurn } from '@/api/agent'
+
+export interface AgentActivity {
+  id: number
+  parent_run_id: number
+  turn_id: number
+  kind: 'controller' | 'model' | 'tool' | 'subagent'
+  stage?: string
+  capability?: string
+  title?: string
+  status: string
+  started_at: string
+  completed_at?: string
+  updated_at: string
+  results?: string[]
+}
 
 export interface AgentStreamItem {
   run_id: number
@@ -28,7 +43,7 @@ export interface AgentStreamEvent {
 export interface AgentWorkspace {
   session: AgentSession
   turns: AgentTurn[]
-  runs: AgentRun[]
+  runs: AgentActivity[]
   plans: AgentPlan[]
   items: AgentStreamItem[]
   cursor: number
@@ -44,4 +59,9 @@ export async function getAgentWorkspace(sessionID: number, beforeTurnID = 0) {
 
 export async function cancelAgentTurn(turnID: number) {
   await apiClient.post(`/api/v1/agent/turns/${turnID}/cancel`)
+}
+
+export async function getAgentActivity(runID: number) {
+  const response = await apiClient.get<{ data: AgentActivity }>(`/api/v1/agent/runs/${runID}`, { params: { view: 'activity' } })
+  return response.data.data
 }

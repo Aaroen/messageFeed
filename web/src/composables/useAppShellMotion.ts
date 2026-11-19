@@ -26,18 +26,13 @@ function cssPx(value: number) {
   return `${cssNumber(value)}px`
 }
 
-function combinedTransition(...transitions: string[]) {
-  const activeTransitions = transitions.filter((transition) => transition && transition !== 'none')
-  return activeTransitions.length ? activeTransitions.join(', ') : 'none'
-}
-
 const contentTopGapVar = 'var(--app-content-top-offset, var(--app-content-top-gap, 14px))'
+const underlayTransition = 'opacity var(--motion-fast) var(--ease-linear)'
 
 export function useAppShellMotion(options: AppShellMotionOptions) {
   const contentState = computed(() => {
     const detailSurfaceProgress = clampProgress(options.detailSurfaceProgress.value)
     const detailUnderlayActive = options.detailReaderOpen.value && !options.detailReturningToFeed.value
-    const underlayBlur = detailUnderlayActive ? detailSurfaceProgress * 7 : 0
     const underlayOpacity = detailUnderlayActive ? 1 - detailSurfaceProgress * 0.08 : 1
     const feedContentSpace = options.feedContentSpace.value
     const refreshShiftSettling =
@@ -48,14 +43,6 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
       options.feedChromeSettling.value &&
       !options.feedTopPulling.value &&
       !options.readerBackDragging.value
-    const underlayTransition =
-      'opacity var(--motion-fast) var(--ease-linear), filter var(--motion-fast) var(--ease-linear)'
-    const contentSpaceTransition = refreshShiftSettling
-      ? 'padding-top var(--motion-refresh-complete) var(--ease-emphasized)'
-      : chromeShiftSettling
-        ? 'padding-top var(--motion-chrome) var(--ease-emphasized)'
-        : 'none'
-
     return {
       feedContentSpace,
       pageContentSpace: feedContentSpace,
@@ -71,10 +58,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
         : chromeShiftSettling
         ? 'transform var(--motion-chrome) var(--ease-emphasized)'
         : 'none',
-      underlayBlur,
       underlayOpacity,
-      transition: underlayTransition,
-      contentSpaceTransition,
     }
   })
 
@@ -90,8 +74,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
       '--feed-content-shift-transition': state.feedContentShiftTransition,
       paddingTop: `calc(${cssPx(state.feedContentSpace)} + ${contentTopGapVar})`,
       opacity: state.underlayOpacity.toFixed(3),
-      filter: `blur(${state.underlayBlur.toFixed(2)}px)`,
-      transition: combinedTransition(state.transition, state.contentSpaceTransition),
+      transition: underlayTransition,
     }
   })
 
@@ -102,8 +85,7 @@ export function useAppShellMotion(options: AppShellMotionOptions) {
       '--page-content-shift-transition': state.pageContentShiftTransition,
       paddingTop: `calc(${cssPx(state.pageContentSpace)} + ${contentTopGapVar})`,
       opacity: state.underlayOpacity.toFixed(3),
-      filter: `blur(${state.underlayBlur.toFixed(2)}px)`,
-      transition: combinedTransition(state.transition, state.contentSpaceTransition),
+      transition: underlayTransition,
     }
   })
 

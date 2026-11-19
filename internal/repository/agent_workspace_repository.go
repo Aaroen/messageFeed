@@ -59,11 +59,13 @@ func (r *AgentRepository) getAgentWorkspace(ctx context.Context, userID, session
 		}
 		result.Session = agentSessionModelToDomain(session)
 		var turns []agentTurnModel
-		query := transaction.Where("session_id = ? AND user_id = ?", sessionID, userID)
+		query := transaction.Select("agent_turns.*, (inbound.payload_json #>> '{model_selection,config_id}')::bigint AS model_config_id").
+			Joins("LEFT JOIN agent_inbound_messages AS inbound ON inbound.id = agent_turns.inbound_message_id AND inbound.user_id = agent_turns.user_id AND inbound.provider = 'web'").
+			Where("agent_turns.session_id = ? AND agent_turns.user_id = ?", sessionID, userID)
 		if beforeTurnID > 0 {
-			query = query.Where("id < ?", beforeTurnID)
+			query = query.Where("agent_turns.id < ?", beforeTurnID)
 		}
-		if err := query.Order("id DESC").Limit(21).Find(&turns).Error; err != nil {
+		if err := query.Order("agent_turns.id DESC").Limit(21).Find(&turns).Error; err != nil {
 			return err
 		}
 		result.HasMore = len(turns) > 20

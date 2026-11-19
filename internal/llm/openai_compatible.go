@@ -53,12 +53,13 @@ type ChatMessage struct {
 }
 
 type ChatRequest struct {
-	Messages    []ChatMessage
-	Tools       []ToolDefinition
-	ToolChoice  string
-	Temperature float64
-	MaxTokens   int
-	OnEvent     func(StreamEvent) error `json:"-"`
+	Messages        []ChatMessage
+	Tools           []ToolDefinition
+	ToolChoice      string
+	Temperature     float64
+	MaxTokens       int
+	ReasoningEffort string
+	OnEvent         func(StreamEvent) error `json:"-"`
 }
 
 type ChatResponse struct {
@@ -126,12 +127,13 @@ type OpenAICompatibleClient struct {
 }
 
 type chatCompletionRequest struct {
-	Model       string                  `json:"model"`
-	Messages    []chatCompletionMessage `json:"messages"`
-	Tools       []chatCompletionTool    `json:"tools,omitempty"`
-	ToolChoice  any                     `json:"tool_choice,omitempty"`
-	Temperature float64                 `json:"temperature,omitempty"`
-	MaxTokens   int                     `json:"max_tokens,omitempty"`
+	Model           string                  `json:"model"`
+	Messages        []chatCompletionMessage `json:"messages"`
+	Tools           []chatCompletionTool    `json:"tools,omitempty"`
+	ToolChoice      any                     `json:"tool_choice,omitempty"`
+	Temperature     float64                 `json:"temperature,omitempty"`
+	MaxTokens       int                     `json:"max_tokens,omitempty"`
+	ReasoningEffort string                  `json:"reasoning_effort,omitempty"`
 }
 
 type chatCompletionMessage struct {
@@ -193,6 +195,22 @@ type responsesRequest struct {
 	ToolChoice      any                  `json:"tool_choice,omitempty"`
 	Temperature     float64              `json:"temperature,omitempty"`
 	MaxOutputTokens int                  `json:"max_output_tokens,omitempty"`
+	Reasoning       *responsesReasoning  `json:"reasoning,omitempty"`
+}
+
+type responsesReasoning struct {
+	Effort  string `json:"effort,omitempty"`
+	Summary string `json:"summary,omitempty"`
+}
+
+func reasoningForResponses(effort string, stream bool) *responsesReasoning {
+	if stream {
+		return &responsesReasoning{Effort: effort, Summary: "auto"}
+	}
+	if effort != "" {
+		return &responsesReasoning{Effort: effort}
+	}
+	return nil
 }
 
 type responsesInputItem struct {
@@ -451,11 +469,12 @@ func (c *OpenAICompatibleClient) chatWithProtocol(ctx context.Context, request C
 // chatWithChatCompletions 调用 /chat/completions，适配当前 .env 使用的模型服务。
 func (c *OpenAICompatibleClient) chatWithChatCompletions(ctx context.Context, request ChatRequest, host string, span trace.Span) (ChatResponse, error) {
 	payload := chatCompletionRequest{
-		Model:       c.model,
-		Messages:    chatCompletionMessagesFromDomain(request.Messages),
-		Tools:       chatCompletionToolsFromDomain(request.Tools),
-		Temperature: request.Temperature,
-		MaxTokens:   request.MaxTokens,
+		Model:           c.model,
+		Messages:        chatCompletionMessagesFromDomain(request.Messages),
+		Tools:           chatCompletionToolsFromDomain(request.Tools),
+		Temperature:     request.Temperature,
+		MaxTokens:       request.MaxTokens,
+		ReasoningEffort: request.ReasoningEffort,
 	}
 	if strings.TrimSpace(request.ToolChoice) != "" {
 		payload.ToolChoice = strings.TrimSpace(request.ToolChoice)
@@ -630,6 +649,7 @@ func (c *OpenAICompatibleClient) chatWithResponses(ctx context.Context, request 
 		Tools:           responsesToolsFromDomain(request.Tools),
 		Temperature:     request.Temperature,
 		MaxOutputTokens: request.MaxTokens,
+		Reasoning:       reasoningForResponses(request.ReasoningEffort, false),
 	}
 	if strings.TrimSpace(request.ToolChoice) != "" {
 		payload.ToolChoice = strings.TrimSpace(request.ToolChoice)

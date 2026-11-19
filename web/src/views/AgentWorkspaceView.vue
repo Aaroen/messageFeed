@@ -3,18 +3,20 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ArcoDrawer from '@arco-design/web-vue/es/drawer'
 import '@arco-design/web-vue/es/drawer/style/css.js'
-import { IconArrowUp, IconClose, IconCode, IconCopy, IconHistory, IconMenu, IconPlus, IconRefresh, IconStop } from '@arco-design/web-vue/es/icon'
-import { getAgentRun, type AgentRun, type AgentTurn } from '@/api/agent'
-import { cancelAgentTurn } from '@/api/assistant'
+import { IconArrowUp, IconClose, IconCode, IconCopy, IconHistory, IconMenu, IconPlus, IconStop } from '@arco-design/web-vue/es/icon'
+import type { AgentTurn } from '@/api/agent'
+import { cancelAgentTurn, getAgentActivity, type AgentActivity } from '@/api/assistant'
 import { formatAPIError } from '@/api/client'
 import { getCurrentAuth } from '@/api/auth'
 import AgentModelSelect from '@/components/agent/AgentModelSelect.vue'
 import AgentGuestChat from '@/components/agent/AgentGuestChat.vue'
+import AgentComposer from '@/components/agent/AgentComposer.vue'
 import AgentMarkdown from '@/components/agent/AgentMarkdown.vue'
 import AgentRunDetails from '@/components/agent/AgentRunDetails.vue'
 import AgentTurnActivity from '@/components/agent/AgentTurnActivity.vue'
 import { useAssistantStore } from '@/stores/assistant'
-import { assistantErrorMessage, isActiveStatus, liveTurnText, subagentRuns, statusLabel } from '@/utils/assistant'
+import { useAgentScroll } from '@/composables/useAgentScroll'
+import { assistantErrorMessage, groupByTurn, isActiveStatus, liveTurnText, subagentRuns, statusLabel } from '@/utils/assistant'
 
 const store = useAssistantStore()
 const authenticated = ref(false)
@@ -22,19 +24,21 @@ const authLoaded = ref(false)
 const route = useRoute()
 const router = useRouter()
 const draft = ref('')
+const reasoningEffort = ref('')
 const drafts = new Map<number, string>()
 const messageList = ref<HTMLElement | null>(null)
-const composer = ref<HTMLTextAreaElement | null>(null)
+const composer = ref<InstanceType<typeof AgentComposer> | null>(null)
+const detailsToggle = ref<HTMLButtonElement | null>(null)
 const sessionDrawer = ref(false)
 const detailDrawer = ref(false)
 const selectedRunID = ref(0)
 const selectedTurnID = ref(0)
-const runDetail = ref<AgentRun | null>(null)
+const runDetail = ref<AgentActivity | null>(null)
 const detailLoading = ref(false)
 const detailError = ref('')
 const stopping = ref(false)
 const loadingOlder = ref(false)
-const followBottom = ref(true)
+const { followBottom, handleScroll, scrollBottom } = useAgentScroll(messageList)
 const detailWidth = ref(360)
 const sessionsCollapsed = ref(localStorage.getItem('mf-assistant-sessions-collapsed') === 'true')
 const detailsCollapsed = ref(localStorage.getItem('mf-assistant-details-collapsed') === 'true')
@@ -49,9 +53,9 @@ let copyTimer: ReturnType<typeof setTimeout> | null = null
 
 const turns = computed(() => store.workspace?.turns || [])
 const latestTurn = computed(() => turns.value[turns.value.length - 1])
-const detailRuns = computed(() => subagentRuns((store.workspace?.runs || []).filter((run) => !selectedTurnID.value || run.turn_id === selectedTurnID.value)))
-const detailItems = computed(() => (store.workspace?.items || []).filter((item) => !selectedTurnID.value || item.turn_id === selectedTurnID.value))
-const connectionLabel = computed(() => ({ idle: '尚未连接', connecting: '正在连接', connected: '实时连接', reconnecting: '正在重连', failed: '连接失败' })[store.connection])
+const runsByTurn = computed(() => groupByTurn(store.workspace?.runs || []))
+const itemsByTurn = computed(() => groupByTurn(store.workspace?.items || []))
+const detailRuns = computed(() => subagentRuns(turnRuns(selectedTurnID.value || latestTurn.value?.id || 0)))
 const title = computed(() => store.workspace?.session.title || '新对话')
 const pendingVisible = computed(() => store.pendingMessage && !turns.value.some((turn) => turn.input_text === store.pendingMessage && isActiveStatus(turn.status)))
 const sessionToggleLabel = computed(() => mobileViewport.value ? '打开会话列表' : sessionsCollapsed.value ? '展开会话侧栏' : '收起会话侧栏')
@@ -75,28 +79,43 @@ function toggleDetails() {
   if (!detailsCollapsed.value || detailDrawer.value) showDetails(selectedTurnID.value || latestTurn.value?.id || 0, false)
 }
 
-function turnRuns(turnID: number) { return (store.workspace?.runs || []).filter((run) => run.turn_id === turnID) }
+function closeDetails() {
+  detailsCollapsed.value = true
+  detailsToggle.value?.focus()
+}
+
+function turnRuns(turnID: number) { return runsByTurn.value.get(turnID) || [] }
 function turnText(turn: AgentTurn) {
-  const content = turn.output_text || liveTurnText(store.workspace?.items || [], turn.id)
-  return turn.status === 'failed' ? assistantErrorMessage(content) : content
+  if (turn.output_text.trim()) return turn.output_text
+  return isActiveStatus(turn.status) ? liveTurnText(turnItems(turn.id), turn.id) : ''
+}
+function missingAnswer(turn: AgentTurn) { return (turn.status === 'succeeded' || turn.status === 'completed') && !turn.output_text.trim() }
+function modelName(turn: AgentTurn) {
+  return store.models.find((entry) => entry.config_id === turn.model_config_id && entry.model === turn.model)?.display_name || turn.model
 }
 function turnState(turn: AgentTurn) { return turn.cancel_requested && isActiveStatus(turn.status) ? '正在停止' : turn.error_message === '用户停止执行' ? '已停止' : statusLabel(turn.status) }
-function turnItems(turnID: number) { return (store.workspace?.items || []).filter((item) => item.turn_id === turnID) }
+function turnItems(turnID: number) { return itemsByTurn.value.get(turnID) || [] }
 
 async function selectSession(id: number) {
   if (store.sending) return
+  sessionDrawer.value = false
+  await router.replace({ name: 'agent', query: id ? { session: id } : { session: '0' } })
+}
+
+async function loadSession(id: number) {
+  if (id === store.sessionID) return
   drafts.set(store.sessionID, draft.value)
   draft.value = drafts.get(id) || ''
   selectedRunID.value = 0
   selectedTurnID.value = 0
   runDetail.value = null
   detailError.value = ''
+  detailLoading.value = false
+  ++detailVersion
   followBottom.value = true
   sessionDrawer.value = false
   await store.selectSession(id)
-  await router.replace({ name: 'agent', query: id ? { session: id } : {} })
-  await nextTick()
-  scrollBottom()
+  if (store.sessionID === id) scrollBottom()
 }
 
 async function loadDetail(id: number) {
@@ -106,7 +125,7 @@ async function loadDetail(id: number) {
   detailError.value = ''
   detailLoading.value = true
   try {
-    const detail = await getAgentRun(id)
+    const detail = await getAgentActivity(id)
     if (version === detailVersion) runDetail.value = detail
   } catch (cause) {
     if (version === detailVersion) detailError.value = formatAPIError(cause)
@@ -130,6 +149,8 @@ function showDetails(turnID: number, openDrawer = true) {
 async function sendMessage() {
   const message = draft.value.trim()
   if (!message || store.sending || store.active) return
+  const startSession = store.sessionID
+  const startRouteSession = route.query.session
   draft.value = ''
   drafts.delete(store.sessionID)
   selectedRunID.value = 0
@@ -137,40 +158,31 @@ async function sendMessage() {
   runDetail.value = null
   ++detailVersion
   followBottom.value = true
-  const succeeded = await store.send(message)
+  const succeeded = await store.send(message, reasoningEffort.value)
+  if (route.name !== 'agent' || route.query.session !== startRouteSession) {
+    if (!succeeded) drafts.set(startSession, message)
+    return
+  }
   if (!succeeded) draft.value = message
   else if (latestTurn.value) showDetails(latestTurn.value.id, false)
-  if (store.sessionID) await router.replace({ name: 'agent', query: { session: store.sessionID } })
+  if (store.sessionID) {
+    await router.replace({ name: 'agent', query: { session: store.sessionID } })
+  }
   await nextTick()
   scrollBottom()
   composer.value?.focus()
 }
 
-function handleComposerKey(event: KeyboardEvent) {
-  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && window.matchMedia('(min-width: 768px)').matches) {
-    event.preventDefault()
-    void sendMessage()
-  }
-}
-
-function handleScroll() {
-  const element = messageList.value
-  if (element) followBottom.value = element.scrollHeight - element.scrollTop - element.clientHeight < 100
-}
-
-function scrollBottom() {
-  if (followBottom.value && messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight
-}
-
 async function loadOlder() {
   const element = messageList.value
+  const sessionID = store.sessionID
   const previousHeight = element?.scrollHeight || 0
   loadingOlder.value = true
   followBottom.value = false
   try {
     await store.loadOlder()
     await nextTick()
-    if (element) element.scrollTop += element.scrollHeight - previousHeight
+    if (element && sessionID === store.sessionID) element.scrollTop += element.scrollHeight - previousHeight
   } catch (cause) { store.error = formatAPIError(cause) }
   finally { loadingOlder.value = false }
 }
@@ -199,10 +211,24 @@ function beginResize(event: PointerEvent) {
   resizeCleanup?.()
   const start = event.clientX
   const width = detailWidth.value
-  const move = (value: PointerEvent) => { detailWidth.value = Math.max(280, Math.min(560, width + start - value.clientX)) }
-  const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); resizeCleanup = null }
+  let frame = 0
+  let nextWidth = width
+  const move = (value: PointerEvent) => {
+    if (value.pointerId !== event.pointerId) return
+    nextWidth = Math.max(280, Math.min(560, width + start - value.clientX))
+    if (!frame) frame = requestAnimationFrame(() => { frame = 0; detailWidth.value = nextWidth })
+  }
+  const stop = () => {
+    cancelAnimationFrame(frame)
+    detailWidth.value = nextWidth
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', stop)
+    window.removeEventListener('pointercancel', stop)
+    resizeCleanup = null
+  }
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup', stop, { once: true })
+  window.addEventListener('pointercancel', stop, { once: true })
   resizeCleanup = stop
 }
 
@@ -210,9 +236,13 @@ watch(() => `${store.workspace?.cursor}:${latestTurn.value?.status}:${turns.valu
 watch(sessionsCollapsed, (value) => localStorage.setItem('mf-assistant-sessions-collapsed', String(value)))
 watch(detailsCollapsed, (value) => localStorage.setItem('mf-assistant-details-collapsed', String(value)))
 watch(() => store.sessionID, () => { selectedRunID.value = 0; selectedTurnID.value = 0; runDetail.value = null; ++detailVersion })
-watch(() => route.query.session, (value) => {
-  const id = Number(value || 0)
-  if (route.name === 'agent' && Number.isInteger(id) && id >= 0 && id !== store.sessionID) void selectSession(id)
+function currentRouteSession() {
+  const id = Number(route.query.session ?? store.sessions[0]?.id ?? 0)
+  return Number.isSafeInteger(id) && id >= 0 ? id : 0
+}
+
+watch(() => route.query.session, () => {
+  if (authenticated.value && route.name === 'agent') void loadSession(currentRouteSession())
 })
 watch(() => store.workspace?.runs, (runs) => {
   if (!runs?.length) return
@@ -235,9 +265,7 @@ onMounted(async () => {
     if (!authenticated.value) return
     await store.loadModels()
     await store.loadSessions()
-    const requested = Number(route.query.session || 0)
-    const initial = requested > 0 ? requested : store.sessions[0]?.id || 0
-    await selectSession(initial)
+    await loadSession(currentRouteSession())
   } catch (cause) { store.error = formatAPIError(cause) }
 })
 
@@ -248,8 +276,8 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 <template>
   <AgentGuestChat v-if="authLoaded && !authenticated" />
   <p v-else-if="!authLoaded" role="status">{{ store.error || '正在加载助理…' }}</p>
-  <section v-else class="assistant-workspace" :class="{ 'assistant-sessions-collapsed': sessionsCollapsed, 'assistant-details-collapsed': detailsCollapsed }" :style="{ '--assistant-details-width': detailsCollapsed ? '0px' : `${detailWidth}px` }" aria-label="助理工作区" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
-    <aside class="assistant-sessions" aria-label="会话列表">
+  <section v-else class="assistant-workspace" :class="{ 'assistant-sessions-collapsed': sessionsCollapsed, 'assistant-details-collapsed': detailsCollapsed }" :style="{ '--assistant-panel-width': `${detailWidth}px` }" aria-label="助理工作区" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
+    <aside class="assistant-sessions" aria-label="会话列表" :inert="sessionsCollapsed">
       <div class="assistant-sidebar-heading"><span class="assistant-wordmark"><IconCode /> 助理</span><button class="assistant-icon-button" type="button" aria-label="新建对话" @click="selectSession(0)"><IconPlus /></button></div>
       <button class="assistant-new-session" type="button" @click="selectSession(0)"><IconPlus /> 新建对话</button>
       <div class="assistant-section-label">最近对话</div>
@@ -258,7 +286,11 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
     </aside>
 
     <main class="assistant-conversation">
-      <header class="assistant-conversation-header"><button type="button" class="assistant-icon-button" :aria-label="sessionToggleLabel" :title="sessionToggleLabel" :aria-expanded="mobileViewport ? sessionDrawer : !sessionsCollapsed" @click="toggleSessions"><IconMenu /></button><div class="assistant-conversation-title"><strong>{{ title }}</strong><span v-if="store.sessionID" class="assistant-connection" :class="store.connection"><i />{{ connectionLabel }}</span></div><button v-if="store.connection === 'failed' || store.connection === 'reconnecting'" type="button" class="assistant-icon-button" aria-label="重新连接" @click="store.selectSession(store.sessionID)"><IconRefresh /></button><button type="button" class="assistant-detail-toggle" :aria-label="detailToggleLabel" :title="detailToggleLabel" :aria-expanded="desktopViewport ? !detailsCollapsed : detailDrawer" @click="toggleDetails"><IconCode /><span>子代理</span></button></header>
+      <header class="assistant-conversation-header">
+        <button type="button" class="assistant-icon-button" :aria-label="sessionToggleLabel" :title="sessionToggleLabel" :aria-expanded="mobileViewport ? sessionDrawer : !sessionsCollapsed" @click="toggleSessions"><IconMenu /></button>
+        <div class="assistant-conversation-title"><strong>{{ title }}</strong></div>
+        <button ref="detailsToggle" type="button" class="assistant-detail-toggle" :aria-label="detailToggleLabel" :title="detailToggleLabel" :aria-expanded="desktopViewport ? !detailsCollapsed : detailDrawer" @click="toggleDetails"><IconCode /><span>子代理</span></button>
+      </header>
       <div v-if="store.error" class="assistant-error" role="alert"><span>{{ assistantErrorMessage(store.error) }}</span><button class="assistant-icon-button" type="button" aria-label="关闭错误提示" @click="store.error = ''"><IconClose /></button></div>
       <div ref="messageList" class="assistant-message-list" aria-label="对话消息" @scroll.passive="handleScroll">
         <div v-if="store.loading && !turns.length" class="assistant-state-note" role="status">正在读取对话…</div>
@@ -267,39 +299,54 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
         <div class="assistant-message-column">
           <article v-for="turn in turns" :key="turn.id" class="assistant-turn">
             <div class="assistant-user-message"><p>{{ turn.input_text }}</p></div>
-            <div class="assistant-answer"><div class="assistant-answer-heading"><span class="assistant-avatar"><IconCode /></span><span>助理</span><small v-if="turn.model">{{ turn.model }}</small></div>
+            <div class="assistant-answer"><div class="assistant-answer-heading"><span class="assistant-avatar"><IconCode /></span><span>助理</span><small v-if="turn.model">{{ modelName(turn) }}</small></div>
               <AgentTurnActivity v-if="turnRuns(turn.id).length || turnItems(turn.id).some((item) => item.kind === 'reasoning')" :runs="turnRuns(turn.id)" :items="turnItems(turn.id)" :status="turn.status" />
               <AgentMarkdown v-if="turnText(turn)" :content="turnText(turn)" />
+              <p v-else-if="missingAnswer(turn)" class="assistant-turn-error" role="alert">没有收到回答正文，请重试。</p>
               <div v-else-if="isActiveStatus(turn.status)" class="assistant-state-note" role="status"><span class="assistant-thinking-dot" />{{ turnState(turn) }}…</div>
               <p v-if="turn.error_message" class="assistant-turn-error" role="alert">{{ assistantErrorMessage(turn.error_message) }}</p>
               <p v-if="turn.delivery_status === 'failed'" class="assistant-delivery-error" role="alert">回复已保存，渠道发送失败。{{ turn.delivery_error }}</p>
               <p v-else-if="turn.delivery_status === 'pending'" class="assistant-state-note">回复已保存，等待渠道发送。</p>
-              <div class="assistant-answer-footer"><span>{{ isActiveStatus(turn.status) && turnText(turn) ? '生成中，等待结果校验' : turnState(turn) }}</span><button v-if="turn.output_text" class="assistant-icon-button" type="button" :aria-label="copiedTurnID === turn.id ? '已经复制' : '复制回答'" @click="copyReply(turn)"><IconCopy /><span v-if="copiedTurnID === turn.id">已复制</span></button></div>
+              <div class="assistant-answer-footer"><span v-if="!missingAnswer(turn)">{{ isActiveStatus(turn.status) && turnText(turn) ? '回答生成中' : turnState(turn) }}</span><button v-if="turn.output_text?.trim()" class="assistant-icon-button" type="button" :aria-label="copiedTurnID === turn.id ? '已经复制' : '复制回答'" @click="copyReply(turn)"><IconCopy /><span v-if="copiedTurnID === turn.id">已复制</span></button><button v-if="subagentRuns(turnRuns(turn.id)).length" type="button" class="assistant-detail-toggle" @click="showDetails(turn.id)">查看本次子代理</button></div>
             </div>
           </article>
           <div v-if="pendingVisible" class="assistant-user-message assistant-pending-message"><p>{{ store.pendingMessage }}</p><small>正在提交…</small></div>
         </div>
       </div>
-      <div class="assistant-composer-area"><button v-if="!followBottom" class="assistant-jump-button" type="button" @click="followBottom = true; scrollBottom()">查看最新消息 ↓</button><form class="assistant-composer" @submit.prevent="sendMessage"><textarea ref="composer" v-model="draft" rows="2" :disabled="store.sending" aria-label="发送给助理的消息" placeholder="向助理发送消息…" @keydown="handleComposerKey" /><div class="assistant-composer-toolbar"><AgentModelSelect v-model="store.selectedModelKey" :models="store.models" :disabled="store.sending || store.active" /><button v-if="store.active" type="button" class="assistant-send-button stop" :disabled="stopping || latestTurn?.cancel_requested" aria-label="停止当前任务" @click="stopTurn"><IconStop /></button><button v-else type="submit" class="assistant-send-button" :disabled="!draft.trim() || store.sending || !store.selectedModel" aria-label="发送消息"><IconArrowUp /></button></div></form><p class="assistant-composer-hint"><router-link v-if="!store.models.length" :to="{ name: 'settings-model' }">前往设置启用模型</router-link><template v-else>回答请结合来源核验。完整执行过程可在详情中查看。</template></p></div>
+      <div class="assistant-composer-area">
+        <button v-if="!followBottom" class="assistant-jump-button" type="button" @click="scrollBottom(true)">查看最新消息</button>
+        <AgentComposer ref="composer" v-model="draft" class="assistant-composer" label="发送给助理的消息" :disabled="store.sending" @submit="sendMessage">
+          <AgentModelSelect v-model="store.selectedModelKey" v-model:effort="reasoningEffort" :models="store.models" :disabled="store.sending || store.active" />
+          <button v-if="store.active" type="button" class="assistant-send-button stop" :disabled="stopping || latestTurn?.cancel_requested" aria-label="停止当前任务" @click="stopTurn"><IconStop /></button>
+          <button v-else type="submit" class="assistant-send-button" :disabled="!draft.trim() || store.sending || !store.selectedModel" aria-label="发送消息"><IconArrowUp /></button>
+        </AgentComposer>
+        <p v-if="!store.models.length" class="assistant-composer-hint"><router-link :to="{ name: 'settings-model' }">前往设置启用模型</router-link></p>
+      </div>
     </main>
 
     <div class="assistant-resizer" role="separator" aria-label="调整子代理侧栏宽度" aria-orientation="vertical" :aria-valuenow="detailWidth" :aria-valuemin="280" :aria-valuemax="560" tabindex="0" @pointerdown="beginResize" @keydown.left.prevent="detailWidth = Math.min(560, detailWidth + 20)" @keydown.right.prevent="detailWidth = Math.max(280, detailWidth - 20)" />
-    <aside class="assistant-details" aria-label="子代理"><header><span><IconCode /> 子代理</span><small>{{ detailRuns.filter((run) => !run.task_packet.stage && !run.task_packet.capability_key).length }} 项任务</small><button type="button" class="assistant-icon-button" aria-label="收起子代理侧栏" @click="detailsCollapsed = true"><IconClose /></button></header><AgentRunDetails :runs="detailRuns" :items="detailItems" :selected-i-d="selectedRunID" :detail="runDetail" :loading="detailLoading" :error="detailError" @select="loadDetail" /></aside>
+    <aside class="assistant-details" aria-label="子代理" :inert="detailsCollapsed"><header><span><IconCode /> 子代理</span><button type="button" class="assistant-icon-button" aria-label="收起子代理侧栏" @click="closeDetails"><IconClose /></button></header><AgentRunDetails subagents :runs="detailRuns" :selected-i-d="selectedRunID" :detail="runDetail" :loading="detailLoading" :error="detailError" @select="loadDetail" /></aside>
 
     <ArcoDrawer :visible="sessionDrawer" placement="left" :width="'min(320px, 90vw)'" title="会话列表" :footer="false" @cancel="sessionDrawer = false"><button class="assistant-new-session" type="button" @click="selectSession(0)"><IconPlus /> 新建对话</button><div class="assistant-session-list"><button v-for="session in store.sessions" :key="session.id" type="button" :class="['assistant-session', { selected: store.sessionID === session.id }]" @click="selectSession(session.id)"><span>{{ session.title || '未命名对话' }}</span></button></div><router-link class="assistant-history-link" :to="{ name: 'agent-plans' }"><IconHistory /> 任务与执行记录</router-link></ArcoDrawer>
-    <ArcoDrawer :visible="detailDrawer" placement="right" :width="'min(520px, 100vw)'" title="子代理" :footer="false" @cancel="detailDrawer = false"><AgentRunDetails :runs="detailRuns" :items="detailItems" :selected-i-d="selectedRunID" :detail="runDetail" :loading="detailLoading" :error="detailError" @select="loadDetail" /></ArcoDrawer>
+    <ArcoDrawer :visible="detailDrawer" placement="right" :width="'min(520px, 100vw)'" title="子代理" :footer="false" @cancel="detailDrawer = false"><AgentRunDetails subagents :runs="detailRuns" :selected-i-d="selectedRunID" :detail="runDetail" :loading="detailLoading" :error="detailError" @select="loadDetail" /></ArcoDrawer>
   </section>
 </template>
 
 <style scoped>
-.assistant-workspace { --assistant-expanded-sidebar-width: 222px; --assistant-sidebar-width: var(--assistant-expanded-sidebar-width); --assistant-resizer-width: 5px; display: grid; grid-template-columns: var(--assistant-sidebar-width) minmax(0, 1fr) var(--assistant-resizer-width) var(--assistant-details-width); height: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--mf-border); border-radius: 12px; background: var(--mf-surface, #fff); color: var(--mf-text); }
-.assistant-sessions { grid-column: 1; }
+.assistant-workspace { --assistant-expanded-sidebar-width: 222px; --assistant-sidebar-width: var(--assistant-expanded-sidebar-width); --assistant-details-width: var(--assistant-panel-width); --assistant-resizer-width: 5px; position: relative; display: grid; grid-template-columns: var(--assistant-sidebar-width) minmax(0, 1fr) var(--assistant-resizer-width) var(--assistant-details-width); height: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--mf-border); border-radius: 12px; background: var(--mf-surface, #fff); color: var(--mf-text); }
+.assistant-sessions, .assistant-details { position: absolute; z-index: 2; inset-block: 0; box-sizing: border-box; }
+.assistant-sessions { inset-inline-start: 0; width: var(--assistant-expanded-sidebar-width); }
+.assistant-details { inset-inline-end: 0; width: var(--assistant-panel-width); background: var(--mf-surface, #fff); }
 .assistant-conversation { grid-column: 2; }
 .assistant-resizer { grid-column: 3; }
-.assistant-details { grid-column: 4; }
 .assistant-sessions-collapsed { --assistant-sidebar-width: 0px; }
-.assistant-details-collapsed { --assistant-resizer-width: 0px; }
-.assistant-sessions-collapsed > .assistant-sessions, .assistant-details-collapsed > .assistant-details, .assistant-details-collapsed > .assistant-resizer { display: none; }
+.assistant-details-collapsed { --assistant-resizer-width: 0px; --assistant-details-width: 0px; }
+.assistant-sessions-collapsed > .assistant-sessions { transform: translateX(-100%); opacity: 0; }
+.assistant-details-collapsed > .assistant-details { transform: translateX(100%); opacity: 0; }
+.assistant-details-collapsed > .assistant-resizer { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .assistant-sessions, .assistant-details { transition: transform 200ms cubic-bezier(.2, .8, .2, 1), opacity 160ms ease-out; }
+}
 .assistant-sessions { display: flex; flex-direction: column; min-height: 0; padding: 15px 10px 10px; border-right: 1px solid var(--mf-border); background: var(--mf-surface-muted, #f7f8fa); }
 .assistant-sidebar-heading { display: flex; justify-content: space-between; align-items: center; padding: 0 8px 18px; }
 .assistant-wordmark { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 650; letter-spacing: 1px; }
@@ -318,10 +365,6 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 .assistant-conversation-header { display: flex; align-items: center; gap: 12px; padding: 15px 22px; min-height: 64px; border-bottom: 1px solid var(--mf-border); }
 .assistant-conversation-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; flex: 1; }
 .assistant-conversation-title strong { font-size: 12px; font-weight: 550; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.assistant-connection { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--mf-text-muted); white-space: nowrap; }
-.assistant-connection i { width: 5px; height: 5px; border-radius: 50%; background: #ad8c53; }
-.assistant-connection.connected i { background: #399b72; }
-.assistant-connection.failed i { background: #c15454; }
 .assistant-detail-toggle { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--mf-border); border-radius: 6px; padding: 6px 8px; background: transparent; color: var(--mf-text-muted); font-size: 11px; cursor: pointer; white-space: nowrap; }
 .assistant-message-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 32px 30px 16px; scrollbar-gutter: stable; }
 .assistant-message-column { width: min(100%, 760px); margin: 0 auto; }
@@ -349,13 +392,8 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 .assistant-welcome p { font-size: 12px; color: var(--mf-text-muted); line-height: 1.9; margin: 0; }
 .assistant-suggestions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 24px; }
 .assistant-suggestions button { border: 1px solid var(--mf-border); background: transparent; color: var(--mf-text-muted); padding: 8px 12px; border-radius: 7px; font-size: 11px; cursor: pointer; }
-.assistant-composer-area { position: relative; flex-shrink: 0; padding: 6px 30px 12px; }
-.assistant-composer { max-width: 760px; margin: 0 auto; border: 1px solid var(--mf-border); border-radius: 13px; padding: 13px 14px 10px; background: var(--mf-surface, #fff); box-shadow: 0 4px 22px #19223006; }
-.assistant-composer:focus-within { border-color: var(--mf-text-muted); }
-.assistant-composer textarea { display: block; width: 100%; min-height: 46px; max-height: 160px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--mf-text); font: inherit; font-size: 14px; line-height: 1.7; }
-.assistant-composer textarea::placeholder { color: var(--mf-text-muted); }
-.assistant-composer-toolbar { display: flex; justify-content: space-between; align-items: center; margin-top: 7px; }
-.assistant-composer-toolbar > span { font-size: 10px; color: var(--mf-text-muted); }
+.assistant-composer-area { position: relative; flex-shrink: 0; padding: 12px 30px; }
+.assistant-composer { max-width: 760px; margin: 0 auto; }
 .assistant-send-button { display: grid; place-items: center; width: 31px; height: 31px; border: 0; border-radius: 8px; background: var(--mf-text); color: var(--mf-surface, #fff); cursor: pointer; font-size: 17px; }
 .assistant-send-button:disabled { opacity: .28; cursor: default; }
 .assistant-send-button.stop { background: var(--mf-surface-muted, #eef0f3); color: var(--mf-text); border: 1px solid var(--mf-border); }
@@ -373,5 +411,5 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 @keyframes assistant-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .assistant-thinking-dot, .assistant-activity i.active { animation: none; } }
 @media (max-width: 1199px) { .assistant-workspace { --assistant-expanded-sidebar-width: 200px; grid-template-columns: var(--assistant-sidebar-width) minmax(0, 1fr); } .assistant-details, .assistant-resizer { display: none; } }
-@media (max-width: 767px) { .assistant-workspace { grid-template-columns: minmax(0, 1fr); border-radius: 10px; } .assistant-conversation { grid-column: 1; } .assistant-sessions { display: none; } .assistant-mobile-only { display: inline-flex; } .assistant-conversation-header { min-height: 56px; padding: 10px 12px; gap: 8px; } .assistant-conversation-title { gap: 5px; } .assistant-conversation-title strong { max-width: 165px; } .assistant-conversation-title .assistant-connection { font-size: 9px; } .assistant-message-list { padding: 24px 16px 10px; } .assistant-composer-area { padding: 4px 12px max(10px, env(safe-area-inset-bottom)); } .assistant-user-message p { max-width: 94%; font-size: 14px; } .assistant-composer-hint { font-size: 9px; } .assistant-turn { margin-bottom: 28px; } }
+@media (max-width: 767px) { .assistant-workspace { grid-template-columns: minmax(0, 1fr); border-radius: 10px; } .assistant-conversation { grid-column: 1; } .assistant-sessions { display: none; } .assistant-mobile-only { display: inline-flex; } .assistant-conversation-header { min-height: 56px; padding: 6px 12px; gap: 8px; } .assistant-conversation-title { gap: 5px; } .assistant-conversation-title strong { max-width: 165px; } .assistant-message-list { padding: 24px 16px 10px; } .assistant-composer-area { padding: 4px 12px max(10px, env(safe-area-inset-bottom)); } .assistant-user-message p { max-width: 94%; font-size: 14px; } .assistant-composer-hint { font-size: 9px; } .assistant-turn { margin-bottom: 28px; } .assistant-icon-button, .assistant-detail-toggle, .assistant-send-button { min-width: 44px; min-height: 44px; } }
 </style>

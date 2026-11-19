@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { IconArrowUp, IconCode, IconPlus, IconStop } from '@arco-design/web-vue/es/icon'
 import { getGuestHistory, listAssistantModels, modelSelectionKey, streamGuestChat, type AgentModel, type GuestChatMessage, type GuestHistory } from '@/api/agentModels'
 import { formatAPIError } from '@/api/client'
 import AgentMarkdown from '@/components/agent/AgentMarkdown.vue'
 import AgentModelSelect from '@/components/agent/AgentModelSelect.vue'
 import AgentReasoningStream from '@/components/agent/AgentReasoningStream.vue'
+import AgentComposer from '@/components/agent/AgentComposer.vue'
+import { useAgentScroll } from '@/composables/useAgentScroll'
 
 const models = ref<AgentModel[]>([])
 const selectedKey = ref('')
-type Message = GuestChatMessage & { model?: string; reasoning?: string; failed?: boolean }
+const reasoningEffort = ref('')
+type Message = GuestChatMessage & { id: string; model?: string; reasoning?: string; failed?: boolean }
 const messages = ref<Message[]>([])
 const history = ref<GuestHistory | null>(null)
 const conversationID = ref(0)
@@ -18,6 +21,7 @@ const error = ref('')
 const loading = ref(true)
 const sending = ref(false)
 const scrollArea = ref<HTMLElement | null>(null)
+const { followBottom, handleScroll, scrollBottom } = useAgentScroll(scrollArea)
 const selectedModel = computed(() => models.value.find((model) => modelSelectionKey(model) === selectedKey.value))
 const conversations = computed(() => {
   const entries = new Map<number, string>()
@@ -25,11 +29,7 @@ const conversations = computed(() => {
   return [...entries].reverse()
 })
 let controller: AbortController | null = null
-
-async function scrollBottom() {
-  await nextTick()
-  scrollArea.value?.scrollTo({ top: scrollArea.value.scrollHeight })
-}
+let nextMessageID = 0
 
 async function send() {
   const model = selectedModel.value
@@ -39,14 +39,19 @@ async function send() {
   error.value = ''
   draft.value = ''
   const userIndex = messages.value.length
-  messages.value.push({ role: 'user', content }, { role: 'assistant', content: '', model: model.model, reasoning: '' })
+  const id = `local-${++nextMessageID}`
+  messages.value.push({ id: `${id}:user`, role: 'user', content }, { id: `${id}:assistant`, role: 'assistant', content: '', model: model.display_name || model.model, reasoning: '' })
   const reply = messages.value[messages.value.length - 1]!
   const items = new Map<string, { kind: string; text: string }>()
   controller = new AbortController()
-  await scrollBottom()
+  scrollBottom(true)
   try {
     await streamGuestChat(model, [{ role: 'user', content }], controller.signal, (kind, event) => {
-      if (kind === 'completed') { reply.content = event.content || ''; conversationID.value = event.conversation_id || conversationID.value }
+      if (kind === 'completed') {
+        reply.content = event.content || ''
+        conversationID.value = event.conversation_id || conversationID.value
+        if (!reply.content.trim()) throw new Error('没有收到回答正文，请重试。')
+      }
       if (kind === 'delta' && (event.kind === 'text' || event.kind === 'reasoning')) {
         const item = items.get(event.item_id || event.kind) || { kind: event.kind, text: '' }
         item.text = event.replace ? event.delta || '' : item.text + (event.delta || '')
@@ -54,8 +59,8 @@ async function send() {
         reply.content = [...items.values()].filter((entry) => entry.kind === 'text').map((entry) => entry.text).join('')
         reply.reasoning = [...items.values()].filter((entry) => entry.kind === 'reasoning').map((entry) => entry.text).join('\n')
       }
-      void scrollBottom()
-    }, conversationID.value)
+      scrollBottom()
+    }, conversationID.value, reasoningEffort.value)
   } catch (cause) {
     messages.value[userIndex]!.failed = true
     reply.failed = true
@@ -78,10 +83,10 @@ function clearConversation() {
 function restoreConversation() {
   error.value = ''
   messages.value = (history.value?.turns || []).filter((turn) => turn.conversation_id === conversationID.value).flatMap((turn): Message[] => [
-    { role: 'user', content: turn.input_text },
-    { role: 'assistant', content: turn.output_text, model: turn.model, reasoning: turn.reasoning_content, failed: turn.status !== 'succeeded' },
+    { id: `${turn.id}:user`, role: 'user', content: turn.input_text },
+    { id: `${turn.id}:assistant`, role: 'assistant', content: turn.output_text, model: models.value.find((model) => model.config_id === turn.config_id && model.model === turn.model)?.display_name || turn.model, reasoning: turn.reasoning_content, failed: turn.status !== 'succeeded' },
   ])
-  void scrollBottom()
+  scrollBottom(true)
 }
 
 onMounted(async () => {
@@ -101,14 +106,26 @@ onBeforeUnmount(() => controller?.abort())
 <template>
   <section class="guest-assistant" aria-label="游客助理" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
     <header><span><IconCode /> 助理 <small>游客</small></span><div><select v-model="conversationID" aria-label="游客历史对话" :disabled="sending || loading" @change="restoreConversation"><option :value="0">新建对话</option><option v-for="[identifier, title] in conversations" :key="identifier" :value="identifier">{{ title }}</option></select><button type="button" :disabled="sending" aria-label="新建游客对话" @click="clearConversation"><IconPlus /></button><router-link :to="{ name: 'login', query: { redirect: '/agent' } }">登录</router-link></div></header>
-    <main ref="scrollArea" class="guest-messages" aria-live="polite">
-      <div v-if="!messages.length" class="guest-welcome"><IconCode /><h1>向助理发送消息</h1><p>{{ loading ? '正在读取可用模型…' : models.length ? '选择管理员开放的模型开始对话。' : '管理员暂未开放游客模型。' }}</p><small v-if="history">历史最多保留 {{ history.retention_days }} 天，同一公网 IP 可以访问对应历史。<br />每个 IP 每日最多 {{ history.client_daily_limit }} 次，全部游客每日合计最多 {{ history.total_daily_limit }} 次。</small></div>
-      <article v-for="(message, index) in messages" :key="index" :class="['guest-message', message.role]">
+    <main ref="scrollArea" class="guest-messages" aria-label="游客对话消息" @scroll.passive="handleScroll">
+      <div v-if="!messages.length" class="guest-welcome">
+        <h1>{{ loading ? '正在读取模型' : models.length ? '向助理发送消息' : '游客模型暂未开放' }}</h1>
+        <router-link v-if="!loading && !models.length" :to="{ name: 'login', query: { redirect: '/agent' } }">登录使用助理</router-link>
+        <small v-if="history">同一公网 IP 的历史记录保留 {{ history.retention_days }} 天。每个 IP 每日最多 {{ history.client_daily_limit }} 次，全部游客每日合计最多 {{ history.total_daily_limit }} 次。</small>
+      </div>
+      <article v-for="(message, index) in messages" :key="message.id" :class="['guest-message', message.role]">
         <p v-if="message.role === 'user'">{{ message.content }}</p>
         <template v-else><div class="guest-answer-heading"><IconCode /><span>助理</span><small>{{ message.model }}</small></div><AgentReasoningStream v-if="message.reasoning" :content="message.reasoning" :active="sending && index === messages.length - 1" /><AgentMarkdown v-if="message.content" :content="message.content" /><p v-else>{{ sending && index === messages.length - 1 ? '正在生成…' : '本次未完成回答' }}</p><small v-if="message.failed" class="guest-error">回答未完成</small></template>
       </article>
     </main>
-    <div class="guest-composer"><p v-if="error" class="guest-error" role="alert">{{ error }}</p><form @submit.prevent="send"><textarea v-model="draft" aria-label="发送给游客助理的消息" placeholder="向助理发送消息…" rows="2" :disabled="sending || !models.length" @keydown.enter.exact.prevent="send" /><div><AgentModelSelect v-model="selectedKey" :models="models" :disabled="sending" /><button v-if="sending" type="button" aria-label="停止游客回答" @click="controller?.abort()"><IconStop /></button><button v-else type="submit" aria-label="发送游客消息" :disabled="!draft.trim() || !selectedModel"><IconArrowUp /></button></div></form></div>
+    <div class="guest-composer">
+      <p v-if="error" class="guest-error" role="alert">{{ error }}</p>
+      <button v-if="!followBottom" class="guest-jump" type="button" @click="scrollBottom(true)">查看最新消息</button>
+      <AgentComposer v-if="models.length" v-model="draft" label="发送给游客助理的消息" :disabled="sending" @submit="send">
+        <AgentModelSelect v-model="selectedKey" v-model:effort="reasoningEffort" :models="models" :disabled="sending" guest />
+        <button v-if="sending" type="button" aria-label="停止游客回答" @click="controller?.abort()"><IconStop /></button>
+        <button v-else type="submit" aria-label="发送游客消息" :disabled="!draft.trim() || !selectedModel"><IconArrowUp /></button>
+      </AgentComposer>
+    </div>
   </section>
 </template>
 
@@ -120,7 +137,7 @@ onBeforeUnmount(() => controller?.abort())
 .guest-assistant header select { max-width: min(30vw, 240px); padding: 6px; border: 1px solid var(--mf-border); border-radius: 6px; background: var(--mf-surface, #fff); color: var(--mf-text); }
 .guest-assistant button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--mf-border); border-radius: 7px; background: var(--mf-surface, #fff); color: var(--mf-text); cursor: pointer; }
 .guest-assistant button:disabled { opacity: .4; cursor: default; }
-.guest-messages { flex: 1; min-height: 0; overflow: auto; padding: 24px max(18px, calc((100% - 760px) / 2)); }
+.guest-messages { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 24px max(18px, calc((100% - 760px) / 2)); }
 .guest-welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 200px; gap: 12px; }
 .guest-welcome h1 { font-size: 20px; font-weight: 500; margin: 0; }
 .guest-welcome p, .guest-welcome small { color: var(--mf-text-muted); margin: 0; font-size: 12px; line-height: 1.8; }
@@ -130,8 +147,8 @@ onBeforeUnmount(() => controller?.abort())
 .guest-answer-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .guest-answer-heading small { overflow-wrap: anywhere; }
 .guest-composer { width: min(100%, 800px); margin: 0 auto; padding: 12px 18px max(14px, env(safe-area-inset-bottom)); box-sizing: border-box; }
-.guest-composer form { border: 1px solid var(--mf-border); border-radius: 14px; padding: 12px; }
-.guest-composer textarea { width: 100%; resize: none; border: 0; background: transparent; color: var(--mf-text); font: inherit; outline: none; }
-.guest-composer form > div { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.guest-welcome a { color: var(--mf-primary-strong); font-weight: 600; }
+.guest-assistant .guest-jump { display: block; width: auto; margin: 0 auto 12px; padding: 0 12px; }
+@media (max-width: 767px) { .guest-assistant button { min-width: 44px; min-height: 44px; } }
 .guest-error { color: #bf4343; font-size: 12px; }
 </style>

@@ -201,6 +201,9 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 	if request.MaxTokens == 0 {
 		request.MaxTokens = agent.ContextBudgetForProfile(agent.ContextBudgetProfileFinalSynthesis).OutputReserveTokens
 	}
+	if selection, selected := ctx.Value(agentModelSelectionKey{}).(domain.AgentModelSelection); selected {
+		request.ReasoningEffort = selection.ReasoningEffort
+	}
 	content := agentLLMRequestSnapshot(metadata, request, resolved.configuration)
 	budget, budgetErr := agentLLMRequestBudget(metadata.Stage, request)
 	content["request_budget"] = budget
@@ -352,11 +355,12 @@ func agentLLMRequestSnapshot(metadata AgentLLMCallContext, request llm.ChatReque
 		"prompt_version":      metadata.PromptVersion,
 		"model_configuration": configuration,
 		"request": domain.AgentJSON{
-			"messages":    request.Messages,
-			"tools":       request.Tools,
-			"tool_choice": request.ToolChoice,
-			"temperature": request.Temperature,
-			"max_tokens":  request.MaxTokens,
+			"messages":         request.Messages,
+			"tools":            request.Tools,
+			"tool_choice":      request.ToolChoice,
+			"temperature":      request.Temperature,
+			"max_tokens":       request.MaxTokens,
+			"reasoning_effort": request.ReasoningEffort,
 		},
 	}
 }

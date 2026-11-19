@@ -12,8 +12,12 @@ import (
 )
 
 type Model struct {
-	ID      string `json:"id"`
-	OwnedBy string `json:"owned_by,omitempty"`
+	ID                       string   `json:"id"`
+	OwnedBy                  string   `json:"owned_by,omitempty"`
+	ReasoningLevels          []string `json:"reasoning_levels,omitempty"`
+	SupportedReasoningLevels []struct {
+		Effort string `json:"effort"`
+	} `json:"supported_reasoning_levels,omitempty"`
 }
 
 func FetchModels(ctx context.Context, baseURL, apiKey string) ([]Model, error) {
@@ -60,11 +64,17 @@ func decodeModelCatalog(reader io.Reader) ([]Model, error) {
 		return nil, fmt.Errorf("供应商模型目录缺少 data 数组")
 	}
 	seen := map[string]bool{}
-	for _, model := range result.Data {
+	for index := range result.Data {
+		model := &result.Data[index]
 		if strings.TrimSpace(model.ID) != model.ID || model.ID == "" || len(model.ID) > 512 || seen[model.ID] {
 			return nil, fmt.Errorf("供应商模型目录包含空白或重复标识")
 		}
 		seen[model.ID] = true
+		if model.ReasoningLevels == nil {
+			for _, level := range model.SupportedReasoningLevels {
+				model.ReasoningLevels = append(model.ReasoningLevels, level.Effort)
+			}
+		}
 	}
 	return result.Data, nil
 }

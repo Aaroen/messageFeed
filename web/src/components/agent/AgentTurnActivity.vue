@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { getAgentRun, type AgentRun } from '@/api/agent'
-import type { AgentStreamItem } from '@/api/assistant'
+import { getAgentActivity, type AgentActivity, type AgentStreamItem } from '@/api/assistant'
 import { formatAPIError } from '@/api/client'
 import { isActiveStatus, runLabel } from '@/utils/assistant'
 import AgentReasoningStream from './AgentReasoningStream.vue'
 import AgentRunDetails from './AgentRunDetails.vue'
 
-const props = defineProps<{ runs: AgentRun[]; items: AgentStreamItem[]; status: string }>()
+const props = defineProps<{ runs: AgentActivity[]; items: AgentStreamItem[]; status: string }>()
 const manualOpen = ref<boolean | null>(null)
 const selectedID = ref(0)
-const detail = ref<AgentRun | null>(null)
+const detail = ref<AgentActivity | null>(null)
 const loading = ref(false)
 const error = ref('')
 let version = 0
@@ -26,7 +25,7 @@ async function select(id: number) {
   error.value = ''
   loading.value = true
   try {
-    const result = await getAgentRun(id)
+    const result = await getAgentActivity(id)
     if (version === currentVersion) detail.value = result
   } catch (cause) { if (version === currentVersion) error.value = formatAPIError(cause) }
   finally { if (version === currentVersion) loading.value = false }
@@ -39,10 +38,10 @@ watch(() => props.runs.find((run) => run.id === selectedID.value)?.updated_at, (
 
 <template>
   <AgentReasoningStream v-if="reasoning" :content="reasoning" :active="isActiveStatus(status)" />
-  <section class="turn-activity" aria-label="执行详情">
+  <section v-if="runs.length" class="turn-activity" aria-label="执行详情">
     <button type="button" class="turn-activity-toggle" :aria-expanded="expanded" @click="manualOpen = !expanded"><i :class="{ active: isActiveStatus(status) }" /><span>{{ current ? runLabel(current) : '执行详情' }}</span><small>{{ runs.length }} 项活动 · {{ expanded ? '收起' : '展开' }}</small></button>
     <div v-if="expanded" class="turn-activity-body">
-      <AgentRunDetails :runs="runs" :items="items.filter((item) => item.kind !== 'reasoning')" :selected-i-d="selectedID" :detail="detail" :loading="loading" :error="error" @select="select" />
+      <AgentRunDetails :runs="runs" :selected-i-d="selectedID" :detail="detail" :loading="loading" :error="error" @select="select" />
     </div>
   </section>
 </template>

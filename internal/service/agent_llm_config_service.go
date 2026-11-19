@@ -42,6 +42,7 @@ type AgentLLMConfigService struct {
 	codec         agentLLMConfigCodec
 	defaultConfig config.LLMConfig
 	now           func() time.Time
+	catalog       agentModelCatalogCache
 }
 
 type AgentLLMConfigServiceOption func(*AgentLLMConfigService)
@@ -375,6 +376,7 @@ type AgentLLMRuntime struct {
 	defaultClient      AgentConversationLLM
 	defaultModelConfig domain.AgentJSON
 	runManager         *agent.RunManager
+	modelCatalog       *AgentLLMConfigService
 	codec              agentLLMConfigCodec
 	now                func() time.Time
 	mu                 sync.Mutex
@@ -382,6 +384,12 @@ type AgentLLMRuntime struct {
 }
 
 type AgentLLMRuntimeOption func(*AgentLLMRuntime)
+
+func WithAgentLLMRuntimeModelCatalog(catalog *AgentLLMConfigService) AgentLLMRuntimeOption {
+	return func(runtime *AgentLLMRuntime) {
+		runtime.modelCatalog = catalog
+	}
+}
 
 func WithAgentLLMRuntimeDefaultClient(client AgentConversationLLM) AgentLLMRuntimeOption {
 	return func(runtime *AgentLLMRuntime) {

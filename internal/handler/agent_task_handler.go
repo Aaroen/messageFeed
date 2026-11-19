@@ -22,11 +22,12 @@ type agentTaskHandler struct {
 }
 
 type createAgentTaskRequest struct {
-	Message       string `json:"message"`
-	SessionID     int64  `json:"session_id"`
-	Channel       string `json:"channel"`
-	ModelConfigID int64  `json:"model_config_id"`
-	Model         string `json:"model"`
+	Message         string `json:"message"`
+	SessionID       int64  `json:"session_id"`
+	Channel         string `json:"channel"`
+	ModelConfigID   int64  `json:"model_config_id"`
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoning_effort"`
 }
 
 type stopAgentPlanRequest struct {
@@ -55,13 +56,14 @@ func (h agentTaskHandler) create(c *gin.Context) {
 		return
 	}
 	result, err := h.service.ReceiveWebAgentTask(c.Request.Context(), currentAuth(c), service.ReceiveWebAgentTaskInput{
-		Message:       request.Message,
-		SessionID:     request.SessionID,
-		Channel:       request.Channel,
-		RequestID:     requestID(c),
-		TraceID:       observability.TraceID(c.Request.Context()),
-		ModelConfigID: request.ModelConfigID,
-		Model:         request.Model,
+		Message:         request.Message,
+		SessionID:       request.SessionID,
+		Channel:         request.Channel,
+		RequestID:       requestID(c),
+		TraceID:         observability.TraceID(c.Request.Context()),
+		ModelConfigID:   request.ModelConfigID,
+		Model:           request.Model,
+		ReasoningEffort: request.ReasoningEffort,
 	})
 	if err != nil {
 		RenderError(c, err, "create agent task failed")

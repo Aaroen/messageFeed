@@ -1,5 +1,4 @@
-import type { AgentRun } from '@/api/agent'
-import type { AgentStreamEvent, AgentStreamItem } from '@/api/assistant'
+import type { AgentActivity, AgentStreamEvent, AgentStreamItem } from '@/api/assistant'
 
 const stageLabels: Record<string, string> = {
   route: '理解请求', planning: '制定计划', generation: '生成回答', followup_answer: '回答追问',
@@ -15,29 +14,18 @@ export function isActiveStatus(status: string) {
   return ['queued', 'pending', 'running', 'awaiting_approval', 'awaiting_confirmation'].includes(status)
 }
 
-export function runLabel(run: AgentRun) {
-  const stage = String(run.task_packet.stage || '')
-  if (stage) return stageLabels[stage] || '处理任务'
-  if (run.task_packet.capability_key) return capabilityLabel(String(run.task_packet.capability_key))
-  for (const key of ['title', 'goal', 'task', 'description']) {
-    const value = run.task_packet[key]
-    if (typeof value === 'string' && value.trim()) return value
-  }
-  return run.role === 'controller' ? '主代理' : '执行任务'
+export function runLabel(run: AgentActivity) {
+  if (run.stage) return stageLabels[run.stage] || '处理任务'
+  if (run.capability) return capabilityLabel(run.capability)
+  return readableActivityText(run.title || '') || runRoleLabel(run)
 }
 
 export function capabilityLabel(key: string) {
   return ({ 'feed.query_recent_items': '读取最近资讯', 'source.query_latest_items': '读取订阅资讯', 'conversation.query_history': '查询对话记录', 'memory.fact_recall': '查找相关记忆', 'agent.schedule_message': '安排消息提醒', 'agent.schedule_task': '安排任务', 'web.search': '搜索网页', 'web.fetch_page': '读取网页', 'web.extract_page': '提取网页正文', 'repo.search': '搜索项目内容', 'repo.inspect_remote': '查看项目资料', 'content.summarize_text': '整理资料摘要', 'agent.write_transcript': '保存对话', 'agent.write_audit': '保存执行记录' } as Record<string, string>)[key] || '处理资料'
 }
 
-export function subagentRuns(runs: AgentRun[]) {
-  const identifiers = new Set(runs.filter((run) => run.role === 'executor' && !run.task_packet.stage && !run.task_packet.capability_key).map((run) => run.id))
-  let previousSize = -1
-  while (identifiers.size !== previousSize) {
-    previousSize = identifiers.size
-    for (const run of runs) if (identifiers.has(run.parent_run_id)) identifiers.add(run.id)
-  }
-  return runs.filter((run) => identifiers.has(run.id))
+export function subagentRuns(runs: AgentActivity[]) {
+  return runs.filter((run) => run.kind === 'subagent')
 }
 
 export function readableActivityText(content: string) {
@@ -53,23 +41,22 @@ export function assistantErrorMessage(message: string) {
   return message
 }
 
-export function runRoleLabel(run: AgentRun) {
-  if (run.role === 'controller') return '主代理'
-  if (run.task_packet.stage) return '模型调用'
-  if (run.task_packet.capability_key) return '工具调用'
-  return '子代理'
+export function runRoleLabel(run: AgentActivity) {
+  return { controller: '主代理', model: '模型调用', tool: '工具调用', subagent: '子代理' }[run.kind] || '执行任务'
 }
 
-export function flattenRuns(runs: AgentRun[]) {
-  const byParent = new Map<number, AgentRun[]>()
+export function flattenRuns(runs: AgentActivity[]) {
+  const byParent = new Map<number, AgentActivity[]>()
   const identifiers = new Set(runs.map((run) => run.id))
   for (const run of runs) {
     const parent = identifiers.has(run.parent_run_id) ? run.parent_run_id : 0
-    byParent.set(parent, [...(byParent.get(parent) || []), run])
+    const siblings = byParent.get(parent)
+    if (siblings) siblings.push(run)
+    else byParent.set(parent, [run])
   }
-  const result: { run: AgentRun; depth: number }[] = []
+  const result: { run: AgentActivity; depth: number }[] = []
   const visited = new Set<number>()
-  function visit(run: AgentRun, depth: number) {
+  function visit(run: AgentActivity, depth: number) {
     if (visited.has(run.id)) return
     visited.add(run.id)
     result.push({ run, depth })
@@ -91,6 +78,16 @@ export function applyStreamEvent(items: AgentStreamItem[], event: AgentStreamEve
   if (event.metadata.stage) item.stage = event.metadata.stage
   if (event.metadata.phase) item.phase = event.metadata.phase
   if (event.metadata.model_key) item.model_key = event.metadata.model_key
+}
+
+export function groupByTurn<Entry extends { turn_id: number }>(entries: Entry[]) {
+  const groups = new Map<number, Entry[]>()
+  for (const entry of entries) {
+    const group = groups.get(entry.turn_id)
+    if (group) group.push(entry)
+    else groups.set(entry.turn_id, [entry])
+  }
+  return groups
 }
 
 export function liveTurnText(items: AgentStreamItem[], turnID: number) {

@@ -4,6 +4,7 @@ export interface AgentModel {
   config_id: number
   provider_name: string
   model: string
+  display_name: string
   enabled: boolean
   guest_enabled: boolean
 }
@@ -22,13 +23,24 @@ export async function listAssistantModels(guest = false) {
   return response.data.data
 }
 
+export async function getModelReasoningLevels(model: AgentModel, guest: boolean, signal: AbortSignal) {
+  const route = guest ? '/api/v1/public/agent/models/reasoning-levels' : '/api/v1/agent/models/reasoning-levels'
+  const response = await apiClient.get<{ data: string[] }>(route, { params: { config_id: model.config_id, model: model.model }, signal })
+  return response.data.data
+}
+
 export async function discoverProviderModels(configID: number) {
   const response = await apiClient.get<{ data: ProviderModelCatalog }>(`/api/v1/agent/llm-provider-configs/${configID}/models`, { timeout: 35000 })
   return response.data.data
 }
 
-export async function saveProviderModels(configID: number, models: string[], guestModels: string[]) {
-  await apiClient.put(`/api/v1/agent/llm-provider-configs/${configID}/models`, { models, guest_models: guestModels }, { timeout: 35000 })
+export async function listSavedProviderModels(configID: number) {
+  const response = await apiClient.get<{ data: AgentModel[] }>(`/api/v1/agent/llm-provider-configs/${configID}/models`, { params: { saved_only: true } })
+  return response.data.data
+}
+
+export async function saveProviderModels(configID: number, models: string[], guestModels: string[], displayNames: Record<string, string>) {
+  await apiClient.put(`/api/v1/agent/llm-provider-configs/${configID}/models`, { models, guest_models: guestModels, display_names: displayNames })
 }
 
 export interface GuestChatMessage {
@@ -50,6 +62,7 @@ export interface GuestChatEvent {
 
 export interface GuestHistoryTurn {
   id: number
+  config_id: number
   conversation_id: number
   input_text: string
   output_text: string
@@ -72,11 +85,11 @@ export async function getGuestHistory() {
   return response.data.data
 }
 
-export async function streamGuestChat(model: AgentModel, messages: GuestChatMessage[], signal: AbortSignal, onEvent: (kind: string, event: GuestChatEvent) => void, conversationID = 0) {
+export async function streamGuestChat(model: AgentModel, messages: GuestChatMessage[], signal: AbortSignal, onEvent: (kind: string, event: GuestChatEvent) => void, conversationID = 0, reasoningEffort = '') {
   const response = await fetch('/api/v1/public/agent/chat', {
     method: 'POST', credentials: 'same-origin', signal,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config_id: model.config_id, model: model.model, messages, conversation_id: conversationID }),
+    body: JSON.stringify({ config_id: model.config_id, model: model.model, messages, conversation_id: conversationID, reasoning_effort: reasoningEffort || undefined }),
   })
   if (!response.ok) {
     const error = await response.json() as { message?: string }

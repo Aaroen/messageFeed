@@ -503,6 +503,10 @@ func (h agentSessionHandler) runDetail(c *gin.Context) {
 		RenderError(c, err, "load agent run failed")
 		return
 	}
+	if c.Query("view") == "activity" {
+		Success(c, service.PublicAgentActivity(result.Run))
+		return
+	}
 	Success(c, result)
 }
 

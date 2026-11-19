@@ -81,7 +81,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	if err := transaction.Exec("SET LOCAL search_path TO " + pgx.Identifier{schema}.Sanitize() + ", " + pgx.Identifier{sourceSchema}.Sanitize()).Error; err != nil {
 		test.Fatal(err)
 	}
-	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql", "000042_expand_agent_stream_events.up.sql", "000043_expand_agent_llm_models.up.sql", "000044_expand_guest_chat_history.up.sql"} {
+	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql", "000042_expand_agent_stream_events.up.sql", "000043_expand_agent_llm_models.up.sql", "000044_expand_guest_chat_history.up.sql", "000045_expand_agent_model_display_name.up.sql"} {
 		migration, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			test.Fatal(err)
@@ -265,7 +265,7 @@ func verifyRealAgentModelManagement(test *testing.T, ctx context.Context, store 
 	if err != nil || configuration.ID == defaultID {
 		test.Fatalf("创建独立供应商配置失败：%v", err)
 	}
-	selection, err := runtime.ValidateModelSelection(ctx, userID, configuration.ID, configuration.Model)
+	selection, err := runtime.ValidateModelSelection(ctx, userID, configuration.ID, configuration.Model, "")
 	if err != nil {
 		test.Fatal(err)
 	}
@@ -309,10 +309,10 @@ func verifyRealAgentModelManagement(test *testing.T, ctx context.Context, store 
 	if err != nil || len(guestModels) != 1 || guestModels[0].Model != selection.Model {
 		test.Fatalf("游客模型目录没有遵循管理员授权：%v", err)
 	}
-	if _, err := runtime.ValidateModelSelection(ctx, userID+1000000, selection.ConfigID, selection.Model); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := runtime.ValidateModelSelection(ctx, userID+1000000, selection.ConfigID, selection.Model, ""); !errors.Is(err, domain.ErrNotFound) {
 		test.Fatal("模型选择没有隔离用户配置")
 	}
-	if _, err := runtime.ValidateModelSelection(ctx, userID, selection.ConfigID, "unavailable-model"); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, err := runtime.ValidateModelSelection(ctx, userID, selection.ConfigID, "unavailable-model", ""); !errors.Is(err, domain.ErrInvalidInput) {
 		test.Fatal("未启用模型没有被拒绝")
 	}
 	if _, err := store.GetGuestAgentModelConfig(ctx, selection.ConfigID, "unavailable-model"); !errors.Is(err, domain.ErrNotFound) {

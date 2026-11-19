@@ -29,7 +29,6 @@
   --motion-refresh-spin: 760ms;
   --motion-loading-cycle: 820ms;
   --motion-chrome: 1000ms;
-  --motion-ambient: 12s;
   --motion-reduced: 1ms;
   --ease-linear: linear;
   --ease-oscillate: ease-in-out;
@@ -221,7 +220,6 @@ body[arco-theme='dark'] .theme-icon-button:hover {
     linear-gradient(90deg, rgba(18, 27, 43, 0.34), rgba(18, 27, 43, 0.12)),
     rgba(246, 248, 251, 0.34);
   cursor: default;
-  backdrop-filter: blur(10px) saturate(1.12);
 }
 
 body[arco-theme='dark'] .nav-scrim {
@@ -248,7 +246,6 @@ body[arco-theme='dark'] .nav-scrim {
     linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(239, 246, 252, 0.68)),
     var(--mf-surface-raised);
   box-shadow: var(--mf-panel-shadow);
-  backdrop-filter: blur(28px) saturate(1.35);
 }
 
 body[arco-theme='dark'] .nav-panel {
@@ -273,7 +270,6 @@ body[arco-theme='dark'] .nav-panel {
     );
   filter: blur(24px);
   opacity: 0.95;
-  animation: fluid-panel var(--motion-ambient) var(--ease-oscillate) infinite alternate;
   pointer-events: none;
 }
 
@@ -531,11 +527,7 @@ body[arco-theme='dark'] .settings-icon-button--active {
   overflow: hidden;
   background: var(--mf-header-bg);
   box-shadow: var(--mf-header-shadow);
-  backdrop-filter: blur(16px) saturate(1.1);
   transition:
-    max-height var(--motion-short) var(--ease-standard),
-    min-height var(--motion-short) var(--ease-standard),
-    padding var(--motion-short) var(--ease-standard),
     transform var(--motion-short) var(--ease-standard),
     opacity var(--motion-fast) var(--ease-standard);
 }
@@ -2352,7 +2344,6 @@ body[arco-theme='dark'] .reader-detail-progress__thumb {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--mf-primary), var(--mf-aqua));
-  transition: width var(--motion-short) var(--ease-standard);
 }
 
 .agent-plan-summary__meta,
@@ -2976,16 +2967,6 @@ body[arco-theme='dark'] .empty-surface {
   margin: 0;
   color: var(--mf-text-muted);
   font-size: 14px;
-}
-
-@keyframes fluid-panel {
-  from {
-    transform: translate3d(-6%, -3%, 0) rotate(0deg) scale(1);
-  }
-
-  to {
-    transform: translate3d(5%, 4%, 0) rotate(18deg) scale(1.06);
-  }
 }
 
 @keyframes refresh-spin {

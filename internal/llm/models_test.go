@@ -1,9 +1,20 @@
 package llm
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
+
+func TestDecodeModelCatalogReasoningLevels(test *testing.T) {
+	models, err := decodeModelCatalog(strings.NewReader(`{"data":[{"id":"flat","reasoning_levels":["minimal","low","medium","high"]},{"id":"objects","supported_reasoning_levels":[{"effort":"high"},{"effort":"max"}]},{"id":"plain","reasoning":true}]}`))
+	if err != nil || len(models) != 3 {
+		test.Fatalf("读取模型目录失败：%v", err)
+	}
+	if !slices.Equal(models[0].ReasoningLevels, []string{"minimal", "low", "medium", "high"}) || !slices.Equal(models[1].ReasoningLevels, []string{"high", "max"}) || len(models[2].ReasoningLevels) != 0 {
+		test.Fatalf("模型目录档位与供应商声明不一致：%v", models)
+	}
+}
 
 func TestDecodeModelCatalog(test *testing.T) {
 	models, err := decodeModelCatalog(strings.NewReader(`{"object":"list","data":[{"id":"group/deepseek-flash","owned_by":"group","reasoning":true}],"has_more":false}`))

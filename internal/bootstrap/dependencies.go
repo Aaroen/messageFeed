@@ -151,10 +151,12 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	recommendationService := service.NewRecommendationService(sourceCatalogRepository, feedFetcher)
 	recommendationService.SetLocalHistoryRepositories(sourceRepository, itemRepository)
 	agentLLMConfigSecret := service.AgentLLMConfigSecretFromConfig(cfg)
+	agentLLMConfigService := service.NewAgentLLMConfigService(agentRepository, service.WithAgentLLMConfigDefaultConfig(cfg.LLM), service.WithAgentLLMConfigSecret(agentLLMConfigSecret))
 	agentLLMRuntime := service.NewAgentLLMRuntime(agentRepository,
 		service.WithAgentLLMRuntimeDefaultClient(llmClient),
 		service.WithAgentLLMRuntimeDefaultConfig(cfg.LLM),
 		service.WithAgentLLMRuntimeSecret(agentLLMConfigSecret),
+		service.WithAgentLLMRuntimeModelCatalog(agentLLMConfigService),
 		service.WithAgentLLMRuntimeRunManager(agent.NewRunManager(agent.RunManagerOptions{Store: agentRepository})),
 	)
 	agentConversationService := service.NewAgentConversationService(agentRepository,
@@ -199,7 +201,7 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 		agentApproval:     service.NewAgentApprovalService(repository.NewAgentApprovalRepository(database)),
 		agentSession:      service.NewAgentSessionService(agentRepository, service.WithAgentSessionEmbeddingClient(embeddingClient, cfg.Embedding.Model)),
 		agentSchedule:     service.NewAgentScheduleEvalService(agentRepository),
-		agentLLMConfig:    service.NewAgentLLMConfigService(agentRepository, service.WithAgentLLMConfigDefaultConfig(cfg.LLM), service.WithAgentLLMConfigSecret(agentLLMConfigSecret)),
+		agentLLMConfig:    agentLLMConfigService,
 	}
 	adminConfigService := service.NewAdminConfigService(cfg,
 		service.WithAdminConfigDatabase(database), service.WithAdminConfigLLM(llmClient),

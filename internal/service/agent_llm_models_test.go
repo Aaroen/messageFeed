@@ -9,7 +9,7 @@ import (
 )
 
 func TestAgentModelSelectionRoundTrip(test *testing.T) {
-	selection := domain.AgentModelSelection{UserID: 7, ConfigID: 9, Model: "group/deepseek-flash"}
+	selection := domain.AgentModelSelection{UserID: 7, ConfigID: 9, Model: "group/deepseek-flash", ReasoningEffort: "high"}
 	encoded, err := json.Marshal(domain.AgentJSON{"model_selection": selection})
 	if err != nil {
 		test.Fatal(err)

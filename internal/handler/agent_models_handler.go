@@ -9,16 +9,19 @@ import (
 	"messagefeed/internal/llm"
 	"messagefeed/internal/service"
 	"net/http"
+	"strconv"
 	"time"
 )
 
 type agentModelsService interface {
 	DiscoverModels(context.Context, service.CurrentAuth, int64) (service.AgentProviderModels, error)
+	SavedModels(context.Context, service.CurrentAuth, int64) ([]domain.AgentLLMModel, error)
 	SaveModels(context.Context, service.CurrentAuth, int64, service.AgentProviderModelsInput) error
 	SelectableModels(context.Context, service.CurrentAuth) ([]domain.AgentLLMModel, error)
 	GuestModels(context.Context) ([]domain.AgentLLMModel, error)
 	GuestChat(context.Context, string, service.AgentGuestChatInput, func(llm.StreamEvent) error) (service.AgentGuestChatResult, error)
 	GuestHistory(context.Context, string) (service.AgentGuestHistory, error)
+	ReasoningLevels(context.Context, service.CurrentAuth, bool, int64, string) ([]string, error)
 }
 
 func registerAgentModelsRoutes(private, public *gin.RouterGroup, configService agentLLMConfigService) {
@@ -26,6 +29,24 @@ func registerAgentModelsRoutes(private, public *gin.RouterGroup, configService a
 	if !ok {
 		return
 	}
+	reasoningLevels := func(guest bool) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			configID, err := strconv.ParseInt(c.Query("config_id"), 10, 64)
+			model := c.Query("model")
+			if err != nil || configID < 1 || model == "" || len(model) > 512 {
+				Error(c, http.StatusBadRequest, http.StatusBadRequest, "模型选择参数无效")
+				return
+			}
+			levels, err := models.ReasoningLevels(c.Request.Context(), currentAuth(c), guest, configID, model)
+			if err != nil {
+				RenderError(c, err, "读取思考强度失败")
+				return
+			}
+			Success(c, levels)
+		}
+	}
+	private.GET("/agent/models/reasoning-levels", reasoningLevels(false))
+	public.GET("/public/agent/models/reasoning-levels", reasoningLevels(true))
 	private.GET("/agent/models", func(c *gin.Context) {
 		result, err := models.SelectableModels(c.Request.Context(), currentAuth(c))
 		if err != nil {
@@ -37,6 +58,15 @@ func registerAgentModelsRoutes(private, public *gin.RouterGroup, configService a
 	private.GET("/agent/llm-provider-configs/:id/models", func(c *gin.Context) {
 		id, ok := parseAgentLLMConfigID(c)
 		if !ok {
+			return
+		}
+		if c.Query("saved_only") == "true" {
+			result, err := models.SavedModels(c.Request.Context(), currentAuth(c), id)
+			if err != nil {
+				RenderError(c, err, "读取已保存模型失败")
+				return
+			}
+			Success(c, result)
 			return
 		}
 		result, err := models.DiscoverModels(c.Request.Context(), currentAuth(c), id)

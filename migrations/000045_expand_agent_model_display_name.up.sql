@@ -1,0 +1,1 @@
+ALTER TABLE agent_llm_models ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT '';

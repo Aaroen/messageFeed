@@ -290,14 +290,14 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 	}
 	channel := normalizeWebAgentChannel(input.Channel)
 	var selection *domain.AgentModelSelection
-	if input.Model != "" || input.ModelConfigID != 0 {
+	if input.Model != "" || input.ModelConfigID != 0 || input.ReasoningEffort != "" {
 		selector, ok := s.llmClient.(interface {
-			ValidateModelSelection(context.Context, int64, int64, string) (domain.AgentModelSelection, error)
+			ValidateModelSelection(context.Context, int64, int64, string, string) (domain.AgentModelSelection, error)
 		})
 		if !ok {
 			return ReceiveWebAgentTaskResult{}, fmt.Errorf("模型选择服务不可用")
 		}
-		chosen, err := selector.ValidateModelSelection(ctx, auth.User.ID, input.ModelConfigID, input.Model)
+		chosen, err := selector.ValidateModelSelection(ctx, auth.User.ID, input.ModelConfigID, input.Model, input.ReasoningEffort)
 		if err != nil {
 			return ReceiveWebAgentTaskResult{}, err
 		}

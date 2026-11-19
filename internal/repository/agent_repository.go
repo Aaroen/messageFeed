@@ -86,6 +86,7 @@ type agentTurnModel struct {
 	ID               int64 `gorm:"primaryKey"`
 	SessionID        int64 `gorm:"not null"`
 	InboundMessageID int64 `gorm:"not null"`
+	ModelConfigID    int64 `gorm:"->;-:migration"`
 	UserID           int64 `gorm:"not null"`
 	Status           string
 	InputText        string
@@ -1366,6 +1367,7 @@ func agentTurnModelToDomain(model agentTurnModel) domain.AgentTurn {
 		OutputText:       model.OutputText,
 		ModelProvider:    model.ModelProvider,
 		Model:            model.Model,
+		ModelConfigID:    model.ModelConfigID,
 		ErrorMessage:     model.ErrorMessage,
 		DeliveryStatus:   model.DeliveryStatus,
 		DeliveryError:    model.DeliveryError,
