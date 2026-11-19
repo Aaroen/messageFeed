@@ -191,14 +191,16 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  const restoredFeedRoute = await restoreFeedViewModeForRoute(to.name)
+  const restoredFeedRoute = to.redirectedFrom?.path === '/' ? await restoreFeedViewModeForRoute(to.name) : null
   if (restoredFeedRoute) {
-    return restoredFeedRoute
+    return { ...restoredFeedRoute, query: to.query, hash: to.hash }
   }
-  if (to.name === 'subscriptions') {
-    rememberFeedViewMode('timeline')
-  } else if (to.name === 'recommendations') {
-    rememberFeedViewMode('recommendations')
+  if (to.name !== router.currentRoute.value.name) {
+    if (to.name === 'subscriptions') {
+      rememberFeedViewMode('timeline')
+    } else if (to.name === 'recommendations') {
+      rememberFeedViewMode('recommendations')
+    }
   }
   if (to.meta.public) {
     return true

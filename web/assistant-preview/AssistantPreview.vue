@@ -74,6 +74,21 @@ function toggleFullscreen() {
   syncPage()
 }
 
+function openArticle(link: string) {
+  window.history.pushState({ previewArticleOrigin: `#/${page.value}` }, '', link)
+  syncPage()
+}
+
+function closeArticle() {
+  const target = `#/${page.value}`
+  if (window.history.state?.previewArticleOrigin === target) {
+    window.history.back()
+    return
+  }
+  window.history.replaceState(null, '', target)
+  syncPage()
+}
+
 const defaultModel = models[0]!
 const sessions = ref<Session[]>(examples.map((example, index) => ({
   id: index + 1,
@@ -271,11 +286,11 @@ async function copyReply(reply: string, index: number) {
         <footer class="site-drawer-actions"><button type="button" class="icon-button preview-theme" :aria-label="themeAction" :title="themeAction" @click="toggleTheme"><component :is="darkTheme ? IconSunFill : IconMoonFill" aria-hidden="true" /></button></footer>
       </aside>
     </dialog>
-    <PreviewFeed v-show="page === 'subscriptions' && !article" page="subscriptions" :active="page === 'subscriptions' && !article" @chrome="topNavigationVisible = $event" />
-    <PreviewFeed v-show="page === 'recommendations' && !article" page="recommendations" :active="page === 'recommendations' && !article" @chrome="topNavigationVisible = $event" />
+    <PreviewFeed v-show="page === 'subscriptions' && !article" page="subscriptions" :active="page === 'subscriptions' && !article" @chrome="topNavigationVisible = $event" @article="openArticle" />
+    <PreviewFeed v-show="page === 'recommendations' && !article" page="recommendations" :active="page === 'recommendations' && !article" @chrome="topNavigationVisible = $event" @article="openArticle" />
     <main v-if="article" :key="article.title" class="preview-feed preview-original">
       <article class="feed-reading">
-        <a class="original-back" :href="`#/${page}`"><IconArrowLeft aria-hidden="true" />返回{{ page === 'subscriptions' ? '订阅' : '推荐' }}</a>
+        <a class="original-back" :href="`#/${page}`" @click.left.exact.prevent="closeArticle"><IconArrowLeft aria-hidden="true" />返回{{ page === 'subscriptions' ? '订阅' : '推荐' }}</a>
         <header class="feed-heading">
           <h1>{{ article.title }}</h1>
           <p>本地示例 · {{ article.source }} · {{ article.category }}</p>

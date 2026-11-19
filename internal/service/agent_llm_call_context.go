@@ -198,15 +198,10 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 	if err != nil {
 		return llm.ChatResponse{}, err
 	}
-	if request.MaxTokens == 0 {
-		request.MaxTokens = agent.ContextBudgetForProfile(agent.ContextBudgetProfileFinalSynthesis).OutputReserveTokens
-	}
 	if selection, selected := ctx.Value(agentModelSelectionKey{}).(domain.AgentModelSelection); selected {
 		request.ReasoningEffort = selection.ReasoningEffort
 	}
 	content := agentLLMRequestSnapshot(metadata, request, resolved.configuration)
-	budget, budgetErr := agentLLMRequestBudget(metadata.Stage, request)
-	content["request_budget"] = budget
 	if _, err := json.Marshal(content); err != nil {
 		return llm.ChatResponse{}, err
 	}
@@ -276,13 +271,9 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 		runErr := finishRuns(traceCtx, err, "")
 		return llm.ChatResponse{}, errors.Join(err, runErr)
 	}
-	var response llm.ChatResponse
-	callErr := budgetErr
 	record, flush := r.streamRecorder(ctx, metadata, run.ID, resolved.modelKey)
 	request.OnEvent = record
-	if callErr == nil {
-		response, callErr = resolved.client.Chat(ctx, request)
-	}
+	response, callErr := resolved.client.Chat(ctx, request)
 	if callErr == nil && (response.IncompleteReason != "" || response.FinishReason == "length") {
 		callErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_response_incomplete", "agent llm response is incomplete", "service.agent_llm_runtime.chat", true, nil)
 	}
@@ -293,7 +284,7 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 		callErr = r.store.MarkAgentLLMProviderConfigUsed(traceCtx, metadata.UserID, resolved.configID, r.now().UTC())
 	}
 	responseContent := agentLLMResponseSnapshot(metadata, response, requestTrace, callErr)
-	responseContent["request_dispatched"] = budgetErr == nil
+	responseContent["request_dispatched"] = true
 	modelKey := resolved.modelKey
 	if response.Provider != "" && response.Model != "" {
 		modelKey = response.Provider + "/" + response.Model
@@ -322,27 +313,6 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 	}
 	err = finishRuns(traceCtx, nil, fmt.Sprintf("llm_response:%d", responseTrace.ID))
 	return response, err
-}
-
-func agentLLMRequestBudget(stage AgentLLMCallStage, request llm.ChatRequest) (domain.AgentJSON, error) {
-	profile := agent.ContextBudgetProfileFinalSynthesis
-	if stage == AgentLLMCallStagePlanning || stage == AgentLLMCallStageRoute || stage == AgentLLMCallStageFollowupIntent {
-		profile = agent.ContextBudgetProfileMainPlanning
-	} else if stage == AgentLLMCallStageEvaluation {
-		profile = agent.ContextBudgetProfileMainEvaluation
-	}
-	spec := agent.ContextBudgetForProfile(profile)
-	encoded, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-	reserve := max(spec.OutputReserveTokens, request.MaxTokens)
-	available := spec.TotalTokens - reserve - spec.SafetyMarginTokens
-	budget := domain.AgentJSON{"profile": string(profile), "total_tokens": spec.TotalTokens, "output_reserve_tokens": reserve, "safety_margin_tokens": spec.SafetyMarginTokens, "input_byte_upper_bound": len(encoded), "available_input_tokens": available, "counting_method": "utf8_byte_upper_bound", "includes_all_messages_and_tools": true}
-	if len(encoded) > available {
-		return budget, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_llm_context_budget_exceeded", "完整模型请求超过上下文预算，当前消息和证据未被截断。", "service.agent_llm_runtime.chat", false, nil)
-	}
-	return budget, nil
 }
 
 func agentLLMRequestSnapshot(metadata AgentLLMCallContext, request llm.ChatRequest, configuration domain.AgentJSON) domain.AgentJSON {

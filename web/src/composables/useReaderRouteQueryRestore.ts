@@ -1,3 +1,4 @@
+import { ref } from 'vue'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
 
 import {
@@ -59,6 +60,7 @@ async function listRouteFeedPage(kind: FeedSourceKind, sourceID: number, offset:
   const params = {
     limit: routeFeedLookupLimit,
     offset,
+    order: 'desc' as const,
     ...(sourceID ? { source_id: sourceID } : {}),
   }
   return kind === 'subscriptions' ? listTimelineItems(params) : listRecommendationItems(params)
@@ -133,40 +135,38 @@ async function resolveRouteReaderSource(sourceID: number, kind: FeedSourceKind, 
 }
 
 export function useReaderRouteQueryRestore(options: ReaderRouteQueryRestoreOptions) {
+  const restoring = ref(false)
+  let restoreSequence = 0
+
   function feedSourceKindFromRoute(): FeedSourceKind {
     return options.route.name === 'subscriptions' ? 'subscriptions' : 'recommendations'
   }
 
   async function restoreReaderRouteQueryState() {
+    const sequence = ++restoreSequence
+    const fullPath = options.route.fullPath
     const itemID = routeQueryID(options.route.query.item)
     const sourceID = routeQueryID(options.route.query.source)
     if (!itemID && !sourceID) {
+      restoring.value = false
       return false
     }
 
-    const preferredItemKind = routeQuerySourceKind(options.route.query.itemKind, feedSourceKindFromRoute())
-    let item: FeedItem | null = null
-    let itemKind = preferredItemKind
-    let restored = false
-    if (itemID) {
-      const result = await resolveRouteFeedItem(itemID, preferredItemKind, sourceID)
-      if (result) {
-        item = result.item
-        itemKind = result.kind
-      }
-    }
+    restoring.value = true
+    try {
+      const preferredItemKind = routeQuerySourceKind(options.route.query.itemKind, feedSourceKindFromRoute())
+      const result = itemID ? await resolveRouteFeedItem(itemID, preferredItemKind, sourceID) : null
+      const itemKind = result?.kind ?? preferredItemKind
+      const sourceKind = routeQuerySourceKind(options.route.query.sourceKind, itemKind)
+      const source = sourceID ? await resolveRouteReaderSource(sourceID, sourceKind, result?.item ?? null) : null
+      if (sequence !== restoreSequence || options.route.fullPath !== fullPath) return false
 
-    const sourceKind = routeQuerySourceKind(options.route.query.sourceKind, itemKind)
-    if (sourceID) {
-      options.openSourceReader(await resolveRouteReaderSource(sourceID, sourceKind, item))
-      restored = true
+      if (source) options.openSourceReader(source)
+      if (result) await options.openItemReader(result.item, itemKind)
+      return Boolean(source || result)
+    } finally {
+      if (sequence === restoreSequence) restoring.value = false
     }
-    if (item) {
-      await options.openItemReader(item, itemKind)
-      restored = true
-    }
-
-    return restored
   }
 
   async function restoreReaderStateOnLoad() {
@@ -177,6 +177,7 @@ export function useReaderRouteQueryRestore(options: ReaderRouteQueryRestoreOptio
   }
 
   return {
+    restoring,
     restoreReaderRouteQueryState,
     restoreReaderStateOnLoad,
   }

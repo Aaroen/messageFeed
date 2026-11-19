@@ -1,4 +1,7 @@
+import type { InjectionKey } from 'vue'
 import type { Router } from 'vue-router'
+
+export const appPushRouteKey: InjectionKey<(path: string) => Promise<void>> = Symbol('appPushRoute')
 
 type ReadableRef<T> = {
   readonly value: T

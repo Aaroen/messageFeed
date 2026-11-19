@@ -89,7 +89,6 @@ func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, a
 			{Role: "user", Content: agentTaskRouterUserPrompt(payload)},
 		},
 		Temperature: 0,
-		MaxTokens:   512,
 	})
 	if err != nil {
 		c := fallbackAgentTaskRoute("route_classifier_failed")

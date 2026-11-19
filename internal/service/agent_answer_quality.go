@@ -470,7 +470,7 @@ func agentAnswerQualityRequest(input agentAnswerQualityInput, constraints []stri
 	if err != nil {
 		return llm.ChatRequest{}, err
 	}
-	return llm.ChatRequest{Temperature: 0, MaxTokens: agent.ContextBudgetForProfile(agent.ContextBudgetProfileMainEvaluation).OutputReserveTokens, Messages: []llm.ChatMessage{
+	return llm.ChatRequest{Temperature: 0, Messages: []llm.ChatMessage{
 		{Role: "system", Content: "会话中‘上一轮’‘刚才’‘前面’等指代，应依据真实对话的 turn_id、transcript_entry_id、message_created_at 及 source_result、context_projection 中的消息顺序核实。它们表示对话位置，不要求消息正文包含年月日，也不构成外部事实的新鲜度要求。对话中约定的代号、用户偏好及原始回答可以由 transcript 逐字引用支持；未要求外部事实时效时 freshness_status 必须为 not_required。外部事件或资料的发布日期、有效期限仍按其正文日期及用户时效要求验证。"},
 		{Role: "system", Content: "所有 supported_claims.source_ref 必须逐字复制 sources 中的 canonical_ref。transcript 类型只证明真实对话内容，不能作为外部事实的独立证据，也不能满足 required_evidence；对用户临时代号等会话内信息可以引用。source_result 和 context_projection 提供理解依据，其记录编号不得自行转换为新的 source_ref。quote 必须逐字引用对应 sources.content，分段引用须保留原文顺序。freshness 为空或 any 表示没有时间限制。history_recall 或 conversation_history 的 freshness=recent_context 表示读取近期会话原文，通过本会话工具产物核验。以上情况均不要求外部事件日期，该项 freshness_status 使用 not_required，freshness_quotes 使用空对象。"},
 		{Role: "system", Content: "引文使用连续原文，或者使用省略号连接同一来源内按原顺序出现的多个原文片段；分段引用的每个片段至少八个字符，不得改写或跨来源拼接。freshness_quotes 始终使用连续原文。required_evidence.source_refs 表示实际审查且满足该项要求的独立资料；简短回答可以只呈现其中的重要事件，事实主张仍须逐项提供 supported_claims。不得为了凑足数量选择无关或过期资料。"},

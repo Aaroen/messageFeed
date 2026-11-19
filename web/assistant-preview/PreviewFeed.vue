@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { IconFile, IconLaunch, IconRefresh } from '@arco-design/web-vue/es/icon'
+import { IconFile, IconRefresh } from '@arco-design/web-vue/es/icon'
 import { usePullRefresh } from '../src/composables/usePullRefresh'
 import { feeds, type FeedPage } from './examples'
 
 const props = defineProps<{ page: FeedPage; active: boolean }>()
-const emit = defineEmits<{ chrome: [visible: boolean] }>()
+const emit = defineEmits<{ chrome: [visible: boolean]; article: [link: string] }>()
 const pull = usePullRefresh()
 const articles = ref([...feeds[props.page]])
 const scrollArea = ref<HTMLElement | null>(null)
@@ -103,9 +103,9 @@ function endPull() {
         <li v-for="(article, index) in articles" :key="article.title">
           <article class="feed-article">
             <div class="feed-article-meta"><IconFile aria-hidden="true" /><span>{{ article.source }}</span><time>{{ article.time }}</time></div>
-            <h2>{{ article.title }}</h2>
+            <h2><a :href="`#/${page}/article/${index + 1}`" @click.left.exact.prevent="emit('article', `#/${page}/article/${index + 1}`)">{{ article.title }}</a></h2>
             <p>{{ article.description }}</p>
-            <div class="feed-article-footer"><span>{{ article.category }}</span><a :href="`#/${page}/article/${index + 1}`" target="_blank" rel="noreferrer" :aria-label="`阅读原文：${article.title}（新标签页）`">阅读原文<IconLaunch aria-hidden="true" /></a></div>
+            <div class="feed-article-footer"><span>{{ article.category }}</span><a :href="`#/${page}/article/${index + 1}`" @click.left.exact.prevent="emit('article', `#/${page}/article/${index + 1}`)">阅读原文</a></div>
           </article>
         </li>
       </ul>

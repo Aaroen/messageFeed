@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Component, StyleValue } from 'vue'
 import {
+  IconArrowLeft,
   IconMenuUnfold,
   IconMoonFill,
   IconSettings,
@@ -19,6 +20,7 @@ const props = withDefaults(
     detailChromeVisible?: boolean
     navOpenButtonStyle?: StyleValue
     navOpenButtonInteractive?: boolean
+    readerBackLabel?: string
     cornerButtonLabel?: string
     navigationScrimStyle?: StyleValue
     navigationPanelStyle?: StyleValue
@@ -44,6 +46,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (event: 'corner-click'): void
+  (event: 'reader-back'): void
   (event: 'close-navigation'): void
   (event: 'go-home'): void
   (event: 'menu-click', key: string): void
@@ -56,7 +59,7 @@ const emit = defineEmits<{
   <button
     v-if="!navigationVisible"
     class="nav-open-button"
-    :class="{ 'nav-open-button--detail': detailChromeVisible }"
+    :class="{ 'nav-open-button--detail': detailChromeVisible, 'nav-open-button--has-reader-back': readerBackLabel }"
     :style="navOpenButtonStyle"
     type="button"
     :aria-label="cornerButtonLabel"
@@ -67,6 +70,19 @@ const emit = defineEmits<{
     @click="emit('corner-click')"
   >
     <IconMenuUnfold />
+  </button>
+
+  <button
+    v-if="readerBackLabel && !navigationVisible"
+    class="nav-open-button nav-open-button--reader-back"
+    type="button"
+    :aria-label="readerBackLabel"
+    :title="readerBackLabel"
+    @pointerdown.stop
+    @touchstart.stop
+    @click="emit('reader-back')"
+  >
+    <IconArrowLeft aria-hidden="true" />
   </button>
 
   <button
@@ -142,3 +158,13 @@ const emit = defineEmits<{
     </div>
   </aside>
 </template>
+
+<style scoped>
+.nav-open-button--reader-back { top: max(8px, env(safe-area-inset-top)); z-index: 150; background: var(--mf-surface); }
+@media (min-width: 800px) and (pointer: fine) {
+  .nav-open-button--has-reader-back { display: none; }
+}
+@media (max-width: 799px), (pointer: coarse), (pointer: none) {
+  .nav-open-button--reader-back { display: none; }
+}
+</style>

@@ -144,7 +144,19 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
     syncing = true
     options.setProgrammaticRouteNavigation(true)
     try {
-      await options.router.replace({ name: options.route.name, query })
+      const target = { name: options.route.name, query, hash: options.route.hash }
+      const isPublicFeed = options.route.name === 'subscriptions' || options.route.name === 'recommendations'
+      const wasReading = Boolean(options.route.query.item || options.route.query.source)
+      const willRead = Boolean(query.item || query.source)
+      if (isPublicFeed && !wasReading && willRead) {
+        await options.router.push({ ...target, state: { messagefeedReaderOrigin: options.route.fullPath } })
+      } else if (isPublicFeed && wasReading && !willRead &&
+        window.history.state?.messagefeedReaderOrigin === options.router.resolve(target).fullPath &&
+        window.history.state.back === window.history.state.messagefeedReaderOrigin) {
+        options.router.back()
+      } else {
+        await options.router.replace(target)
+      }
     } finally {
       clearReleaseTimer()
       releaseTimer = window.setTimeout(() => {

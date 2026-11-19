@@ -295,7 +295,6 @@ func (s *AgentConversationService) mainAgentPlanSpecRequest(
 			{Role: "user", Content: string(payloadBytes)},
 		},
 		Temperature: 0.1,
-		MaxTokens:   3200,
 	}
 }
 

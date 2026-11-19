@@ -84,9 +84,19 @@ func TestAgentLLMConfigServiceCreateMasksAndDefaults(t *testing.T) {
 func TestAgentLLMRuntimeSelectsUserDefaultConfig(t *testing.T) {
 	var requestedPath string
 	var requestedAuth string
+	var payload struct {
+		Input []struct {
+			Content string `json:"content"`
+		} `json:"input"`
+		MaxOutputTokens *int `json:"max_output_tokens"`
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestedPath = r.URL.Path
 		requestedAuth = r.Header.Get("Authorization")
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","status":"completed","model":"runtime-model","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"runtime ok"}]}]}`))
 	}))
@@ -120,10 +130,8 @@ func TestAgentLLMRuntimeSelectsUserDefaultConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := resolved.client.Chat(context.Background(), llm.ChatRequest{
-		Messages:  []llm.ChatMessage{{Role: "user", Content: "ping"}},
-		MaxTokens: 64,
-	})
+	longContent := strings.Repeat("完整上下文", 5000)
+	response, err := resolved.client.Chat(context.Background(), llm.ChatRequest{Messages: []llm.ChatMessage{{Role: "user", Content: longContent}}})
 	if err != nil {
 		t.Fatalf("Chat() error = %v", err)
 	}
@@ -135,6 +143,9 @@ func TestAgentLLMRuntimeSelectsUserDefaultConfig(t *testing.T) {
 	}
 	if requestedAuth != "Bearer runtime-key" {
 		t.Fatalf("authorization header = %q", requestedAuth)
+	}
+	if len(payload.Input) != 1 || payload.Input[0].Content != longContent || payload.MaxOutputTokens != nil {
+		t.Fatal("模型请求必须保留完整输入并省略输出上限")
 	}
 	if resolved.configID != 1 || resolved.configuration["config_key"] != agentLLMRuntimeCacheKey(store.configs[1]) {
 		t.Fatalf("configuration = %#v", resolved.configuration)
@@ -231,21 +242,6 @@ func TestAgentMemoryClassificationRequiresTranscriptTurn(t *testing.T) {
 	var appErr *domain.AppError
 	if !errors.As(err, &appErr) || appErr.Code != "agent_llm_call_context_invalid" {
 		t.Fatalf("error = %v", err)
-	}
-}
-
-func TestAgentLLMRequestBudgetIncludesToolsAndRetainsMessages(test *testing.T) {
-	request := llm.ChatRequest{Messages: []llm.ChatMessage{{Role: "user", Content: "保留完整的当前要求"}}, MaxTokens: 512}
-	budget, err := agentLLMRequestBudget(AgentLLMCallStageGeneration, request)
-	if err != nil || budget["includes_all_messages_and_tools"] != true || budget["counting_method"] != "utf8_byte_upper_bound" {
-		test.Fatalf("完整请求预算无效：%v，%v", budget, err)
-	}
-	request.Tools = []llm.ToolDefinition{{Name: "large_tool", Description: strings.Repeat("完整工具定义", 10000)}}
-	if _, err := agentLLMRequestBudget(AgentLLMCallStageGeneration, request); err == nil {
-		test.Fatal("超出预算的工具定义未被拒绝")
-	}
-	if request.Messages[0].Content != "保留完整的当前要求" || len(request.Tools[0].Description) != len(strings.Repeat("完整工具定义", 10000)) {
-		test.Fatal("预算检查修改了实际消息或工具定义")
 	}
 }
 

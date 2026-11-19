@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { getCurrentAuth } from '@/api/auth'
@@ -26,6 +26,7 @@ import { useNavigationGestureState } from '@/composables/useNavigationGestureSta
 import { useRouteRuntimeState } from '@/composables/useRouteRuntimeState'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useAppRoutePageRuntime } from '@/composables/useAppRoutePageRuntime'
+import { appPushRouteKey } from '@/composables/useAppNavigationActions'
 import { useAppNavigationRuntime } from '@/composables/useAppNavigationRuntime'
 import { useAppChromeRuntime } from '@/composables/useAppChromeRuntime'
 import { useAppElementRefs } from '@/composables/useAppElementRefs'
@@ -396,7 +397,7 @@ const readerRouteSync = useAppReaderRouteSyncBinding({
   bindReaderRouteSync,
   route,
   router,
-  canSync: () => routeRuntime.canSyncReaderRoute(readerSession.restoring.value),
+  canSync: () => routeRuntime.canSyncReaderRoute(readerSession.restoring.value || readerRouteQueryRestore.restoring.value),
   getReaderSource: () => readerSource.value,
   isSourceReaderOpen: () => sourceReaderOpen.value,
   getDetailItemID: () => detailItem.value?.id,
@@ -661,6 +662,8 @@ const {
   motionNormalDuration,
 })
 
+provide(appPushRouteKey, pushRoute)
+
 const visibleManagementItems = computed(() =>
   managementItems.filter((item) => !item.ownerOnly || currentUserRole.value === 'owner'),
 )
@@ -851,6 +854,28 @@ const closeSourceReader = readerNavigationRuntime.closeSourceReader
 const finishCommittedListReturnForGesture = readerNavigationRuntime.finishCommittedListReturnForGesture
 const closeItemReader = readerNavigationRuntime.closeItemReader
 const collapseItemReader = readerNavigationRuntime.collapseItemReader
+const readerBackLabel = computed(() => {
+  if (!detailReaderOpen.value && !sourceReaderOpen.value) return undefined
+  if (detailReaderOpen.value && detailOpenedFromSourceReader.value) return '返回来源'
+  if (sourceReaderShouldReturnToDetail()) return '返回文章'
+  if (route.name === 'subscriptions') return '返回订阅'
+  if (route.name === 'recommendations') return '返回推荐'
+  return '返回列表'
+})
+
+watch(() => route.fullPath, (_path, previousPath) => {
+  if (!routeRuntime.canHandleNavigation()) return
+  const previous = router.resolve(previousPath)
+  const wasReadingFeed = (previous.name === 'subscriptions' || previous.name === 'recommendations') &&
+    Boolean(previous.query.item || previous.query.source)
+  if (wasReadingFeed && !route.query.item && detailReaderOpen.value) closeItemReader()
+  if (wasReadingFeed && !route.query.source && sourceReaderOpen.value) closeSourceReader()
+  if ((route.name === 'subscriptions' || route.name === 'recommendations') &&
+    (route.query.item !== previous.query.item || route.query.source !== previous.query.source) &&
+    (route.query.item || route.query.source)) {
+    void readerRouteQueryRestore.restoreReaderRouteQueryState().finally(() => scheduleReaderURLAndHistorySync())
+  }
+}, { flush: 'sync' })
 const resetBackSwipeOffset = readerNavigationRuntime.resetBackSwipeOffset
 const clearBackSwipeStretchAnchorTimer = readerNavigationRuntime.clearBackSwipeStretchAnchorTimer
 const restoreParkedSourceReader = readerNavigationRuntime.restoreParkedSourceReader
@@ -1401,6 +1426,7 @@ useAppRuntimeEffects({
       :detail-chrome-visible="detailChromeVisible"
       :nav-open-button-style="navOpenButtonStyle"
       :nav-open-button-interactive="navOpenButtonInteractive"
+      :reader-back-label="readerBackLabel"
       :corner-button-label="cornerButtonLabel"
       :navigation-scrim-style="navigationScrimStyle"
       :navigation-panel-style="navigationPanelStyle"
@@ -1409,6 +1435,7 @@ useAppRuntimeEffects({
       :dark-theme="darkTheme"
       :settings-active="route.meta.section === 'settings'"
       @corner-click="handleCornerButtonClick"
+      @reader-back="virtualBackGuard.runVirtualBackAnimation()"
       @close-navigation="closeNavigation"
       @go-home="goHome({ closePanel: true })"
       @menu-click="handleMenuClick"

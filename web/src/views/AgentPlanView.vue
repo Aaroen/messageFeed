@@ -9,7 +9,7 @@ import {
   IconRefresh,
   IconThunderbolt,
 } from '@arco-design/web-vue/es/icon'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -30,6 +30,7 @@ import {
   type AgentTraceEvent,
 } from '@/api/agent'
 import { formatAPIError } from '@/api/client'
+import { appPushRouteKey } from '@/composables/useAppNavigationActions'
 import { isTerminalAgentProgressStatus, resolveAgentProgressPollingInterval } from '@/utils/agentProgress'
 
 type Tone = 'ok' | 'bad' | 'active' | 'warn' | 'neutral'
@@ -58,6 +59,7 @@ interface SubAgentDetail {
 
 const route = useRoute()
 const router = useRouter()
+const pushRoute = inject(appPushRouteKey)!
 
 const progress = ref<AgentProgressSnapshot | null>(null)
 const plan = ref<AgentPlan | null>(null)
@@ -105,6 +107,13 @@ const scheduledTaskID = computed(() => {
 const turnID = computed(() => positiveQueryNumber(route.query.turn_id) || positiveQueryNumber(route.query.turnID))
 const runID = computed(() => positiveQueryNumber(route.query.run_id) || positiveQueryNumber(route.query.runID))
 const isTaskListMode = computed(() => !planID.value && !queryPlanID.value && !scheduledTaskID.value && !turnID.value && !runID.value)
+const backDestination = computed(() => {
+  if (route.name === 'agent-evidence-detail' && planID.value) {
+    return { label: '返回任务详情', route: { name: 'agent-plan', params: { id: planID.value } } }
+  }
+  if (isTaskListMode.value) return { label: '返回助理', route: { name: 'agent' } }
+  return { label: '返回任务记录', route: { name: 'agent-plans' } }
+})
 
 const effectivePlanID = computed(() => planID.value || queryPlanID.value || 0)
 const effectiveScheduledTaskID = computed(() => scheduledTaskID.value || 0)
@@ -571,11 +580,7 @@ async function stopCurrentPlan() {
 }
 
 function back() {
-  if (!isTaskListMode.value) {
-    void router.push({ name: 'agent-plans' })
-    return
-  }
-  void router.push({ name: 'recommendations' })
+  void pushRoute(router.resolve(backDestination.value.route).fullPath)
 }
 
 function matchSubtask(step: AgentPlanStep, index: number) {
@@ -760,8 +765,8 @@ function boolValue(value: unknown) {
 <template>
   <main class="agent-progress-page">
     <header class="progress-header">
-      <button class="icon-button" type="button" aria-label="返回" @click="back">
-        <IconArrowLeft />
+      <button class="text-button desktop-back" type="button" :aria-label="backDestination.label" :title="backDestination.label" @click="back">
+        <IconArrowLeft aria-hidden="true" />
       </button>
       <div class="header-copy">
         <p class="eyebrow">Agent 任务进度</p>
@@ -1027,7 +1032,6 @@ function boolValue(value: unknown) {
   gap: 10px;
 }
 
-.icon-button,
 .text-button,
 .compact-button {
   display: inline-flex;
@@ -1039,17 +1043,16 @@ function boolValue(value: unknown) {
   cursor: pointer;
 }
 
-.icon-button {
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-}
-
 .text-button {
   min-height: 40px;
   gap: 8px;
   padding: 0 14px;
   border-radius: 8px;
+}
+
+.desktop-back {
+  width: 40px;
+  padding: 0;
 }
 
 .compact-button {
@@ -1063,7 +1066,6 @@ function boolValue(value: unknown) {
   color: #b91c1c;
 }
 
-.icon-button:disabled,
 .text-button:disabled,
 .compact-button:disabled {
   cursor: not-allowed;
@@ -1494,6 +1496,16 @@ body[arco-theme='dark'] .state-band {
 
   .task-record-side {
     justify-items: start;
+  }
+}
+
+@media (max-width: 799px), (pointer: coarse) {
+  .desktop-back {
+    display: none;
+  }
+
+  .progress-header {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

@@ -71,11 +71,10 @@ func (s *AgentLLMConfigService) GuestHistory(ctx context.Context, clientAddress 
 }
 
 func (s *AgentLLMConfigService) GuestChat(ctx context.Context, clientAddress string, input AgentGuestChatInput, emit func(llm.StreamEvent) error) (result AgentGuestChatResult, resultErr error) {
-	if input.ConfigID < 1 || input.ConversationID < 0 || strings.TrimSpace(input.Model) == "" || len(input.Messages) < 1 || len(input.Messages) > 40 || input.Messages[len(input.Messages)-1].Role != "user" {
+	if input.ConfigID < 1 || input.ConversationID < 0 || strings.TrimSpace(input.Model) == "" || len(input.Messages) < 1 || input.Messages[len(input.Messages)-1].Role != "user" {
 		return AgentGuestChatResult{}, fmt.Errorf("%w: 游客对话参数无效", domain.ErrInvalidInput)
 	}
 	messages := []llm.ChatMessage{{Role: "system", Content: "你是网页助理。遵守用户指定的语言和输出格式；用户没有指定语言时使用简体中文。"}}
-	total := 0
 	for index, message := range input.Messages {
 		expected := "user"
 		if index%2 == 1 {
@@ -83,10 +82,6 @@ func (s *AgentLLMConfigService) GuestChat(ctx context.Context, clientAddress str
 		}
 		if message.Role != expected || strings.TrimSpace(message.Content) == "" {
 			return AgentGuestChatResult{}, fmt.Errorf("%w: 对话消息顺序或内容无效", domain.ErrInvalidInput)
-		}
-		total += len(message.Content)
-		if total > 64000 {
-			return AgentGuestChatResult{}, fmt.Errorf("%w: 游客对话内容超过长度限制", domain.ErrInvalidInput)
 		}
 	}
 	store, ok := s.store.(agentLLMModelStore)
@@ -130,26 +125,14 @@ func (s *AgentLLMConfigService) GuestChat(ctx context.Context, clientAddress str
 		if err != nil {
 			return result, err
 		}
-		previous := []domain.AgentGuestTurn{}
 		for _, turn := range history {
 			if turn.ConversationID == input.ConversationID && turn.Status == "succeeded" {
-				previous = append(previous, turn)
+				messages = append(messages, llm.ChatMessage{Role: "user", Content: turn.InputText}, llm.ChatMessage{Role: "assistant", Content: turn.OutputText})
 			}
-		}
-		if len(previous) > 19 {
-			return result, fmt.Errorf("%w: 当前游客对话已达到消息数量限制，请新建对话", domain.ErrInvalidInput)
-		}
-		total = len(input.Messages[len(input.Messages)-1].Content)
-		for _, turn := range previous {
-			total += len(turn.InputText) + len(turn.OutputText)
-			if total > 64000 {
-				return result, fmt.Errorf("%w: 当前游客对话已达到内容长度限制，请新建对话", domain.ErrInvalidInput)
-			}
-			messages = append(messages, llm.ChatMessage{Role: "user", Content: turn.InputText}, llm.ChatMessage{Role: "assistant", Content: turn.OutputText})
 		}
 	}
 	messages = append(messages, llm.ChatMessage{Role: "user", Content: input.Messages[len(input.Messages)-1].Content})
-	response, err := client.Chat(ctx, llm.ChatRequest{Messages: messages, MaxTokens: 2048, ReasoningEffort: input.ReasoningEffort, OnEvent: emit})
+	response, err := client.Chat(ctx, llm.ChatRequest{Messages: messages, ReasoningEffort: input.ReasoningEffort, OnEvent: emit})
 	if err == nil && strings.TrimSpace(response.Content) == "" {
 		err = fmt.Errorf("供应商未返回回答正文")
 	}

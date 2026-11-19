@@ -34,6 +34,8 @@
 .feed-article-meta svg { inline-size: 1em; block-size: 1em; flex: none; }
 .feed-article-meta time { margin-inline-start: auto; white-space: nowrap; }
 .feed-article h2 { margin: 7px 0 4px; color: var(--mf-text); font-size: 17px; }
+.feed-article h2 a { color: inherit; text-decoration: none; }
+.feed-article h2 a:hover, .feed-article h2 a:focus-visible { text-decoration: underline; }
 .feed-article p { margin: 0; color: var(--mf-text-muted); line-height: 1.7; }
 .feed-article-footer { justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
 .feed-article-footer a, .original-back {
@@ -48,6 +50,9 @@
   white-space: nowrap;
 }
 .feed-article-footer a:hover, .original-back:hover { background: var(--mf-tab-active-bg); }
+@media (max-width: 799px), (pointer: coarse), (pointer: none) {
+  .original-back { display: none; }
+}
 .feed-article-footer a svg { inline-size: 1em; block-size: 1em; flex: none; }
 
 @media (max-width: 799px) {

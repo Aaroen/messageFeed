@@ -310,7 +310,6 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 			{Role: "user", Content: string(body)},
 		},
 		Temperature: 0.1,
-		MaxTokens:   256,
 	})
 	if err != nil {
 		s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "llm_error", err.Error(), domain.AgentJSON{"payload": payload})
@@ -733,7 +732,6 @@ func multiTurnFollowupAnswerRequest(payload domain.AgentJSON) (llm.ChatRequest, 
 			{Role: "user", Content: string(body)},
 		},
 		Temperature: 0.2,
-		MaxTokens:   512,
 	}, nil
 }
 
@@ -839,7 +837,6 @@ func (s *AgentConversationService) repairMultiTurnFollowupPlainText(ctx context.
 		repaired, err := s.llmClient.Chat(repairCtx, llm.ChatRequest{
 			Messages:    repairMessages,
 			Temperature: 0.2,
-			MaxTokens:   512,
 		})
 		if err != nil {
 			return "", domain.NewAppError(domain.ErrorKindUnavailable, "agent_followup_answer_repair_failed", "agent followup answer repair failed", "service.agent.followup_answer", true, err)
