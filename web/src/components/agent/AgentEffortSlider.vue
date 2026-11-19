@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
-import { IconBulb, IconClose, IconDown, IconThunderbolt } from '@arco-design/web-vue/es/icon'
+import { IconBulb, IconClose, IconDown } from '@arco-design/web-vue/es/icon'
 import AgentEffortFlame from './AgentEffortFlame.vue'
 
 const props = defineProps<{ levels: string[]; model: string; disabled?: boolean }>()
@@ -14,7 +14,7 @@ const options = computed(() => ['', ...props.levels])
 const committed = computed(() => Math.max(0, options.value.indexOf(effort.value)))
 const position = ref(committed.value)
 const selected = computed(() => Math.round(position.value))
-const atLimit = computed(() => props.levels.length > 0 && selected.value === props.levels.length)
+const atLimit = computed(() => props.levels.length > 0 && position.value === props.levels.length)
 const ratio = computed(() => position.value / Math.max(1, props.levels.length))
 const dragging = ref(false)
 const particles = ref<{ kind: string; style: Record<string, string> }[]>([])
@@ -95,6 +95,7 @@ function close() {
 }
 
 onBeforeUnmount(close)
+defineExpose({ dismiss: () => dialog.value?.close() })
 
 function recordBackdropPress(event: PointerEvent) {
   backdropPressed = event.target === dialog.value
@@ -153,21 +154,21 @@ function handleKey(event: KeyboardEvent) {
       <div class="effort-sheet" :class="{ 'at-limit': atLimit }">
         <header class="effort-heading">
           <div><label :id="`${id}-title`" :for="id">思考强度</label><small>{{ model }}</small></div>
-          <span class="effort-badge" aria-hidden="true"><IconThunderbolt v-if="atLimit" />{{ label(options[selected]!) }}</span>
           <button type="button" aria-label="关闭思考强度" @click="dialog?.close()"><IconClose aria-hidden="true" /></button>
         </header>
-        <div class="effort-range-wrap" :class="{ dragging, lit: ratio > 0 }" :style="{ '--effort-ratio': ratio }">
+        <div class="effort-range-wrap" :class="{ lit: ratio > 0 }" :style="{ '--effort-ratio': ratio }">
           <div class="effort-track" aria-hidden="true">
-            <span class="effort-fill"></span>
-            <span class="effort-flow">
-              <span v-for="(zone, zoneIndex) in flow" :key="zoneIndex" class="effort-flow-zone">
-                <span v-for="(speck, index) in zone" :key="index" class="effort-flow-speck" :style="speck"></span>
+            <div class="effort-progress">
+              <AgentEffortFlame v-if="flow.length" :active="open" :ratio="ratio" :at-limit="atLimit" />
+              <span class="effort-flow">
+                <span v-for="(zone, zoneIndex) in flow" :key="zoneIndex" class="effort-flow-zone">
+                  <span v-for="(speck, index) in zone" :key="index" class="effort-flow-speck" :style="speck"></span>
+                </span>
               </span>
-            </span>
+            </div>
           </div>
-          <AgentEffortFlame v-if="flow.length" :active="open" :ratio="ratio" :at-limit="atLimit" />
           <div class="effort-markers" aria-hidden="true">
-            <span v-for="(option, index) in options" :key="option" class="effort-tick" :class="{ reached: index <= selected }" :style="{ left: `${index / levels.length * 100}%` }"></span>
+            <span v-for="(option, index) in options" :key="option" class="effort-tick" :class="{ reached: index <= position }" :style="{ left: `${index / levels.length * 100}%` }"></span>
             <span class="effort-travel">
               <span class="effort-tail">
                 <span v-for="(particle, index) in tailParticles" :key="index" class="effort-particle" :class="particle.kind" :style="particle.style"></span>
@@ -179,7 +180,6 @@ function handleKey(event: KeyboardEvent) {
           <input :id="id" class="effort-input" type="range" min="0" :max="levels.length" step="any" :value="position" :aria-valuetext="`${label(options[selected]!)}${atLimit ? '，模型最高档' : ''}`" autofocus @change="commit(($event.target as HTMLInputElement).valueAsNumber)" @pointerdown="startDrag" @pointermove="moveDrag" @pointerup="endDrag" @lostpointercapture="cancelDrag" @keydown="handleKey" />
         </div>
         <div class="effort-labels" aria-hidden="true"><span v-for="(option, index) in options" :key="option" :class="{ selected: index === selected }" :style="{ left: `${index / levels.length * 100}%` }">{{ label(option) }}</span></div>
-        <p class="effort-hint">{{ atLimit ? '已达到此模型的最高档' : '' }}</p>
       </div>
     </dialog>
   </Teleport>
@@ -189,21 +189,23 @@ function handleKey(event: KeyboardEvent) {
 .effort-trigger, .effort-heading button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--mf-text); cursor: pointer; white-space: nowrap; }
 .effort-trigger:hover:not(:disabled), .effort-trigger[aria-expanded='true'], .effort-heading button:hover { background: var(--mf-surface-muted); }
 .effort-trigger:disabled { opacity: .6; cursor: default; }
-.effort-panel { --effort-width: min(352px, calc(100% - 24px)); position: fixed; inset: auto auto var(--effort-bottom) clamp(12px, calc(var(--effort-anchor) - var(--effort-width)), calc(100% - var(--effort-width) - 12px)); width: var(--effort-width); max-width: none; margin: 0; padding: 0; max-height: max(92px, calc(100dvh - var(--effort-bottom) - 12px)); overflow: auto; overscroll-behavior: contain; border: 0; border-radius: 16px; background: var(--mf-surface); color: var(--mf-text); box-shadow: var(--mf-panel-shadow); }
+.effort-panel { --effort-width: min(352px, calc(100% - 24px)); position: fixed; inset: auto auto var(--effort-bottom) clamp(12px, calc(var(--effort-anchor) - var(--effort-width)), calc(100% - var(--effort-width) - 12px)); width: var(--effort-width); max-width: none; margin: 0; padding: 0; max-height: max(92px, calc(100dvh - var(--effort-bottom) - 12px)); overflow: auto; scrollbar-width: none; overscroll-behavior: contain; border: 0; border-radius: 16px; background: var(--mf-surface); color: var(--mf-text); box-shadow: var(--mf-panel-shadow); }
+@supports not (scrollbar-width: none) { .effort-panel::-webkit-scrollbar { display: none; } }
 .effort-panel::backdrop { background: rgb(0 0 0 / 12%); }
 .effort-sheet { padding: 12px 17px 14px; }
 .effort-heading { display: flex; align-items: center; gap: 8px; }
 .effort-heading > div { min-width: 0; flex: 1; display: grid; }
 .effort-heading label { font-weight: 700; }
 .effort-heading small { overflow: hidden; color: var(--mf-text-muted); text-overflow: ellipsis; white-space: nowrap; }
-.effort-badge { display: flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 7px; background: var(--mf-tab-active-bg); font-size: 12px; }
-.effort-range-wrap { position: relative; container-type: inline-size; height: 46px; margin-block-start: 8px; }
+.effort-range-wrap { --effort-track-height: 24px; --effort-progress-end: calc(14px + (100% - 28px) * var(--effort-ratio)); position: relative; container-type: inline-size; height: 46px; margin-block-start: 8px; }
+.at-limit .effort-range-wrap { --effort-progress-end: 100%; }
 .effort-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; appearance: none; background: transparent; cursor: pointer; touch-action: none; }
 .effort-input::-webkit-slider-thumb { appearance: none; width: 28px; height: 28px; }
 .effort-input::-moz-range-thumb { width: 28px; height: 28px; box-sizing: border-box; border: 0; }
-.effort-track { position: absolute; inset: 11px 0; overflow: hidden; border-radius: 999px; background: var(--mf-surface-muted); }
+.effort-track { position: absolute; inset: calc((100% - var(--effort-track-height)) / 2) 0; overflow: clip; border-radius: 999px; background: var(--mf-surface-muted); }
 .effort-range-wrap:has(:focus-visible) .effort-track { outline: 2px solid var(--mf-primary); outline-offset: 4px; }
-.effort-fill { position: absolute; inset: 0; background: linear-gradient(90deg, var(--mf-primary), var(--mf-aqua)); transform: scaleX(var(--effort-ratio)); transform-origin: left; }
+.effort-progress { position: absolute; inset: 0; visibility: hidden; clip-path: inset(0 calc(100% - var(--effort-progress-end)) 0 0); background: linear-gradient(90deg, var(--mf-primary), var(--mf-aqua)); }
+.lit .effort-progress { visibility: visible; }
 .effort-flow { position: absolute; inset: 0 4px; display: grid; grid-template-columns: repeat(3, 1fr); }
 .effort-flow-zone { position: relative; }
 .effort-flow-speck { position: absolute; left: var(--flow-start); top: var(--flow-height); width: var(--flow-size); height: var(--flow-size); border-radius: 50%; background: #fff; box-shadow: 0 0 2px rgb(0 0 0 / 74%); opacity: 0; }
@@ -215,9 +217,9 @@ function handleKey(event: KeyboardEvent) {
 .effort-travel { left: 0; transform: translateX(calc((100cqw - 28px) * var(--effort-ratio))); }
 .effort-thumb { display: block; width: 28px; height: 28px; border-radius: 50%; background: var(--mf-surface); box-shadow: 0 2px 5px rgb(0 0 0 / 32%); transform: translate(-50%, -50%); }
 .effort-thumb::after { content: ''; position: absolute; inset: 9px; border-radius: 50%; background: var(--mf-primary); }
-.effort-tail { display: none; position: absolute; inset: 0 calc(100% + 2px) auto auto; width: min(var(--tail-length, 108px), calc((100cqw - 28px) * var(--effort-ratio))); height: var(--tail-height, 22px); overflow: hidden; transform: translateY(-50%); }
+.effort-tail { display: none; position: absolute; inset: 0 calc(100% + 2px) auto auto; width: min(var(--tail-length, 108px), calc((100cqw - 28px) * var(--effort-ratio))); height: var(--effort-track-height); overflow: clip; transform: translateY(-50%); }
 .lit .effort-tail { display: block; }
-.at-limit .effort-tail { --tail-length: 188px; --tail-height: 46px; }
+.at-limit .effort-tail { --tail-length: 188px; }
 .effort-particle { position: absolute; z-index: 1; top: 50%; right: 6px; width: var(--particle-size); height: var(--particle-size); border-radius: 50%; background: white; opacity: 0; }
 .effort-particle.spark { width: calc(var(--particle-size) * 3); height: calc(var(--particle-size) * .65); background: linear-gradient(90deg, transparent, white); }
 .effort-particle.shard { display: none; width: calc(var(--particle-size) * 1.6); height: calc(var(--particle-size) * .55); background: color-mix(in srgb, var(--mf-aqua) 45%, white); }
@@ -227,13 +229,11 @@ function handleKey(event: KeyboardEvent) {
 .effort-labels { position: relative; height: 18px; margin-inline: 14px; color: var(--mf-text-muted); font-size: 11px; }
 .effort-labels span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 .effort-labels .selected { color: var(--mf-text); font-weight: 700; }
-.effort-hint { min-height: 17px; margin: 5px 0 0; color: var(--mf-text-muted); font-size: 12px; }
 @media (max-width: 767px), (pointer: coarse) { .effort-trigger, .effort-heading button { min-width: 44px; min-height: 44px; } }
 @media (forced-colors: active) { .effort-track, .effort-markers { display: none; } .effort-input { appearance: auto; opacity: 1; } }
 @media (prefers-reduced-motion: no-preference) {
-  .effort-range-wrap:not(.dragging) :is(.effort-fill, .effort-travel) { transition: transform var(--motion-quick, 180ms) var(--ease-emphasized, ease-out); }
   .effort-panel[open] .lit .effort-particle { animation: effort-particle var(--particle-duration) cubic-bezier(.16, .55, .58, 1) var(--particle-delay) infinite; }
-  .effort-panel[open] .effort-flow-speck { animation: effort-flow var(--flow-duration) linear var(--flow-delay) infinite; }
+  .effort-panel[open] .lit .effort-flow-speck { animation: effort-flow var(--flow-duration) linear var(--flow-delay) infinite; }
 }
 @keyframes effort-flow {
   0% { transform: translateX(calc(var(--flow-distance) * -.65)) scale(.65); }

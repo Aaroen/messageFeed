@@ -9,6 +9,7 @@ import AgentComposer from '../src/components/agent/AgentComposer.vue'
 import AgentMarkdown from '../src/components/agent/AgentMarkdown.vue'
 import AgentWorkspaceShell from '../src/components/agent/AgentWorkspaceShell.vue'
 import AgentSubagentList from '../src/components/agent/AgentSubagentList.vue'
+import AgentEffortSlider from '../src/components/agent/AgentEffortSlider.vue'
 import { useThemeState } from '../src/composables/useThemeState'
 import PreviewFeed from './PreviewFeed.vue'
 import { agents, examples, feeds, models, stages, type FeedArticle, type FeedPage } from './examples'
@@ -56,9 +57,8 @@ function syncPage() {
   }
   if (next.page === 'subscriptions' || next.page === 'recommendations') {
     shell.value?.closePanels()
-    for (const dialog of [modelDialog, effortDialog]) {
-      if (dialog.value?.open) dialog.value.close()
-    }
+    modelDialog.value?.close()
+    effortSlider.value?.dismiss()
   }
   route.value = next
   document.title = `${next.article?.title ?? navigation.find(item => item.page === next.page)?.title ?? '助理工作区'} · MessageFeed 预览`
@@ -84,18 +84,7 @@ const activeID = ref(1)
 const session = computed(() => sessions.value.find(entry => entry.id === activeID.value)!)
 const selectedModel = ref(defaultModel.id)
 const model = computed(() => models.find(entry => entry.id === selectedModel.value)!)
-const effort = ref(0)
-const effortLevels = computed(() => ['默认', ...model.value.levels])
-const effortLimit = computed(() => effortLevels.value.length - 1)
-const effortLabel = computed(() => effortLevels.value[effort.value]!)
-const atEffortLimit = computed(() => effortLimit.value > 0 && effort.value === effortLimit.value)
-const effortPosition = ref(0)
-const previewEffort = computed(() => Math.round(effortPosition.value))
-const previewEffortLabel = computed(() => effortLevels.value[previewEffort.value]!)
-const previewAtLimit = computed(() => effortLimit.value > 0 && previewEffort.value === effortLimit.value)
-const effortRatio = computed(() => effortLimit.value ? effortPosition.value / effortLimit.value : 0)
-const effortDragging = ref(false)
-const effortEmbers = ref<Record<string, string>[]>([])
+const effort = ref('')
 const query = ref('')
 const pinned = ref<string[]>([])
 const modelMatches = computed(() => models.filter(entry => [entry.alias, entry.id, entry.provider]
@@ -112,9 +101,7 @@ const shell = ref<InstanceType<typeof AgentWorkspaceShell> | null>(null)
 const siteDialog = ref<HTMLDialogElement | null>(null)
 const siteNavigationOpen = ref(false)
 const modelDialog = ref<HTMLDialogElement | null>(null)
-const effortDialog = ref<HTMLDialogElement | null>(null)
-const effortButton = ref<HTMLButtonElement | null>(null)
-const effortOpen = ref(false)
+const effortSlider = ref<InstanceType<typeof AgentEffortSlider> | null>(null)
 const modelButton = ref<HTMLButtonElement | null>(null)
 const modelsSearch = ref<HTMLInputElement | null>(null)
 const timeline = ref<HTMLElement | null>(null)
@@ -216,11 +203,6 @@ function placeControls() {
     modelDialog.value.style.setProperty('--chooser-x', `${Math.max(16, Math.min(bounds.left, window.innerWidth - 426))}px`)
     modelDialog.value.style.setProperty('--chooser-bottom', `${window.innerHeight - bounds.top + 8}px`)
   }
-  const effortBounds = effortButton.value?.getBoundingClientRect()
-  if (effortBounds && effortDialog.value) {
-    effortDialog.value.style.setProperty('--effort-anchor-x', `${effortBounds.right}px`)
-    effortDialog.value.style.setProperty('--effort-bottom', `${window.innerHeight - effortBounds.top + 10}px`)
-  }
 }
 
 function openModels() {
@@ -231,57 +213,9 @@ function openModels() {
 }
 
 function chooseModel(id: string) {
-  if (selectedModel.value !== id) {
-    effort.value = 0
-    effortPosition.value = 0
-  }
+  if (selectedModel.value !== id) effort.value = ''
   selectedModel.value = id
   modelDialog.value?.close()
-}
-
-function openEffort() {
-  effortEmbers.value = Array.from({ length: 8 }, (_, index) => ({
-    '--ember-angle': `${(index % 2 ? -1 : 1) * (5 + Math.random() * 18)}deg`,
-    '--ember-distance': `${36 + Math.random() * 64}px`,
-    '--ember-size': `${2 + Math.random() * 3}px`,
-    '--ember-delay': `${-Math.random() * 950}ms`,
-    '--ember-duration': `${540 + Math.random() * 540}ms`,
-  }))
-  placeControls()
-  effortDialog.value?.showModal()
-  effortOpen.value = true
-}
-
-function closeEffort() {
-  effortOpen.value = false
-  cancelEffortDrag()
-}
-
-function previewEffortInput(event: Event) {
-  effortDragging.value = true
-  effortPosition.value = (event.target as HTMLInputElement).valueAsNumber
-}
-
-function cancelEffortDrag() {
-  effortDragging.value = false
-  effortPosition.value = effort.value
-}
-
-function changeEffort(value: number) {
-  effortDragging.value = false
-  effortPosition.value = value
-  effort.value = value
-}
-
-function effortKey(event: KeyboardEvent) {
-  const direction = { ArrowLeft: -1, ArrowDown: -1, PageDown: -1, PageUp: 1, ArrowUp: 1, ArrowRight: 1 }
-  let next = previewEffort.value
-  if (event.key === 'Home') next = 0
-  else if (event.key === 'End') next = effortLimit.value
-  else if (Object.prototype.hasOwnProperty.call(direction, event.key)) next += direction[event.key as keyof typeof direction]
-  else return
-  event.preventDefault()
-  changeEffort(Math.max(0, Math.min(effortLimit.value, next)))
 }
 
 function togglePin(id: string) {
@@ -449,7 +383,7 @@ async function copyReply(reply: string, index: number) {
             <AgentComposer ref="composer" v-model="session.draft" label="对话输入" @submit="submit">
               <div class="composer-controls">
                 <button ref="modelButton" type="button" class="model-button" :aria-label="`选择对话模型：${model.alias}`" aria-haspopup="dialog" :disabled="Boolean(activeTurn)" @click="openModels"><IconThunderbolt /><span>{{ model.alias }}</span><IconDown /></button>
-                <button ref="effortButton" type="button" class="effort-control" :class="{ 'at-limit': atEffortLimit }" :aria-label="`思考强度：${effortLabel}`" :aria-expanded="effortOpen" aria-controls="effort-panel" aria-haspopup="dialog" :disabled="Boolean(activeTurn) || !effortLimit" @click="openEffort"><IconBulb aria-hidden="true" /><span class="effort-caption">思考</span><strong>{{ effortLabel }}</strong><IconDown aria-hidden="true" /></button>
+                <AgentEffortSlider ref="effortSlider" v-model="effort" :levels="model.levels" :model="model.alias" :disabled="Boolean(activeTurn)" />
               </div>
               <button v-if="activeTurn" type="button" class="send-button stop-button" aria-label="停止演示" title="停止演示" @click="stop"><IconStop /></button>
               <button v-else type="submit" class="send-button" :disabled="!session.draft.trim() || playing" aria-label="发送并播放示例" title="发送并播放示例"><IconArrowUp /></button>
@@ -458,35 +392,6 @@ async function copyReply(reply: string, index: number) {
           </div>
         </footer>
     </AgentWorkspaceShell>
-
-      <dialog id="effort-panel" ref="effortDialog" class="effort-dialog" aria-labelledby="effort-title" @click="dismissOutside" @close="closeEffort">
-        <div class="effort-sheet" :class="{ 'at-limit': previewAtLimit }">
-          <header class="effort-heading">
-            <div class="effort-heading-copy"><label id="effort-title" for="effort-range">思考强度</label><span>{{ model.alias }}</span></div>
-            <span class="effort-badge" aria-hidden="true"><IconThunderbolt />{{ previewEffortLabel }}</span>
-            <button type="button" class="icon-button" aria-label="关闭思考强度" @click="effortDialog?.close()"><IconClose /></button>
-          </header>
-          <div class="effort-range-wrap" :class="{ 'effort-dragging': effortDragging, 'effort-lit': effortRatio > 0 }" :style="{ '--effort-ratio': effortRatio }">
-            <div class="effort-track" aria-hidden="true">
-              <span class="effort-fill"></span><span class="effort-matrix"></span>
-            </div>
-            <div class="effort-range-markers" aria-hidden="true">
-              <span v-for="(level, index) in effortLevels" :key="level" class="effort-marker" :class="{ reached: previewEffort >= index }" :style="{ '--tick-offset': `${index / (effortLimit || 1) * 100}%` }"></span>
-              <span class="effort-thumb-travel">
-                <span class="effort-tail">
-                  <span v-for="(ember, index) in effortEmbers" :key="index" class="effort-ember" :style="ember"></span>
-                </span>
-                <span class="effort-thumb"></span>
-              </span>
-            </div>
-            <input id="effort-range" class="effort-range" type="range" min="0" :max="effortLimit || 1" step="any" :value="effortPosition" :aria-valuetext="`${previewEffortLabel}${previewEffort === effortLimit ? '，模型最高档' : ''}`" autofocus @input="previewEffortInput" @change="changeEffort(Math.round(($event.target as HTMLInputElement).valueAsNumber))" @pointercancel="cancelEffortDrag" @keydown="effortKey" />
-          </div>
-          <div class="effort-ticks" aria-hidden="true">
-            <span v-for="(level, index) in effortLevels" :key="level" :class="{ selected: previewEffort === index }" :style="{ '--tick-offset': `${index / (effortLimit || 1) * 100}%` }">{{ level }}</span>
-          </div>
-          <p class="effort-hint">{{ previewAtLimit ? '已达到此模型的最高档' : '' }}</p>
-        </div>
-      </dialog>
 
       <dialog ref="modelDialog" class="model-dialog" aria-labelledby="model-title" @click="dismissOutside">
         <div class="model-sheet">

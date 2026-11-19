@@ -1,5 +1,6 @@
 @import './theme.css';
 @import './feed-reading.css';
+@import './scrollbars.css';
 
 :root {
   --mf-viewport-height: 100vh;

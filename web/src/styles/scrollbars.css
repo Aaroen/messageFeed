@@ -1,0 +1,14 @@
+:where(html, body) { scrollbar-color: var(--mf-text-muted) transparent; }
+:where(*) { scrollbar-width: thin; }
+
+@supports not (scrollbar-color: auto) {
+  :where(*) { scrollbar-width: auto; }
+  :where(*)::-webkit-scrollbar { width: 8px; height: 8px; }
+  :where(*)::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 8px; background: var(--mf-text-muted); background-clip: padding-box; }
+  :where(*)::-webkit-scrollbar-track { background: transparent; }
+}
+
+@media (forced-colors: active), (prefers-contrast: more) {
+  :where(html, body) { scrollbar-color: auto; }
+  :where(*) { scrollbar-width: auto; }
+}

@@ -29,13 +29,13 @@ float noise(vec2 point) {
 
 void main() {
   vec2 point = gl_FragCoord.xy / scale;
-  float nozzle = 14.0 + ratio * (size.x - 28.0);
-  float length = min(nozzle, mix(54.0, 190.0, ratio) + limit * 20.0);
+  float nozzle = mix(14.0 + ratio * (size.x - 28.0), size.x, limit);
+  float length = max(nozzle, 1.0);
   float distance = nozzle - point.x;
   float vertical = point.y - size.y * 0.5;
   float travel = max(distance, 0.0) / length;
-  float radius = mix(8.0, 15.0 + limit * 10.0, smoothstep(0.0, 0.6, travel));
-  if (distance < 0.0 || travel >= 1.0 || abs(vertical) > radius * 1.45) {
+  float radius = size.y * 0.5;
+  if (ratio <= 0.0 || distance < 0.0 || travel >= 1.0) {
     gl_FragColor = vec4(0.0);
     return;
   }
@@ -45,18 +45,17 @@ void main() {
   float curl = noise(sampleAt * 0.72) - 0.5;
   float shear = noise(sampleAt * 1.9 + vec2(14.0, curl * 1.8)) - 0.5;
   float filament = noise(sampleAt * vec2(2.7, 5.1) + vec2(6.0, shear * 2.2));
-  float crossSection = vertical / radius + (curl * 1.05 + shear * 0.43) * smoothstep(0.0, 0.42, travel);
-  float spread = abs(crossSection) + shear * 0.25 + filament * 0.18;
-  float fade = (1.0 - smoothstep(0.25, 1.0, travel)) * smoothstep(0.0, 5.0, nozzle - 14.0);
-  float plume = (1.0 - smoothstep(0.28, 1.03, spread)) * fade;
+  float crossSection = vertical / radius + (curl * 0.49 + shear * 0.24) * smoothstep(0.0, 0.42, travel);
+  float spread = abs(crossSection) + shear * 0.18 + filament * 0.11;
+  float fade = (1.0 - 0.78 * smoothstep(0.25, 1.0, travel)) * smoothstep(0.0, 5.0, nozzle - 14.0);
+  float plume = (0.25 + 0.75 * (1.0 - smoothstep(0.45, 1.1, spread))) * fade;
   float heat = smoothstep(0.28, 0.76, filament + curl * 0.31);
   float cells = pow(0.5 + 0.5 * cos(distance * 0.34 + shear * 2.6), 3.0);
   float core = (1.0 - smoothstep(0.04, 0.40, spread)) * fade * (0.51 + heat * 0.36 + cells * 0.13);
   float brightness = clamp(core * 1.48 + heat * 0.27, 0.0, 1.0);
   vec3 edge = mix(vec3(0.41, 0.45, 0.47), vec3(0.22), dark);
   vec3 body = mix(edge, vec3(1.0), brightness);
-  float trackEdge = mix(1.0 - smoothstep(9.0, 12.0, abs(vertical)), 1.0, limit);
-  float alpha = clamp(plume * (0.49 + heat * 0.34) + core * 0.42, 0.0, 1.0) * trackEdge;
+  float alpha = clamp(plume * (0.49 + heat * 0.34) + core * 0.42, 0.0, 1.0);
   gl_FragColor = vec4(body * alpha, alpha);
 }
 `
@@ -162,6 +161,6 @@ onUnmounted(() => cleanup?.())
 <template><canvas ref="canvas" class="effort-flame" aria-hidden="true"></canvas></template>
 
 <style scoped>
-.effort-flame { position: absolute; inset: -7px 0; width: 100%; height: calc(100% + 14px); pointer-events: none; }
+.effort-flame { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 @media (forced-colors: active) { .effort-flame { display: none; } }
 </style>

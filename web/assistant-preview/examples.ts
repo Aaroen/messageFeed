@@ -1,6 +1,6 @@
 export const models = [
-  { alias: 'Gemini 3.5 Flash Lite', id: 'google/models/gemini-3.5-flash-lite', provider: 'Google', levels: ['极低', '低', '中等', '高'] },
-  { alias: 'DeepSeek Flash', id: 'group/deepseek-flash', provider: 'Group', levels: ['高', '最高'] },
+  { alias: 'Gemini 3.5 Flash Lite', id: 'google/models/gemini-3.5-flash-lite', provider: 'Google', levels: ['minimal', 'low', 'medium', 'high'] },
+  { alias: 'DeepSeek Flash', id: 'group/deepseek-flash', provider: 'Group', levels: ['high', 'max'] },
 ]
 
 export const stages = ['收集订阅条目', '比对来源与日期', '整理要点与后续事项']
