@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ArcoDrawer from '@arco-design/web-vue/es/drawer'
 import '@arco-design/web-vue/es/drawer/style/css.js'
-import { IconArrowUp, IconClose, IconCode, IconCopy, IconHistory, IconMenu, IconPlus, IconStop } from '@arco-design/web-vue/es/icon'
+import { IconArrowUp, IconClose, IconCode, IconCopy, IconFullscreen, IconFullscreenExit, IconHistory, IconMenu, IconPlus, IconStop } from '@arco-design/web-vue/es/icon'
 import type { AgentTurn } from '@/api/agent'
 import { cancelAgentTurn, getAgentActivity, type AgentActivity } from '@/api/assistant'
 import { formatAPIError } from '@/api/client'
@@ -19,6 +19,7 @@ import { useAgentScroll } from '@/composables/useAgentScroll'
 import { assistantErrorMessage, groupByTurn, isActiveStatus, liveTurnText, subagentRuns, statusLabel } from '@/utils/assistant'
 
 const store = useAssistantStore()
+const fullscreen = defineModel<boolean>('fullscreen', { default: false })
 const authenticated = ref(false)
 const authLoaded = ref(false)
 const route = useRoute()
@@ -274,9 +275,9 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 </script>
 
 <template>
-  <AgentGuestChat v-if="authLoaded && !authenticated" />
+  <AgentGuestChat v-if="authLoaded && !authenticated" v-model:fullscreen="fullscreen" />
   <p v-else-if="!authLoaded" role="status">{{ store.error || '正在加载助理…' }}</p>
-  <section v-else class="assistant-workspace" :class="{ 'assistant-sessions-collapsed': sessionsCollapsed, 'assistant-details-collapsed': detailsCollapsed }" :style="{ '--assistant-panel-width': `${detailWidth}px` }" aria-label="助理工作区" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
+  <section v-else class="assistant-workspace" :class="{ 'assistant-sessions-collapsed': sessionsCollapsed, 'assistant-details-collapsed': detailsCollapsed, 'assistant-fullscreen': fullscreen }" :style="{ '--assistant-panel-width': `${detailWidth}px` }" aria-label="助理工作区" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
     <aside class="assistant-sessions" aria-label="会话列表" :inert="sessionsCollapsed">
       <div class="assistant-sidebar-heading"><span class="assistant-wordmark"><IconCode /> 助理</span><button class="assistant-icon-button" type="button" aria-label="新建对话" @click="selectSession(0)"><IconPlus /></button></div>
       <button class="assistant-new-session" type="button" @click="selectSession(0)"><IconPlus /> 新建对话</button>
@@ -289,6 +290,7 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
       <header class="assistant-conversation-header">
         <button type="button" class="assistant-icon-button" :aria-label="sessionToggleLabel" :title="sessionToggleLabel" :aria-expanded="mobileViewport ? sessionDrawer : !sessionsCollapsed" @click="toggleSessions"><IconMenu /></button>
         <div class="assistant-conversation-title"><strong>{{ title }}</strong></div>
+        <button type="button" class="assistant-icon-button" :aria-label="fullscreen ? '退出全屏' : '全屏打开助理'" :title="fullscreen ? '退出全屏' : '全屏打开助理'" @click="fullscreen = !fullscreen"><IconFullscreenExit v-if="fullscreen" /><IconFullscreen v-else /></button>
         <button ref="detailsToggle" type="button" class="assistant-detail-toggle" :aria-label="detailToggleLabel" :title="detailToggleLabel" :aria-expanded="desktopViewport ? !detailsCollapsed : detailDrawer" @click="toggleDetails"><IconCode /><span>子代理</span></button>
       </header>
       <div v-if="store.error" class="assistant-error" role="alert"><span>{{ assistantErrorMessage(store.error) }}</span><button class="assistant-icon-button" type="button" aria-label="关闭错误提示" @click="store.error = ''"><IconClose /></button></div>
@@ -333,10 +335,10 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 </template>
 
 <style scoped>
-.assistant-workspace { --assistant-expanded-sidebar-width: 222px; --assistant-sidebar-width: var(--assistant-expanded-sidebar-width); --assistant-details-width: var(--assistant-panel-width); --assistant-resizer-width: 5px; position: relative; display: grid; grid-template-columns: var(--assistant-sidebar-width) minmax(0, 1fr) var(--assistant-resizer-width) var(--assistant-details-width); height: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--mf-border); border-radius: 12px; background: var(--mf-surface, #fff); color: var(--mf-text); }
+.assistant-workspace { --assistant-expanded-sidebar-width: 222px; --assistant-sidebar-width: var(--assistant-expanded-sidebar-width); --assistant-details-width: var(--assistant-panel-width); --assistant-resizer-width: 5px; position: relative; display: grid; grid-template-columns: var(--assistant-sidebar-width) minmax(0, 1fr) var(--assistant-resizer-width) var(--assistant-details-width); height: 100%; min-height: 0; overflow: hidden; border-radius: 12px; background: var(--mf-page-tint), var(--mf-page); color: var(--mf-text); }
 .assistant-sessions, .assistant-details { position: absolute; z-index: 2; inset-block: 0; box-sizing: border-box; }
 .assistant-sessions { inset-inline-start: 0; width: var(--assistant-expanded-sidebar-width); }
-.assistant-details { inset-inline-end: 0; width: var(--assistant-panel-width); background: var(--mf-surface, #fff); }
+.assistant-details { inset-inline-end: 0; width: var(--assistant-panel-width); background: color-mix(in oklab, var(--mf-surface-muted) 58%, var(--mf-surface)); }
 .assistant-conversation { grid-column: 2; }
 .assistant-resizer { grid-column: 3; }
 .assistant-sessions-collapsed { --assistant-sidebar-width: 0px; }
@@ -347,12 +349,12 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 @media (prefers-reduced-motion: no-preference) {
   .assistant-sessions, .assistant-details { transition: transform 200ms cubic-bezier(.2, .8, .2, 1), opacity 160ms ease-out; }
 }
-.assistant-sessions { display: flex; flex-direction: column; min-height: 0; padding: 15px 10px 10px; border-right: 1px solid var(--mf-border); background: var(--mf-surface-muted, #f7f8fa); }
+.assistant-sessions { display: flex; flex-direction: column; min-height: 0; padding: 15px 10px 10px; background: var(--mf-surface-muted); }
 .assistant-sidebar-heading { display: flex; justify-content: space-between; align-items: center; padding: 0 8px 18px; }
 .assistant-wordmark { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 650; letter-spacing: 1px; }
 .assistant-icon-button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 0; background: transparent; padding: 7px; border-radius: 6px; color: var(--mf-text-muted); cursor: pointer; font-size: 15px; }
 .assistant-icon-button:hover { background: var(--mf-surface-muted, #eef0f3); color: var(--mf-text); }
-.assistant-new-session { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 12px; border: 1px solid var(--mf-border); border-radius: 8px; background: var(--mf-surface, #fff); color: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.assistant-new-session { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: var(--mf-surface); color: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .assistant-section-label { color: var(--mf-text-muted); font-size: 10px; padding: 23px 12px 10px; }
 .assistant-session-list { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 0; }
 .assistant-session { display: grid; gap: 6px; width: 100%; border: 0; border-radius: 7px; background: transparent; padding: 11px 12px; text-align: left; color: inherit; cursor: pointer; margin-bottom: 3px; font-size: 12px; }
@@ -362,10 +364,10 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 .assistant-history-link { display: flex; align-items: center; gap: 8px; padding: 14px 12px 6px; color: var(--mf-text-muted); text-decoration: none; font-size: 11px; }
 .assistant-sidebar-empty { padding: 12px; font-size: 12px; color: var(--mf-text-muted); }
 .assistant-conversation { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.assistant-conversation-header { display: flex; align-items: center; gap: 12px; padding: 15px 22px; min-height: 64px; border-bottom: 1px solid var(--mf-border); }
+.assistant-conversation-header { display: flex; align-items: center; gap: 12px; padding: 15px 22px; min-height: 64px; }
 .assistant-conversation-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; min-width: 0; flex: 1; }
 .assistant-conversation-title strong { font-size: 12px; font-weight: 550; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.assistant-detail-toggle { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--mf-border); border-radius: 6px; padding: 6px 8px; background: transparent; color: var(--mf-text-muted); font-size: 11px; cursor: pointer; white-space: nowrap; }
+.assistant-detail-toggle { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 6px; padding: 6px 8px; background: transparent; color: var(--mf-text-muted); font-size: 11px; cursor: pointer; white-space: nowrap; }
 .assistant-message-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 32px 30px 16px; scrollbar-gutter: stable; }
 .assistant-message-column { width: min(100%, 760px); margin: 0 auto; }
 .assistant-turn { margin-bottom: 36px; }
@@ -374,7 +376,7 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 .assistant-user-message small { margin-top: 6px; color: var(--mf-text-muted); }
 .assistant-answer-heading { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 17px; font-weight: 550; }
 .assistant-answer-heading small { font-size: 10px; font-weight: 400; color: var(--mf-text-muted); }
-.assistant-avatar { display: grid; place-items: center; width: 23px; height: 23px; border: 1px solid var(--mf-border); border-radius: 7px; font-size: 13px; }
+.assistant-avatar { display: grid; place-items: center; width: 23px; height: 23px; background: var(--mf-tab-active-bg); border-radius: 7px; font-size: 13px; }
 .assistant-activity { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 9px 0 14px; background: transparent; border: 0; color: var(--mf-text-muted); font-size: 11px; text-align: left; cursor: pointer; }
 .assistant-activity i { width: 6px; height: 6px; border-radius: 50%; background: #399b72; flex-shrink: 0; }
 .assistant-activity i.active { background: #b98336; animation: assistant-pulse 1.6s ease-in-out infinite; }
@@ -394,17 +396,17 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 .assistant-suggestions button { border: 1px solid var(--mf-border); background: transparent; color: var(--mf-text-muted); padding: 8px 12px; border-radius: 7px; font-size: 11px; cursor: pointer; }
 .assistant-composer-area { position: relative; flex-shrink: 0; padding: 12px 30px; }
 .assistant-composer { max-width: 760px; margin: 0 auto; }
-.assistant-send-button { display: grid; place-items: center; width: 31px; height: 31px; border: 0; border-radius: 8px; background: var(--mf-text); color: var(--mf-surface, #fff); cursor: pointer; font-size: 17px; }
+.assistant-send-button { flex: none; display: grid; place-items: center; width: 35px; height: 35px; border: 0; border-radius: 50%; background: var(--mf-text); color: var(--mf-surface); cursor: pointer; font-size: 17px; }
 .assistant-send-button:disabled { opacity: .28; cursor: default; }
 .assistant-send-button.stop { background: var(--mf-surface-muted, #eef0f3); color: var(--mf-text); border: 1px solid var(--mf-border); }
 .assistant-composer-hint { text-align: center; color: var(--mf-text-muted); font-size: 10px; margin: 9px 0 0; line-height: 1.6; }
 .assistant-jump-button { position: absolute; top: -36px; left: 50%; transform: translateX(-50%); border: 1px solid var(--mf-border); background: var(--mf-surface, #fff); padding: 6px 12px; border-radius: 20px; font-size: 11px; color: var(--mf-text-muted); cursor: pointer; }
 .assistant-load-older { text-align: center; margin-bottom: 24px; }
 .assistant-load-older button { border: 0; background: transparent; color: var(--mf-text-muted); font-size: 11px; cursor: pointer; padding: 8px; }
-.assistant-resizer { background: transparent; border-left: 1px solid var(--mf-border); cursor: col-resize; touch-action: none; }
+.assistant-resizer { background: transparent; cursor: col-resize; touch-action: none; }
 .assistant-resizer:hover, .assistant-resizer:focus-visible { background: var(--mf-border); outline: none; }
 .assistant-details { overflow: auto; min-height: 0; }
-.assistant-details > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 64px; padding: 15px 18px; border-bottom: 1px solid var(--mf-border); }
+.assistant-details > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 64px; padding: 15px 18px; }
 .assistant-details > header > span { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 550; }
 .assistant-details > header small { font-size: 10px; color: var(--mf-text-muted); }
 .assistant-mobile-only { display: none; }
@@ -412,4 +414,8 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 @media (prefers-reduced-motion: reduce) { .assistant-thinking-dot, .assistant-activity i.active { animation: none; } }
 @media (max-width: 1199px) { .assistant-workspace { --assistant-expanded-sidebar-width: 200px; grid-template-columns: var(--assistant-sidebar-width) minmax(0, 1fr); } .assistant-details, .assistant-resizer { display: none; } }
 @media (max-width: 767px) { .assistant-workspace { grid-template-columns: minmax(0, 1fr); border-radius: 10px; } .assistant-conversation { grid-column: 1; } .assistant-sessions { display: none; } .assistant-mobile-only { display: inline-flex; } .assistant-conversation-header { min-height: 56px; padding: 6px 12px; gap: 8px; } .assistant-conversation-title { gap: 5px; } .assistant-conversation-title strong { max-width: 165px; } .assistant-message-list { padding: 24px 16px 10px; } .assistant-composer-area { padding: 4px 12px max(10px, env(safe-area-inset-bottom)); } .assistant-user-message p { max-width: 94%; font-size: 14px; } .assistant-composer-hint { font-size: 9px; } .assistant-turn { margin-bottom: 28px; } .assistant-icon-button, .assistant-detail-toggle, .assistant-send-button { min-width: 44px; min-height: 44px; } }
+.assistant-workspace.assistant-fullscreen { border-radius: 0; }
+.assistant-fullscreen.assistant-sessions-collapsed .assistant-conversation-header { padding-inline-start: 76px; }
+.assistant-fullscreen .assistant-sidebar-heading { padding-inline-start: 62px; }
+@media (max-width: 767px) { .assistant-fullscreen .assistant-conversation-header { padding-inline-start: 60px; } .assistant-detail-toggle > span { display: none; } }
 </style>

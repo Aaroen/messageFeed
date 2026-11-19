@@ -1,0 +1,42 @@
+:root {
+  color-scheme: light;
+  --mf-page: #f7f7f7;
+  --mf-surface: #ffffff;
+  --mf-surface-raised: rgba(255, 255, 255, 0.82);
+  --mf-surface-muted: #eeeeee;
+  --mf-text: #191919;
+  --mf-text-muted: #595959;
+  --mf-border: rgba(0, 0, 0, 0.14);
+  --mf-primary: #303030;
+  --mf-primary-strong: #151515;
+  --mf-aqua: #525252;
+  --mf-amber: #b7791f;
+  --mf-panel-shadow: 0 24px 80px rgba(0, 0, 0, 0.18);
+  --mf-header-bg: linear-gradient(180deg, rgba(247, 247, 247, 0.96), rgba(247, 247, 247, 0.74)), transparent;
+  --mf-header-refresh-bg: linear-gradient(180deg, rgba(247, 247, 247, 0.98), rgba(247, 247, 247, 0.82)), transparent;
+  --mf-header-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+  --mf-page-tint: linear-gradient(135deg, #edf3f8, transparent 37%), linear-gradient(225deg, #eef5f4, transparent 35%);
+  --mf-tab-active-bg: #e9eef2;
+  --mf-font-family: ui-sans-serif, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+body[arco-theme='dark'] {
+  color-scheme: dark;
+  --mf-page: #141414;
+  --mf-surface: #1e1e1e;
+  --mf-surface-raised: rgba(35, 35, 35, 0.9);
+  --mf-surface-muted: #282828;
+  --mf-text: #f2f2f2;
+  --mf-text-muted: #b9b9b9;
+  --mf-border: rgba(255, 255, 255, 0.14);
+  --mf-primary: #dedede;
+  --mf-primary-strong: #fafafa;
+  --mf-aqua: #bcbcbc;
+  --mf-amber: #f7c948;
+  --mf-panel-shadow: 0 24px 90px rgba(0, 0, 0, 0.42);
+  --mf-header-bg: linear-gradient(180deg, rgba(20, 20, 20, 0.94), rgba(20, 20, 20, 0.76)), transparent;
+  --mf-header-refresh-bg: linear-gradient(180deg, rgba(20, 20, 20, 0.98), rgba(20, 20, 20, 0.84)), transparent;
+  --mf-header-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+  --mf-page-tint: linear-gradient(135deg, #1d1d1d, transparent 45%);
+  --mf-tab-active-bg: #373737;
+}

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { getModelReasoningLevels, modelSelectionKey, type AgentModel } from '@/api/agentModels'
+import AgentEffortSlider from './AgentEffortSlider.vue'
 
 const props = defineProps<{ models: AgentModel[]; modelValue: string; disabled?: boolean; guest?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -9,7 +10,6 @@ const levels = ref<string[]>([])
 const levelsLoading = ref(false)
 const levelsUnavailable = ref(false)
 const selected = computed(() => props.models.find((model) => modelSelectionKey(model) === props.modelValue))
-const labels = new Map(Object.entries({ off: '关闭', none: '关闭', minimal: '极低', low: '低', medium: '中等', high: '高', xhigh: '极高', max: '最高' }))
 
 watch(selected, async (model, _previous, onCleanup) => {
   levels.value = []
@@ -41,23 +41,20 @@ const groups = computed(() => {
 </script>
 
 <template>
-  <div class="assistant-model-controls">
+  <div class="assistant-model-controls" @pointerdown.stop @touchstart.stop @touchmove.stop @touchend.stop>
     <select class="assistant-model-select" :value="modelValue" :disabled="disabled || !models.length" aria-label="选择对话模型" @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
       <option v-if="!models.length" value="">暂无可用模型</option>
       <option v-else-if="!modelValue" value="" disabled>请选择对话模型</option>
       <optgroup v-for="provider in groups" :key="provider.id" :label="provider.name"><option v-for="model in provider.models" :key="modelSelectionKey(model)" :value="modelSelectionKey(model)">{{ model.display_name || model.model }}</option></optgroup>
     </select>
-    <select v-if="levels.length" v-model="effort" class="assistant-effort-select" :disabled="disabled" aria-label="思考强度">
-      <option value="">思考强度 · 模型默认</option>
-      <option v-for="level in levels" :key="level" :value="level">{{ labels.get(level) || level }}</option>
-    </select>
+    <AgentEffortSlider v-if="levels.length && selected" v-model="effort" :levels="levels" :model="selected.display_name || selected.model" :disabled="disabled" />
     <span v-else-if="levelsLoading || levelsUnavailable" class="assistant-effort-status" role="status">{{ levelsLoading ? '正在读取思考档位…' : '暂时无法读取思考档位' }}</span>
   </div>
 </template>
 
 <style scoped>
-.assistant-model-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-.assistant-model-select, .assistant-effort-select { max-width: min(100%, 350px); min-width: 0; padding: 7px 16px 7px 8px; border: 1px solid var(--mf-border); border-radius: 7px; background: var(--mf-surface, #fff); color: var(--mf-text); font: inherit; font-size: 12px; text-overflow: ellipsis; cursor: pointer; }
+.assistant-model-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.assistant-model-select { max-width: 350px; min-width: 0; padding: 7px 8px; border: 0; border-radius: 8px; background: var(--mf-surface-muted); color: var(--mf-text); font: inherit; font-size: 12px; text-overflow: ellipsis; cursor: pointer; }
 .assistant-model-controls select:focus-visible { outline: 2px solid var(--mf-accent, #555); outline-offset: 2px; }
 .assistant-model-controls select:disabled { opacity: .6; cursor: default; }
 .assistant-effort-status { font-size: 12px; color: var(--mf-text-muted); }

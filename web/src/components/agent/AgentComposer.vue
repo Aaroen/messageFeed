@@ -68,8 +68,11 @@ defineExpose({ focus: () => input.value?.focus() })
 </template>
 
 <style scoped>
-.agent-composer { position: relative; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--mf-border); border-radius: 12px; background: var(--mf-surface); }
-.agent-composer:focus-within { border-color: var(--mf-primary, #2563eb); }
+.agent-composer { position: relative; display: grid; gap: 6px; padding: 12px 14px 9px; border: 1px solid transparent; border-radius: 24px; background: var(--mf-surface); box-shadow: 0 2px 5px rgb(0 0 0 / 10%), 0 6px 22px rgb(0 0 0 / 10%); }
+.agent-composer::after { content: ''; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none; opacity: 0; box-shadow: 0 4px 12px color-mix(in srgb, var(--mf-primary) 22%, transparent), 0 10px 24px rgb(0 0 0 / 17%); }
+.agent-composer:has(textarea:focus)::after { opacity: 1; }
+.agent-composer:has(textarea:focus-visible) { border-color: var(--mf-primary); }
+@media (prefers-reduced-motion: no-preference) { .agent-composer::after { transition: opacity 180ms ease-out; } }
 .agent-composer-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .agent-composer-handle { position: absolute; z-index: 1; inset: -8px 0 auto; height: 16px; cursor: ns-resize; touch-action: none; }
 .agent-composer-handle::after { content: ''; display: block; width: 32px; height: 3px; margin: 6px auto; border-radius: 3px; background: var(--mf-text-muted); opacity: .55; }
@@ -80,6 +83,7 @@ defineExpose({ focus: () => input.value?.focus() })
 .agent-composer textarea::placeholder { color: var(--mf-text-muted); }
 .agent-composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 @media (max-width: 767px), (pointer: coarse) {
+  .agent-composer { border-radius: 22px; padding: 10px 11px 7px; }
   .agent-composer-handle { display: none; }
   .agent-composer textarea { field-sizing: content; height: auto; min-height: 48px; max-height: min(180px, 30dvh); font-size: 16px; }
   @supports not (field-sizing: content) {

@@ -84,8 +84,6 @@ const emit = defineEmits<{
     :style="navigationPanelStyle"
     aria-label="主导航"
   >
-    <div class="nav-panel-glow" />
-
     <div class="brand">
       <div class="brand-mark">MF</div>
       <button
@@ -121,7 +119,8 @@ const emit = defineEmits<{
       <button
         class="theme-icon-button"
         type="button"
-        aria-label="切换主题"
+        :aria-label="darkTheme ? '切换到日间模式' : '切换到深色模式'"
+        :title="darkTheme ? '切换到日间模式' : '切换到深色模式'"
         @pointerdown.stop
         @touchstart.stop
         @click="emit('toggle-theme')"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, type StyleValue } from 'vue'
+import { computed, ref, watch, type StyleValue } from 'vue'
 import { useRoute } from 'vue-router'
 
 import type { FeedItem } from '@/api/feed'
@@ -55,6 +55,8 @@ const conversationMode = computed(() => route.name === 'agent' && !['turn_id', '
 const subscriptionsActive = computed(() => props.activeKey === 'subscriptions' && readerClosed.value)
 const recommendationsActive = computed(() => props.activeKey === 'recommendations' && readerClosed.value)
 const agentActive = computed(() => props.activeKey === 'agent' && readerClosed.value)
+const fullscreen = ref(false)
+watch(() => agentActive.value && conversationMode.value, active => { if (!active) fullscreen.value = false })
 
 function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
   emit('open-item', item, sourceKind, originRect)
@@ -62,7 +64,7 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
 </script>
 
 <template>
-  <div class="feed-stage" :class="{ 'feed-stage--assistant': conversationMode }">
+  <div class="feed-stage" :class="{ 'feed-stage--assistant': conversationMode, 'feed-stage--fullscreen': fullscreen && conversationMode && agentActive }">
     <div class="feed-track" :style="feedTrackStyle">
       <section class="feed-pane" :aria-hidden="!subscriptionsActive" :inert="!subscriptionsActive">
         <SubscriptionFeedView
@@ -105,7 +107,7 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
         />
       </section>
       <section class="feed-pane feed-pane--agent" :aria-hidden="!agentActive" :inert="!agentActive">
-        <AgentWorkspaceView v-if="agentActive && conversationMode" />
+        <AgentWorkspaceView v-if="agentActive && conversationMode" v-model:fullscreen="fullscreen" />
         <AgentPlanView v-else-if="agentActive" />
       </section>
     </div>
@@ -116,4 +118,7 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
 .feed-stage--assistant { height: 100%; width: 100%; margin: 0; }
 .feed-stage--assistant .feed-track { height: 100%; grid-template-rows: minmax(0, 1fr); }
 .feed-stage--assistant .feed-pane { height: 100%; min-height: 0; overflow: hidden; }
+.app-shell:has(.feed-stage--fullscreen) .app-main--feed > .app-header { visibility: hidden; }
+.app-shell:has(.feed-stage--fullscreen) .app-content--feed { padding: env(safe-area-inset-top, 0px) 0 0 !important; }
+.feed-stage--fullscreen .feed-pane--agent { padding-inline: 0; }
 </style>

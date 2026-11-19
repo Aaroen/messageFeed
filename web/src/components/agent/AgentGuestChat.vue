@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { IconArrowUp, IconCode, IconPlus, IconStop } from '@arco-design/web-vue/es/icon'
+import { IconArrowUp, IconCode, IconFullscreen, IconFullscreenExit, IconPlus, IconStop } from '@arco-design/web-vue/es/icon'
 import { getGuestHistory, listAssistantModels, modelSelectionKey, streamGuestChat, type AgentModel, type GuestChatMessage, type GuestHistory } from '@/api/agentModels'
 import { formatAPIError } from '@/api/client'
 import AgentMarkdown from '@/components/agent/AgentMarkdown.vue'
@@ -10,6 +10,7 @@ import AgentComposer from '@/components/agent/AgentComposer.vue'
 import { useAgentScroll } from '@/composables/useAgentScroll'
 
 const models = ref<AgentModel[]>([])
+const fullscreen = defineModel<boolean>('fullscreen', { default: false })
 const selectedKey = ref('')
 const reasoningEffort = ref('')
 type Message = GuestChatMessage & { id: string; model?: string; reasoning?: string; failed?: boolean }
@@ -104,8 +105,8 @@ onBeforeUnmount(() => controller?.abort())
 </script>
 
 <template>
-  <section class="guest-assistant" aria-label="游客助理" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
-    <header><span><IconCode /> 助理 <small>游客</small></span><div><select v-model="conversationID" aria-label="游客历史对话" :disabled="sending || loading" @change="restoreConversation"><option :value="0">新建对话</option><option v-for="[identifier, title] in conversations" :key="identifier" :value="identifier">{{ title }}</option></select><button type="button" :disabled="sending" aria-label="新建游客对话" @click="clearConversation"><IconPlus /></button><router-link :to="{ name: 'login', query: { redirect: '/agent' } }">登录</router-link></div></header>
+  <section class="guest-assistant" :class="{ 'guest-fullscreen': fullscreen }" aria-label="游客助理" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
+    <header><span><IconCode /> 助理 <small>游客</small></span><div><select v-model="conversationID" aria-label="游客历史对话" :disabled="sending || loading" @change="restoreConversation"><option :value="0">新建对话</option><option v-for="[identifier, title] in conversations" :key="identifier" :value="identifier">{{ title }}</option></select><button type="button" :disabled="sending" aria-label="新建游客对话" @click="clearConversation"><IconPlus /></button><button type="button" :aria-label="fullscreen ? '退出全屏' : '全屏打开助理'" :title="fullscreen ? '退出全屏' : '全屏打开助理'" @click="fullscreen = !fullscreen"><IconFullscreenExit v-if="fullscreen" /><IconFullscreen v-else /></button><router-link :to="{ name: 'login', query: { redirect: '/agent' } }">登录</router-link></div></header>
     <main ref="scrollArea" class="guest-messages" aria-label="游客对话消息" @scroll.passive="handleScroll">
       <div v-if="!messages.length" class="guest-welcome">
         <h1>{{ loading ? '正在读取模型' : models.length ? '向助理发送消息' : '游客模型暂未开放' }}</h1>
@@ -130,25 +131,30 @@ onBeforeUnmount(() => controller?.abort())
 </template>
 
 <style scoped>
-.guest-assistant { height: 100%; min-height: 0; position: relative; display: flex; flex-direction: column; border: 1px solid var(--mf-border); border-radius: 12px; background: var(--mf-surface, #fff); overflow: hidden; }
-.guest-assistant header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--mf-border); }
-.guest-assistant header span, .guest-assistant header div { display: flex; align-items: center; gap: 12px; }
+.guest-assistant { height: 100%; min-height: 0; position: relative; display: flex; flex-direction: column; border-radius: 12px; background: var(--mf-page-tint), var(--mf-page); overflow: hidden; }
+.guest-assistant header { display: flex; align-items: center; justify-content: space-between; gap: 5px; padding: 10px 14px; }
+.guest-assistant header span, .guest-assistant header div { display: flex; align-items: center; gap: 6px; }
+.guest-assistant header span, .guest-assistant header a { white-space: nowrap; }
+.guest-assistant header div { min-width: 0; }
 .guest-assistant header small, .guest-answer-heading small { color: var(--mf-text-muted); font-size: 11px; }
 .guest-assistant header select { max-width: min(30vw, 240px); padding: 6px; border: 1px solid var(--mf-border); border-radius: 6px; background: var(--mf-surface, #fff); color: var(--mf-text); }
-.guest-assistant button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--mf-border); border-radius: 7px; background: var(--mf-surface, #fff); color: var(--mf-text); cursor: pointer; }
+.guest-assistant header button, .guest-jump { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--mf-text); cursor: pointer; }
 .guest-assistant button:disabled { opacity: .4; cursor: default; }
+.guest-composer :is(button[type='submit'], button[aria-label='停止游客回答']) { flex: none; display: grid; place-items: center; width: 35px; height: 35px; border: 0; border-radius: 50%; background: var(--mf-text); color: var(--mf-surface); cursor: pointer; }
 .guest-messages { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 24px max(18px, calc((100% - 760px) / 2)); }
 .guest-welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 200px; gap: 12px; }
 .guest-welcome h1 { font-size: 20px; font-weight: 500; margin: 0; }
 .guest-welcome p, .guest-welcome small { color: var(--mf-text-muted); margin: 0; font-size: 12px; line-height: 1.8; }
 .guest-message { margin-bottom: 24px; font-size: 14px; line-height: 1.8; }
 .guest-message.user { display: flex; justify-content: flex-end; }
-.guest-message.user p { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 90%; background: var(--mf-surface-soft, #f2f3f5); padding: 10px 15px; border-radius: 16px; margin: 0; }
+.guest-message.user p { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 90%; background: var(--mf-surface-muted); padding: 10px 15px; border-radius: 16px; margin: 0; }
 .guest-answer-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .guest-answer-heading small { overflow-wrap: anywhere; }
 .guest-composer { width: min(100%, 800px); margin: 0 auto; padding: 12px 18px max(14px, env(safe-area-inset-bottom)); box-sizing: border-box; }
 .guest-welcome a { color: var(--mf-primary-strong); font-weight: 600; }
 .guest-assistant .guest-jump { display: block; width: auto; margin: 0 auto 12px; padding: 0 12px; }
-@media (max-width: 767px) { .guest-assistant button { min-width: 44px; min-height: 44px; } }
+.guest-fullscreen { border-radius: 0; }
+.guest-fullscreen header { padding-inline-start: 76px; }
+@media (max-width: 767px) { .guest-assistant button { min-height: 44px; } .guest-assistant header button, .guest-composer button[type='submit'] { min-width: 44px; } .guest-fullscreen header { padding-inline-start: 60px; } .guest-fullscreen header small { display: none; } .guest-assistant header select { min-width: 0; } }
 .guest-error { color: #bf4343; font-size: 12px; }
 </style>
