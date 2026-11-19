@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
@@ -40,6 +42,8 @@ func (s *AgentConversationService) finishTurnWithReply(
 	if failureRequested {
 		turn.Status = domain.AgentTurnStatusFailed
 		turn.ErrorMessage = failureMessage
+	} else {
+		turn.ErrorCode = ""
 	}
 	completionPlan := domain.AgentPlan{}
 	controllerRunID := int64(0)
@@ -69,6 +73,9 @@ func (s *AgentConversationService) finishTurnWithReply(
 			reply = s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{Stage: "failed", UserMessage: input.TextContent, Plan: plan, ErrorText: turn.ErrorMessage, ProgressURL: s.agentPlanURLIfAvailable(plan.ID)})
 		}
 		turn.OutputText = reply
+		if turn.ErrorCode == "" {
+			turn.ErrorCode = "agent_turn_failed"
+		}
 		auditStatus = "failed"
 	}
 	turn.DeliveryStatus = "not_required"
@@ -77,12 +84,14 @@ func (s *AgentConversationService) finishTurnWithReply(
 		notificationKind = "failure"
 	}
 	shouldNotify := s.shouldSendWeChatWorkNotification(ctx, account.UserID, input, notificationKind)
-	if shouldNotify {
+	queueEffects := s.persistentQueue && !s.processInline
+	if shouldNotify || queueEffects && input.Provider == domain.AgentProviderWeb && input.ChatType != "assistant" && plan.ID > 0 && s.sender != nil {
 		turn.DeliveryStatus = "pending"
 	}
 	now = s.now().UTC()
 	completed, err := s.repository.CommitAgentTurnResult(ctx, domain.AgentTurnCompletion{
-		Turn: turn, Plan: completionPlan, ControllerRunID: controllerRunID, WorkerID: s.workerID, CompletedAt: now,
+		Turn: turn, Plan: completionPlan, ControllerRunID: controllerRunID, WorkerID: turn.LockedBy, CompletedAt: now,
+		QueueEffects: queueEffects, DeliveryPlanID: plan.ID,
 		TranscriptMetadata: domain.AgentJSON{"model_provider": turn.ModelProvider, "model": turn.Model, "observations": agent.ObservationMetadata(observations)},
 	})
 	if err != nil {
@@ -96,7 +105,7 @@ func (s *AgentConversationService) finishTurnWithReply(
 	sendCount := 0
 	finalDelivery := agentWeChatFinalReportDeliveryResult{}
 	replyChunks := splitUTF8Bytes(reply, notifier.WeChatWorkTextByteLimit)
-	if shouldNotify {
+	if shouldNotify && !queueEffects {
 		if completionPlan.ID > 0 {
 			delivery, sendErr := s.sendWeChatWorkFinalReportDelivery(ctx, input.ExternalUserID, plan, reply, string(plan.Status))
 			finalDelivery = delivery
@@ -163,10 +172,13 @@ func (s *AgentConversationService) finishTurnWithReply(
 		CreatedAt: s.now().UTC(),
 	})
 	if err != nil {
-		return ReceiveWeChatWorkAppMessageResult{ExternalAccount: account, InboundMessage: inbound, Session: session, Turn: turn, Plan: plan, Reply: reply, SendResult: sendResult}, err
+		slog.WarnContext(ctx, "回合审计记录写入失败", "turn_id", turn.ID, "error", err)
 	}
 	if turn.Status == domain.AgentTurnStatusFailed {
-		_, err = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID, EventType: "agent.turn_failure_feedback", Status: "sent", Message: "agent turn failure feedback generated", Metadata: domain.AgentJSON{"failure_reason": turn.ErrorMessage, "delivery_status": turn.DeliveryStatus}, RequestID: input.RequestID, TraceID: input.TraceID, CreatedAt: s.now().UTC()})
+		_, err = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID, EventType: "agent.turn_failure_feedback", Status: turn.DeliveryStatus, Message: "agent turn failure feedback generated", Metadata: domain.AgentJSON{"failure_reason": turn.ErrorMessage, "delivery_status": turn.DeliveryStatus}, RequestID: input.RequestID, TraceID: input.TraceID, CreatedAt: s.now().UTC()})
+		if err != nil {
+			slog.WarnContext(ctx, "失败反馈审计记录写入失败", "turn_id", turn.ID, "error", err)
+		}
 	}
 	return ReceiveWeChatWorkAppMessageResult{
 		ExternalAccount: account,
@@ -176,7 +188,7 @@ func (s *AgentConversationService) finishTurnWithReply(
 		Plan:            plan,
 		Reply:           reply,
 		SendResult:      sendResult,
-	}, err
+	}, nil
 }
 
 // failTurnWithFeedback 关闭失败 turn，并按通知策略生成降级反馈。
@@ -194,6 +206,22 @@ func (s *AgentConversationService) failTurnWithFeedback(
 		cause = fmt.Errorf("agent turn failed")
 	}
 	turn.ErrorMessage = cause.Error()
+	turn.ErrorCode = agentTurnErrorCode(cause)
 	reply := s.generateAgentWeChatFeedbackText(ctx, agentWeChatFeedbackRequest{Stage: "failed", UserMessage: input.TextContent, Plan: plan, ErrorText: cause.Error(), Cause: cause, ProgressURL: s.agentPlanURLIfAvailable(plan.ID)})
+	reply = fmt.Sprintf("%s\n调用编号：%d", reply, turn.ID)
 	return s.finishTurnWithReply(ctx, account, inbound, session, turn, input, plan, reply, nil, "failed")
+}
+
+func agentTurnErrorCode(cause error) string {
+	var appError *domain.AppError
+	if errors.As(cause, &appError) && appError.Code != "" {
+		return appError.Code
+	}
+	if errors.Is(cause, context.DeadlineExceeded) {
+		return "agent_turn_timeout"
+	}
+	if errors.Is(cause, context.Canceled) {
+		return "agent_turn_interrupted"
+	}
+	return "agent_turn_failed"
 }

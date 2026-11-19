@@ -124,6 +124,9 @@ func agentUserFacingFailureReason(errorText string) string {
 	if strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded") {
 		return "处理时间超过限制，请稍后重新发送。"
 	}
+	if strings.Contains(lower, "模型未提供有效的结构化决策") || strings.Contains(lower, "意图判定置信度无效") {
+		return "未能确认这条消息与上一次任务的关系。请说明是继续、修改要求，还是开始新任务。"
+	}
 	return "任务处理遇到异常，请稍后重新发送。"
 }
 

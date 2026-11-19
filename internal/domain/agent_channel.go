@@ -171,6 +171,7 @@ type AgentTurn struct {
 	Model            string
 	ModelConfigID    int64
 	ErrorMessage     string
+	ErrorCode        string
 	DeliveryStatus   string
 	DeliveryError    string
 	AttemptCount     int

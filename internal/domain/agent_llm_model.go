@@ -37,4 +37,5 @@ type AgentModelSelection struct {
 	ConfigID        int64  `json:"config_id"`
 	Model           string `json:"model"`
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	ContextWindow   int    `json:"context_window,omitempty"`
 }

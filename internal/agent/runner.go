@@ -809,6 +809,11 @@ func (r *TurnRunner) executeToolCall(ctx context.Context, input TurnRunInput, ca
 		return MCPCallToolResult{}, domain.NewAppError(domain.ErrorKindInvalidInput, "agent_tool_not_allowed", "agent tool is not allowed in current policy", "agent.turn_runner.tools", false, nil)
 	}
 	tool := capability.MCPDescriptor()
+	if err := capability.ValidateArguments(call.Arguments); err != nil {
+		return NewMCPTextCallToolResult("工具参数未通过校验。", true, CapabilityObservation{
+			Capability: key, Decision: string(PolicyDecisionForbidden), Status: "failed", Summary: err.Error(),
+		}), nil
+	}
 	return r.toolExecutor.CallTool(ctx, MCPCallToolInput{
 		Capability:      capability,
 		Tool:            tool,

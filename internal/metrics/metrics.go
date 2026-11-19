@@ -303,6 +303,16 @@ var AgentReplyBytes = promauto.NewHistogramVec(
 	[]string{"provider", "status"},
 )
 
+var AgentStreamWriteFailuresTotal = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "messagefeed_agent_stream_write_failures_total",
+	Help: "Agent stream batch persistence failures.",
+})
+
+var AgentLLMTraceWriteFailuresTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "messagefeed_agent_llm_trace_write_failures_total",
+	Help: "Agent model telemetry write failures by operation.",
+}, []string{"operation"})
+
 // AgentTraceEventsTotal 记录 Agent 内部 waterfall 事件数。
 var AgentTraceEventsTotal = promauto.NewCounterVec(
 	prometheus.CounterOpts{

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
 
@@ -254,7 +255,7 @@ func (s *AgentLLMConfigService) GuestModels(ctx context.Context) ([]domain.Agent
 type agentModelSelectionKey struct{}
 
 func withAgentModelSelection(ctx context.Context, selection domain.AgentModelSelection) context.Context {
-	return context.WithValue(ctx, agentModelSelectionKey{}, selection)
+	return agent.WithModelContextWindow(context.WithValue(ctx, agentModelSelectionKey{}, selection), selection.ContextWindow)
 }
 
 func agentSelectionFromInbound(ctx context.Context, inbound domain.AgentInboundMessage) (context.Context, error) {
@@ -284,10 +285,7 @@ func (r *AgentLLMRuntime) ValidateModelSelection(ctx context.Context, userID, co
 	if _, err := r.clientForUser(withAgentModelSelection(ctx, selection), userID); err != nil {
 		return domain.AgentModelSelection{}, err
 	}
-	if effort != "" {
-		if r.modelCatalog == nil {
-			return domain.AgentModelSelection{}, fmt.Errorf("模型目录不可用")
-		}
+	if r.modelCatalog != nil {
 		configuration, err := r.store.GetAgentLLMProviderConfig(ctx, userID, configID)
 		if err != nil {
 			return domain.AgentModelSelection{}, err
@@ -296,6 +294,24 @@ func (r *AgentLLMRuntime) ValidateModelSelection(ctx context.Context, userID, co
 		if err := r.modelCatalog.validateReasoningEffort(ctx, configuration, effort); err != nil {
 			return domain.AgentModelSelection{}, err
 		}
+		selection.ContextWindow = r.modelCatalog.modelContextWindow(ctx, configuration)
+	} else if effort != "" {
+		return domain.AgentModelSelection{}, fmt.Errorf("模型目录不可用")
 	}
 	return selection, nil
+}
+
+func (s *AgentLLMConfigService) modelContextWindow(ctx context.Context, configuration domain.AgentLLMProviderConfig) int {
+	catalogCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	models, err := s.fetchModelCatalog(catalogCtx, configuration, false)
+	if err != nil {
+		return 0
+	}
+	for _, model := range models {
+		if model.ID == configuration.Model && model.ContextLength > 0 {
+			return model.ContextLength
+		}
+	}
+	return 0
 }

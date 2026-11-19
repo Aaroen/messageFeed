@@ -59,6 +59,8 @@ type ChatRequest struct {
 	Temperature     float64
 	MaxTokens       int
 	ReasoningEffort string
+	OutputSchema    *OutputSchema
+	SchemaLocalOnly bool
 	OnEvent         func(StreamEvent) error `json:"-"`
 }
 
@@ -134,6 +136,7 @@ type chatCompletionRequest struct {
 	Temperature     float64                 `json:"temperature,omitempty"`
 	MaxTokens       int                     `json:"max_tokens,omitempty"`
 	ReasoningEffort string                  `json:"reasoning_effort,omitempty"`
+	ResponseFormat  *chatOutputFormat       `json:"response_format,omitempty"`
 }
 
 type chatCompletionMessage struct {
@@ -189,13 +192,14 @@ type chatCompletionResponse struct {
 }
 
 type responsesRequest struct {
-	Model           string               `json:"model"`
-	Input           []responsesInputItem `json:"input"`
-	Tools           []responsesTool      `json:"tools,omitempty"`
-	ToolChoice      any                  `json:"tool_choice,omitempty"`
-	Temperature     float64              `json:"temperature,omitempty"`
-	MaxOutputTokens int                  `json:"max_output_tokens,omitempty"`
-	Reasoning       *responsesReasoning  `json:"reasoning,omitempty"`
+	Model           string                 `json:"model"`
+	Input           []responsesInputItem   `json:"input"`
+	Tools           []responsesTool        `json:"tools,omitempty"`
+	ToolChoice      any                    `json:"tool_choice,omitempty"`
+	Temperature     float64                `json:"temperature,omitempty"`
+	MaxOutputTokens int                    `json:"max_output_tokens,omitempty"`
+	Reasoning       *responsesReasoning    `json:"reasoning,omitempty"`
+	Text            *responsesOutputFormat `json:"text,omitempty"`
 }
 
 type responsesReasoning struct {
@@ -475,6 +479,7 @@ func (c *OpenAICompatibleClient) chatWithChatCompletions(ctx context.Context, re
 		Temperature:     request.Temperature,
 		MaxTokens:       request.MaxTokens,
 		ReasoningEffort: request.ReasoningEffort,
+		ResponseFormat:  chatSchemaFormat(request.nativeSchema()),
 	}
 	if strings.TrimSpace(request.ToolChoice) != "" {
 		payload.ToolChoice = strings.TrimSpace(request.ToolChoice)
@@ -650,6 +655,7 @@ func (c *OpenAICompatibleClient) chatWithResponses(ctx context.Context, request 
 		Temperature:     request.Temperature,
 		MaxOutputTokens: request.MaxTokens,
 		Reasoning:       reasoningForResponses(request.ReasoningEffort, false),
+		Text:            responsesSchemaFormat(request.nativeSchema()),
 	}
 	if strings.TrimSpace(request.ToolChoice) != "" {
 		payload.ToolChoice = strings.TrimSpace(request.ToolChoice)

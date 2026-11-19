@@ -24,12 +24,17 @@ func (r *AgentRepository) AppendAgentStreamEvents(ctx context.Context, events []
 		if err := transaction.Where("id = ? AND session_id = ? AND turn_id = ?", first.RunID, first.SessionID, first.TurnID).First(&run).Error; err != nil {
 			return mapRepositoryError(err)
 		}
-		for _, event := range events {
+		for index, event := range events {
 			if event.UserID != first.UserID || event.SessionID != first.SessionID || event.TurnID != first.TurnID || event.RunID != first.RunID {
 				return fmt.Errorf("%w: stream event scope differs", domain.ErrInvalidInput)
 			}
+			if event.Metadata == nil {
+				events[index].Metadata = domain.AgentJSON{}
+			}
 		}
-		return transaction.Table("agent_stream_events").Create(&events).Error
+		return transaction.Table("agent_stream_events").Omit("id").Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "run_id"}, {Name: "sequence"}}, DoNothing: true,
+		}).Create(&events).Error
 	})
 }
 

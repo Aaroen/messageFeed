@@ -70,3 +70,21 @@ func TestStreamRejectsMissingCompletionAndFailedResponses(test *testing.T) {
 		}
 	}
 }
+
+func TestCompletedResponsesStillRequireValidStructuredContent(test *testing.T) {
+	schema := &OutputSchema{Name: "followup_intent_v3", Strict: true, Schema: json.RawMessage(`{"type":"object","required":["intent","reason"],"properties":{"intent":{"type":"string"},"reason":{"type":"string"}},"additionalProperties":false}`)}
+	if content, err := json.Marshal(responsesSchemaFormat(schema)); err != nil || !bytes.Contains(content, []byte(`"format":{"type":"json_schema","name":"followup_intent_v3"`)) {
+		test.Fatalf("Responses Schema 无效：%s，%v", content, err)
+	}
+	if content, err := json.Marshal(chatSchemaFormat(schema)); err != nil || !bytes.Contains(content, []byte(`"json_schema":{"name":"followup_intent_v3"`)) {
+		test.Fatalf("Chat Completions Schema 无效：%s，%v", content, err)
+	}
+	stream := "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"intent\\\":\\\"stop\\\",\\\"reason\\\":\\\"用户要求停止\\\"\"}]}]}}\n\n"
+	response, err := decodeChatStream(strings.NewReader(stream), llmProtocolResponses, func(StreamEvent) error { return nil })
+	if err != nil {
+		test.Fatal(err)
+	}
+	if _, err := schema.Validate(response.Content); !CanRetryStructuredOutput(err) {
+		test.Fatalf("供应商已结束但正文截断时，应保留重试资格：%v", err)
+	}
+}

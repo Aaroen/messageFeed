@@ -40,6 +40,22 @@ type agentActiveProcess struct {
 	stopRequested bool
 }
 
+type agentActiveProcessKey struct{}
+
+func (s *AgentConversationService) watchAgentProcess(ctx context.Context, turn domain.AgentTurn) (context.Context, *agentActiveProcess, func()) {
+	if process, ok := ctx.Value(agentActiveProcessKey{}).(*agentActiveProcess); ok && process.turnID == turn.ID {
+		return ctx, process, func() {}
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	process := s.registerAgentProcess(turn.ID, cancel)
+	stopWatch := s.watchAgentTurnCancellation(ctx, turn, process)
+	return context.WithValue(ctx, agentActiveProcessKey{}, process), process, func() {
+		stopWatch()
+		cancel()
+		s.unregisterAgentProcess(process)
+	}
+}
+
 // registerAgentProcess 将正在执行的 turn 注册到内存表，供 Web 停止按钮定位并取消。
 func (s *AgentConversationService) registerAgentProcess(turnID int64, cancel context.CancelFunc) *agentActiveProcess {
 	process := &agentActiveProcess{turnID: turnID, cancel: cancel, done: make(chan struct{})}
@@ -231,10 +247,14 @@ func (s *AgentConversationService) stopExistingAgentPlan(ctx context.Context, us
 		return plan, AgentPlanStopRuntimeInfo{PlanID: plan.ID, TurnID: plan.TurnID}, nil
 	}
 	if plan.TurnID > 0 {
-		if cancellable, ok := any(s.repository).(interface {
-			RequestAgentTurnCancel(context.Context, int64, int64, string, time.Time) (domain.AgentTurn, error)
-		}); ok {
-			_, _ = cancellable.RequestAgentTurnCancel(context.WithoutCancel(ctx), userID, plan.TurnID, reason, s.now().UTC())
+		if store, ok := s.repository.(AgentTurnWorkerRepository); ok {
+			turn, err := store.RequestAgentTurnCancel(ctx, userID, plan.TurnID, reason, s.now().UTC())
+			if err != nil {
+				return plan, AgentPlanStopRuntimeInfo{}, err
+			}
+			if (turn.Status == domain.AgentTurnStatusRunning || turn.Status == domain.AgentTurnStatusQueued) && s.lookupAgentProcess(plan) == nil {
+				return plan, AgentPlanStopRuntimeInfo{PlanID: plan.ID, TurnID: turn.ID, CancelSignaled: true, Confirmation: "cancellation_requested"}, nil
+			}
 		}
 	}
 	runtimeInfo, err := s.cancelAgentProcessAndWait(ctx, plan)
@@ -246,7 +266,7 @@ func (s *AgentConversationService) stopExistingAgentPlan(ctx context.Context, us
 	if err != nil {
 		return domain.AgentPlan{}, runtimeInfo, err
 	}
-	if !agentPlanCanStop(latest.Status) && planStoppedByUser(latest) {
+	if !agentPlanCanStop(latest.Status) {
 		return latest, runtimeInfo, nil
 	}
 	stopped, err := s.markAgentPlanStopped(cleanupCtx, userID, latest, reason, runtimeInfo)
@@ -355,13 +375,6 @@ func (s *AgentConversationService) markAgentPlanStopped(ctx context.Context, use
 			run.UpdatedAt = now
 			_, _ = s.repository.UpdateAgentRun(ctx, run)
 		}
-		_, _ = updateAgentTurn(ctx, s.repository, domain.AgentTurn{
-			ID:           plan.TurnID,
-			UserID:       userID,
-			Status:       domain.AgentTurnStatusFailed,
-			ErrorMessage: stopReason,
-			FinishedAt:   &now,
-		}, s.workerID)
 	}
 	plan.Metadata = cloneApprovalMetadata(plan.Metadata)
 	plan.Metadata["stop"] = domain.AgentJSON{
@@ -412,34 +425,18 @@ func (s *AgentConversationService) finishStoppedAgentProcess(
 	session domain.AgentSession,
 	turn domain.AgentTurn,
 	plan domain.AgentPlan,
-) ReceiveWeChatWorkAppMessageResult {
-	cleanupCtx := context.WithoutCancel(ctx)
-	now := s.now().UTC()
-	_, _ = s.repository.UpdateInboundMessageStatus(cleanupCtx, account.UserID, inbound.ID, domain.AgentInboundMessageStatusFailed, now)
-	if latestPlan, err := s.repository.GetAgentPlan(cleanupCtx, account.UserID, plan.ID); err == nil {
-		runtimeInfo := AgentPlanStopRuntimeInfo{
-			PlanID:             latestPlan.ID,
-			TurnID:             latestPlan.TurnID,
-			ActiveProcessFound: true,
-			CancelSignaled:     true,
-			StopConfirmed:      true,
-			Confirmation:       "process_exited_after_cancel",
-		}
-		if stopped, stopErr := s.markAgentPlanStopped(cleanupCtx, account.UserID, latestPlan, "用户停止执行", runtimeInfo); stopErr == nil {
-			plan = stopped
-		}
-	}
-	turn.Status = domain.AgentTurnStatusFailed
-	turn.ErrorMessage = "用户停止执行"
-	turn.FinishedAt = &now
-	if updatedTurn, err := updateAgentTurn(cleanupCtx, s.repository, turn, s.workerID); err == nil {
-		turn = updatedTurn
+) (ReceiveWeChatWorkAppMessageResult, error) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	completed, err := s.commitFailedAgentTurn(cleanupCtx, turn, errors.New("用户停止执行"))
+	if err != nil {
+		return ReceiveWeChatWorkAppMessageResult{ExternalAccount: account, InboundMessage: inbound, Session: session, Turn: turn, Plan: plan}, err
 	}
 	return ReceiveWeChatWorkAppMessageResult{
 		ExternalAccount: account,
-		InboundMessage:  inbound,
+		InboundMessage:  completed.InboundMessage,
 		Session:         session,
-		Turn:            turn,
-		Plan:            plan,
-	}
+		Turn:            completed.Turn,
+		Plan:            completed.Plan,
+	}, nil
 }

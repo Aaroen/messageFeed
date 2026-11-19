@@ -30,9 +30,9 @@ func (c *OpenAICompatibleClient) chatWithStream(ctx context.Context, request Cha
 	path := "/chat/completions"
 	if protocol == llmProtocolResponses {
 		path = "/responses"
-		payload = responsesRequest{Model: c.model, Input: responsesInputFromChatMessages(request.Messages), Tools: responsesToolsFromDomain(request.Tools), ToolChoice: request.ToolChoice, Temperature: request.Temperature, MaxOutputTokens: request.MaxTokens, Reasoning: reasoningForResponses(request.ReasoningEffort, true)}
+		payload = responsesRequest{Model: c.model, Input: responsesInputFromChatMessages(request.Messages), Tools: responsesToolsFromDomain(request.Tools), ToolChoice: request.ToolChoice, Temperature: request.Temperature, MaxOutputTokens: request.MaxTokens, Reasoning: reasoningForResponses(request.ReasoningEffort, true), Text: responsesSchemaFormat(request.nativeSchema())}
 	} else {
-		payload = chatCompletionRequest{Model: c.model, Messages: chatCompletionMessagesFromDomain(request.Messages), Tools: chatCompletionToolsFromDomain(request.Tools), ToolChoice: request.ToolChoice, Temperature: request.Temperature, MaxTokens: request.MaxTokens, ReasoningEffort: request.ReasoningEffort}
+		payload = chatCompletionRequest{Model: c.model, Messages: chatCompletionMessagesFromDomain(request.Messages), Tools: chatCompletionToolsFromDomain(request.Tools), ToolChoice: request.ToolChoice, Temperature: request.Temperature, MaxTokens: request.MaxTokens, ReasoningEffort: request.ReasoningEffort, ResponseFormat: chatSchemaFormat(request.nativeSchema())}
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

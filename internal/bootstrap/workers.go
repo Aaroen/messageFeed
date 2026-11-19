@@ -85,6 +85,24 @@ func startWorkerLoops(ctx context.Context, logger *slog.Logger, nodeID string, p
 		start(config.AppRoleAgentWorker, func() {
 			runAgentWorker(ctx, logger, workerID(nodeID, config.AppRoleAgentWorker), workers.agent)
 		})
+		for _, operation := range []string{"memory", "delivery"} {
+			start(config.AppRoleAgentWorker, func() { runAgentTurnEffects(ctx, logger, workers.agent, operation) })
+		}
+	}
+}
+
+func runAgentTurnEffects(ctx context.Context, logger *slog.Logger, worker *service.AgentConversationService, operation string) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		if err := worker.RunAgentTurnEffectOnce(ctx, operation); err != nil && ctx.Err() == nil {
+			logger.Warn("后台 Agent 任务执行失败", "operation", operation, "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 

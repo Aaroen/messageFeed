@@ -1,10 +1,37 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"messagefeed/internal/domain"
 	"strings"
+	"unicode"
 )
+
+type modelContextWindowKey struct{}
+
+func WithModelContextWindow(ctx context.Context, window int) context.Context {
+	return context.WithValue(ctx, modelContextWindowKey{}, window)
+}
+
+func modelContextBudget(ctx context.Context, profile ContextBudgetProfile) ContextBudgetSpec {
+	spec := ContextBudgetForProfile(profile)
+	window, _ := ctx.Value(modelContextWindowKey{}).(int)
+	if window <= 0 || window == spec.TotalTokens {
+		return spec
+	}
+	base := spec.TotalTokens
+	window = min(window, 2_000_000)
+	spec.TotalTokens = window
+	spec.RecentMessagesTokens = spec.RecentMessagesTokens * window / base
+	spec.StableMemoryTokens = spec.StableMemoryTokens * window / base
+	spec.HistoryRecallTokens = spec.HistoryRecallTokens * window / base
+	spec.EvidenceTokens = spec.EvidenceTokens * window / base
+	spec.PlanTokens = spec.PlanTokens * window / base
+	spec.OutputReserveTokens = spec.OutputReserveTokens * window / base
+	spec.SafetyMarginTokens = spec.SafetyMarginTokens * window / base
+	return spec
+}
 
 type ContextBudgetProfile string
 
@@ -424,7 +451,15 @@ func estimateContextTokenCount(value string) int {
 	if value == "" {
 		return 0
 	}
-	return (len([]rune(value)) + 3) / 4
+	var latin, other int
+	for _, character := range value {
+		if character <= unicode.MaxASCII || unicode.Is(unicode.Latin, character) {
+			latin++
+		} else {
+			other++
+		}
+	}
+	return (latin+3)/4 + other
 }
 
 func contextMessageUnit(unitType ContextSemanticUnitType, messages []ContextMessage, source string) ContextSemanticUnit {

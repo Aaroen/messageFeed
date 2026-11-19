@@ -133,10 +133,6 @@ func TestAgentTurnCompletionDatabaseTransaction(test *testing.T) {
 	if databaseURL == "" {
 		test.Skip("设置 AGENT_COMPLETION_DATABASE_URL 后执行真实数据库事务验收")
 	}
-	turnID, err := strconv.ParseInt(os.Getenv("AGENT_COMPLETION_TURN_ID"), 10, 64)
-	if err != nil || turnID <= 0 {
-		test.Fatal("AGENT_COMPLETION_TURN_ID 必须为真实调用编号")
-	}
 	database, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		test.Fatalf("连接真实数据库失败：%T", err)
@@ -153,7 +149,7 @@ func TestAgentTurnCompletionDatabaseTransaction(test *testing.T) {
 		test.Fatalf("开始真实数据库事务失败：%T", transaction.Error)
 	}
 	defer transaction.Rollback()
-	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql"} {
+	for _, name := range []string{"000047_expand_agent_turn_effects.up.sql", "000048_expand_agent_workflows.up.sql"} {
 		migration, readErr := os.ReadFile("../../migrations/" + name)
 		if readErr != nil {
 			test.Fatal(readErr)
@@ -162,29 +158,25 @@ func TestAgentTurnCompletionDatabaseTransaction(test *testing.T) {
 			test.Fatalf("事务内应用迁移失败：%T", err)
 		}
 	}
-	var original agentTurnModel
-	if err := transaction.Where("id = ?", turnID).First(&original).Error; err != nil {
-		test.Fatalf("读取验收参照调用失败：%T", err)
-	}
 	store := NewAgentRepository(transaction)
-	originalInbound, err := store.GetInboundMessage(ctx, original.UserID, original.InboundMessageID)
+	now := time.Now().UTC()
+	identity := fmt.Sprintf("completion-acceptance-%d", now.UnixNano())
+	account, err := store.EnsureExternalAccount(ctx, domain.ExternalAccount{UserID: 1, Provider: domain.AgentProviderWeb, ExternalUserID: identity})
 	if err != nil {
 		test.Fatal(err)
 	}
-	now := time.Now().UTC()
+	session, err := store.GetOrCreateSession(ctx, domain.AgentSession{UserID: account.UserID, ExternalAccountID: account.ID, Provider: account.Provider, ChannelSessionKey: identity})
+	if err != nil {
+		test.Fatal(err)
+	}
 	createCompletion := func(suffix string) domain.AgentTurnCompletion {
 		test.Helper()
-		inbound := originalInbound
-		inbound.ID = 0
-		inbound.ProviderMessageID = fmt.Sprintf("completion-acceptance-%d-%s", now.UnixNano(), suffix)
-		inbound.Status = domain.AgentInboundMessageStatusReceived
-		inbound.CreatedAt, inbound.UpdatedAt = now, now
-		inbound, _, err = store.CreateInboundMessage(ctx, inbound)
+		inbound, _, err := store.CreateInboundMessage(ctx, domain.AgentInboundMessage{UserID: account.UserID, ExternalAccountID: account.ID, Provider: account.Provider, ProviderMessageID: identity + "-" + suffix})
 		if err != nil {
 			test.Fatal(err)
 		}
 		lease := now.Add(time.Minute)
-		turn, createErr := store.CreateTurn(ctx, domain.AgentTurn{UserID: original.UserID, SessionID: original.SessionID, InboundMessageID: inbound.ID, Status: domain.AgentTurnStatusRunning, InputText: "验证事务提交", LockedBy: "completion-acceptance", LockedAt: &now, LeaseUntil: &lease, StartedAt: now})
+		turn, createErr := store.CreateTurn(ctx, domain.AgentTurn{UserID: account.UserID, SessionID: session.ID, InboundMessageID: inbound.ID, Status: domain.AgentTurnStatusRunning, InputText: "验证事务提交", LockedBy: "completion-acceptance", LockedAt: &now, LeaseUntil: &lease, StartedAt: now, AttemptCount: 1})
 		if createErr != nil {
 			test.Fatal(createErr)
 		}
@@ -199,7 +191,7 @@ func TestAgentTurnCompletionDatabaseTransaction(test *testing.T) {
 		turn.Status, turn.OutputText, turn.DeliveryStatus = domain.AgentTurnStatusSucceeded, "事务验证完成。", "pending"
 		plan.Status = domain.AgentPlanStatusCompleted
 		plan.Steps[0].Status, plan.Steps[0].CompletedAt = domain.AgentPlanStepStatusCompleted, &now
-		return domain.AgentTurnCompletion{Turn: turn, Plan: plan, ControllerRunID: run.ID, WorkerID: "completion-acceptance", CompletedAt: now}
+		return domain.AgentTurnCompletion{Turn: turn, Plan: plan, ControllerRunID: run.ID, WorkerID: "completion-acceptance", CompletedAt: now, QueueEffects: true, DeliveryPlanID: plan.ID}
 	}
 	assertUnchanged := func(completion domain.AgentTurnCompletion) {
 		test.Helper()
@@ -232,6 +224,12 @@ func TestAgentTurnCompletionDatabaseTransaction(test *testing.T) {
 		test.Fatal("失去所有权后仍然允许完成调用")
 	}
 	assertUnchanged(unauthorized)
+	stale := createCompletion("stale")
+	stale.Turn.AttemptCount = 0
+	if _, err := store.CommitAgentTurnResult(ctx, stale); err == nil {
+		test.Fatal("同一 Worker 的旧领取版本仍可提交")
+	}
+	assertUnchanged(stale)
 	canceled := createCompletion("canceled")
 	if _, err := store.RequestAgentTurnCancel(ctx, canceled.Turn.UserID, canceled.Turn.ID, "验收取消", now); err != nil {
 		test.Fatal(err)
@@ -240,6 +238,11 @@ func TestAgentTurnCompletionDatabaseTransaction(test *testing.T) {
 		test.Fatal("取消请求未阻止成功提交")
 	}
 	assertUnchanged(canceled)
+	canceled.Turn.Status, canceled.Plan.Status = domain.AgentTurnStatusFailed, domain.AgentPlanStatusFailed
+	canceled.Plan.Steps[0].Status = domain.AgentPlanStepStatusFailed
+	if result, err := store.CommitAgentTurnResult(ctx, canceled); err != nil || !result.Turn.CancelRequested || result.Turn.LockedBy != "" || result.Turn.OutputText != "" {
+		test.Fatalf("取消未以单一终态保存：%+v，%v", result.Turn, err)
+	}
 	completed := createCompletion("completed")
 	result, err := store.CommitAgentTurnResult(ctx, completed)
 	if err != nil || result.Turn.Status != domain.AgentTurnStatusSucceeded || result.Plan.Status != domain.AgentPlanStatusCompleted || result.InboundMessage.Status != domain.AgentInboundMessageStatusSucceeded {
@@ -251,6 +254,84 @@ func TestAgentTurnCompletionDatabaseTransaction(test *testing.T) {
 	}
 	if _, err := store.CommitAgentTurnResult(ctx, completed); err == nil {
 		test.Fatal("重复提交未被拒绝")
+	}
+	if err := transaction.Table("agent_turn_effects").Where("turn_id = ?", result.Turn.ID).Count(&count).Error; err != nil || count != 2 {
+		test.Fatalf("后台任务未随终态一次入队：%d，%v", count, err)
+	}
+	effect, err := store.ClaimAgentTurnEffect(ctx, "memory")
+	if err != nil || effect.TurnID != result.Turn.ID || effect.Attempt != 1 {
+		test.Fatalf("后台任务领取失败：%+v，%v", effect, err)
+	}
+	if err := store.FinishAgentTurnEffect(ctx, effect, nil); err != nil {
+		test.Fatal(err)
+	}
+	if effect, err := store.ClaimAgentTurnEffect(ctx, "memory"); err != nil || effect.TurnID != 0 {
+		test.Fatalf("已完成后台任务被再次领取：%+v，%v", effect, err)
+	}
+	delivery, err := store.ClaimAgentTurnEffect(ctx, "delivery")
+	if err != nil || delivery.TurnID != result.Turn.ID {
+		test.Fatalf("未领取通知任务：%+v，%v", delivery, err)
+	}
+	if err := transaction.Exec("UPDATE agent_turn_effects SET lease_until = NOW() WHERE turn_id = ? AND operation = 'delivery'", delivery.TurnID).Error; err != nil {
+		test.Fatal(err)
+	}
+	if next, err := store.ClaimAgentTurnEffect(ctx, "delivery"); err != nil || next.TurnID != 0 {
+		test.Fatalf("不确定通知被再次领取：%+v，%v", next, err)
+	}
+	if latest, err := store.GetAgentTurn(ctx, account.UserID, delivery.TurnID); err != nil || latest.DeliveryStatus != "failed" || latest.OutputText != result.Turn.OutputText {
+		test.Fatalf("通知超时改变了已保存回答：%+v，%v", latest, err)
+	}
+	workflow := domain.AgentWorkflow{UserID: account.UserID, SourceTurnID: result.Turn.ID, Name: "浏览订阅", Steps: []domain.AgentWorkflowStep{{Capability: "feed.query_recent_items", Version: 1, Arguments: domain.AgentJSON{"limit": 2}}}}
+	draft, err := store.CreateAgentWorkflow(ctx, workflow)
+	if err != nil || draft.Status != "draft" || draft.ID == 0 {
+		test.Fatalf("保存工作流草稿：%+v，%v", draft, err)
+	}
+	if retry, err := store.CreateAgentWorkflow(ctx, workflow); err != nil || retry.ID != draft.ID {
+		test.Fatalf("重复回合创建了另一份工作流：%+v，%v", retry, err)
+	}
+	if _, err := store.GetAgentWorkflow(ctx, account.UserID+1, draft.ID); !errors.Is(err, domain.ErrNotFound) {
+		test.Fatalf("其他用户能够读取草稿：%v", err)
+	}
+	if err := store.ReviewAgentWorkflow(ctx, account.UserID+1, draft.ID, "published"); !errors.Is(err, domain.ErrConflict) {
+		test.Fatalf("其他用户能够启用草稿：%v", err)
+	}
+	if err := store.ReviewAgentWorkflow(ctx, account.UserID, draft.ID, "published"); err != nil {
+		test.Fatal(err)
+	}
+	if stored, err := store.GetAgentWorkflow(ctx, account.UserID, draft.ID); err != nil || stored.Status != "published" || stored.Steps[0].Version != 1 {
+		test.Fatalf("未保存审核结论与工具版本：%+v，%v", stored, err)
+	}
+	sequence := int64(1)
+	stream := []domain.AgentStreamEvent{{UserID: account.UserID, SessionID: session.ID, TurnID: result.Turn.ID, RunID: completed.ControllerRunID, Kind: "message", Sequence: &sequence, Delta: "完整正文", CreatedAt: now}}
+	for attempt := 0; attempt < 2; attempt++ {
+		if err := store.AppendAgentStreamEvents(ctx, stream); err != nil {
+			test.Fatal(err)
+		}
+	}
+	if events, err := store.ListAgentStreamEvents(ctx, account.UserID, session.ID, 0, 10); err != nil || len(events) != 1 {
+		test.Fatalf("流式序号未去重：%+v，%v", events, err)
+	}
+	lost := createCompletion("lost")
+	if err := transaction.Model(&agentTurnModel{}).Where("id = ?", lost.Turn.ID).Update("lease_until", now.Add(-time.Second)).Error; err != nil {
+		test.Fatal(err)
+	}
+	if _, err := store.CreateAgentRun(ctx, domain.AgentRun{SessionID: session.ID, TurnID: lost.Turn.ID, ParentRunID: lost.ControllerRunID, Role: domain.AgentRunRoleExecutor, Status: domain.AgentRunStatusRunning, TaskPacket: domain.AgentJSON{"capability_key": "conversation.query_history"}, StartedAt: now}); err != nil {
+		test.Fatal(err)
+	}
+	if _, err := store.ClaimQueuedAgentTurns(ctx, domain.AgentTurnClaimInput{WorkerID: "replacement", Now: now, Limit: 1}); err != nil {
+		test.Fatal(err)
+	}
+	if turn, err := store.GetAgentTurn(ctx, account.UserID, lost.Turn.ID); err != nil || turn.Status != domain.AgentTurnStatusFailed || turn.ErrorCode != "agent_turn_lease_expired" {
+		test.Fatalf("已执行工具的回合被重新领取：%+v，%v", turn, err)
+	}
+	if plan, err := store.GetAgentPlan(ctx, account.UserID, lost.Plan.ID); err != nil || plan.Status != domain.AgentPlanStatusFailed || plan.Steps[0].Status != domain.AgentPlanStepStatusFailed {
+		test.Fatalf("租约恢复未关闭计划和步骤：%+v，%v", plan, err)
+	}
+	if err := reconcileFailedAgentTurns(transaction, now); err != nil {
+		test.Fatal(err)
+	}
+	if err := transaction.Table("agent_audit_logs").Where("turn_id = ? AND event_type = 'agent.turn_reconciled'", lost.Turn.ID).Count(&count).Error; err != nil || count != 1 {
+		test.Fatalf("历史修复审计未去重：%d，%v", count, err)
 	}
 	delivered, err := store.UpdateAgentTurnDelivery(ctx, completed.Turn.UserID, completed.Turn.ID, "failed", "验收投递错误", now)
 	if err != nil || delivered.Status != domain.AgentTurnStatusSucceeded || delivered.DeliveryStatus != "failed" {

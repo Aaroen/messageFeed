@@ -164,6 +164,7 @@ func (r *AgentRepository) QueryAgentFactArchiveIndex(ctx context.Context, option
 	query := r.db.WithContext(ctx).
 		Model(&agentFactArchiveIndexModel{}).
 		Where("user_id = ?", options.UserID).
+		Where(fmt.Sprintf(agentUsableFactCondition, "agent_fact_archive_index")).
 		Where("index_status = ?", string(domain.AgentFactIndexStatusReady))
 	if options.SessionID > 0 {
 		query = query.Where("(session_id = ? OR session_id IS NULL)", options.SessionID)
@@ -268,9 +269,21 @@ func (r *AgentRepository) CreateAgentMemoryCandidate(ctx context.Context, candid
 	defer func() { finish(opErr) }()
 
 	model := agentMemoryCandidateModelFromDomain(normalizeAgentMemoryCandidate(candidate))
-	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
-		opErr = mapRepositoryError(err)
+	query := r.db.WithContext(ctx)
+	if candidate.TurnID > 0 && candidate.Metadata["transcript_capture"] == true {
+		query = query.Clauses(clause.OnConflict{DoNothing: true})
+	}
+	result := query.Create(&model)
+	if result.Error != nil {
+		opErr = mapRepositoryError(result.Error)
 		return domain.AgentMemoryCandidate{}, opErr
+	}
+	if result.RowsAffected == 0 {
+		if err := r.db.WithContext(ctx).Where("user_id = ? AND turn_id = ? AND metadata_json @> '{\"transcript_capture\":true}'::jsonb", candidate.UserID, candidate.TurnID).First(&model).Error; err != nil {
+			opErr = mapRepositoryError(err)
+			return domain.AgentMemoryCandidate{}, opErr
+		}
+		return agentMemoryCandidateModelToDomain(model), nil
 	}
 	created := agentMemoryCandidateModelToDomain(model)
 	_, _ = r.CreateAgentMemoryEvent(ctx, domain.AgentMemoryEvent{

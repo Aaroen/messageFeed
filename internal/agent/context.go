@@ -105,7 +105,7 @@ func (b *DefaultContextBuilder) Build(ctx context.Context, input ContextBuildInp
 		return ContextSnapshot{}, nil
 	}
 	capabilityKeys := b.capabilityKeysForInput(input)
-	budgetSpec := ContextBudgetForProfile(input.BudgetProfile)
+	budgetSpec := modelContextBudget(ctx, input.BudgetProfile)
 	input.BudgetProfile = budgetSpec.Profile
 	snapshot := ContextSnapshot{
 		Blocks:        make([]ContextBlock, 0, len(capabilityKeys)+2),
@@ -383,6 +383,28 @@ func finalizeContextSnapshot(snapshot ContextSnapshot, input ContextBuildInput, 
 		}
 		if strings.TrimSpace(snapshot.Blocks[index].RetentionReason) == "" {
 			snapshot.Blocks[index].RetentionReason = "context_block"
+		}
+	}
+	evidenceBudget, memoryBudget := budgetSpec.EvidenceTokens, budgetSpec.HistoryRecallTokens+budgetSpec.StableMemoryTokens
+	for index := len(snapshot.Blocks) - 1; index >= 0; index-- {
+		block := &snapshot.Blocks[index]
+		if isSystemContextBlock(*block) || isUserConstraintContextBlock(*block) || isActivePlanContextBlock(*block) {
+			continue
+		}
+		budget := &evidenceBudget
+		if isMemoryContextBlock(*block) {
+			budget = &memoryBudget
+		}
+		if block.TokenEstimate <= *budget {
+			*budget -= block.TokenEstimate
+			continue
+		}
+		if len(block.EvidenceRefs) > 0 || block.CanonicalRef != "" {
+			block.Content = "正文已归档。引用：" + strings.Join(NormalizeCanonicalRefs(append([]string{block.CanonicalRef}, block.EvidenceRefs...)), "、")
+			block.TokenEstimate = estimateContextTokenCount(block.Content)
+			block.RetentionReason = "source_reference_only"
+		} else {
+			snapshot.Blocks = append(snapshot.Blocks[:index], snapshot.Blocks[index+1:]...)
 		}
 	}
 	for _, unit := range snapshot.SemanticUnits {

@@ -684,25 +684,27 @@ func TestAgentTaskRouterUsesPlanFromCombinedRequest(test *testing.T) {
 			"required_capabilities": []string{"web.search"},
 		},
 	}
-	for _, followup := range []bool{false, true} {
-		llmClient := &fakeAgentConversationLLM{routeResponses: []llm.ChatResponse{fakeAgentTaskRouteResponse(route)}}
-		service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
-		ctx := context.Background()
-		if followup {
-			body, err := json.Marshal(domain.AgentJSON{"intent": "derive_task", "confidence": 0.98, "route": route})
-			if err != nil {
-				test.Fatal(err)
-			}
-			decision, err := parseAgentFollowupDecision(string(body))
-			if err != nil || decision.Intent != agentFollowupIntentDeriveTask || decision.Route == nil {
-				test.Fatalf("无法读取续做计划：%+v，%v", decision, err)
-			}
-			ctx = context.WithValue(ctx, agentTurnRoutingKey{}, &agentTurnRouting{route: decision.Route})
+	llmClient := &fakeAgentConversationLLM{routeResponses: []llm.ChatResponse{fakeAgentTaskRouteResponse(route)}}
+	service := NewAgentConversationService(repository, WithAgentConversationLLM(llmClient), WithAgentConversationNow(func() time.Time { return now }))
+	plan, _, err := service.createPlanForTurn(context.Background(), testAgentExternalAccount(now), domain.AgentSession{ID: 2, UserID: 1}, domain.AgentTurn{ID: 3, UserID: 1, SessionID: 2}, domain.AgentRun{ID: 4, SessionID: 2, TurnID: 3}, ReceiveWeChatWorkAppMessageInput{Provider: domain.AgentProviderWeb, MsgType: "text", TextContent: "继续查找公开网页"})
+	if err != nil || !strings.Contains(strings.Join(plan.AllowedScopes, ","), "web.search") || llmClient.calls != 1 {
+		test.Fatalf("没有直接使用合并返回的计划：%v，%v，调用次数 %d", plan.AllowedScopes, err, llmClient.calls)
+	}
+}
+
+func TestAgentFollowupRejectsIncompleteAndUnexpectedFields(test *testing.T) {
+	for _, content := range []string{
+		`{"intent":"derive_task","confidence":0.9,"reason":"继续检索","route":{"plan_spec":{"subtasks":[]}}`,
+		`{"intent":"stop","confidence":0.9,"reason":"停止","route":{}}`,
+		`{"intent":"retry","confidence":2,"reason":"重试"}`,
+	} {
+		if _, err := parseAgentFollowupDecision(content); !llm.CanRetryStructuredOutput(err) {
+			test.Fatalf("应拒绝无效结构：%v", err)
 		}
-		plan, _, err := service.createPlanForTurn(ctx, testAgentExternalAccount(now), domain.AgentSession{ID: 2, UserID: 1}, domain.AgentTurn{ID: 3, UserID: 1, SessionID: 2}, domain.AgentRun{ID: 4, SessionID: 2, TurnID: 3}, ReceiveWeChatWorkAppMessageInput{Provider: domain.AgentProviderWeb, MsgType: "text", TextContent: "继续查找公开网页"})
-		if err != nil || !strings.Contains(strings.Join(plan.AllowedScopes, ","), "web.search") || llmClient.calls > 1 || followup && llmClient.calls != 0 {
-			test.Fatalf("没有直接使用合并返回的计划：%v，%v，调用次数 %d", plan.AllowedScopes, err, llmClient.calls)
-		}
+	}
+	decision, err := parseAgentFollowupDecision("```json\n{\"intent\":\"retry\",\"confidence\":0.9,\"reason\":\"继续任务\"}\n```")
+	if err != nil || decision.Intent != agentFollowupIntentRetry {
+		test.Fatalf("解析有效决策失败：%+v，%v", decision, err)
 	}
 }
 
@@ -1536,21 +1538,12 @@ func TestAgentConversationServiceStopAgentPlanConvergesRuntimeState(t *testing.T
 	if err != nil {
 		t.Fatalf("StopAgentPlan() error = %v", err)
 	}
-	if result.Plan.Status != string(domain.AgentPlanStatusFailed) || !result.Runtime.StopConfirmed {
+	if result.Plan.Status != string(domain.AgentPlanStatusExecuting) || result.Runtime.StopConfirmed || !result.Runtime.CancelSignaled {
 		t.Fatalf("result = %#v", result)
 	}
 	stored := repository.plans[0]
-	if stored.Status != domain.AgentPlanStatusFailed || stored.Steps[0].Status != domain.AgentPlanStepStatusSkipped || stored.Steps[1].Status != domain.AgentPlanStepStatusFailed || stored.Steps[2].Status != domain.AgentPlanStepStatusCompleted {
-		t.Fatalf("stored plan = %#v", stored)
-	}
-	if repository.runs[0].Status != domain.AgentRunStatusCanceled {
-		t.Fatalf("run status = %s, want canceled", repository.runs[0].Status)
-	}
-	if repository.turns[0].Status != domain.AgentTurnStatusFailed {
-		t.Fatalf("turn status = %s, want failed", repository.turns[0].Status)
-	}
-	if !fakeAuditContains(repository.audits, "agent.plan_stopped") {
-		t.Fatalf("audits = %#v", repository.audits)
+	if stored.Status != domain.AgentPlanStatusExecuting || repository.runs[0].Status != domain.AgentRunStatusRunning || !repository.turns[0].CancelRequested {
+		t.Fatalf("跨节点取消应由持有租约的 Worker 关闭：%#v", stored)
 	}
 }
 
@@ -3620,8 +3613,8 @@ func TestAgentConversationServiceSendsFallbackWhenScheduleCreationFails(t *testi
 	if sender.calls == 0 || strings.TrimSpace(sender.sent.Content) == "" {
 		t.Fatalf("sent fallback = %#v", sender.sent)
 	}
-	if len(repository.transcripts) < 2 || strings.TrimSpace(repository.transcripts[len(repository.transcripts)-1].Content) == "" {
-		t.Fatalf("transcripts = %#v", repository.transcripts)
+	if result.Turn.Status != domain.AgentTurnStatusFailed || len(repository.transcripts) != 1 || repository.transcripts[0].Role != domain.AgentTranscriptRoleUser {
+		t.Fatalf("失败反馈进入了正常对话历史：%#v", repository.transcripts)
 	}
 }
 
@@ -3862,6 +3855,11 @@ func (r *fakeAgentConversationRepository) CommitAgentTurnResult(ctx context.Cont
 	if err != nil {
 		return domain.AgentTurnCompletionResult{}, err
 	}
+	turn.LockedBy, turn.LockedAt, turn.LeaseUntil = "", nil, nil
+	turn, err = r.UpdateTurn(ctx, turn)
+	if err != nil {
+		return domain.AgentTurnCompletionResult{}, err
+	}
 	plan := completion.Plan
 	if plan.ID > 0 {
 		for _, step := range plan.Steps {
@@ -3892,7 +3890,7 @@ func (r *fakeAgentConversationRepository) CommitAgentTurnResult(ctx context.Cont
 			}
 		}
 	}
-	if strings.TrimSpace(turn.OutputText) != "" {
+	if turn.Status == domain.AgentTurnStatusSucceeded && strings.TrimSpace(turn.OutputText) != "" {
 		if _, err := r.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{SessionID: turn.SessionID, TurnID: turn.ID, UserID: turn.UserID, Role: domain.AgentTranscriptRoleAssistant, Content: turn.OutputText, Metadata: completion.TranscriptMetadata, CreatedAt: completion.CompletedAt}); err != nil {
 			return domain.AgentTurnCompletionResult{}, err
 		}
@@ -3978,9 +3976,9 @@ func (r *fakeAgentConversationRepository) UpdateTurnIfOwned(_ context.Context, t
 	return domain.AgentTurn{}, domain.ErrNotFound
 }
 
-func (r *fakeAgentConversationRepository) RenewAgentTurnLease(_ context.Context, userID int64, turnID int64, workerID string, leaseUntil time.Time, now time.Time) error {
+func (r *fakeAgentConversationRepository) RenewAgentTurnLease(_ context.Context, userID int64, turnID int64, workerID string, attempt int, leaseUntil time.Time, now time.Time) error {
 	for index := range r.turns {
-		if r.turns[index].ID == turnID && r.turns[index].UserID == userID && r.turns[index].LockedBy == workerID && r.turns[index].Status == domain.AgentTurnStatusRunning {
+		if r.turns[index].ID == turnID && r.turns[index].UserID == userID && r.turns[index].LockedBy == workerID && r.turns[index].AttemptCount == attempt && r.turns[index].Status == domain.AgentTurnStatusRunning {
 			r.turns[index].LeaseUntil = &leaseUntil
 			r.turns[index].UpdatedAt = now
 			return nil

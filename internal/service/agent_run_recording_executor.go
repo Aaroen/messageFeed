@@ -78,10 +78,11 @@ func (e agentRunRecordingExecutor) Execute(ctx context.Context, input agent.Capa
 func (e agentRunRecordingExecutor) CallTool(ctx context.Context, input agent.MCPCallToolInput) (agent.MCPCallToolResult, error) {
 	startedAt := e.nowUTC()
 	run, runErr := e.createExecutorRun(ctx, input.ControllerRunID, input.SessionID, input.TurnID, input.Capability, domain.AgentJSON{
-		"message":        safeSummary(input.Message, 500),
-		"capability_key": input.Capability.Key,
-		"tool_call_id":   input.CallID,
-		"tool_arguments": safeSummary(input.RawArguments, 1000),
+		"message":            safeSummary(input.Message, 500),
+		"capability_key":     input.Capability.Key,
+		"tool_call_id":       input.CallID,
+		"capability_version": input.Capability.Version,
+		"tool_arguments":     safeSummary(input.RawArguments, 1000),
 	})
 	dispatchErr := e.recordToolExecutorCreationTraceEvent(ctx, input.UserID, input.SessionID, input.TurnID, input.ControllerRunID, run, input.Capability.Key, runErr)
 	if err := errors.Join(runErr, dispatchErr); err != nil {

@@ -30,7 +30,7 @@ func (r *AgentRepository) CommitAgentTurnResult(ctx context.Context, completion 
 		if current.Status != string(domain.AgentTurnStatusRunning) && current.Status != string(domain.AgentTurnStatusQueued) {
 			return domain.NewAppError(domain.ErrorKindConflict, "agent_turn_already_finished", "agent turn is already terminal", "repository.agent.turn.commit", false, nil)
 		}
-		if current.LockedBy != workerID || workerID != "" && (current.LeaseUntil == nil || !current.LeaseUntil.After(now)) {
+		if current.LockedBy != workerID || current.AttemptCount != turn.AttemptCount || workerID != "" && (current.LeaseUntil == nil || !current.LeaseUntil.After(now)) {
 			return domain.NewAppError(domain.ErrorKindConflict, "agent_turn_ownership_lost", "agent turn worker ownership or lease is no longer valid", "repository.agent.turn.commit", false, nil)
 		}
 		if current.CancelRequested && turn.Status == domain.AgentTurnStatusSucceeded {
@@ -39,11 +39,19 @@ func (r *AgentRepository) CommitAgentTurnResult(ctx context.Context, completion 
 		turn.InboundMessageID = current.InboundMessageID
 		turn.CancelRequested = current.CancelRequested
 		turn.CancelReason = current.CancelReason
+		if current.CancelRequested {
+			turn.ErrorMessage = current.CancelReason
+			turn.ErrorCode = "agent_turn_canceled"
+			turn.OutputText = ""
+			turn.DeliveryStatus = "not_required"
+		}
 		turn.FinishedAt = &now
 		updates := map[string]any{
 			"status": turn.Status, "output_text": turn.OutputText, "model_provider": turn.ModelProvider,
 			"model": turn.Model, "error_message": turn.ErrorMessage, "finished_at": now, "updated_at": now,
+			"error_code":      turn.ErrorCode,
 			"delivery_status": turn.DeliveryStatus, "delivery_error": turn.DeliveryError,
+			"locked_by": "", "locked_at": nil, "lease_until": nil,
 		}
 		if err := transaction.Model(&current).Updates(updates).Error; err != nil {
 			return mapRepositoryError(err)
@@ -77,7 +85,7 @@ func (r *AgentRepository) CommitAgentTurnResult(ctx context.Context, completion 
 				return domain.ErrNotFound
 			}
 		}
-		if strings.TrimSpace(turn.OutputText) != "" {
+		if turn.Status == domain.AgentTurnStatusSucceeded && strings.TrimSpace(turn.OutputText) != "" {
 			entry := agentTranscriptEntryModelFromDomain(normalizeTranscriptEntry(domain.AgentTranscriptEntry{
 				UserID: turn.UserID, SessionID: turn.SessionID, TurnID: turn.ID,
 				Role: domain.AgentTranscriptRoleAssistant, Content: turn.OutputText,
@@ -105,6 +113,9 @@ func (r *AgentRepository) CommitAgentTurnResult(ctx context.Context, completion 
 			return err
 		}
 		result.InboundMessage = inbound
+		if err := enqueueAgentTurnEffects(transaction, completion, turn); err != nil {
+			return mapRepositoryError(err)
+		}
 		result.Turn, err = store.GetAgentTurn(ctx, turn.UserID, turn.ID)
 		return err
 	})

@@ -251,6 +251,18 @@ func (s *AgentConversationService) agentTurnProgressURL(turnID int64) string {
 }
 
 func agentTurnResponse(turn domain.AgentTurn) AgentTurnResponse {
+	errorMessage := ""
+	if turn.Status == domain.AgentTurnStatusFailed {
+		if turn.CancelRequested {
+			errorMessage = "用户停止执行"
+		} else if strings.TrimSpace(turn.OutputText) == "" {
+			errorMessage = fmt.Sprintf("%s（调用编号：%d）", agentUserFacingFailureReason(turn.ErrorMessage), turn.ID)
+		}
+	}
+	deliveryError := ""
+	if turn.DeliveryStatus == "failed" {
+		deliveryError = "渠道通知未确认送达，对话内容已保留。"
+	}
 	return AgentTurnResponse{
 		ID:               turn.ID,
 		SessionID:        turn.SessionID,
@@ -263,9 +275,10 @@ func agentTurnResponse(turn domain.AgentTurn) AgentTurnResponse {
 		ModelConfigID:    turn.ModelConfigID,
 		CancelRequested:  turn.CancelRequested,
 		CancelReason:     turn.CancelReason,
-		ErrorMessage:     turn.ErrorMessage,
+		ErrorMessage:     errorMessage,
+		ErrorCode:        turn.ErrorCode,
 		DeliveryStatus:   turn.DeliveryStatus,
-		DeliveryError:    turn.DeliveryError,
+		DeliveryError:    deliveryError,
 		StartedAt:        formatOptionalTime(&turn.StartedAt),
 		FinishedAt:       formatOptionalTime(turn.FinishedAt),
 		CreatedAt:        formatOptionalTime(&turn.CreatedAt),

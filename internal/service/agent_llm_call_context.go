@@ -14,6 +14,7 @@ import (
 	"messagefeed/internal/config"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
+	"messagefeed/internal/metrics"
 	"messagefeed/internal/observability"
 )
 
@@ -253,7 +254,8 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 		}
 		return finishErr
 	}
-	requestTrace, err := r.runManager.SaveContextTrace(ctx, agent.SaveContextTraceInput{
+	requestTraceCtx, stopRequestTrace := context.WithTimeout(ctx, 500*time.Millisecond)
+	requestTrace, err := r.runManager.SaveContextTrace(requestTraceCtx, agent.SaveContextTraceInput{
 		RunID:           run.ID,
 		TraceKind:       "llm_request",
 		PromptVersion:   metadata.PromptVersion,
@@ -261,14 +263,9 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 		Content:         content,
 		RedactionStatus: "not_required",
 	})
+	stopRequestTrace()
 	if err != nil || requestTrace.ID < 1 {
-		if err == nil {
-			err = fmt.Errorf("agent llm request snapshot was not persisted")
-		}
-		traceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		runErr := finishRuns(traceCtx, err, "")
-		return llm.ChatResponse{}, errors.Join(err, runErr)
+		metrics.AgentLLMTraceWriteFailuresTotal.WithLabelValues("request_snapshot").Inc()
 	}
 	record, flush := r.streamRecorder(ctx, metadata, run.ID, resolved.modelKey)
 	request.OnEvent = record
@@ -276,12 +273,12 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 	if callErr == nil && (response.IncompleteReason != "" || response.FinishReason == "length") {
 		callErr = domain.NewAppError(domain.ErrorKindUnavailable, "llm_response_incomplete", "agent llm response is incomplete", "service.agent_llm_runtime.chat", true, nil)
 	}
-	traceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer cancel()
-	callErr = errors.Join(callErr, flush(traceCtx))
-	if callErr == nil && resolved.configID > 0 {
-		callErr = r.store.MarkAgentLLMProviderConfigUsed(traceCtx, metadata.UserID, resolved.configID, r.now().UTC())
+	if callErr == nil && request.OutputSchema != nil {
+		_, callErr = request.OutputSchema.Validate(response.Content)
 	}
+	traceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancel()
+	flush(traceCtx)
 	responseContent := agentLLMResponseSnapshot(metadata, response, requestTrace, callErr)
 	responseContent["request_dispatched"] = true
 	modelKey := resolved.modelKey
@@ -304,14 +301,23 @@ func (r *AgentLLMRuntime) chatWithCallTrace(ctx context.Context, request llm.Cha
 	if traceErr == nil && responseTrace.ID < 1 {
 		traceErr = fmt.Errorf("agent llm response snapshot was not persisted")
 	}
-	callErr = errors.Join(callErr, traceErr)
-	run.ModelKey = modelKey
-	if callErr != nil {
-		runErr := finishRuns(traceCtx, callErr, "")
-		return response, errors.Join(callErr, runErr)
+	if traceErr != nil {
+		metrics.AgentLLMTraceWriteFailuresTotal.WithLabelValues("response_snapshot").Inc()
 	}
-	err = finishRuns(traceCtx, nil, fmt.Sprintf("llm_response:%d", responseTrace.ID))
-	return response, err
+	run.ModelKey = modelKey
+	resultRef := ""
+	if responseTrace.ID > 0 {
+		resultRef = fmt.Sprintf("llm_response:%d", responseTrace.ID)
+	}
+	if err := finishRuns(traceCtx, callErr, resultRef); err != nil {
+		metrics.AgentLLMTraceWriteFailuresTotal.WithLabelValues("run_finish").Inc()
+	}
+	if callErr == nil && resolved.configID > 0 {
+		if err := r.store.MarkAgentLLMProviderConfigUsed(traceCtx, metadata.UserID, resolved.configID, r.now().UTC()); err != nil {
+			metrics.AgentLLMTraceWriteFailuresTotal.WithLabelValues("configuration_used").Inc()
+		}
+	}
+	return response, callErr
 }
 
 func agentLLMRequestSnapshot(metadata AgentLLMCallContext, request llm.ChatRequest, configuration domain.AgentJSON) domain.AgentJSON {
@@ -324,12 +330,14 @@ func agentLLMRequestSnapshot(metadata AgentLLMCallContext, request llm.ChatReque
 		"prompt_version":      metadata.PromptVersion,
 		"model_configuration": configuration,
 		"request": domain.AgentJSON{
-			"messages":         request.Messages,
-			"tools":            request.Tools,
-			"tool_choice":      request.ToolChoice,
-			"temperature":      request.Temperature,
-			"max_tokens":       request.MaxTokens,
-			"reasoning_effort": request.ReasoningEffort,
+			"messages":          request.Messages,
+			"tools":             request.Tools,
+			"tool_choice":       request.ToolChoice,
+			"temperature":       request.Temperature,
+			"max_tokens":        request.MaxTokens,
+			"reasoning_effort":  request.ReasoningEffort,
+			"output_schema":     request.OutputSchema,
+			"schema_local_only": request.SchemaLocalOnly,
 		},
 	}
 }

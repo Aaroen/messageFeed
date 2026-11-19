@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/metrics"
 	"strconv"
@@ -172,6 +173,7 @@ func (r *AgentRepository) SearchAgentFactEmbeddings(ctx context.Context, plan do
 		Table("agent_fact_archive_index AS i").
 		Select("i.*, 1 - (e.embedding <=> ?::vector) AS vector_score", vectorLiteral).
 		Joins("JOIN agent_fact_embeddings e ON e.canonical_ref = i.canonical_ref AND e.user_id = i.user_id").
+		Where(fmt.Sprintf(agentUsableFactCondition, "i")).
 		Where("i.user_id = ? AND e.user_id = ?", plan.UserID, plan.UserID).
 		Where("i.index_status = ? AND e.embedding_status = ?", string(domain.AgentFactIndexStatusReady), string(domain.AgentFactEmbeddingStatusReady))
 	if model != "" {

@@ -50,12 +50,14 @@ type mainAgentPlanSpecJSON struct {
 	Metadata               map[string]any                     `json:"metadata"`
 }
 
+var agentPlanSchema = llm.SchemaFor[mainAgentPlanSpecJSON]("agent_plan_v2", "goal")
+
 // mainAgentPlanSubtaskJSON 描述模型拆出的一个子 Agent 执行单元。
 // capability_keys 只能引用后端注册表中的能力，后续会再次校验。
 type mainAgentPlanSubtaskJSON struct {
 	Title           string   `json:"title"`
 	Prompt          string   `json:"prompt"`
-	Independent     bool     `json:"independent"`
+	Independent     bool     `json:"independent,omitempty"`
 	ContextSummary  string   `json:"context_summary"`
 	CapabilityKeys  []string `json:"capability_keys"`
 	ExpectedOutput  string   `json:"expected_output"`
@@ -76,9 +78,9 @@ type mainAgentEvidenceRequirementJSON struct {
 type mainAgentHistoryQueryPlanJSON struct {
 	Mode     string `json:"mode"`
 	Query    string `json:"query"`
-	TimeHint string `json:"time_hint"`
-	Reason   string `json:"reason"`
-	Limit    int    `json:"limit"`
+	TimeHint string `json:"time_hint,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
 }
 
 // buildMainAgentPlanSpec 通过主 Agent 模型生成结构化计划，后端只做结构和 capability 校验。
@@ -190,6 +192,7 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 		attempts = attempt
 		// 每次尝试都把上一次错误和原始返回带回模型，允许模型自行修正 JSON 结构。
 		request := s.mainAgentPlanSpecRequest(account, session, turn, input, contextProjection, attempt, lastErr, lastRaw)
+		request.SchemaLocalOnly = attempt > 1 && llm.CanRetryStructuredOutput(lastErr)
 		s.recordMainAgentPlanSpecTrace(ctx, controllerRun, "main_agent_plan_spec_request", domain.AgentJSON{
 			"attempt":  attempt,
 			"messages": mainAgentPlannerMessagesMetadata(request.Messages),
@@ -202,6 +205,9 @@ func (s *AgentConversationService) buildMainAgentPlanSpec(
 				"attempt": attempt,
 				"error":   err.Error(),
 			}, "")
+			if ctx.Err() != nil || !llm.CanRetryStructuredOutput(err) {
+				break
+			}
 			continue
 		}
 		lastRaw = strings.TrimSpace(response.Content)
@@ -295,7 +301,8 @@ func (s *AgentConversationService) mainAgentPlanSpecRequest(
 			{Role: "system", Content: mainAgentPlanSpecSystemPrompt()},
 			{Role: "user", Content: string(payloadBytes)},
 		},
-		Temperature: 0.1,
+		Temperature:  0.1,
+		OutputSchema: agentPlanSchema,
 	}
 }
 
@@ -373,6 +380,7 @@ func (s *AgentConversationService) mainAgentCapabilityCatalog() []domain.AgentJS
 		tool := capability.MCPDescriptor()
 		items = append(items, domain.AgentJSON{
 			"key":             capability.Key,
+			"version":         capability.Version,
 			"name":            capability.Name,
 			"description":     capability.Description,
 			"mode":            string(capability.Mode),
@@ -393,23 +401,12 @@ func (s *AgentConversationService) mainAgentCapabilityCatalog() []domain.AgentJS
 // parseMainAgentPlanSpecJSON 从模型原始文本中解析 PlanSpec。
 // 该函数只接受 JSON 对象，兼容代码块外壳，但不从自然语言中猜测计划内容。
 func parseMainAgentPlanSpecJSON(raw string) (agent.PlanSpec, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return agent.PlanSpec{}, fmt.Errorf("模型规划返回为空。")
+	content, err := agentPlanSchema.Validate(raw)
+	if err != nil {
+		return agent.PlanSpec{}, err
 	}
-	// 兼容模型偶发包裹代码块的情况；结构化契约仍要求最终解析为单个 JSON 对象。
-	raw = strings.TrimPrefix(raw, "```json")
-	raw = strings.TrimPrefix(raw, "```")
-	raw = strings.TrimSuffix(raw, "```")
-	raw = strings.TrimSpace(raw)
-	start := strings.Index(raw, "{")
-	end := strings.LastIndex(raw, "}")
-	if start < 0 || end < start {
-		return agent.PlanSpec{}, fmt.Errorf("模型规划未返回 JSON 对象。")
-	}
-	raw = raw[start : end+1]
 	var decoded mainAgentPlanSpecJSON
-	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+	if err := json.Unmarshal([]byte(content), &decoded); err != nil {
 		return agent.PlanSpec{}, fmt.Errorf("模型规划 JSON 解析失败：%w", err)
 	}
 	// 反序列化结构和领域结构分离，避免 service 直接依赖 planner 内部规范化细节。

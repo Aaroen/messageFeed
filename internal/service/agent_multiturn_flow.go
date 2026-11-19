@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"messagefeed/internal/agent"
 	"messagefeed/internal/domain"
 	"messagefeed/internal/llm"
@@ -37,6 +36,15 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 	if s == nil || s.repository == nil || message == "" {
 		return false, ReceiveWeChatWorkAppMessageResult{}, nil
 	}
+	if command, body, _ := strings.Cut(message, " "); command == "/workflow" && input.MsgType == "text" {
+		reply, err := s.runAgentWorkflowCommand(ctx, account, session, turn, input, body)
+		if err != nil {
+			result, finishErr := s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, err)
+			return true, result, finishErr
+		}
+		result, err := s.finishTurnWithReply(ctx, account, inbound, session, turn, input, domain.AgentPlan{}, reply, nil, "")
+		return true, result, err
+	}
 	candidates, err := s.selectMultiTurnPlanCandidates(ctx, account.UserID, session.ID)
 	if err != nil {
 		return false, ReceiveWeChatWorkAppMessageResult{}, err
@@ -47,9 +55,6 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 	decision, err := s.classifyAgentFollowupIntent(ctx, account, session, turn, input, candidates)
 	if err != nil {
 		return false, ReceiveWeChatWorkAppMessageResult{}, err
-	}
-	if routing, _ := ctx.Value(agentTurnRoutingKey{}).(*agentTurnRouting); routing != nil {
-		routing.route = decision.Route
 	}
 	intent := decision.Intent
 	now := s.now().UTC()
@@ -159,17 +164,14 @@ func (s *AgentConversationService) handleMultiTurnMessage(
 }
 
 type agentFollowupDecision struct {
-	Intent     agentFollowupIntent
-	Confidence float64
-	Reason     string
-	Route      *agentTaskRouteClassification
+	Intent     agentFollowupIntent `json:"intent"`
+	Confidence float64             `json:"confidence"`
+	Reason     string              `json:"reason"`
 }
 
-type agentFollowupDecisionJSON struct {
-	Intent     string          `json:"intent"`
-	Confidence float64         `json:"confidence"`
-	Reason     string          `json:"reason"`
-	Route      json.RawMessage `json:"route"`
+var agentFollowupSchema = &llm.OutputSchema{
+	Name: "agent_followup_intent_v3", Strict: true,
+	Schema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["intent","confidence","reason"],"properties":{"intent":{"type":"string","enum":["new_task","stop","append_constraints","retry","followup_question","derive_task"]},"confidence":{"type":"number"},"reason":{"type":"string"}}}`),
 }
 
 type multiTurnPlanCandidates struct {
@@ -280,14 +282,13 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 		return agentFollowupDecision{}, err
 	}
 	payload := domain.AgentJSON{
-		"user_message":       input.TextContent,
-		"context_projection": contextProjection,
-		"user_id":            account.UserID,
-		"session_id":         session.ID,
-		"turn_id":            turn.ID,
-		"active_plan":        multiTurnPlanDecisionSummary(candidates.Active, candidates.ActiveFound),
-		"capabilities":       s.mainAgentCapabilityCatalog(),
-		"failed_plan":        multiTurnPlanDecisionSummary(candidates.Failed, candidates.FailedFound),
+		"user_message": input.TextContent,
+		"context_projection": domain.AgentJSON{
+			"recent_messages":  contextProjection["recent_messages"],
+			"user_constraints": contextProjection["user_constraints"],
+		},
+		"active_plan": multiTurnPlanDecisionSummary(candidates.Active, candidates.ActiveFound),
+		"failed_plan": multiTurnPlanDecisionSummary(candidates.Failed, candidates.FailedFound),
 		"completed_plan": multiTurnPlanDecisionSummary(
 			candidates.Completed,
 			candidates.CompletedFound,
@@ -308,33 +309,24 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 	}
 	ctx = WithAgentLLMCallContext(ctx, AgentLLMCallContext{
 		UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID,
-		Stage: AgentLLMCallStageFollowupIntent, PromptVersion: "agent-followup-intent-v2",
+		Stage: AgentLLMCallStageFollowupIntent, PromptVersion: "agent-followup-intent-v3",
 	})
-	response, err := s.llmClient.Chat(ctx, llm.ChatRequest{
+	request := llm.ChatRequest{
 		Messages: []llm.ChatMessage{
 			{Role: "system", Content: agentFollowupIntentSystemPrompt()},
 			{Role: "user", Content: string(body)},
 		},
-		Temperature: 0.1,
-	})
+		OutputSchema: agentFollowupSchema,
+	}
+	response, decision, err := s.requestFollowupDecision(ctx, request)
 	if err != nil {
-		s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "llm_error", err.Error(), domain.AgentJSON{"payload": payload})
-		return agentFollowupDecision{}, err
-	}
-	decision, parseErr := parseAgentFollowupDecision(response.Content)
-	if parseErr != nil {
-		s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "parse_error", parseErr.Error(), domain.AgentJSON{
-			"payload":      payload,
-			"raw_response": safeSummary(response.Content, 1000),
-			"provider":     response.Provider,
-			"model":        response.Model,
+		s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "failed", err.Error(), domain.AgentJSON{
+			"provider":    response.Provider,
+			"model":       response.Model,
+			"response_id": response.ResponseID,
+			"schema":      agentFollowupSchema.Name,
 		})
-		return agentFollowupDecision{}, parseErr
-	}
-	if decision.Route != nil {
-		decision.Route.Provider = response.Provider
-		decision.Route.Model = response.Model
-		decision.Route.CandidateCapabilities = s.validAgentTaskRouteCapabilities(decision.Route.CandidateCapabilities)
+		return agentFollowupDecision{}, err
 	}
 	s.recordMultiTurnDecisionAudit(ctx, account.UserID, session.ID, turn.ID, input, "succeeded", decision.Reason, domain.AgentJSON{
 		"intent":     string(decision.Intent),
@@ -345,54 +337,39 @@ func (s *AgentConversationService) classifyAgentFollowupIntent(
 	return decision, nil
 }
 
-func parseAgentFollowupDecision(raw string) (agentFollowupDecision, error) {
-	raw = strings.TrimSpace(raw)
-	raw = strings.TrimPrefix(raw, "```json")
-	raw = strings.TrimPrefix(raw, "```")
-	raw = strings.TrimSuffix(raw, "```")
-	raw = strings.TrimSpace(raw)
-	start := strings.Index(raw, "{")
-	end := strings.LastIndex(raw, "}")
-	if start < 0 || end < start {
-		return agentFollowupDecision{}, fmt.Errorf("followup decision json object is missing")
-	}
-	var decoded agentFollowupDecisionJSON
-	if err := json.Unmarshal([]byte(raw[start:end+1]), &decoded); err != nil {
-		return agentFollowupDecision{}, err
-	}
-	intent := normalizeAgentFollowupIntent(decoded.Intent)
-	if intent == "" {
-		return agentFollowupDecision{}, fmt.Errorf("followup intent is invalid: %s", decoded.Intent)
-	}
-	decision := agentFollowupDecision{
-		Intent:     intent,
-		Confidence: decoded.Confidence,
-		Reason:     strings.TrimSpace(decoded.Reason),
-	}
-	if len(decoded.Route) > 0 && string(decoded.Route) != "null" {
-		route, err := parseAgentTaskRouteJSON(string(decoded.Route))
+func (s *AgentConversationService) requestFollowupDecision(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, agentFollowupDecision, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	call := func() (llm.ChatResponse, agentFollowupDecision, error) {
+		response, err := s.llmClient.Chat(ctx, request)
 		if err != nil {
-			return agentFollowupDecision{}, err
+			return response, agentFollowupDecision{}, err
 		}
-		route = guardAgentTaskRoute(route)
-		route.Raw = string(decoded.Route)
-		decision.Route = &route
+		decision, err := parseAgentFollowupDecision(response.Content)
+		return response, decision, err
 	}
-	return decision, nil
+	response, decision, err := call()
+	if ctx.Err() == nil && llm.CanRetryStructuredOutput(err) {
+		request.SchemaLocalOnly = true
+		return call()
+	}
+	return response, decision, err
 }
 
-func normalizeAgentFollowupIntent(value string) agentFollowupIntent {
-	switch agentFollowupIntent(strings.TrimSpace(value)) {
-	case agentFollowupIntentNewTask,
-		agentFollowupIntentStop,
-		agentFollowupIntentAppendConstraints,
-		agentFollowupIntentRetry,
-		agentFollowupIntentQuestion,
-		agentFollowupIntentDeriveTask:
-		return agentFollowupIntent(strings.TrimSpace(value))
-	default:
-		return ""
+func parseAgentFollowupDecision(raw string) (agentFollowupDecision, error) {
+	content, err := agentFollowupSchema.Validate(raw)
+	if err != nil {
+		return agentFollowupDecision{}, err
 	}
+	var decision agentFollowupDecision
+	if err := json.Unmarshal([]byte(content), &decision); err != nil {
+		return agentFollowupDecision{}, err
+	}
+	if decision.Confidence < 0 || decision.Confidence > 1 {
+		return agentFollowupDecision{}, domain.NewAppError(domain.ErrorKindUnavailable, "structured_output_invalid", "意图判定置信度无效", "service.agent.followup_intent", true, nil)
+	}
+	decision.Reason = safeSummary(decision.Reason, 300)
+	return decision, nil
 }
 
 func multiTurnPlanDecisionSummary(plan domain.AgentPlan, found bool) domain.AgentJSON {
@@ -848,21 +825,4 @@ func formatAgentTime(value time.Time) string {
 		return ""
 	}
 	return value.UTC().Format(time.RFC3339)
-}
-
-func planStoppedByUser(plan domain.AgentPlan) bool {
-	if strings.Contains(strings.ToLower(plan.ErrorMessage), "stopped by user") || strings.Contains(plan.ErrorMessage, "用户停止") {
-		return true
-	}
-	if stop := metadataMap(plan.Metadata, "stop"); len(stop) > 0 {
-		return true
-	}
-	raw, _ := plan.Metadata["multi_turn"].(map[string]any)
-	if raw == nil {
-		if typed, ok := plan.Metadata["multi_turn"].(domain.AgentJSON); ok {
-			raw = map[string]any(typed)
-		}
-	}
-	stopped, _ := raw["stopped"].(bool)
-	return stopped
 }

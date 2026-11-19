@@ -14,6 +14,7 @@ import (
 type Model struct {
 	ID                       string   `json:"id"`
 	OwnedBy                  string   `json:"owned_by,omitempty"`
+	ContextLength            int      `json:"context_length,omitempty"`
 	ReasoningLevels          []string `json:"reasoning_levels,omitempty"`
 	SupportedReasoningLevels []struct {
 		Effort string `json:"effort"`

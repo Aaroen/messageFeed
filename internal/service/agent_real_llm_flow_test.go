@@ -26,6 +26,45 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+func TestAgentSelectedModelStructuredContract(test *testing.T) {
+	baseURL := os.Getenv("AGENT_CONTRACT_BASE_URL")
+	if baseURL == "" {
+		test.Skip("未配置低频模型验收地址")
+	}
+	model := os.Getenv("AGENT_CONTRACT_MODEL")
+	if model == "" {
+		test.Fatal("未配置模型验收标识")
+	}
+	client, err := llm.NewOpenAICompatibleClient(llm.OpenAICompatibleConfig{
+		Provider: "openai_compatible", BaseURL: baseURL, Model: model, APIKey: os.Getenv("AGENT_CONTRACT_API_KEY"),
+		ProtocolMode: "responses", Timeout: 30 * time.Second, MaxAttempts: 1,
+	})
+	if err != nil {
+		test.Fatal(err)
+	}
+	service := &AgentConversationService{llmClient: client}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	streamed := false
+	response, decision, err := service.requestFollowupDecision(ctx, llm.ChatRequest{
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: agentFollowupIntentSystemPrompt()},
+			{Role: "user", Content: `{"user_message":"请停止执行刚才的任务","active_plan":{"found":true,"goal":"查阅公开资讯"},"allowed_intents":["stop"],"required_schema":{"intent":"stop","confidence":0.95,"reason":"用户要求停止"}}`},
+		},
+		OutputSchema: agentFollowupSchema,
+		OnEvent: func(event llm.StreamEvent) error {
+			streamed = streamed || event.Kind == "text" && event.Delta != "" && !event.Replace
+			return nil
+		},
+	})
+	if err != nil {
+		test.Fatal(err)
+	}
+	if decision.Intent != agentFollowupIntentStop || response.Model != model || !streamed {
+		test.Fatalf("所选模型的流式决策不符合契约：intent=%s model=%s streamed=%t", decision.Intent, response.Model, streamed)
+	}
+}
+
 func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	databaseURL := strings.TrimSpace(os.Getenv("AGENT_RUNTIME_DATABASE_URL"))
 	if databaseURL == "" || os.Getenv("RUN_REAL_LLM_TESTS") != "1" {
@@ -82,7 +121,7 @@ func TestAgentRealDatabaseAndProviderAcceptance(test *testing.T) {
 	if err := transaction.Exec("SET LOCAL search_path TO " + pgx.Identifier{schema}.Sanitize() + ", " + pgx.Identifier{sourceSchema}.Sanitize()).Error; err != nil {
 		test.Fatal(err)
 	}
-	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql", "000042_expand_agent_stream_events.up.sql", "000043_expand_agent_llm_models.up.sql", "000044_expand_guest_chat_history.up.sql", "000045_expand_agent_model_display_name.up.sql", "000046_expand_agent_model_icon.up.sql"} {
+	for _, name := range []string{"000040_expand_agent_artifact_content.up.sql", "000041_expand_agent_turn_delivery.up.sql", "000042_expand_agent_stream_events.up.sql", "000043_expand_agent_llm_models.up.sql", "000044_expand_guest_chat_history.up.sql", "000045_expand_agent_model_display_name.up.sql", "000046_expand_agent_model_icon.up.sql", "000047_expand_agent_turn_effects.up.sql", "000048_expand_agent_workflows.up.sql"} {
 		migration, err := os.ReadFile("../../migrations/" + name)
 		if err != nil {
 			test.Fatal(err)

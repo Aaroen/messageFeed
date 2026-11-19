@@ -8,6 +8,7 @@ type AgentStreamEvent struct {
 	SessionID int64     `json:"session_id"`
 	TurnID    int64     `json:"turn_id"`
 	RunID     int64     `json:"run_id"`
+	Sequence  *int64    `json:"sequence,omitempty"`
 	Kind      string    `json:"kind"`
 	ItemID    string    `json:"item_id"`
 	Name      string    `json:"name"`

@@ -150,18 +150,7 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	}
 	span.SetAttributes(attribute.Int64("agent.session_id", session.ID))
 
-	turnStatus := domain.AgentTurnStatusRunning
-	if s.persistentQueue && !s.processInline {
-		turnStatus = domain.AgentTurnStatusQueued
-	}
-	turn, err := s.repository.CreateTurn(ctx, domain.AgentTurn{
-		SessionID:        session.ID,
-		InboundMessageID: inbound.ID,
-		UserID:           account.UserID,
-		Status:           turnStatus,
-		InputText:        input.TextContent,
-		StartedAt:        now,
-	})
+	turn, userTranscript, err := s.createAgentTurnFromInbound(ctx, inbound, session, domain.AgentJSON{"provider_message_id": input.ProviderMessageID}, now)
 	if err != nil {
 		status = "failed"
 		opErr = err
@@ -169,15 +158,6 @@ func (s *AgentConversationService) ReceiveWeChatWorkAppMessage(ctx context.Conte
 	}
 	span.SetAttributes(attribute.Int64("agent.turn_id", turn.ID))
 
-	userTranscript, _ := s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
-		SessionID: session.ID,
-		TurnID:    turn.ID,
-		UserID:    account.UserID,
-		Role:      domain.AgentTranscriptRoleUser,
-		Content:   input.TextContent,
-		Metadata:  domain.AgentJSON{"provider_message_id": input.ProviderMessageID},
-		CreatedAt: now,
-	})
 	if s.processInline {
 		s.captureMemoryCandidateFromTranscript(ctx, userTranscript)
 	}
@@ -377,35 +357,15 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 	if err != nil {
 		return ReceiveWebAgentTaskResult{}, err
 	}
-	turnStatus := domain.AgentTurnStatusRunning
-	if s.persistentQueue && !s.processInline {
-		turnStatus = domain.AgentTurnStatusQueued
-	}
-	turn, err := s.repository.CreateTurn(ctx, domain.AgentTurn{
-		SessionID:        session.ID,
-		InboundMessageID: inbound.ID,
-		UserID:           account.UserID,
-		Status:           turnStatus,
-		InputText:        input.Message,
-		StartedAt:        now,
-	})
+	turn, userTranscript, err := s.createAgentTurnFromInbound(ctx, inbound, session, domain.AgentJSON{
+		"provider_message_id": providerMessageID, "channel": channel, "admission_policy": admission.Metadata,
+	}, now)
 	if err != nil {
 		return ReceiveWebAgentTaskResult{}, err
 	}
-	userTranscript, _ := s.repository.AppendTranscriptEntry(ctx, domain.AgentTranscriptEntry{
-		SessionID: session.ID,
-		TurnID:    turn.ID,
-		UserID:    account.UserID,
-		Role:      domain.AgentTranscriptRoleUser,
-		Content:   input.Message,
-		Metadata: domain.AgentJSON{
-			"provider_message_id": providerMessageID,
-			"channel":             channel,
-			"admission_policy":    admission.Metadata,
-		},
-		CreatedAt: now,
-	})
-	s.captureMemoryCandidateFromTranscript(ctx, userTranscript)
+	if !s.persistentQueue || s.processInline {
+		s.captureMemoryCandidateFromTranscript(ctx, userTranscript)
+	}
 	_, _ = s.repository.CreateAuditLog(ctx, domain.AgentAuditLog{
 		SessionID: session.ID,
 		TurnID:    turn.ID,
@@ -431,19 +391,8 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 	}
 
 	ctx = context.WithValue(ctx, agentTurnRoutingKey{}, &agentTurnRouting{})
-	if handled, handledResult, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, ReceiveWeChatWorkAppMessageInput{
-		Provider:          domain.AgentProviderWeb,
-		ProviderMessageID: providerMessageID,
-		CorpID:            domain.AgentProviderWeb,
-		AgentID:           channel,
-		ExternalUserID:    externalUserID,
-		ChatID:            webAgentSessionKey(auth.User.ID, channel),
-		ChatType:          channel,
-		MsgType:           "text",
-		TextContent:       input.Message,
-		RequestID:         requestID,
-		TraceID:           traceID,
-	}); err != nil {
+	command := agentInputFromInbound(inbound)
+	if handled, handledResult, err := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, command); err != nil {
 		return ReceiveWebAgentTaskResult{}, err
 	} else if handled {
 		progressURL := ""
@@ -459,19 +408,7 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 		}, nil
 	}
 
-	processed, err := s.processTurn(context.WithoutCancel(ctx), account, inbound, session, turn, ReceiveWeChatWorkAppMessageInput{
-		Provider:          domain.AgentProviderWeb,
-		ProviderMessageID: providerMessageID,
-		CorpID:            domain.AgentProviderWeb,
-		AgentID:           channel,
-		ExternalUserID:    externalUserID,
-		ChatID:            webAgentSessionKey(auth.User.ID, channel),
-		ChatType:          channel,
-		MsgType:           "text",
-		TextContent:       input.Message,
-		RequestID:         requestID,
-		TraceID:           traceID,
-	})
+	processed, err := s.processTurn(context.WithoutCancel(ctx), account, inbound, session, turn, command)
 	if err != nil {
 		return ReceiveWebAgentTaskResult{}, err
 	}
@@ -480,19 +417,7 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 	if plan.ID > 0 {
 		progressURL = s.agentPlanURL(plan.ID)
 	}
-	if err := s.sendWebAgentTaskFinalReport(ctx, account, inbound, session, processed.Turn, plan, processed.Reply, ReceiveWeChatWorkAppMessageInput{
-		Provider:          domain.AgentProviderWeb,
-		ProviderMessageID: providerMessageID,
-		CorpID:            domain.AgentProviderWeb,
-		AgentID:           channel,
-		ExternalUserID:    externalUserID,
-		ChatID:            webAgentSessionKey(auth.User.ID, channel),
-		ChatType:          channel,
-		MsgType:           "text",
-		TextContent:       input.Message,
-		RequestID:         requestID,
-		TraceID:           traceID,
-	}); err != nil {
+	if err := s.sendWebAgentTaskFinalReport(ctx, account, inbound, session, processed.Turn, plan, processed.Reply, command); err != nil {
 		return ReceiveWebAgentTaskResult{}, err
 	}
 	return ReceiveWebAgentTaskResult{
@@ -502,4 +427,25 @@ func (s *AgentConversationService) ReceiveWebAgentTask(ctx context.Context, auth
 		Reply:       processed.Reply,
 		ProgressURL: progressURL,
 	}, nil
+}
+
+func (s *AgentConversationService) createAgentTurnFromInbound(ctx context.Context, inbound domain.AgentInboundMessage, session domain.AgentSession, metadata domain.AgentJSON, now time.Time) (domain.AgentTurn, domain.AgentTranscriptEntry, error) {
+	turn := domain.AgentTurn{SessionID: session.ID, InboundMessageID: inbound.ID, UserID: inbound.UserID, Status: domain.AgentTurnStatusRunning, InputText: inbound.TextContent, StartedAt: now}
+	entry := domain.AgentTranscriptEntry{SessionID: session.ID, UserID: inbound.UserID, Role: domain.AgentTranscriptRoleUser, Content: inbound.TextContent, Metadata: metadata, CreatedAt: now}
+	if s.persistentQueue && !s.processInline {
+		turn.Status = domain.AgentTurnStatusQueued
+		store, ok := s.repository.(interface {
+			CreateAgentTurnWithTranscript(context.Context, domain.AgentTurn, domain.AgentTranscriptEntry) (domain.AgentTurn, domain.AgentTranscriptEntry, error)
+		})
+		if ok {
+			return store.CreateAgentTurnWithTranscript(ctx, turn, entry)
+		}
+	}
+	turn, err := s.repository.CreateTurn(ctx, turn)
+	if err != nil {
+		return domain.AgentTurn{}, domain.AgentTranscriptEntry{}, err
+	}
+	entry.TurnID = turn.ID
+	entry, err = s.repository.AppendTranscriptEntry(ctx, entry)
+	return turn, entry, err
 }

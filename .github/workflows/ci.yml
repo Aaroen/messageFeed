@@ -17,6 +17,14 @@ env:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: --health-cmd pg_isready --health-interval 2s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -28,6 +36,12 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: go test ./...
+      - name: PostgreSQL Agent acceptance
+        env:
+          AGENT_COMPLETION_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
+        run: |
+          docker run --rm --network host -v "${GITHUB_WORKSPACE}/migrations:/migrations:ro" migrate/migrate:v4.19.1 -path /migrations -database "$AGENT_COMPLETION_DATABASE_URL" up
+          go test ./internal/repository -run '^TestAgentTurnCompletionDatabaseTransaction$' -count=1 -v
       - run: go vet ./...
       # 官方 v1.64.8 二进制是 go1.24 构建的，拒绝分析 go1.26 模块；用仓库工具链源码安装同版本。
       - name: Install golangci-lint
@@ -36,6 +50,7 @@ jobs:
       - run: golangci-lint run --no-config --disable-all -E unused -E staticcheck ./...
       - run: go build ./cmd/api ./cmd/notification
       - run: npm ci --prefix web
+      - run: TZ=UTC npm test --prefix web
       - run: npm run type-check --prefix web
       - run: npm run build --prefix web
       - run: helm lint deploy/helm/messagefeed -f deploy/helm/messagefeed/values-k3s.yaml
@@ -159,6 +174,17 @@ jobs:
             exit 1
           fi
       - run: kubectl -n messagefeed-staging get pods
+      - uses: actions/setup-go@v5
+        if: github.event_name == 'workflow_dispatch' && vars.AGENT_CONTRACT_BASE_URL != ''
+        with:
+          go-version-file: go.mod
+      - name: Validate selected model contract
+        if: github.event_name == 'workflow_dispatch' && vars.AGENT_CONTRACT_BASE_URL != ''
+        env:
+          AGENT_CONTRACT_BASE_URL: ${{ vars.AGENT_CONTRACT_BASE_URL }}
+          AGENT_CONTRACT_MODEL: ${{ vars.AGENT_CONTRACT_MODEL }}
+          AGENT_CONTRACT_API_KEY: ${{ secrets.AGENT_CONTRACT_API_KEY }}
+        run: go test ./internal/service -run '^TestAgentSelectedModelStructuredContract$' -count=1 -v
 
   deploy-production:
     # 生产发布保持手动触发（workflow_dispatch）：同一次运行内先过 staging，再提升到生产。

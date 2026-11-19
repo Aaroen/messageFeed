@@ -24,7 +24,6 @@ const (
 type agentTurnRoutingKey struct{}
 
 type agentTurnRouting struct {
-	route      *agentTaskRouteClassification
 	projection domain.AgentJSON
 }
 
@@ -57,17 +56,19 @@ type agentTaskRouteClassification struct {
 }
 
 type agentTaskRouteJSON struct {
-	TaskType              string          `json:"task_type"`
-	Confidence            float64         `json:"confidence"`
-	NeedsHistoryRecall    bool            `json:"needs_history_recall"`
-	NeedsTools            bool            `json:"needs_tools"`
-	RequiresSubAgent      bool            `json:"requires_sub_agent"`
-	EstimatedLatencyClass string          `json:"estimated_latency_class"`
-	HistoryQuery          string          `json:"history_query"`
-	CandidateCapabilities []string        `json:"candidate_capabilities"`
-	Reason                string          `json:"reason"`
-	PlanSpec              json.RawMessage `json:"plan_spec"`
+	TaskType              string         `json:"task_type"`
+	Confidence            float64        `json:"confidence"`
+	NeedsHistoryRecall    bool           `json:"needs_history_recall"`
+	NeedsTools            bool           `json:"needs_tools"`
+	RequiresSubAgent      bool           `json:"requires_sub_agent"`
+	EstimatedLatencyClass string         `json:"estimated_latency_class"`
+	HistoryQuery          string         `json:"history_query"`
+	CandidateCapabilities []string       `json:"candidate_capabilities"`
+	Reason                string         `json:"reason"`
+	PlanSpec              map[string]any `json:"plan_spec"`
 }
+
+var agentRouteSchema = llm.SchemaFor[agentTaskRouteJSON]("agent_task_route_v2", "task_type")
 
 func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, account domain.ExternalAccount, session domain.AgentSession, turn domain.AgentTurn, controllerRun domain.AgentRun, input ReceiveWeChatWorkAppMessageInput, loadProjection func() (domain.AgentJSON, error)) (agentTaskRouteClassification, error) {
 	var startedAt time.Time
@@ -104,13 +105,19 @@ func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, a
 		UserID: account.UserID, SessionID: session.ID, TurnID: turn.ID, ParentRunID: controllerRun.ID,
 		Stage: AgentLLMCallStageRoute, PromptVersion: "agent-task-router-v1",
 	})
-	response, err := s.llmClient.Chat(routeCtx, llm.ChatRequest{
+	request := llm.ChatRequest{
 		Messages: []llm.ChatMessage{
 			{Role: "system", Content: agentTaskRouterSystemPrompt()},
 			{Role: "user", Content: agentTaskRouterUserPrompt(payload)},
 		},
-		Temperature: 0,
-	})
+		Temperature:  0,
+		OutputSchema: agentRouteSchema,
+	}
+	response, err := s.llmClient.Chat(routeCtx, request)
+	if routeCtx.Err() == nil && llm.CanRetryStructuredOutput(err) {
+		request.SchemaLocalOnly = true
+		response, err = s.llmClient.Chat(routeCtx, request)
+	}
 	if err != nil {
 		c := fallbackAgentTaskRoute("route_classifier_failed")
 		s.recordAgentTaskRouteTrace(ctx, input, account, session, turn, controllerRun, c, domain.AgentTraceEventDegraded, startedAt, "route_classifier_failed", err.Error())
@@ -132,22 +139,20 @@ func (s *AgentConversationService) classifyAgentTaskRoute(ctx context.Context, a
 }
 
 func parseAgentTaskRouteJSON(raw string) (agentTaskRouteClassification, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return agentTaskRouteClassification{}, fmt.Errorf("task route response is empty")
-	}
-	raw = strings.TrimPrefix(raw, "```json")
-	raw = strings.TrimPrefix(raw, "```")
-	raw = strings.TrimSuffix(raw, "```")
-	raw = strings.TrimSpace(raw)
-	start := strings.Index(raw, "{")
-	end := strings.LastIndex(raw, "}")
-	if start < 0 || end < start {
-		return agentTaskRouteClassification{}, fmt.Errorf("task route response has no JSON object")
+	content, err := agentRouteSchema.Validate(raw)
+	if err != nil {
+		return agentTaskRouteClassification{}, err
 	}
 	var decoded agentTaskRouteJSON
-	if err := json.Unmarshal([]byte(raw[start:end+1]), &decoded); err != nil {
+	if err := json.Unmarshal([]byte(content), &decoded); err != nil {
 		return agentTaskRouteClassification{}, fmt.Errorf("task route JSON parse failed: %w", err)
+	}
+	var planSpec json.RawMessage
+	if decoded.PlanSpec != nil {
+		planSpec, err = json.Marshal(decoded.PlanSpec)
+		if err != nil {
+			return agentTaskRouteClassification{}, err
+		}
 	}
 	return agentTaskRouteClassification{
 		TaskType:              strings.TrimSpace(decoded.TaskType),
@@ -159,7 +164,7 @@ func parseAgentTaskRouteJSON(raw string) (agentTaskRouteClassification, error) {
 		HistoryQuery:          safeSummary(decoded.HistoryQuery, 300),
 		CandidateCapabilities: compactStrings(decoded.CandidateCapabilities),
 		Reason:                safeSummary(decoded.Reason, 500),
-		PlanSpec:              decoded.PlanSpec,
+		PlanSpec:              planSpec,
 	}, nil
 }
 

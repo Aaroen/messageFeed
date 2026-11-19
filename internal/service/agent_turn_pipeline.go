@@ -23,13 +23,9 @@ func (s *AgentConversationService) processTurn(
 	turn domain.AgentTurn,
 	input ReceiveWeChatWorkAppMessageInput,
 ) (ReceiveWeChatWorkAppMessageResult, error) {
-	ctx, cancelProcess := context.WithCancel(ctx)
+	ctx, activeProcess, stopWatch := s.watchAgentProcess(ctx, turn)
+	defer stopWatch()
 	ctx = withAgentLLMUserID(ctx, account.UserID)
-	activeProcess := s.registerAgentProcess(turn.ID, cancelProcess)
-	defer cancelProcess()
-	defer s.unregisterAgentProcess(activeProcess)
-	stopCancellationWatch := s.watchAgentTurnCancellation(ctx, turn, activeProcess)
-	defer stopCancellationWatch()
 
 	lock := s.sessionLock(session.ID)
 	lock.Lock()
@@ -170,7 +166,7 @@ func (s *AgentConversationService) processTurn(
 	})
 	if err != nil {
 		if isAgentProcessStopError(ctx, err, activeProcess) {
-			return s.finishStoppedAgentProcess(ctx, account, inbound, session, turn, plan), nil
+			return s.finishStoppedAgentProcess(ctx, account, inbound, session, turn, plan)
 		}
 		s.recordControllerTrace(ctx, controllerRun, runResult, "controller_error")
 		markedPlan, markErr := s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
@@ -184,7 +180,7 @@ func (s *AgentConversationService) processTurn(
 		return s.failTurnWithFeedback(ctx, account, inbound, session, turn, input, plan, err)
 	}
 	if activeProcess.stoppedByUser() {
-		return s.finishStoppedAgentProcess(ctx, account, inbound, session, turn, plan), nil
+		return s.finishStoppedAgentProcess(ctx, account, inbound, session, turn, plan)
 	}
 	s.recordControllerTrace(ctx, controllerRun, runResult, "controller_output")
 	updatedPlan, err := s.bindPlanStepsToObservations(ctx, account.UserID, plan, runResult.Context.Observations)
@@ -540,14 +536,9 @@ func (s *AgentConversationService) createPlanForTurn(
 	loadProjection := sync.OnceValues(func() (domain.AgentJSON, error) {
 		return s.turnPlanningProjection(ctx, account, session, turn, input)
 	})
-	var route agentTaskRouteClassification
-	if routing, _ := ctx.Value(agentTurnRoutingKey{}).(*agentTurnRouting); routing != nil && routing.route != nil {
-		route = *routing.route
-	} else {
-		route, err = s.classifyAgentTaskRoute(ctx, account, session, turn, controllerRun, input, loadProjection)
-		if err != nil {
-			return domain.AgentPlan{}, "", err
-		}
+	route, err := s.classifyAgentTaskRoute(ctx, account, session, turn, controllerRun, input, loadProjection)
+	if err != nil {
+		return domain.AgentPlan{}, "", err
 	}
 	mainPlan := mainAgentPlanSpecResult{}
 	if agentTaskRouteShouldUseLightPlan(route) {

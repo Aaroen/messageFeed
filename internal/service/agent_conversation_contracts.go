@@ -52,7 +52,7 @@ type AgentTurnWorkerRepository interface {
 	GetAgentTurn(ctx context.Context, userID int64, turnID int64) (domain.AgentTurn, error)
 	GetInboundMessage(ctx context.Context, userID int64, id int64) (domain.AgentInboundMessage, error)
 	UpdateTurnIfOwned(ctx context.Context, turn domain.AgentTurn, workerID string) (domain.AgentTurn, error)
-	RenewAgentTurnLease(ctx context.Context, userID int64, turnID int64, workerID string, leaseUntil time.Time, now time.Time) error
+	RenewAgentTurnLease(ctx context.Context, userID int64, turnID int64, workerID string, attempt int, leaseUntil time.Time, now time.Time) error
 	RequestAgentTurnCancel(ctx context.Context, userID int64, turnID int64, reason string, now time.Time) (domain.AgentTurn, error)
 }
 
@@ -191,6 +191,7 @@ type AgentTurnResponse struct {
 	CancelRequested  bool   `json:"cancel_requested"`
 	CancelReason     string `json:"cancel_reason"`
 	ErrorMessage     string `json:"error_message"`
+	ErrorCode        string `json:"error_code,omitempty"`
 	DeliveryStatus   string `json:"delivery_status"`
 	DeliveryError    string `json:"delivery_error"`
 	StartedAt        string `json:"started_at"`

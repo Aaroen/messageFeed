@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"messagefeed/internal/llm"
 	"sort"
 	"strings"
 )
@@ -32,6 +34,7 @@ const (
 
 type Capability struct {
 	Key            string
+	Version        int
 	Name           string
 	Description    string
 	Mode           CapabilityMode
@@ -42,6 +45,19 @@ type Capability struct {
 	Schedulable    bool
 	Reusable       bool
 	InputSchema    map[string]any
+}
+
+func (capability Capability) ValidateArguments(raw string) error {
+	definition, err := json.Marshal(capability.MCPDescriptor().InputSchema)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(raw) == "" {
+		raw = "{}"
+	}
+	schema := llm.OutputSchema{Name: capability.Key, Schema: definition}
+	_, err = schema.Validate(raw)
+	return err
 }
 
 type CapabilityRegistry struct {
@@ -438,6 +454,9 @@ func (r *CapabilityRegistry) Register(capability Capability) {
 		r.byKey = map[string]Capability{}
 	}
 	capability.Key = key
+	if capability.Version == 0 {
+		capability.Version = 1
+	}
 	r.byKey[key] = capability
 }
 

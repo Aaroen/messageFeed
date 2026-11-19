@@ -20,9 +20,7 @@ func agentFollowupIntentSystemPrompt() string {
 		"如果用户要求重试失败计划，intent 为 retry。",
 		"如果用户只是想修改当前活动计划的约束，intent 为 append_constraints；后端会把旧活动计划终止并让当前消息重新规划。",
 		"如果用户明确要求基于已有结果继续派生一个新任务，intent 为 derive_task。",
-		"同时返回 route，按 route schema 判定需要的任务类型。对于只处理已有结果或停止的消息，可以省略 route。",
-		agentTaskRouterSystemPrompt(),
-		"输出必须是严格 JSON 对象。",
+		"输出一个 JSON 对象，只包含 intent、confidence、reason 三个字段。reason 只写一句话。",
 	}, "\n")
 }
 
@@ -32,7 +30,6 @@ func agentFollowupIntentSchemaHint() domain.AgentJSON {
 		"intent":     "string，必须是 allowed_intents 中的一个。",
 		"confidence": "number，0 到 1。",
 		"reason":     "string，简要说明语义判断依据，供 Web 审计查看。",
-		"route":      agentTaskRouterSchemaHint(),
 	}
 }
 

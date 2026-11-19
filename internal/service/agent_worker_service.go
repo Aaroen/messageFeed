@@ -47,7 +47,6 @@ func (s *AgentConversationService) RunAgentWorkerOnce(ctx context.Context, input
 	if limit <= 0 {
 		limit = defaultAgentWorkerLimit
 	}
-	s.SetWorkerID(workerID)
 	claimed, err := workerRepository.ClaimQueuedAgentTurns(ctx, domain.AgentTurnClaimInput{
 		Now:           s.now().UTC(),
 		WorkerID:      workerID,
@@ -106,7 +105,7 @@ func (s *AgentConversationService) processClaimedAgentTurn(ctx context.Context, 
 }
 
 func (s *AgentConversationService) requeueClaimedAgentTurn(ctx context.Context, repository AgentTurnWorkerRepository, turn domain.AgentTurn) error {
-	workerID := strings.TrimSpace(s.workerID)
+	workerID := turn.LockedBy
 	turn.Status = domain.AgentTurnStatusQueued
 	turn.FinishedAt = nil
 	turn.LockedBy = ""
@@ -117,7 +116,7 @@ func (s *AgentConversationService) requeueClaimedAgentTurn(ctx context.Context, 
 }
 
 func (s *AgentConversationService) processClaimedAgentTurnUnlocked(ctx context.Context, repository AgentTurnWorkerRepository, turn domain.AgentTurn) error {
-	stopLeaseRenewal := s.renewAgentTurnLease(ctx, turn)
+	ctx, stopLeaseRenewal := s.renewAgentTurnLease(ctx, turn)
 	defer stopLeaseRenewal()
 	if turn.CancelRequested {
 		reason := strings.TrimSpace(turn.CancelReason)
@@ -126,14 +125,17 @@ func (s *AgentConversationService) processClaimedAgentTurnUnlocked(ctx context.C
 		}
 		return s.failClaimedAgentTurn(ctx, repository, turn, fmt.Errorf("%s", reason))
 	}
+	ctx, _, stopWatch := s.watchAgentProcess(ctx, turn)
+	defer stopWatch()
 	inbound, err := repository.GetInboundMessage(ctx, turn.UserID, turn.InboundMessageID)
 	if err != nil {
 		return s.failClaimedAgentTurn(ctx, repository, turn, err)
 	}
-	ctx, err = agentSelectionFromInbound(ctx, inbound)
+	selectedCtx, err := agentSelectionFromInbound(ctx, inbound)
 	if err != nil {
 		return s.failClaimedAgentTurn(ctx, repository, turn, err)
 	}
+	ctx = selectedCtx
 	session, err := repository.GetAgentSession(ctx, turn.UserID, turn.SessionID)
 	if err != nil {
 		return s.failClaimedAgentTurn(ctx, repository, turn, err)
@@ -152,8 +154,6 @@ func (s *AgentConversationService) processClaimedAgentTurnUnlocked(ctx context.C
 		s.sendWeChatWorkTaskAcceptedFeedback(ctx, account, session, turn, input)
 	}
 
-	entry := s.userTranscriptForTurn(ctx, turn, inbound)
-	defer s.captureMemoryCandidateFromTranscriptAsync(ctx, entry)
 	ctx = context.WithValue(ctx, agentTurnRoutingKey{}, &agentTurnRouting{})
 	if handled, handledResult, processErr := s.handleMultiTurnMessage(ctx, account, inbound, session, turn, input); processErr != nil {
 		if handledResult.Turn.ID > 0 {
@@ -166,7 +166,7 @@ func (s *AgentConversationService) processClaimedAgentTurnUnlocked(ctx context.C
 		turn = failedResult.Turn
 	} else if handled {
 		turn = handledResult.Turn
-		if input.Provider == domain.AgentProviderWeb && handledResult.Turn.ID > 0 {
+		if !s.persistentQueue && input.Provider == domain.AgentProviderWeb && handledResult.Turn.ID > 0 {
 			if reportErr := s.sendWebAgentTaskFinalReport(ctx, account, inbound, session, handledResult.Turn, handledResult.Plan, handledResult.Reply, input); reportErr != nil {
 				return s.failClaimedAgentTurn(ctx, repository, turn, reportErr)
 			}
@@ -176,7 +176,7 @@ func (s *AgentConversationService) processClaimedAgentTurnUnlocked(ctx context.C
 		if processed.Turn.ID > 0 {
 			turn = processed.Turn
 		}
-		if input.Provider == domain.AgentProviderWeb && processErr == nil {
+		if !s.persistentQueue && input.Provider == domain.AgentProviderWeb && processErr == nil {
 			if reportErr := s.sendWebAgentTaskFinalReport(ctx, account, inbound, session, processed.Turn, processed.Plan, processed.Reply, input); reportErr != nil {
 				processErr = reportErr
 			}
@@ -185,7 +185,7 @@ func (s *AgentConversationService) processClaimedAgentTurnUnlocked(ctx context.C
 			return s.failClaimedAgentTurn(ctx, repository, turn, processErr)
 		}
 	}
-	return s.releaseClaimedAgentTurn(ctx, repository, turn)
+	return nil
 }
 
 func (s *AgentConversationService) failClaimedAgentTurn(ctx context.Context, repository AgentTurnWorkerRepository, turn domain.AgentTurn, cause error) error {
@@ -199,22 +199,22 @@ func (s *AgentConversationService) failClaimedAgentTurn(ctx context.Context, rep
 		return err
 	}
 	if current.Status == domain.AgentTurnStatusSucceeded || current.Status == domain.AgentTurnStatusFailed {
-		if err := s.releaseClaimedAgentTurn(ctx, repository, current); err != nil {
-			return err
-		}
 		return cause
 	}
-	completed, err := s.commitFailedAgentTurn(ctx, current, cause)
-	if err != nil {
-		return errors.Join(cause, err)
+	if current.LockedBy != turn.LockedBy || current.AttemptCount != turn.AttemptCount {
+		return errors.Join(cause, domain.ErrConflict)
 	}
-	return errors.Join(cause, s.releaseClaimedAgentTurn(ctx, repository, completed.Turn))
+	_, err = s.commitFailedAgentTurn(ctx, current, cause)
+	return errors.Join(cause, err)
 }
 
 func (s *AgentConversationService) commitFailedAgentTurn(ctx context.Context, turn domain.AgentTurn, cause error) (domain.AgentTurnCompletionResult, error) {
 	now := s.now().UTC()
 	turn.Status = domain.AgentTurnStatusFailed
 	turn.ErrorMessage = cause.Error()
+	turn.ErrorCode = agentTurnErrorCode(cause)
+	turn.OutputText = fmt.Sprintf("%s（调用编号：%d）", agentUserFacingFailureReason(cause.Error()), turn.ID)
+	turn.DeliveryStatus = "not_required"
 	if turn.CancelRequested && strings.TrimSpace(turn.CancelReason) != "" {
 		turn.ErrorMessage = turn.CancelReason
 	}
@@ -222,7 +222,7 @@ func (s *AgentConversationService) commitFailedAgentTurn(ctx context.Context, tu
 	if err != nil {
 		return domain.AgentTurnCompletionResult{}, err
 	}
-	completion := domain.AgentTurnCompletion{Turn: turn, WorkerID: s.workerID, CompletedAt: now}
+	completion := domain.AgentTurnCompletion{Turn: turn, WorkerID: turn.LockedBy, CompletedAt: now}
 	if len(plans) > 0 && agentPlanCanStop(plans[0].Status) {
 		plan, err := s.repository.GetAgentPlan(ctx, turn.UserID, plans[0].ID)
 		if err != nil {
@@ -234,40 +234,13 @@ func (s *AgentConversationService) commitFailedAgentTurn(ctx context.Context, tu
 			plan.Steps[index] = convergeUnobservedPlanStep(step, now)
 		}
 		plan.Metadata = cloneApprovalMetadata(plan.Metadata)
+		if turn.CancelRequested || cause.Error() == "用户停止执行" {
+			plan.Metadata["stop"] = domain.AgentJSON{"reason": turn.ErrorMessage, "requested_at": now.Format(time.RFC3339), "requested_by_user_id": turn.UserID}
+		}
 		plan.Metadata["execution_completeness"] = buildAgentExecutionCompletenessMetadata(plan, now)
 		completion.Plan = plan
 	}
 	return s.repository.CommitAgentTurnResult(ctx, completion)
-}
-
-func (s *AgentConversationService) releaseClaimedAgentTurn(ctx context.Context, repository AgentTurnWorkerRepository, turn domain.AgentTurn) error {
-	workerID := strings.TrimSpace(s.workerID)
-	turn.LockedBy = ""
-	turn.LockedAt = nil
-	turn.LeaseUntil = nil
-	if turn.Status == domain.AgentTurnStatusQueued {
-		turn.Status = domain.AgentTurnStatusFailed
-	}
-	_, err := repository.UpdateTurnIfOwned(ctx, turn, workerID)
-	return err
-}
-
-func (s *AgentConversationService) userTranscriptForTurn(ctx context.Context, turn domain.AgentTurn, inbound domain.AgentInboundMessage) domain.AgentTranscriptEntry {
-	entries, _ := s.repository.ListRecentTranscriptEntries(ctx, domain.AgentTranscriptListOptions{UserID: turn.UserID, SessionID: turn.SessionID, Limit: 50})
-	for _, entry := range entries {
-		if entry.TurnID == turn.ID && entry.Role == domain.AgentTranscriptRoleUser {
-			return entry
-		}
-	}
-	return domain.AgentTranscriptEntry{
-		SessionID: turn.SessionID,
-		TurnID:    turn.ID,
-		UserID:    turn.UserID,
-		Role:      domain.AgentTranscriptRoleUser,
-		Content:   inbound.TextContent,
-		Metadata:  domain.AgentJSON{"provider_message_id": inbound.ProviderMessageID},
-		CreatedAt: inbound.CreatedAt,
-	}
 }
 
 func agentInputFromInbound(inbound domain.AgentInboundMessage) ReceiveWeChatWorkAppMessageInput {
@@ -319,25 +292,30 @@ func (s *AgentConversationService) watchAgentTurnCancellation(ctx context.Contex
 	return cancel
 }
 
-func (s *AgentConversationService) renewAgentTurnLease(ctx context.Context, turn domain.AgentTurn) func() {
-	store, ok := s.repository.(interface {
-		RenewAgentTurnLease(context.Context, int64, int64, string, time.Time, time.Time) error
-	})
-	if !ok || strings.TrimSpace(s.workerID) == "" {
-		return func() {}
+func (s *AgentConversationService) renewAgentTurnLease(ctx context.Context, turn domain.AgentTurn) (context.Context, context.CancelFunc) {
+	store, ok := s.repository.(AgentTurnWorkerRepository)
+	if !ok || turn.LockedBy == "" {
+		return ctx, func() {}
 	}
 	renewCtx, cancel := context.WithCancel(ctx)
+	leaseDuration := defaultAgentWorkerLease
+	if turn.LeaseUntil != nil && turn.LockedAt != nil && turn.LeaseUntil.After(*turn.LockedAt) {
+		leaseDuration = turn.LeaseUntil.Sub(*turn.LockedAt)
+	}
 	go func() {
-		ticker := time.NewTicker(agentWorkerLeaseRenewInterval)
+		ticker := time.NewTicker(max(time.Millisecond, min(agentWorkerLeaseRenewInterval, leaseDuration/3)))
 		defer ticker.Stop()
 		for {
 			select {
 			case <-renewCtx.Done():
 				return
 			case now := <-ticker.C:
-				_ = store.RenewAgentTurnLease(renewCtx, turn.UserID, turn.ID, s.workerID, now.Add(defaultAgentWorkerLease), now)
+				if err := store.RenewAgentTurnLease(renewCtx, turn.UserID, turn.ID, turn.LockedBy, turn.AttemptCount, now.Add(leaseDuration), now); err != nil {
+					cancel()
+					return
+				}
 			}
 		}
 	}()
-	return cancel
+	return renewCtx, cancel
 }

@@ -41,22 +41,22 @@ type agentMemoryCaptureClassification struct {
 	Classifier           string
 }
 
-func (s *AgentConversationService) captureMemoryCandidateFromTranscript(ctx context.Context, entry domain.AgentTranscriptEntry) {
+func (s *AgentConversationService) captureMemoryCandidateFromTranscript(ctx context.Context, entry domain.AgentTranscriptEntry) error {
 	if s == nil || s.repository == nil || entry.ID == 0 || entry.UserID == 0 || entry.Role != domain.AgentTranscriptRoleUser {
-		return
+		return nil
 	}
 	activeTopic, hasActiveTopic := s.activeMemoryTopic(ctx, entry)
 	classification, err := s.classifyAgentMemoryCandidateWithModel(ctx, entry, activeTopic, hasActiveTopic)
 	if err != nil {
 		s.recordMemoryCaptureFailure(ctx, entry, "classification_failed", err)
-		return
+		return err
 	}
 	activeTopic, hasActiveTopic = s.trackMemoryTopicFromTranscript(ctx, entry, activeTopic, hasActiveTopic, classification)
 	if !classification.ShouldCapture || !agentMemoryKindShouldCapture(classification.Kind) {
-		return
+		return nil
 	}
 	if s.memoryBlockAlreadyExists(ctx, entry.UserID, entry.Content) {
-		return
+		return nil
 	}
 	now := s.now().UTC()
 	status := domain.AgentMemoryCandidatePending
@@ -79,6 +79,7 @@ func (s *AgentConversationService) captureMemoryCandidateFromTranscript(ctx cont
 		Status:        status,
 		ProposedBy:    "system",
 		Metadata: domain.AgentJSON{
+			"transcript_capture":      true,
 			"classification_reason":   classification.Reason,
 			"classification_keywords": classification.Keywords,
 			"classifier":              classification.Classifier,
@@ -88,7 +89,7 @@ func (s *AgentConversationService) captureMemoryCandidateFromTranscript(ctx cont
 	})
 	if err != nil {
 		s.recordMemoryCaptureFailure(ctx, entry, "candidate_create_failed", err)
-		return
+		return err
 	}
 	s.recordAgentTraceEvent(ctx, domain.AgentTraceEvent{
 		UserID:        entry.UserID,
@@ -109,7 +110,10 @@ func (s *AgentConversationService) captureMemoryCandidateFromTranscript(ctx cont
 		},
 		CreatedAt: now,
 	})
-	if status == domain.AgentMemoryCandidateRequiresConfirmation {
+	if candidate.Status == domain.AgentMemoryCandidateApplied || candidate.Status == domain.AgentMemoryCandidateRejected || candidate.Status == domain.AgentMemoryCandidateRevoked || candidate.Status == domain.AgentMemoryCandidateExpired {
+		return nil
+	}
+	if candidate.Status == domain.AgentMemoryCandidateRequiresConfirmation {
 		_, _ = s.repository.CreateAgentMemoryEvent(ctx, domain.AgentMemoryEvent{
 			UserID:      entry.UserID,
 			SessionID:   entry.SessionID,
@@ -123,16 +127,17 @@ func (s *AgentConversationService) captureMemoryCandidateFromTranscript(ctx cont
 			},
 			CreatedAt: now,
 		})
-		return
+		return nil
 	}
 	block, err := s.repository.ApplyAgentMemoryCandidate(ctx, entry.UserID, candidate.ID, now)
 	if err != nil {
 		s.recordMemoryCaptureFailure(ctx, entry, "candidate_apply_failed", err)
-		return
+		return err
 	}
 	if classification.ShouldCreateChunk {
 		s.createMemoryChunkFromCapture(ctx, entry, activeTopic, hasActiveTopic, classification, block)
 	}
+	return nil
 }
 
 func (s *AgentConversationService) captureMemoryCandidateFromTranscriptAsync(ctx context.Context, entry domain.AgentTranscriptEntry) {
@@ -564,7 +569,7 @@ func (s *AgentConversationService) activeMemoryTopic(ctx context.Context, entry 
 
 func (s *AgentConversationService) trackMemoryTopicFromTranscript(ctx context.Context, entry domain.AgentTranscriptEntry, active domain.AgentMemoryTopic, hasActive bool, classification agentMemoryCaptureClassification) (domain.AgentMemoryTopic, bool) {
 	store, ok := any(s.repository).(agentMemoryTopicChunkStore)
-	if !ok || entry.UserID == 0 || strings.TrimSpace(entry.Content) == "" {
+	if !ok || entry.UserID == 0 || strings.TrimSpace(entry.Content) == "" || hasActive && active.EndTurnID >= entry.TurnID {
 		return active, hasActive
 	}
 	ctx, span := observability.StartSpan(ctx, "service.agent.memory.topic.classify")
