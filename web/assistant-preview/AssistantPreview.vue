@@ -264,10 +264,10 @@ async function copyReply(reply: string, index: number) {
       </div>
       <nav aria-label="主导航"><a v-for="item in navigation" :key="item.page" :href="`#/${item.page}`" :aria-current="page === item.page ? 'page' : undefined"><component :is="item.icon" aria-hidden="true" /><span>{{ item.title }}</span></a></nav>
     </header>
-    <dialog id="preview-site-navigation" ref="siteDialog" class="side-dialog from-left site-dialog" aria-label="站点导航" @click="dismissOutside" @close="siteNavigationOpen = false">
+    <dialog v-if="!fullscreen" id="preview-site-navigation" ref="siteDialog" class="side-dialog from-left site-dialog" aria-label="站点导航" @click="dismissOutside" @close="siteNavigationOpen = false">
       <aside class="sidebar site-drawer">
         <header class="sidebar-header"><span class="brand-mark" aria-hidden="true"><IconApps /></span><strong>MessageFeed</strong><button type="button" class="icon-button" aria-label="关闭站点导航" title="关闭站点导航" autofocus @click="siteDialog?.close()"><IconClose aria-hidden="true" /></button></header>
-        <nav class="site-links" aria-label="站点页面"><a v-for="item in navigation" :key="item.page" class="session-item" :href="`#/${item.page}`" :aria-current="(fullscreen ? 'agent' : page) === item.page ? 'page' : undefined" @click="siteDialog?.close()"><component :is="item.icon" aria-hidden="true" /><span>{{ item.title }}</span></a></nav>
+        <nav class="site-links" aria-label="站点页面"><a v-for="item in navigation" :key="item.page" class="session-item" :href="`#/${item.page}`" :aria-current="page === item.page ? 'page' : undefined" @click="siteDialog?.close()"><component :is="item.icon" aria-hidden="true" /><span>{{ item.title }}</span></a></nav>
         <footer class="site-drawer-actions"><button type="button" class="icon-button preview-theme" :aria-label="themeAction" :title="themeAction" @click="toggleTheme"><component :is="darkTheme ? IconSunFill : IconMoonFill" aria-hidden="true" /></button></footer>
       </aside>
     </dialog>
@@ -285,7 +285,6 @@ async function copyReply(reply: string, index: number) {
       </article>
     </main>
     <AgentWorkspaceShell v-show="assistantVisible" ref="shell" :fullscreen="fullscreen" :title="session.title" :sessions="sessions" :active-i-d="activeID" @update:fullscreen="toggleFullscreen" @select-session="chooseSession" @toggle-details="selectAgentTurn()">
-      <template #navigation><button v-if="fullscreen" type="button" class="icon-button" aria-label="打开站点导航" title="打开站点导航" aria-controls="preview-site-navigation" :aria-expanded="siteNavigationOpen" @click="openSiteNavigation"><IconMenuUnfold aria-hidden="true" /></button></template>
       <template #title-meta><span v-if="fullscreen" class="local-indicator">本地预览</span></template>
       <template #sessions-footer><span class="status-dot" />本地演示空间</template>
       <template #details>

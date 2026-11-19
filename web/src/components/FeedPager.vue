@@ -123,9 +123,5 @@ function handleOpenItem(item: FeedItem, sourceKind: FeedSourceKind, originRect?:
 .app-main--feed:has(.feed-stage--assistant) > .app-header { box-shadow: none; }
 .app-main--feed:has(.feed-stage--fullscreen) > .app-header { display: none; }
 .app-content--feed:has(.feed-stage--fullscreen) { padding-top: env(safe-area-inset-top, 0px) !important; }
-.app-shell:has(.feed-stage--fullscreen) .nav-open-button { top: calc(env(safe-area-inset-top, 0px) + 9px); left: 18px; }
-.app-shell:has(.feed-stage--fullscreen .assistant-shell.has-sessions) .nav-open-button { left: 254px; }
-@media (max-width: 799px) {
-  .app-shell:has(.feed-stage--fullscreen) .nav-open-button { top: calc(env(safe-area-inset-top, 0px) + 5px); left: 9px; }
-}
+.app-shell:has(.feed-stage--fullscreen) > :is(.nav-open-button, .nav-scrim, .nav-panel) { display: none; }
 </style>

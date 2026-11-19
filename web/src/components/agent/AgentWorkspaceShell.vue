@@ -86,10 +86,9 @@ defineExpose({ openDetails, closePanels })
 </script>
 
 <template>
-  <section class="assistant-shell" :class="{ 'has-sessions': leftDocked && sessionsOpen, 'has-details': rightDocked && detailsOpen, 'is-fullscreen': fullscreen }" aria-label="助理工作区" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
+  <section class="assistant-shell" :class="{ 'has-sessions': leftDocked && sessionsOpen, 'has-details': rightDocked && detailsOpen }" aria-label="助理工作区" @touchstart.stop @touchmove.stop @touchend.stop @pointerdown.stop>
     <section class="assistant-shell-conversation" aria-label="当前对话">
       <header class="assistant-shell-toolbar">
-        <slot name="navigation" />
         <button type="button" class="assistant-shell-button" :aria-label="leftDocked && sessionsOpen ? '收起会话侧栏' : '打开会话列表'" :title="leftDocked && sessionsOpen ? '收起会话侧栏' : '打开会话列表'" :aria-expanded="leftDocked ? sessionsOpen : drawer === 'sessions'" :aria-controls="sessionsID" @click="toggleSessions"><IconMenuFold aria-hidden="true" /></button>
         <div class="assistant-shell-title"><h1>{{ title }}</h1><slot name="title-meta" /></div>
         <button type="button" class="assistant-shell-button" :aria-label="fullscreen ? '退出全屏' : '全屏打开助理'" :title="fullscreen ? '退出全屏' : '全屏打开助理'" @click="fullscreen = !fullscreen"><IconFullscreenExit v-if="fullscreen" aria-hidden="true" /><IconFullscreen v-else aria-hidden="true" /></button>
@@ -168,12 +167,10 @@ defineExpose({ openDetails, closePanels })
 .assistant-shell-dialog > .assistant-shell-sidebar { width: min(328px, calc(100% - 36px)); transform: translateX(0); box-shadow: var(--mf-panel-shadow); }
 .assistant-shell-dialog > .assistant-shell-details { width: min(350px, calc(100% - 32px)); }
 .assistant-shell-dialog .assistant-shell-sidebar-header { padding-top: max(12px, env(safe-area-inset-top)); }
-.is-fullscreen:not(:has(.assistant-shell-toolbar > [aria-label='打开站点导航'])) .assistant-shell-toolbar { padding-inline-start: 74px; }
 @container (max-width: 630px) { .assistant-shell-toolbar { gap: 8px; padding-inline: 12px; } }
 @media (max-width: 799px) {
   .assistant-shell-toolbar { min-height: 54px; padding-inline: 9px; }
   .assistant-shell-details-toggle > span { display: none; }
-  .is-fullscreen:not(:has(.assistant-shell-toolbar > [aria-label='打开站点导航'])) .assistant-shell-toolbar { padding-inline-start: 61px; }
 }
 @media (max-width: 799px), (pointer: coarse) {
   .assistant-shell-button { min-width: 44px; min-height: 44px; }
