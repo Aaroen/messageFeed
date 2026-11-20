@@ -31,6 +31,8 @@ describe('readerContent', () => {
   })
 
   it('formats item dates for Chinese locale display', () => {
-    expect(formatItemDate('2026-06-23T04:05:00.000Z')).toMatch(/06\/23.*12:05|06\/23.*04:05/)
+    expect(formatItemDate('2026-06-23T04:05:00.000Z', 'Asia/Shanghai')).toMatch(/06\/23.*12:05/)
+    expect(formatItemDate('2026-06-23T04:05:00.000Z', 'Asia/Tokyo')).toMatch(/06\/23.*13:05/)
+    expect(formatItemDate()).toBe('发布时间未知')
   })
 })

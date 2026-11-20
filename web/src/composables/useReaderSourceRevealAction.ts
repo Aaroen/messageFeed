@@ -1,5 +1,6 @@
 import type { FeedItem } from '@/api/feed'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
+import { readerSourceForItem } from '@/composables/useReaderSession'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -17,15 +18,9 @@ type ReaderSourceRevealActionOptions = {
 
 export function useReaderSourceRevealAction(options: ReaderSourceRevealActionOptions) {
   function showSourceReaderUnderDetail() {
-    const item = options.detailItem.value
-    if (!item?.source_id) {
+    const source = readerSourceForItem(options.detailItem.value, options.detailSourceKind.value)
+    if (!source) {
       return
-    }
-
-    const source = {
-      id: item.source_id,
-      name: item.source_name || '未知来源',
-      kind: options.detailSourceKind.value,
     }
 
     if (options.readerSource.value?.id !== source.id || options.readerSource.value.kind !== source.kind) {

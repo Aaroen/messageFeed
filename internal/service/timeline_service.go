@@ -39,13 +39,17 @@ type ListItemsInput struct {
 	Limit         int
 	Offset        int
 	Order         string
+	Cursor        *domain.ItemCursor
 }
 
 type ListItemsResult struct {
-	Items  []domain.Item
-	Total  int64
-	Limit  int
-	Offset int
+	Items         []domain.Item
+	Total         int64
+	Limit         int
+	Offset        int
+	NextCursor    *domain.ItemCursor
+	Generation    string
+	RefreshStatus string
 }
 
 func (s *TimelineService) ListItems(ctx context.Context, input ListItemsInput) (ListItemsResult, error) {
@@ -66,6 +70,13 @@ func (s *TimelineService) ListItems(ctx context.Context, input ListItemsInput) (
 		opErr = err
 		return ListItemsResult{}, opErr
 	}
+	if options.Cursor != nil && input.Offset != 0 {
+		return ListItemsResult{}, fmt.Errorf("%w: cursor and offset cannot be combined", domain.ErrInvalidInput)
+	}
+	pageLimit := options.Limit
+	if options.Cursor != nil {
+		options.Limit++
+	}
 
 	var result domain.ItemListResult
 	if input.UserID < 1 {
@@ -83,11 +94,18 @@ func (s *TimelineService) ListItems(ctx context.Context, input ListItemsInput) (
 		attribute.Int("limit.normalized", result.Limit),
 		attribute.Int("offset.normalized", result.Offset),
 	)
+	var nextCursor *domain.ItemCursor
+	if options.Cursor != nil && len(result.Items) > pageLimit {
+		result.Items = result.Items[:pageLimit]
+		last := result.Items[len(result.Items)-1]
+		nextCursor = &domain.ItemCursor{Snapshot: options.Cursor.Snapshot, Time: last.FeedOrderTime(), ID: last.ID}
+	}
 	return ListItemsResult{
-		Items:  result.Items,
-		Total:  result.Total,
-		Limit:  result.Limit,
-		Offset: result.Offset,
+		Items:      result.Items,
+		Total:      result.Total,
+		Limit:      pageLimit,
+		Offset:     result.Offset,
+		NextCursor: nextCursor,
 	}, nil
 }
 
@@ -155,6 +173,7 @@ func normalizeItemListOptions(input ListItemsInput) (domain.ItemListOptions, err
 		Limit:         limit,
 		Offset:        input.Offset,
 		SortOrder:     normalizeItemSortOrder(input.Order),
+		Cursor:        input.Cursor,
 	}, nil
 }
 

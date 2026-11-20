@@ -8,6 +8,7 @@ import type {
   ReaderSource,
   RectSnapshot,
 } from '@/composables/useReaderSession'
+import { readerSourceForItem } from '@/composables/useReaderSession'
 import { clampProgress } from '@/composables/feedChromeMetrics'
 import { useMotionTimings } from '@/composables/useMotionTimings'
 import { useDetailHeaderTitleSwap } from '@/composables/useDetailHeaderTitleSwap'
@@ -645,15 +646,7 @@ export function useReaderStackState() {
   }
 
   function readerSourceFromDetailItem(item: FeedItem | null, kind: FeedSourceKind): ReaderSource | null {
-    if (!item?.source_id) {
-      return null
-    }
-
-    return {
-      id: item.source_id,
-      name: item.source_name || '未知来源',
-      kind,
-    }
+    return readerSourceForItem(item, kind)
   }
 
   function createReaderStackSessionSnapshot(): ReaderStackSessionSnapshot {
@@ -1488,12 +1481,8 @@ export function useReaderStackState() {
   }
 
   function beginCompleteDetailToSourceReaderState() {
-    if (!readerSource.value && detailItem.value?.source_id) {
-      readerSource.value = {
-        id: detailItem.value.source_id,
-        name: detailItem.value.source_name || '未知来源',
-        kind: detailSourceKind.value,
-      }
+    if (!readerSource.value) {
+      readerSource.value = readerSourceForItem(detailItem.value, detailSourceKind.value)
     }
 
     const startProgress = detailSourceExitProgress.value > 0.001 ? detailSourceExitProgress.value : 0

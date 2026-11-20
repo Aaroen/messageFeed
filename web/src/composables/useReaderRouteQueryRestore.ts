@@ -9,7 +9,9 @@ import {
   listTimelineItems,
   type FeedItem,
 } from '@/api/feed'
+import { getCurrentAuth } from '@/api/auth'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
+import { readerSourceForItem } from '@/composables/useReaderSession'
 
 const routeFeedLookupLimit = 100
 const routeFeedLookupMaxItems = 500
@@ -39,17 +41,6 @@ function routeQuerySourceKind(value: unknown, fallback: FeedSourceKind): FeedSou
   return fallback
 }
 
-function readerSourceFromItem(item: FeedItem, kind: FeedSourceKind): ReaderSource | null {
-  if (!item.source_id) {
-    return null
-  }
-  return {
-    id: item.source_id,
-    name: item.source_name || '未知来源',
-    kind,
-  }
-}
-
 function routeFeedKindCandidates(kind: FeedSourceKind): FeedSourceKind[] {
   return kind === 'subscriptions'
     ? ['subscriptions', 'recommendations']
@@ -68,8 +59,19 @@ async function listRouteFeedPage(kind: FeedSourceKind, sourceID: number, offset:
 
 async function findRouteFeedItemInKind(itemID: number, kind: FeedSourceKind, sourceID: number) {
   let offset = 0
+  let generation: string | undefined
   while (offset < routeFeedLookupMaxItems) {
-    const result = await listRouteFeedPage(kind, sourceID, offset)
+    let result = kind === 'recommendations' && generation
+      ? await listRecommendationItems({ source_id: sourceID || undefined, limit: routeFeedLookupLimit, offset, generation })
+      : await listRouteFeedPage(kind, sourceID, offset)
+    generation = result.generation
+    if (kind === 'recommendations' && generation && result.refresh_status === 'running' && sourceID) {
+      const deadline = Date.now() + 18000
+      while (result.refresh_status === 'running' && Date.now() < deadline) {
+        await new Promise(resolve => window.setTimeout(resolve, 850))
+        result = await listRecommendationItems({ source_id: sourceID, limit: routeFeedLookupLimit, offset, generation })
+      }
+    }
     const item = result.items.find((entry) => entry.id === itemID)
     if (item) {
       return item
@@ -106,32 +108,24 @@ async function resolveRouteFeedItem(itemID: number, preferredKind: FeedSourceKin
 }
 
 async function resolveRouteReaderSource(sourceID: number, kind: FeedSourceKind, item: FeedItem | null) {
-  const itemSource = item && item.source_id === sourceID ? readerSourceFromItem(item, kind) : null
-  if (itemSource) {
+  const itemSource = readerSourceForItem(item, kind)
+  if (itemSource && item && [item.source_id, item.catalog_id, item.subscription_id].includes(sourceID)) {
     return itemSource
   }
 
-  try {
-    const [sources, catalogResult] = await Promise.all([
-      listSources(),
-      listSourceCatalog({ limit: 200, offset: 0 }),
-    ])
-    const source = sources.find((entry) => entry.id === sourceID)
-    const catalogEntry =
-      catalogResult.entries.find((entry) => entry.id === sourceID) ??
-      catalogResult.entries.find((entry) => entry.source_id === sourceID)
-    return {
-      id: sourceID,
-      name: source?.name || catalogEntry?.name || '未知来源',
-      kind,
-    }
-  } catch {
-    return {
-      id: sourceID,
-      name: '未知来源',
-      kind,
-    }
+  if (kind === 'recommendations') {
+    const catalog = await listSourceCatalog({ catalog_id: sourceID, limit: 1 })
+    if (catalog.entries[0]) return { id: sourceID, name: catalog.entries[0].name, kind }
   }
+
+  const auth = await getCurrentAuth()
+  if (auth.authenticated) {
+    const source = (await listSources()).find(entry => entry.id === sourceID)
+    if (source) return { id: sourceID, name: source.name, kind: 'subscriptions' as const }
+  }
+
+  const page = await listTimelineItems({ source_id: sourceID, limit: 1 })
+  return { id: sourceID, name: page.items[0]?.source_name || '未知来源', kind: 'subscriptions' as const }
 }
 
 export function useReaderRouteQueryRestore(options: ReaderRouteQueryRestoreOptions) {
@@ -155,7 +149,8 @@ export function useReaderRouteQueryRestore(options: ReaderRouteQueryRestoreOptio
     restoring.value = true
     try {
       const preferredItemKind = routeQuerySourceKind(options.route.query.itemKind, feedSourceKindFromRoute())
-      const result = itemID ? await resolveRouteFeedItem(itemID, preferredItemKind, sourceID) : null
+      const itemCatalog = routeQueryID(options.route.query.itemCatalog)
+      const result = itemID ? await resolveRouteFeedItem(itemID, preferredItemKind, itemCatalog || sourceID) : null
       const itemKind = result?.kind ?? preferredItemKind
       const sourceKind = routeQuerySourceKind(options.route.query.sourceKind, itemKind)
       const source = sourceID ? await resolveRouteReaderSource(sourceID, sourceKind, result?.item ?? null) : null

@@ -177,16 +177,18 @@ type SourceFetchStatusInput struct {
 }
 
 type ListSourceCatalogInput struct {
-	UserID        int64
-	Category      string
-	Query         string
-	Language      string
-	Country       string
-	HealthStatus  domain.SourceCatalogHealthStatus
-	LicenseStatus domain.SourceCatalogLicenseStatus
-	Subscribed    *bool
-	Limit         int
-	Offset        int
+	UserID         int64
+	CatalogID      int64
+	SubscriptionID int64
+	Category       string
+	Query          string
+	Language       string
+	Country        string
+	HealthStatus   domain.SourceCatalogHealthStatus
+	LicenseStatus  domain.SourceCatalogLicenseStatus
+	Subscribed     *bool
+	Limit          int
+	Offset         int
 }
 
 type ListSourceCatalogResult struct {
@@ -653,6 +655,9 @@ func (s *SourceService) ListSourceCatalog(ctx context.Context, input ListSourceC
 		opErr = fmt.Errorf("source catalog service is not configured")
 		return ListSourceCatalogResult{}, opErr
 	}
+	if input.CatalogID < 0 || input.SubscriptionID < 0 {
+		return ListSourceCatalogResult{}, domain.ErrInvalidInput
+	}
 	if input.HealthStatus != "" && !input.HealthStatus.Valid() {
 		opErr = fmt.Errorf("%w: unsupported source catalog health_status", domain.ErrInvalidInput)
 		return ListSourceCatalogResult{}, opErr
@@ -662,16 +667,18 @@ func (s *SourceService) ListSourceCatalog(ctx context.Context, input ListSourceC
 		return ListSourceCatalogResult{}, opErr
 	}
 	result, err := s.catalogRepository.List(ctx, domain.SourceCatalogListOptions{
-		UserID:        input.UserID,
-		Category:      strings.TrimSpace(input.Category),
-		Query:         strings.TrimSpace(input.Query),
-		Language:      strings.TrimSpace(input.Language),
-		Country:       strings.TrimSpace(input.Country),
-		HealthStatus:  input.HealthStatus,
-		LicenseStatus: input.LicenseStatus,
-		Subscribed:    input.Subscribed,
-		Limit:         input.Limit,
-		Offset:        input.Offset,
+		UserID:         input.UserID,
+		CatalogID:      input.CatalogID,
+		SubscriptionID: input.SubscriptionID,
+		Category:       strings.TrimSpace(input.Category),
+		Query:          strings.TrimSpace(input.Query),
+		Language:       strings.TrimSpace(input.Language),
+		Country:        strings.TrimSpace(input.Country),
+		HealthStatus:   input.HealthStatus,
+		LicenseStatus:  input.LicenseStatus,
+		Subscribed:     input.Subscribed,
+		Limit:          input.Limit,
+		Offset:         input.Offset,
 	})
 	if err != nil {
 		opErr = err

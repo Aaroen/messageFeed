@@ -10,6 +10,13 @@ export type ReaderSource = {
   kind: FeedSourceKind
 }
 
+export function readerSourceForItem(item: FeedItem | null, view: FeedSourceKind): ReaderSource | null {
+  if (!item?.source_id) return null
+  const kind = item.source_kind ?? view
+  const id = kind === 'subscriptions' ? item.subscription_id : item.catalog_id
+  return { id: id ?? item.source_id, name: item.source_name || '未知来源', kind }
+}
+
 export type RectSnapshot = {
   left: number
   top: number

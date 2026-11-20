@@ -3,7 +3,7 @@ import type { LocationQueryRaw, RouteLocationNormalizedLoaded, Router } from 'vu
 
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
 
-const readerURLQueryKeys = ['item', 'itemKind', 'source', 'sourceKind'] as const
+const readerURLQueryKeys = ['item', 'itemKind', 'itemCatalog', 'source', 'sourceKind'] as const
 
 type ReaderRouteSyncOptions = {
   route: RouteLocationNormalizedLoaded
@@ -12,6 +12,7 @@ type ReaderRouteSyncOptions = {
   getReaderSource: () => ReaderSource | null
   isSourceReaderOpen: () => boolean
   getDetailItemID: () => number | null | undefined
+  getDetailCatalogID: () => number | undefined
   getDetailSourceKind: () => FeedSourceKind
   setProgrammaticRouteNavigation: (active: boolean) => void
   syncVirtualHistoryState: (forcePush?: boolean) => void
@@ -124,6 +125,8 @@ export function useReaderRouteSync(options: ReaderRouteSyncOptions) {
     if (detailItemID) {
       query.item = String(detailItemID)
       query.itemKind = options.getDetailSourceKind()
+      const catalogID = options.getDetailCatalogID()
+      if (catalogID) query.itemCatalog = String(catalogID)
     }
     return query
   }

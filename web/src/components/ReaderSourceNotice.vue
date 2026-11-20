@@ -10,13 +10,13 @@ defineProps<{
 </script>
 
 <template>
-  <div
-    v-if="notice"
-    class="sources-toast reader-toast"
-    :class="`sources-toast--${notice.type}`"
-    role="status"
-    aria-live="polite"
-  >
-    {{ notice.message }}
-  </div>
+  <Teleport to="body">
+    <div class="refresh-notice-region" role="status" aria-live="polite" aria-atomic="true">
+      <Transition name="sources-toast-motion">
+        <div v-if="notice" class="sources-toast" :class="`sources-toast--${notice.type}`">
+          {{ notice.message }}
+        </div>
+      </Transition>
+    </div>
+  </Teleport>
 </template>

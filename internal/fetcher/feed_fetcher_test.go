@@ -5,7 +5,9 @@ import (
 	"messagefeed/internal/domain"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -33,7 +35,7 @@ func TestFetchParsesRSSItems(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(WithNow(func() time.Time {
+	client := NewClient(WithHTTPClient(server.Client()), WithNow(func() time.Time {
 		return time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
 	}))
 
@@ -75,13 +77,34 @@ func TestFetchRejectsLargeResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(WithMaxBodySize(5))
+	client := NewClient(WithHTTPClient(server.Client()), WithMaxBodySize(5))
 	_, err := client.Fetch(context.Background(), domain.Source{
 		ID:  1,
 		URL: server.URL,
 	})
-	if err == nil {
-		t.Fatal("Fetch returned nil error")
+	if err == nil || !strings.Contains(err.Error(), "response exceeds 5 bytes") {
+		t.Fatalf("Fetch error = %v", err)
+	}
+}
+
+func TestFeedOnlyUsesPublicAddresses(test *testing.T) {
+	for address, allowed := range map[string]bool{
+		"8.8.8.8": true, "2001:4860:4860::8888": true,
+		"127.0.0.1": false, "::ffff:127.0.0.1": false, "10.1.1.1": false,
+		"100.64.0.1": false, "169.254.169.254": false, "fd00::1": false,
+	} {
+		if actual := publicFeedAddress(netip.MustParseAddr(address)); actual != allowed {
+			test.Errorf("publicFeedAddress(%s) = %v, want %v", address, actual, allowed)
+		}
+	}
+}
+
+func TestArticlePublicationTimeIgnoresModification(test *testing.T) {
+	body := strings.NewReader(`<head><meta property="article:modified_time" content="2026-11-20T12:36:05Z"><meta property="article:published_time" content="2026-11-20T07:00:00.000Z"></head>`)
+	actual := parseArticlePublicationTime(body)
+	expected := time.Date(2026, 11, 20, 7, 0, 0, 0, time.UTC)
+	if actual == nil || !actual.Equal(expected) {
+		test.Fatalf("published = %v, want %s", actual, expected)
 	}
 }
 

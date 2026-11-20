@@ -62,16 +62,7 @@ func WithNow(now func() time.Time) Option {
 
 func NewClient(options ...Option) *Client {
 	client := &Client{
-		httpClient: &http.Client{
-			Timeout:   15 * time.Second,
-			Transport: otelhttp.NewTransport(http.DefaultTransport),
-			CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-				if len(via) >= 5 {
-					return fmt.Errorf("too many redirects")
-				}
-				return nil
-			},
-		},
+		httpClient:  NewPublicHTTPClient(15 * time.Second),
 		maxBodySize: defaultMaxBodyBytes,
 		userAgent:   defaultUserAgent,
 		now:         time.Now,
@@ -80,6 +71,19 @@ func NewClient(options ...Option) *Client {
 		option(client)
 	}
 	return client
+}
+
+func NewPublicHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: otelhttp.NewTransport(newFeedTransport()),
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) >= 5 || (request.URL.Scheme != "http" && request.URL.Scheme != "https") {
+				return fmt.Errorf("订阅来源重定向无效")
+			}
+			return nil
+		},
+	}
 }
 
 func (c *Client) Fetch(ctx context.Context, source domain.Source) (domain.FeedFetchResult, error) {
@@ -138,11 +142,7 @@ func (c *Client) Fetch(ctx context.Context, source domain.Source) (domain.FeedFe
 		return domain.FeedFetchResult{}, fetchErr
 	}
 
-	baseURL, err := url.Parse(source.URL)
-	if err != nil {
-		fetchErr = fmt.Errorf("parse source url: %w", err)
-		return domain.FeedFetchResult{}, fetchErr
-	}
+	baseURL := response.Request.URL
 
 	fetchedAt := c.now().UTC()
 	items := make([]domain.Item, 0, len(feed.Items))
@@ -153,6 +153,7 @@ func (c *Client) Fetch(ctx context.Context, source domain.Source) (domain.FeedFe
 		}
 		items = append(items, item)
 	}
+	c.verifyPublicationDates(ctx, baseURL, items)
 
 	span.SetAttributes(attribute.Int("feed.items", len(items)))
 	return domain.FeedFetchResult{Items: items}, nil
@@ -209,22 +210,25 @@ func feedItemToDomain(sourceID int64, baseURL *url.URL, feedItem *gofeed.Item, f
 	if feedItem.PublishedParsed != nil {
 		value := feedItem.PublishedParsed.UTC()
 		publishedAt = &value
-	} else if feedItem.UpdatedParsed != nil {
+	}
+	var sourceUpdatedAt *time.Time
+	if feedItem.UpdatedParsed != nil {
 		value := feedItem.UpdatedParsed.UTC()
-		publishedAt = &value
+		sourceUpdatedAt = &value
 	}
 
 	return domain.Item{
-		SourceID:       sourceID,
-		Title:          title,
-		URL:            itemURL,
-		NormalizedURL:  normalizedURL,
-		RawGUID:        rawGUID,
-		ContentHash:    contentHash(title, normalizedURL, content),
-		ContentSnippet: contentSnippet,
-		Author:         authorName(feedItem),
-		PublishedAt:    publishedAt,
-		FetchedAt:      fetchedAt,
+		SourceID:        sourceID,
+		Title:           title,
+		URL:             itemURL,
+		NormalizedURL:   normalizedURL,
+		RawGUID:         rawGUID,
+		ContentHash:     contentHash(title, normalizedURL, content),
+		ContentSnippet:  contentSnippet,
+		Author:          authorName(feedItem),
+		PublishedAt:     publishedAt,
+		SourceUpdatedAt: sourceUpdatedAt,
+		FetchedAt:       fetchedAt,
 	}, true
 }
 

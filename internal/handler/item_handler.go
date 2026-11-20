@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"html"
@@ -54,36 +55,43 @@ func registerProtectedItemRoutes(router *gin.RouterGroup, itemService itemStateS
 }
 
 type itemListResponse struct {
-	Items  []itemResponse `json:"items"`
-	Total  int64          `json:"total"`
-	Limit  int            `json:"limit"`
-	Offset int            `json:"offset"`
+	Items         []itemResponse `json:"items"`
+	Total         int64          `json:"total"`
+	Limit         int            `json:"limit"`
+	Offset        int            `json:"offset"`
+	NextCursor    string         `json:"next_cursor,omitempty"`
+	Generation    string         `json:"generation,omitempty"`
+	RefreshStatus string         `json:"refresh_status,omitempty"`
 }
 
 type itemResponse struct {
-	ID             int64      `json:"id"`
-	SourceID       int64      `json:"source_id"`
-	SourceName     string     `json:"source_name,omitempty"`
-	Title          string     `json:"title"`
-	URL            string     `json:"url"`
-	NormalizedURL  string     `json:"normalized_url"`
-	RawGUID        string     `json:"raw_guid,omitempty"`
-	ContentHash    string     `json:"content_hash,omitempty"`
-	Summary        string     `json:"summary,omitempty"`
-	ContentSnippet string     `json:"content_snippet,omitempty"`
-	ContentText    string     `json:"content_text,omitempty"`
-	ContentHTML    string     `json:"content_html,omitempty"`
-	Author         string     `json:"author,omitempty"`
-	PublishedAt    *time.Time `json:"published_at,omitempty"`
-	FetchedAt      time.Time  `json:"fetched_at"`
-	IsRead         bool       `json:"is_read"`
-	ReadAt         *time.Time `json:"read_at,omitempty"`
-	IsFavorite     bool       `json:"is_favorite"`
-	FavoritedAt    *time.Time `json:"favorited_at,omitempty"`
-	IsHidden       bool       `json:"is_hidden"`
-	HiddenAt       *time.Time `json:"hidden_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID              int64      `json:"id"`
+	SourceID        int64      `json:"source_id"`
+	CatalogID       int64      `json:"catalog_id,omitempty"`
+	SubscriptionID  int64      `json:"subscription_id,omitempty"`
+	SourceKind      string     `json:"source_kind,omitempty"`
+	SourceName      string     `json:"source_name,omitempty"`
+	Title           string     `json:"title"`
+	URL             string     `json:"url"`
+	NormalizedURL   string     `json:"normalized_url"`
+	RawGUID         string     `json:"raw_guid,omitempty"`
+	ContentHash     string     `json:"content_hash,omitempty"`
+	Summary         string     `json:"summary,omitempty"`
+	ContentSnippet  string     `json:"content_snippet,omitempty"`
+	ContentText     string     `json:"content_text,omitempty"`
+	ContentHTML     string     `json:"content_html,omitempty"`
+	Author          string     `json:"author,omitempty"`
+	PublishedAt     *time.Time `json:"published_at,omitempty"`
+	SourceUpdatedAt *time.Time `json:"source_updated_at,omitempty"`
+	FetchedAt       time.Time  `json:"fetched_at"`
+	IsRead          bool       `json:"is_read"`
+	ReadAt          *time.Time `json:"read_at,omitempty"`
+	IsFavorite      bool       `json:"is_favorite"`
+	FavoritedAt     *time.Time `json:"favorited_at,omitempty"`
+	IsHidden        bool       `json:"is_hidden"`
+	HiddenAt        *time.Time `json:"hidden_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 type userItemStateResponse struct {
@@ -142,6 +150,11 @@ func (h itemHandler) listItems(c *gin.Context) {
 		return
 	}
 
+	cursor, err := parseItemCursor(c.Query("cursor"))
+	if err != nil {
+		writeItemError(c, err)
+		return
+	}
 	result, err := h.timelineService.ListItems(c.Request.Context(), service.ListItemsInput{
 		UserID:        currentUserID(c),
 		SourceID:      sourceID,
@@ -152,6 +165,7 @@ func (h itemHandler) listItems(c *gin.Context) {
 		Limit:         limit,
 		Offset:        offset,
 		Order:         c.Query("order"),
+		Cursor:        cursor,
 	})
 	if err != nil {
 		writeItemError(c, err)
@@ -163,10 +177,11 @@ func (h itemHandler) listItems(c *gin.Context) {
 		items = append(items, itemResponseFromDomainForAuth(item, currentAuth(c).Authenticated))
 	}
 	Success(c, itemListResponse{
-		Items:  items,
-		Total:  result.Total,
-		Limit:  result.Limit,
-		Offset: result.Offset,
+		Items:      items,
+		Total:      result.Total,
+		Limit:      result.Limit,
+		Offset:     result.Offset,
+		NextCursor: formatItemCursor(result.NextCursor),
 	})
 }
 
@@ -198,12 +213,13 @@ func (h itemHandler) listRecommendations(c *gin.Context) {
 	}
 
 	result, err := h.recommendationService.ListRecommendations(c.Request.Context(), service.ListRecommendationsInput{
-		UserID:   currentUserID(c),
-		SourceID: sourceID,
-		Limit:    limit,
-		Offset:   offset,
-		Order:    c.Query("order"),
-		Refresh:  refresh != nil && *refresh,
+		UserID:     currentUserID(c),
+		SourceID:   sourceID,
+		Limit:      limit,
+		Offset:     offset,
+		Order:      c.Query("order"),
+		Refresh:    refresh != nil && *refresh,
+		Generation: c.Query("generation"),
 	})
 	if err != nil {
 		writeItemError(c, err)
@@ -215,10 +231,12 @@ func (h itemHandler) listRecommendations(c *gin.Context) {
 		items = append(items, itemResponseFromDomainForAuth(item, currentAuth(c).Authenticated))
 	}
 	Success(c, itemListResponse{
-		Items:  items,
-		Total:  result.Total,
-		Limit:  result.Limit,
-		Offset: result.Offset,
+		Items:         items,
+		Total:         result.Total,
+		Limit:         result.Limit,
+		Offset:        result.Offset,
+		Generation:    result.Generation,
+		RefreshStatus: result.RefreshStatus,
 	})
 }
 
@@ -395,30 +413,65 @@ func itemResponseFromDomainForAuth(item domain.Item, authenticated bool) itemRes
 		item.HiddenAt = nil
 	}
 	return itemResponse{
-		ID:             item.ID,
-		SourceID:       item.SourceID,
-		SourceName:     item.SourceName,
-		Title:          item.Title,
-		URL:            item.URL,
-		NormalizedURL:  item.NormalizedURL,
-		RawGUID:        item.RawGUID,
-		ContentHash:    item.ContentHash,
-		Summary:        item.Summary,
-		ContentSnippet: item.ContentSnippet,
-		ContentText:    plainTextFromHTML(item.ContentSnippet),
-		ContentHTML:    item.ContentSnippet,
-		Author:         item.Author,
-		PublishedAt:    item.PublishedAt,
-		FetchedAt:      item.FetchedAt,
-		IsRead:         item.IsRead,
-		ReadAt:         item.ReadAt,
-		IsFavorite:     item.IsFavorite,
-		FavoritedAt:    item.FavoritedAt,
-		IsHidden:       item.IsHidden,
-		HiddenAt:       item.HiddenAt,
-		CreatedAt:      item.CreatedAt,
-		UpdatedAt:      item.UpdatedAt,
+		ID:              item.ID,
+		SourceID:        item.SourceID,
+		CatalogID:       item.CatalogID,
+		SubscriptionID:  item.SubscriptionID,
+		SourceKind:      item.SourceKind,
+		SourceName:      item.SourceName,
+		Title:           item.Title,
+		URL:             item.URL,
+		NormalizedURL:   item.NormalizedURL,
+		RawGUID:         item.RawGUID,
+		ContentHash:     item.ContentHash,
+		Summary:         item.Summary,
+		ContentSnippet:  item.ContentSnippet,
+		ContentText:     plainTextFromHTML(item.ContentSnippet),
+		ContentHTML:     item.ContentSnippet,
+		Author:          item.Author,
+		PublishedAt:     item.PublishedAt,
+		SourceUpdatedAt: item.SourceUpdatedAt,
+		FetchedAt:       item.FetchedAt,
+		IsRead:          item.IsRead,
+		ReadAt:          item.ReadAt,
+		IsFavorite:      item.IsFavorite,
+		FavoritedAt:     item.FavoritedAt,
+		IsHidden:        item.IsHidden,
+		HiddenAt:        item.HiddenAt,
+		CreatedAt:       item.CreatedAt,
+		UpdatedAt:       item.UpdatedAt,
 	}
+}
+
+func parseItemCursor(value string) (*domain.ItemCursor, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if value == "start" {
+		return &domain.ItemCursor{Snapshot: time.Now().UTC()}, nil
+	}
+	if len(value) <= 256 {
+		decoded, err := base64.RawURLEncoding.DecodeString(value)
+		if err == nil {
+			var cursor domain.ItemCursor
+			if json.Unmarshal(decoded, &cursor) == nil && cursor.ID > 0 && !cursor.Time.IsZero() &&
+				!cursor.Snapshot.IsZero() && !cursor.Snapshot.After(time.Now().UTC()) {
+				return &cursor, nil
+			}
+		}
+	}
+	return nil, domain.ErrInvalidInput
+}
+
+func formatItemCursor(cursor *domain.ItemCursor) string {
+	if cursor == nil {
+		return ""
+	}
+	encoded, err := json.Marshal(cursor)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
 }
 
 func plainTextFromHTML(value string) string {

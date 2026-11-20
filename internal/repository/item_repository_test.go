@@ -1,12 +1,94 @@
 package repository
 
 import (
+	"context"
+	"fmt"
 	"messagefeed/internal/domain"
+	"os"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
+
+func TestFeedVisibilityAndCursorPostgres(test *testing.T) {
+	databaseURL := os.Getenv("FEED_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		test.Skip("设置 FEED_TEST_DATABASE_URL 后执行 PostgreSQL 验收")
+	}
+	database, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{})
+	if err != nil {
+		test.Fatal(err)
+	}
+	connection, err := database.DB()
+	if err != nil {
+		test.Fatal(err)
+	}
+	defer connection.Close()
+	transaction := database.Begin()
+	if transaction.Error != nil {
+		test.Fatal(transaction.Error)
+	}
+	defer transaction.Rollback()
+	stamp := time.Now().UnixNano()
+	var ownerID, memberID, publicSource, privateSource, memberSource, catalogID int64
+	for role, id := range map[string]*int64{"owner": &ownerID, "user": &memberID} {
+		if err := transaction.Raw("INSERT INTO users (username, role) VALUES (?, ?) RETURNING id", fmt.Sprintf("feed-%s-%d", role, stamp), role).Scan(id).Error; err != nil {
+			test.Fatal(err)
+		}
+	}
+	publicURL := fmt.Sprintf("https://example.org/feed/%d", stamp)
+	if err := transaction.Raw(`INSERT INTO source_catalog_entries (source_key, name, feed_url, normalized_url, official, license_status)
+		VALUES (?, 'Public', ?, ?, true, 'allowed') RETURNING id`, publicURL, publicURL, publicURL).Scan(&catalogID).Error; err != nil {
+		test.Fatal(err)
+	}
+	for _, source := range []struct {
+		id    *int64
+		owner int64
+		url   string
+	}{
+		{&publicSource, ownerID, publicURL}, {&privateSource, ownerID, publicURL + "/private"}, {&memberSource, memberID, publicURL},
+	} {
+		if err := transaction.Raw("INSERT INTO sources (user_id, name, url, normalized_url) VALUES (?, 'Feed', ?, ?) RETURNING id", source.owner, source.url, source.url).Scan(source.id).Error; err != nil {
+			test.Fatal(err)
+		}
+	}
+	repo := NewItemRepository(transaction)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	items := []domain.Item{
+		{SourceID: publicSource, Title: "First", URL: publicURL + "/1", NormalizedURL: publicURL + "/1", PublishedAt: &now, CreatedAt: now},
+		{SourceID: publicSource, Title: "Second", URL: publicURL + "/2", NormalizedURL: publicURL + "/2", SourceUpdatedAt: &now, CreatedAt: now},
+		{SourceID: publicSource, Title: "Internal", URL: "messagefeed://ai/agent_operation_log/internal", NormalizedURL: "messagefeed://ai/agent_operation_log/internal", CreatedAt: now},
+		{SourceID: privateSource, Title: "Private", URL: publicURL + "/3", NormalizedURL: publicURL + "/3", CreatedAt: now},
+		{SourceID: memberSource, Title: "Member", URL: publicURL + "/4", NormalizedURL: publicURL + "/4", CreatedAt: now},
+	}
+	created, err := repo.UpsertMany(ctx, items)
+	if err != nil {
+		test.Fatal(err)
+	}
+	for _, item := range created.CreatedItems[2:] {
+		if _, err := repo.GetByIDPublic(ctx, item.ID); err != domain.ErrNotFound {
+			test.Fatalf("public detail for %s returned %v", item.Title, err)
+		}
+	}
+	first, err := repo.ListPublic(ctx, domain.ItemListOptions{SourceID: publicSource, Limit: 1, Cursor: &domain.ItemCursor{Snapshot: now}})
+	if err != nil || first.Total != 2 || len(first.Items) != 1 || first.Items[0].CatalogID != catalogID {
+		test.Fatalf("first page: %+v, %v", first, err)
+	}
+	newItem := domain.Item{SourceID: publicSource, Title: "New", URL: publicURL + "/5", NormalizedURL: publicURL + "/5", CreatedAt: now.Add(time.Second)}
+	if _, err := repo.UpsertMany(ctx, []domain.Item{newItem}); err != nil {
+		test.Fatal(err)
+	}
+	last := first.Items[0]
+	second, err := repo.ListPublic(ctx, domain.ItemListOptions{SourceID: publicSource, Limit: 1, Cursor: &domain.ItemCursor{Snapshot: now, ID: last.ID, Time: last.FeedOrderTime()}})
+	if err != nil || len(second.Items) != 1 || second.Items[0].Title != "First" {
+		test.Fatalf("second page: %+v, %v", second, err)
+	}
+}
 
 func TestItemModelRoundTrip(t *testing.T) {
 	now := time.Date(2026, 6, 17, 9, 0, 0, 0, time.UTC)

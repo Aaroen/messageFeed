@@ -67,6 +67,9 @@ export interface SourceCatalogList {
 export interface FeedItem {
   id: number
   source_id: number
+  catalog_id?: number
+  subscription_id?: number
+  source_kind?: 'subscriptions' | 'recommendations'
   source_name?: string
   title: string
   url: string
@@ -76,6 +79,7 @@ export interface FeedItem {
   content_html?: string
   author?: string
   published_at?: string
+  source_updated_at?: string
   fetched_at: string
   is_read: boolean
   is_favorite: boolean
@@ -101,6 +105,9 @@ export interface FeedItemList {
   total: number
   limit: number
   offset: number
+  next_cursor?: string
+  generation?: string
+  refresh_status?: 'running' | 'ready' | 'failed'
 }
 
 export type FeedViewMode = 'timeline' | 'recommendations'
@@ -254,6 +261,8 @@ async function fetchSourceFailureMessage(id: number, cause: unknown) {
 
 export async function listSourceCatalog(
   params: {
+    catalog_id?: number
+    subscription_id?: number
     category?: string
     q?: string
     language?: string
@@ -334,6 +343,7 @@ export async function listTimelineItems(
   params: {
     limit?: number
     offset?: number
+    cursor?: string
     source_id?: number
     is_read?: boolean
     is_favorite?: boolean
@@ -353,7 +363,7 @@ export async function listTimelineItems(
 }
 
 export async function listRecommendationItems(
-  params: { limit?: number; offset?: number; source_id?: number; order?: 'asc' | 'desc'; refresh?: boolean } = {},
+  params: { limit?: number; offset?: number; source_id?: number; order?: 'asc' | 'desc'; refresh?: boolean; generation?: string } = {},
 ) {
   const response = await apiClient.get<APIEnvelope<FeedItemList>>('/api/v1/feed/recommendations', {
     params: {

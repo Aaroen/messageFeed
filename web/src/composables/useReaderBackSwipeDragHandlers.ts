@@ -1,6 +1,7 @@
 import type { FeedItem } from '@/api/feed'
 import { clampProgress } from '@/composables/feedChromeMetrics'
 import type { FeedSourceKind, ReaderSource } from '@/composables/useReaderSession'
+import { readerSourceForItem } from '@/composables/useReaderSession'
 
 type ReadableRef<T> = {
   readonly value: T
@@ -106,19 +107,11 @@ export function useReaderBackSwipeDragHandlers(options: ReaderBackSwipeDragHandl
   }
 
   function prepareDetailSourceReaderPreload() {
-    const item = options.detailItem.value
-    if (!item?.source_id || options.readerSource.value) {
+    const source = readerSourceForItem(options.detailItem.value, options.detailSourceKind.value)
+    if (!source || options.readerSource.value) {
       return
     }
-
-    options.openSourceReader(
-      {
-        id: item.source_id,
-        name: item.source_name || '未知来源',
-        kind: options.detailSourceKind.value,
-      },
-      { visible: false },
-    )
+    options.openSourceReader(source, { visible: false })
   }
 
   function beginDetailGestureCandidate(startX: number, startY: number) {

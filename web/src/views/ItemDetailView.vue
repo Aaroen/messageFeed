@@ -23,7 +23,7 @@ const error = ref('')
 const actionError = ref('')
 
 const itemID = computed(() => Number.parseInt(route.params.id?.toString() ?? '0', 10))
-const displayDate = computed(() => formatItemDate(item.value?.published_at || item.value?.fetched_at))
+const displayDate = computed(() => formatItemDate(item.value?.published_at))
 const detailSrcdoc = computed(() => {
   const current = item.value
   const source =

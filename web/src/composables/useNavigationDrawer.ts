@@ -26,14 +26,7 @@ export function useNavigationDrawer(options: NavigationDrawerOptions) {
   let frame = 0
   let motionToken = 0
 
-  const width = computed(() => {
-    if (options.windowWidth.value <= 420) {
-      return Math.round(options.windowWidth.value * 0.8)
-    }
-    return Math.round(
-      Math.min(Math.max(304, options.windowWidth.value * 0.32), Math.min(440, options.windowWidth.value * 0.8)),
-    )
-  })
+  const width = computed(() => Math.round(Math.min(336, options.windowWidth.value * 0.86)))
 
   const visible = computed(() => open.value || progress.value > 0 || settling.value)
 

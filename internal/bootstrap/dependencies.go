@@ -136,6 +136,7 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 		service.WithSourceFetchJobRepository(sourceFetchJobRepository),
 		service.WithItemRepository(itemRepository),
 		service.WithFeedFetcher(feedFetcher),
+		service.WithSourceCatalogCheckHTTPClient(fetcher.NewPublicHTTPClient(5*time.Second)),
 	)
 
 	var weChatWorkOAuth *service.WeChatWorkOAuthClient
@@ -150,6 +151,7 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	timelineService := service.NewTimelineService(itemRepository)
 	recommendationService := service.NewRecommendationService(sourceCatalogRepository, feedFetcher)
 	recommendationService.SetLocalHistoryRepositories(sourceRepository, itemRepository)
+	recommendationService.SetSnapshotRepository(repository.NewFeedRecommendationRepository(database))
 	agentLLMConfigSecret := service.AgentLLMConfigSecretFromConfig(cfg)
 	agentLLMConfigService := service.NewAgentLLMConfigService(agentRepository, service.WithAgentLLMConfigDefaultConfig(cfg.LLM), service.WithAgentLLMConfigSecret(agentLLMConfigSecret))
 	agentLLMRuntime := service.NewAgentLLMRuntime(agentRepository,

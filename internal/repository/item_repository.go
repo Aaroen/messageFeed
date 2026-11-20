@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type ItemRepository struct {
@@ -19,48 +20,53 @@ func NewItemRepository(db *gorm.DB) *ItemRepository {
 }
 
 type itemModel struct {
-	ID             int64  `gorm:"primaryKey"`
-	SourceID       int64  `gorm:"not null"`
-	Title          string `gorm:"not null"`
-	URL            string `gorm:"column:url;not null"`
-	NormalizedURL  string `gorm:"not null"`
-	RawGUID        string
-	ContentHash    string
-	Summary        string
-	ContentSnippet string
-	Author         string
-	PublishedAt    *time.Time
-	FetchedAt      time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                  int64  `gorm:"primaryKey"`
+	SourceID            int64  `gorm:"not null"`
+	Title               string `gorm:"not null"`
+	URL                 string `gorm:"column:url;not null"`
+	NormalizedURL       string `gorm:"not null"`
+	RawGUID             string
+	ContentHash         string
+	Summary             string
+	ContentSnippet      string
+	Author              string
+	PublishedAt         *time.Time
+	SourceUpdatedAt     *time.Time
+	PublicationVerified bool
+	FetchedAt           time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type itemViewModel struct {
-	ID             int64
-	SourceID       int64
-	SourceName     string
-	Title          string
-	URL            string `gorm:"column:url"`
-	NormalizedURL  string
-	RawGUID        string
-	ContentHash    string
-	Summary        string
-	ContentSnippet string
-	Author         string
-	PublishedAt    *time.Time
-	FetchedAt      time.Time
-	IsRead         bool
-	ReadAt         *time.Time
-	IsFavorite     bool
-	FavoritedAt    *time.Time
-	IsHidden       bool
-	HiddenAt       *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID              int64
+	SourceID        int64
+	CatalogID       int64
+	SourceName      string
+	Title           string
+	URL             string `gorm:"column:url"`
+	NormalizedURL   string
+	RawGUID         string
+	ContentHash     string
+	Summary         string
+	ContentSnippet  string
+	Author          string
+	PublishedAt     *time.Time
+	SourceUpdatedAt *time.Time
+	FetchedAt       time.Time
+	IsRead          bool
+	ReadAt          *time.Time
+	IsFavorite      bool
+	FavoritedAt     *time.Time
+	IsHidden        bool
+	HiddenAt        *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 const activeSourceStatusFilter = "sources.status = ?"
 const hiddenAgentOperationLogURLPattern = "messagefeed://ai/agent_operation_log/%"
+const itemOrderTimeSQL = "COALESCE(items.published_at, items.source_updated_at, items.created_at)"
 
 func (itemModel) TableName() string {
 	return "items"
@@ -112,6 +118,9 @@ func (r *ItemRepository) ListByUser(ctx context.Context, options domain.ItemList
 	defer func() { finish(opErr) }()
 
 	query := itemViewBaseQuery(r.db.WithContext(ctx), options.UserID)
+	if options.CatalogOnly {
+		query = query.Where("public_catalog.id IS NOT NULL")
+	}
 	query = applyItemSourceFilters(query, options)
 	query = applyItemStateFilters(query, options)
 
@@ -124,6 +133,7 @@ func (r *ItemRepository) ListByUser(ctx context.Context, options domain.ItemList
 	var models []itemViewModel
 	if err := query.
 		Select(itemViewSelectColumns()).
+		Scopes(itemCursorScope(options)).
 		Order(itemListOrderClause(options.SortOrder)).
 		Limit(options.Limit).
 		Offset(options.Offset).
@@ -161,6 +171,7 @@ func (r *ItemRepository) ListPublic(ctx context.Context, options domain.ItemList
 	var models []itemViewModel
 	if err := query.
 		Select(itemPublicViewSelectColumns()).
+		Scopes(itemCursorScope(options)).
 		Order(itemListOrderClause(options.SortOrder)).
 		Limit(options.Limit).
 		Offset(options.Offset).
@@ -226,19 +237,33 @@ func (r *ItemRepository) GetByIDPublic(ctx context.Context, itemID int64) (domai
 func itemViewBaseQuery(db *gorm.DB, userID int64) *gorm.DB {
 	return db.Table("items").
 		Joins("JOIN sources ON sources.id = items.source_id").
+		Joins(itemCatalogJoin("LEFT JOIN")).
 		Joins("LEFT JOIN user_item_states ON user_item_states.item_id = items.id AND user_item_states.user_id = ?", userID).
-		Where("sources.user_id = ?", userID)
+		Where("sources.user_id = ?", userID).
+		Where("items.normalized_url NOT LIKE ?", hiddenAgentOperationLogURLPattern)
 }
 
 func itemPublicBaseQuery(db *gorm.DB) *gorm.DB {
 	return db.Table("items").
-		Joins("JOIN sources ON sources.id = items.source_id")
+		Joins("JOIN sources ON sources.id = items.source_id").
+		Joins("JOIN users ON users.id = sources.user_id AND users.role = 'owner'").
+		Joins(itemCatalogJoin("JOIN")).
+		Where("items.normalized_url NOT LIKE ? AND sources.type <> ?", hiddenAgentOperationLogURLPattern, "internal")
+}
+
+func itemCatalogJoin(join string) string {
+	return join + ` LATERAL (
+		SELECT id, name FROM source_catalog_entries
+		WHERE normalized_url = sources.normalized_url AND official AND license_status = 'allowed'
+		ORDER BY id LIMIT 1
+	) AS public_catalog ON true`
 }
 
 func itemViewSelectColumns() string {
 	return `
 		items.id,
 		items.source_id,
+		COALESCE(public_catalog.id, 0) AS catalog_id,
 		sources.name AS source_name,
 		items.title,
 		items.url,
@@ -249,6 +274,7 @@ func itemViewSelectColumns() string {
 		items.content_snippet,
 		items.author,
 		items.published_at,
+		items.source_updated_at,
 		items.fetched_at,
 		COALESCE(user_item_states.is_read, false) AS is_read,
 		user_item_states.read_at,
@@ -264,7 +290,8 @@ func itemPublicViewSelectColumns() string {
 	return `
 		items.id,
 		items.source_id,
-		sources.name AS source_name,
+		public_catalog.id AS catalog_id,
+		public_catalog.name AS source_name,
 		items.title,
 		items.url,
 		items.normalized_url,
@@ -274,6 +301,7 @@ func itemPublicViewSelectColumns() string {
 		items.content_snippet,
 		items.author,
 		items.published_at,
+		items.source_updated_at,
 		items.fetched_at,
 		false AS is_read,
 		NULL::timestamp with time zone AS read_at,
@@ -287,9 +315,27 @@ func itemPublicViewSelectColumns() string {
 
 func itemListOrderClause(order domain.ItemSortOrder) string {
 	if order == domain.ItemSortOrderAsc {
-		return "items.published_at ASC NULLS LAST, items.fetched_at ASC, items.id ASC"
+		return itemOrderTimeSQL + " ASC, items.id ASC"
 	}
-	return "items.published_at DESC NULLS LAST, items.fetched_at DESC, items.id DESC"
+	return itemOrderTimeSQL + " DESC, items.id DESC"
+}
+
+func itemCursorScope(options domain.ItemListOptions) func(*gorm.DB) *gorm.DB {
+	return func(query *gorm.DB) *gorm.DB {
+		cursor := options.Cursor
+		if cursor == nil {
+			return query
+		}
+		query = query.Where("items.created_at <= ?", cursor.Snapshot)
+		if cursor.ID == 0 {
+			return query
+		}
+		operator := "<"
+		if options.SortOrder == domain.ItemSortOrderAsc {
+			operator = ">"
+		}
+		return query.Where("("+itemOrderTimeSQL+", items.id) "+operator+" (?, ?)", cursor.Time, cursor.ID)
+	}
 }
 
 func applyItemStateFilters(query *gorm.DB, options domain.ItemListOptions) *gorm.DB {
@@ -330,23 +376,37 @@ func upsertItem(ctx context.Context, db *gorm.DB, item domain.Item) (domain.Item
 	if err != nil {
 		return domain.Item{}, false, err
 	}
+	if !found {
+		result := db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&model)
+		if result.Error != nil {
+			return domain.Item{}, false, result.Error
+		}
+		if result.RowsAffected == 1 {
+			return itemModelToDomain(model), true, nil
+		}
+		existing, found, err = findExistingItem(ctx, db, item)
+		if err != nil {
+			return domain.Item{}, false, err
+		}
+	}
 	if found {
 		model.ID = existing.ID
 		model.CreatedAt = existing.CreatedAt
+		if existing.PublicationVerified && !model.PublicationVerified || model.PublishedAt == nil {
+			model.PublishedAt = existing.PublishedAt
+			model.PublicationVerified = existing.PublicationVerified
+		}
 		if err := db.WithContext(ctx).
 			Model(&itemModel{}).
 			Where("id = ?", existing.ID).
-			Select("Title", "URL", "NormalizedURL", "RawGUID", "ContentHash", "Summary", "ContentSnippet", "Author", "PublishedAt", "FetchedAt").
+			Select("Title", "URL", "NormalizedURL", "RawGUID", "ContentHash", "Summary", "ContentSnippet", "Author", "PublishedAt", "SourceUpdatedAt", "PublicationVerified", "FetchedAt").
 			Updates(&model).Error; err != nil {
 			return domain.Item{}, false, err
 		}
 		return itemModelToDomain(model), false, nil
 	}
 
-	if err := db.WithContext(ctx).Create(&model).Error; err != nil {
-		return domain.Item{}, false, err
-	}
-	return itemModelToDomain(model), true, nil
+	return domain.Item{}, false, domain.ErrConflict
 }
 
 func findExistingItem(ctx context.Context, db *gorm.DB, item domain.Item) (itemModel, bool, error) {
@@ -378,20 +438,22 @@ func findExistingItem(ctx context.Context, db *gorm.DB, item domain.Item) (itemM
 func itemModelFromDomain(item domain.Item) itemModel {
 	item = sanitizeItemText(item)
 	return itemModel{
-		ID:             item.ID,
-		SourceID:       item.SourceID,
-		Title:          item.Title,
-		URL:            item.URL,
-		NormalizedURL:  item.NormalizedURL,
-		RawGUID:        item.RawGUID,
-		ContentHash:    item.ContentHash,
-		Summary:        item.Summary,
-		ContentSnippet: item.ContentSnippet,
-		Author:         item.Author,
-		PublishedAt:    item.PublishedAt,
-		FetchedAt:      item.FetchedAt,
-		CreatedAt:      item.CreatedAt,
-		UpdatedAt:      item.UpdatedAt,
+		ID:                  item.ID,
+		SourceID:            item.SourceID,
+		Title:               item.Title,
+		URL:                 item.URL,
+		NormalizedURL:       item.NormalizedURL,
+		RawGUID:             item.RawGUID,
+		ContentHash:         item.ContentHash,
+		Summary:             item.Summary,
+		ContentSnippet:      item.ContentSnippet,
+		Author:              item.Author,
+		PublishedAt:         item.PublishedAt,
+		SourceUpdatedAt:     item.SourceUpdatedAt,
+		PublicationVerified: item.PublicationVerified,
+		FetchedAt:           item.FetchedAt,
+		CreatedAt:           item.CreatedAt,
+		UpdatedAt:           item.UpdatedAt,
 	}
 }
 
@@ -409,45 +471,51 @@ func sanitizeItemText(item domain.Item) domain.Item {
 
 func itemModelToDomain(model itemModel) domain.Item {
 	return domain.Item{
-		ID:             model.ID,
-		SourceID:       model.SourceID,
-		Title:          model.Title,
-		URL:            model.URL,
-		NormalizedURL:  model.NormalizedURL,
-		RawGUID:        model.RawGUID,
-		ContentHash:    model.ContentHash,
-		Summary:        model.Summary,
-		ContentSnippet: model.ContentSnippet,
-		Author:         model.Author,
-		PublishedAt:    model.PublishedAt,
-		FetchedAt:      model.FetchedAt,
-		CreatedAt:      model.CreatedAt,
-		UpdatedAt:      model.UpdatedAt,
+		ID:                  model.ID,
+		SourceID:            model.SourceID,
+		Title:               model.Title,
+		URL:                 model.URL,
+		NormalizedURL:       model.NormalizedURL,
+		RawGUID:             model.RawGUID,
+		ContentHash:         model.ContentHash,
+		Summary:             model.Summary,
+		ContentSnippet:      model.ContentSnippet,
+		Author:              model.Author,
+		PublishedAt:         model.PublishedAt,
+		SourceUpdatedAt:     model.SourceUpdatedAt,
+		PublicationVerified: model.PublicationVerified,
+		FetchedAt:           model.FetchedAt,
+		CreatedAt:           model.CreatedAt,
+		UpdatedAt:           model.UpdatedAt,
 	}
 }
 
 func itemViewModelToDomain(model itemViewModel) domain.Item {
 	return domain.Item{
-		ID:             model.ID,
-		SourceID:       model.SourceID,
-		SourceName:     model.SourceName,
-		Title:          model.Title,
-		URL:            model.URL,
-		NormalizedURL:  model.NormalizedURL,
-		RawGUID:        model.RawGUID,
-		ContentHash:    model.ContentHash,
-		Summary:        model.Summary,
-		ContentSnippet: model.ContentSnippet,
-		Author:         model.Author,
-		PublishedAt:    model.PublishedAt,
-		FetchedAt:      model.FetchedAt,
-		IsRead:         model.IsRead,
-		ReadAt:         model.ReadAt,
-		IsFavorite:     model.IsFavorite,
-		FavoritedAt:    model.FavoritedAt,
-		IsHidden:       model.IsHidden,
-		HiddenAt:       model.HiddenAt,
-		CreatedAt:      model.CreatedAt,
-		UpdatedAt:      model.UpdatedAt,
+		ID:              model.ID,
+		SourceID:        model.SourceID,
+		SourceName:      model.SourceName,
+		CatalogID:       model.CatalogID,
+		SubscriptionID:  model.SourceID,
+		SourceKind:      "subscriptions",
+		Title:           model.Title,
+		URL:             model.URL,
+		NormalizedURL:   model.NormalizedURL,
+		RawGUID:         model.RawGUID,
+		ContentHash:     model.ContentHash,
+		Summary:         model.Summary,
+		ContentSnippet:  model.ContentSnippet,
+		Author:          model.Author,
+		PublishedAt:     model.PublishedAt,
+		SourceUpdatedAt: model.SourceUpdatedAt,
+		FetchedAt:       model.FetchedAt,
+		IsRead:          model.IsRead,
+		ReadAt:          model.ReadAt,
+		IsFavorite:      model.IsFavorite,
+		FavoritedAt:     model.FavoritedAt,
+		IsHidden:        model.IsHidden,
+		HiddenAt:        model.HiddenAt,
+		CreatedAt:       model.CreatedAt,
+		UpdatedAt:       model.UpdatedAt,
 	}
 }

@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { IconFile, IconLaunch, IconRefresh } from '@arco-design/web-vue/es/icon'
 
 import { formatAPIError } from '@/api/client'
+import { getCurrentAuth } from '@/api/auth'
 import {
   fetchSource,
   type FeedItem,
@@ -13,6 +14,8 @@ import {
   setItemRead,
 } from '@/api/feed'
 import ActionBar from '@/components/ActionBar.vue'
+import ReaderSourceNotice from '@/components/ReaderSourceNotice.vue'
+import { formatItemDate, plainPreviewText } from '@/utils/readerContent'
 import { clampProgress, feedVisibleContentTopOffset } from '@/composables/feedChromeMetrics'
 import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRefreshCompletionAction'
 import { useGestureDirection } from '@/composables/useGestureDirection'
@@ -89,6 +92,8 @@ const backgroundRefreshing = ref(false)
 const lastUpdatedAt = ref('')
 const totalCount = ref(0)
 const nextOffset = ref(0)
+const nextCursor = ref<string>()
+const generation = ref<string>()
 const reachedEnd = ref(false)
 const feedPageRef = ref<HTMLElement | null>(null)
 const feedBodyRef = ref<HTMLElement | null>(null)
@@ -141,6 +146,7 @@ const canLoadMore = computed(
     !loading.value &&
     !refreshing.value &&
     !buttonRefreshing.value &&
+    !backgroundRefreshing.value &&
     !loadingMore.value &&
     !reachedEnd.value,
 )
@@ -265,55 +271,12 @@ const feedPullRefreshCompletion = useFeedPullRefreshCompletionAction({
 })
 const clearPullState = feedPullRefreshCompletion.clearPullState
 
-function formatDate(value?: string) {
-  if (!value) {
-    return '时间未知'
-  }
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(value))
-}
-
-function plainPreviewText(...values: Array<string | undefined>) {
-  const value = values.find((item) => item?.trim())
-  if (!value) {
-    return ''
-  }
-
-  const input = value.trim()
-  if (typeof DOMParser === 'undefined') {
-    return input.replace(/\s+/g, ' ')
-  }
-
-  const documentFragment = new DOMParser().parseFromString(input, 'text/html')
-  return (documentFragment.body.textContent || '').replace(/\s+/g, ' ').trim()
-}
-
 function itemSummary(item: FeedItem) {
   return plainPreviewText(item.summary, item.content_snippet, item.content_text, item.content_html) || '暂无摘要。'
 }
 
 function cssPx(value: number) {
   return `${(Number.isFinite(value) ? value : 0).toFixed(2)}px`
-}
-
-function itemTime(item: FeedItem) {
-  const value = item.published_at || item.fetched_at
-  const timestamp = value ? new Date(value).getTime() : 0
-  return Number.isFinite(timestamp) ? timestamp : 0
-}
-
-function compareItemsDescending(left: FeedItem, right: FeedItem) {
-  const timeDelta = itemTime(right) - itemTime(left)
-  return timeDelta === 0 ? left.id - right.id : timeDelta
-}
-
-function sortItemsDescending(nextItems: FeedItem[]) {
-  return [...nextItems].sort(compareItemsDescending)
 }
 
 function mergeItems(currentItems: FeedItem[], nextItems: FeedItem[]) {
@@ -324,7 +287,7 @@ function mergeItems(currentItems: FeedItem[], nextItems: FeedItem[]) {
   for (const item of nextItems) {
     itemMap.set(item.id, item)
   }
-  return sortItemsDescending(Array.from(itemMap.values()))
+  return Array.from(itemMap.values())
 }
 
 function currentFiltersMatch(item: FeedItem) {
@@ -347,9 +310,11 @@ function restoreItemsFromCache() {
     return null
   }
 
-  items.value = sortItemsDescending(entry.items)
+  items.value = entry.items
   totalCount.value = entry.total
   nextOffset.value = entry.nextOffset
+  nextCursor.value = entry.cursor
+  generation.value = entry.generation
   reachedEnd.value = entry.reachedEnd
   lastUpdatedAt.value = entry.lastUpdatedAt
   error.value = ''
@@ -362,6 +327,8 @@ function writeItemsToCache(cacheKey = viewKey.value) {
     items: items.value,
     total: totalCount.value,
     nextOffset: nextOffset.value,
+    cursor: nextCursor.value,
+    generation: generation.value,
     reachedEnd: reachedEnd.value,
     lastUpdatedAt: lastUpdatedAt.value,
     cachedAt: Date.now(),
@@ -376,6 +343,8 @@ function resetListState() {
   items.value = []
   totalCount.value = 0
   nextOffset.value = 0
+  nextCursor.value = undefined
+  generation.value = undefined
   reachedEnd.value = false
   lastUpdatedAt.value = ''
 }
@@ -387,15 +356,15 @@ function loadInitialItems() {
   }
   const background = !props.active && props.preload
   if (!restored) {
-    void loadItems({ refresh: isSourceMode.value, background })
+    void loadItems({ background })
     return
   }
   if (props.active && shouldRefreshVisibleSource.value) {
-    void loadItems({ refresh: true })
+    void loadItems({ background: true })
     return
   }
   if (shouldRefreshCache(restored)) {
-    void loadItems({ refresh: true, background: true })
+    void loadItems({ background: true })
   }
 }
 
@@ -513,17 +482,6 @@ function localRefreshNotice(previousItemIDs: Set<number>, nextItems: FeedItem[])
   }
 }
 
-function shouldFetchEmptySubscribedSource(isAppend: boolean, requestOffset: number, nextItems: FeedItem[]) {
-  return (
-    !isAppend &&
-    requestOffset === 0 &&
-    nextItems.length === 0 &&
-    isSourceMode.value &&
-    effectiveSourceKind.value === 'subscriptions' &&
-    effectiveSourceId.value > 0
-  )
-}
-
 function shouldMarkReachedEnd(nextItems: FeedItem[], nextOffsetValue: number, responseTotal: number) {
   if (nextItems.length < pageSize) {
     return true
@@ -612,38 +570,50 @@ async function loadItems(
     loading.value = true
   }
   try {
-    const loader = effectiveSourceKind.value === 'recommendations' ? listRecommendationItems : listTimelineItems
+    const usesRecommendations = effectiveSourceKind.value === 'recommendations'
     const requestOffset = isAppend ? nextOffset.value : 0
     const params = {
       limit: pageSize,
-      offset: requestOffset,
       order: 'desc' as const,
       ...(isFavoritesMode.value ? { is_favorite: true, is_hidden: false } : {}),
       ...(isHistoryMode.value ? { is_read: true, is_hidden: false } : {}),
-      ...(isRefresh && isSourceMode.value && effectiveSourceKind.value === 'recommendations' ? { refresh: true } : {}),
       ...(isSourceMode.value && effectiveSourceId.value > 0 ? { source_id: effectiveSourceId.value } : {}),
     }
-    let result = await loader(params)
+    const loadPage = () => usesRecommendations
+      ? listRecommendationItems({ ...params, offset: requestOffset, generation: isAppend ? generation.value : undefined, refresh: isRefresh && !isAppend && !isBackgroundRefresh })
+      : listTimelineItems({ ...params, cursor: isAppend ? nextCursor.value : 'start' })
+    if (isSourceMode.value && !usesRecommendations && isRefresh && !isBackgroundRefresh && effectiveSourceId.value > 0) {
+      const auth = await getCurrentAuth()
+      if (!loadRequestIsCurrent(requestToken, requestViewKey)) return
+      if (auth.authenticated) await fetchSource(effectiveSourceId.value)
+    }
+    let result = await loadPage()
     if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
       return
     }
-    if (shouldFetchEmptySubscribedSource(isAppend, requestOffset, result.items)) {
-      await fetchSource(effectiveSourceId.value)
-      if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
-        return
-      }
-      result = await loader(params)
-      if (!loadRequestIsCurrent(requestToken, requestViewKey)) {
-        return
+    if (usesRecommendations && result.refresh_status === 'running' && result.generation && !isAppend) {
+      if (!hasItems.value && result.items.length) items.value = result.items
+      if (!hasItems.value) loading.value = true
+      const pendingGeneration = result.generation
+      const deadline = Date.now() + 25000
+      while (result.refresh_status === 'running' && Date.now() < deadline) {
+        await new Promise(resolve => window.setTimeout(resolve, 850))
+        if (!loadRequestIsCurrent(requestToken, requestViewKey)) return
+        result = await listRecommendationItems({ ...params, generation: pendingGeneration })
+        if (!loadRequestIsCurrent(requestToken, requestViewKey)) return
       }
     }
+    if (result.refresh_status === 'failed') throw new Error('来源抓取失败，请重试。')
+    if (result.refresh_status === 'running') throw new Error('来源还在抓取，请稍后刷新。')
     const nextItems = result.items
     const nextTotal = result.total
 
-    items.value = isAppend ? mergeItems(items.value, nextItems) : sortItemsDescending(nextItems)
+    items.value = isAppend ? mergeItems(items.value, nextItems) : nextItems
     nextOffset.value = requestOffset + nextItems.length
     totalCount.value = Math.max(nextTotal, nextOffset.value)
-    reachedEnd.value = shouldMarkReachedEnd(nextItems, nextOffset.value, nextTotal)
+    nextCursor.value = result.next_cursor
+    generation.value = result.generation
+    reachedEnd.value = usesRecommendations ? shouldMarkReachedEnd(nextItems, nextOffset.value, nextTotal) : !result.next_cursor
     lastUpdatedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
     writeItemsToCache(requestViewKey)
     if (sequencesRefreshNotice) {
@@ -659,8 +629,10 @@ async function loadItems(
         if (!hasItems.value) {
           error.value = `刷新失败：${message}`
         }
-      } else {
+      } else if (hasItems.value) {
         refreshNoticeSequence.showAfterRefreshReleased({ type: 'warning', message: `刷新失败：${message}` })
+      } else {
+        error.value = `刷新失败：${message}`
       }
     } else if (isAppend) {
       showFeedNotice('warning', `加载更多失败：${message}`)
@@ -705,8 +677,7 @@ function updateCachedItemState(itemID: number, patch: Partial<Pick<FeedItem, 'is
   const nextItems = items.value
     .map((item) => (item.id === itemID ? { ...item, ...patch } : item))
     .filter(currentFiltersMatch)
-  items.value = sortItemsDescending(nextItems)
-  nextOffset.value = items.value.length
+  items.value = nextItems
   if (items.value.length < previousLength) {
     totalCount.value = Math.max(items.value.length, totalCount.value - (previousLength - items.value.length))
   }
@@ -716,6 +687,7 @@ function updateCachedItemState(itemID: number, patch: Partial<Pick<FeedItem, 'is
 function restoreCachedItemState(
   item: FeedItem,
   patch: Partial<Pick<FeedItem, 'is_read' | 'is_favorite' | 'is_hidden'>>,
+  previousIndex: number,
 ) {
   const restoredItem = { ...item, ...patch }
   let restored = false
@@ -727,10 +699,9 @@ function restoreCachedItemState(
     return restoredItem
   })
   if (!restored && currentFiltersMatch(restoredItem)) {
-    nextItems.push(restoredItem)
+    nextItems.splice(previousIndex, 0, restoredItem)
   }
-  items.value = sortItemsDescending(nextItems.filter(currentFiltersMatch))
-  nextOffset.value = items.value.length
+  items.value = nextItems.filter(currentFiltersMatch)
   totalCount.value = Math.max(totalCount.value, items.value.length)
   writeItemsToCache()
 }
@@ -740,6 +711,7 @@ async function updateItemState(item: FeedItem, key: ItemStateKey) {
     return
   }
   itemActionBusy.value = { ...itemActionBusy.value, [item.id]: key }
+  const previousIndex = items.value.findIndex(current => current.id === item.id)
   const previousState = {
     is_read: item.is_read,
     is_favorite: item.is_favorite,
@@ -765,7 +737,7 @@ async function updateItemState(item: FeedItem, key: ItemStateKey) {
     const state = await setItemHidden(item.id, nextValue)
     updateCachedItemState(item.id, { is_hidden: state.is_hidden })
   } catch (err) {
-    restoreCachedItemState(item, previousState)
+    restoreCachedItemState(item, previousState, previousIndex)
     showFeedNotice('warning', `状态更新失败：${formatAPIError(err)}`)
   } finally {
     itemActionBusy.value = { ...itemActionBusy.value, [item.id]: '' }
@@ -1072,11 +1044,11 @@ watch(
     }
     const restored = hasItems.value ? feedListCache.get(viewKey.value) : restoreItemsFromCache()
     if (!hasItems.value && !loading.value) {
-      void loadItems({ refresh: isSourceMode.value })
+      void loadItems()
       return
     }
     if (shouldRefreshVisibleSource.value) {
-      void loadItems({ refresh: true })
+      void loadItems({ background: true })
       return
     }
     if (shouldRefreshCache(restored)) {
@@ -1179,21 +1151,12 @@ watch(
     @touchend.passive="handleTouchEnd"
     @touchcancel.passive="handleTouchCancel"
   >
-    <Teleport to="body">
-      <Transition name="sources-toast-motion">
-        <div
-          v-if="feedNotice"
-          class="sources-toast feed-toast"
-          :class="`sources-toast--${feedNotice.type}`"
-          role="status"
-          aria-live="polite"
-        >
-          {{ feedNotice.message }}
-        </div>
-      </Transition>
-    </Teleport>
+    <ReaderSourceNotice :notice="feedNotice" />
 
-    <div ref="feedBodyRef" class="feed-list-body" :class="{ 'feed-reading': isMainFeed }" :style="feedBodyStyle">
+    <div ref="feedBodyRef" class="feed-list-body" :class="{ 'feed-reading': isMainFeed || isFavoritesMode || isHistoryMode, 'management-reading': isFavoritesMode || isHistoryMode }" :style="feedBodyStyle">
+      <header v-if="isFavoritesMode || isHistoryMode" class="management-page-heading">
+        <h1>{{ isFavoritesMode ? '收藏' : '阅读历史' }}</h1>
+      </header>
       <header v-if="isMainFeed" class="feed-heading">
         <div class="feed-title-row">
           <h1>{{ feedTitle }}</h1>
@@ -1202,12 +1165,18 @@ watch(
         </div>
         <p>{{ isRecommendations ? '值得继续阅读的内容' : '来自已关注来源的文章' }}</p>
       </header>
-      <a-alert v-if="errorMessage" class="feed-alert" type="warning" :content="errorMessage" show-icon />
+      <a-alert v-if="errorMessage && hasItems" class="feed-alert" type="warning" :content="errorMessage" show-icon />
 
       <section v-if="loading && !hasItems" class="empty-surface">
         <div class="empty-surface__mark">{{ copy.mark }}</div>
         <h2>{{ copy.loadingTitle }}</h2>
         <p>请稍候。</p>
+      </section>
+
+      <section v-else-if="errorMessage && !hasItems" class="empty-surface">
+        <h2>暂时无法加载内容</h2>
+        <p>{{ errorMessage }}</p>
+        <button class="sources-button" type="button" @click="loadItems({ refresh: true, fromButton: true })">重试</button>
       </section>
 
       <section v-else-if="!hasItems" class="empty-surface">
@@ -1230,7 +1199,8 @@ watch(
             <span class="feed-item__source">
               {{ item.source_name || '未知来源' }}
             </span>
-            <time :datetime="item.published_at || item.fetched_at">{{ formatDate(item.published_at || item.fetched_at) }}</time>
+            <time v-if="item.published_at" :datetime="item.published_at">{{ formatItemDate(item.published_at) }}</time>
+            <span v-else>发布时间未知</span>
           </div>
           <button
             class="feed-item__read-target"

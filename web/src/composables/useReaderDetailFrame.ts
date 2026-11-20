@@ -38,7 +38,7 @@ export function useReaderDetailFrame(options: ReaderDetailFrameOptions) {
         options.item.value?.content_html,
       ) || '暂无摘要。',
   )
-  const displayDate = computed(() => formatItemDate(options.item.value?.published_at || options.item.value?.fetched_at))
+  const displayDate = computed(() => formatItemDate(options.item.value?.published_at))
   const body = computed(() => {
     const source = html.value || `<p>${escapeHTML(text.value || '暂无正文。')}</p>`
     return sanitizeDetailHTML(source)

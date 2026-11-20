@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Component, StyleValue } from 'vue'
+import { computed, nextTick, ref, watch, type Component, type StyleValue } from 'vue'
 import {
   IconArrowLeft,
   IconMenuUnfold,
@@ -12,6 +12,7 @@ type ManagementItem = {
   key: string
   label: string
   icon: Component
+  ownerOnly?: boolean
 }
 
 const props = withDefaults(
@@ -53,16 +54,50 @@ const emit = defineEmits<{
   (event: 'toggle-theme'): void
   (event: 'open-settings'): void
 }>()
+
+const panel = ref<HTMLElement | null>(null)
+const opener = ref<HTMLButtonElement | null>(null)
+const readingKeys = new Set(['sources', 'favorites', 'history'])
+const sections = computed(() => [
+  { label: '阅读', items: props.managementItems.filter(item => readingKeys.has(item.key)) },
+  { label: '账户与偏好', items: props.managementItems.filter(item => !readingKeys.has(item.key) && !item.ownerOnly) },
+  { label: '管理员', items: props.managementItems.filter(item => item.ownerOnly) },
+].filter(section => section.items.length))
+
+watch(() => props.navigationVisible, async (visible) => {
+  await nextTick()
+  if (visible !== props.navigationVisible) return
+  if (visible) panel.value?.focus({ preventScroll: true })
+  else opener.value?.focus({ preventScroll: true })
+})
+
+function keepFocusInPanel(event: KeyboardEvent) {
+  const controls = panel.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
+  if (!controls?.length) return
+  const first = controls[0]
+  const last = controls[controls.length - 1]
+  const active = document.activeElement
+  if (event.shiftKey && (active === first || active === panel.value)) {
+    event.preventDefault()
+    last?.focus()
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
 </script>
 
 <template>
   <button
     v-if="!navigationVisible"
+    ref="opener"
     class="nav-open-button"
     :class="{ 'nav-open-button--detail': detailChromeVisible, 'nav-open-button--has-reader-back': readerBackLabel }"
     :style="navOpenButtonStyle"
     type="button"
     :aria-label="cornerButtonLabel"
+    :aria-expanded="navigationVisible"
+    aria-controls="main-navigation-panel"
     :aria-hidden="navOpenButtonInteractive ? undefined : 'true'"
     :tabindex="navOpenButtonInteractive ? undefined : -1"
     @pointerdown.stop
@@ -90,15 +125,23 @@ const emit = defineEmits<{
     class="nav-scrim"
     type="button"
     aria-label="关闭导航"
+    tabindex="-1"
     :style="navigationScrimStyle"
     @click="emit('close-navigation')"
   />
 
   <aside
     v-show="navigationVisible"
+    id="main-navigation-panel"
+    ref="panel"
     class="nav-panel"
     :style="navigationPanelStyle"
     aria-label="主导航"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    @keydown.esc.stop="emit('close-navigation')"
+    @keydown.tab="keepFocusInPanel"
   >
     <div class="brand">
       <div class="brand-mark">MF</div>
@@ -116,19 +159,23 @@ const emit = defineEmits<{
     </div>
 
     <nav class="app-menu" aria-label="管理导航">
-      <button
-        v-for="item in managementItems"
-        :key="item.key"
-        class="nav-item"
-        :class="{ 'nav-item--active': selectedKeys.includes(item.key) }"
-        type="button"
-        @pointerdown.stop
-        @touchstart.stop
-        @click="emit('menu-click', item.key)"
-      >
-        <component :is="item.icon" />
-        <span>{{ item.label }}</span>
-      </button>
+      <section v-for="section in sections" :key="section.label" class="nav-section" :aria-label="section.label">
+        <h2>{{ section.label }}</h2>
+        <button
+          v-for="item in section.items"
+          :key="item.key"
+          class="nav-item"
+          :class="{ 'nav-item--active': selectedKeys.includes(item.key) }"
+          :aria-current="selectedKeys.includes(item.key) ? 'page' : undefined"
+          type="button"
+          @pointerdown.stop
+          @touchstart.stop
+          @click="emit('menu-click', item.key)"
+        >
+          <component :is="item.icon" aria-hidden="true" />
+          <span>{{ item.label }}</span>
+        </button>
+      </section>
     </nav>
 
     <div class="nav-panel-actions">

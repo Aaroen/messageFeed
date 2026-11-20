@@ -1,3 +1,17 @@
+import { ref } from 'vue'
+
+const readerTimeZone = ref('Asia/Shanghai')
+
+export function setReaderTimeZone(value?: string) {
+  const next = value || 'Asia/Shanghai'
+  try {
+    readerTimeZone.value = new Intl.DateTimeFormat('zh-CN', { timeZone: next }).resolvedOptions().timeZone
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error
+    readerTimeZone.value = 'Asia/Shanghai'
+  }
+}
+
 const forbiddenDetailTags = new Set([
   'base',
   'embed',
@@ -93,15 +107,15 @@ function fallbackSanitizeDetailHTML(input: string) {
     .replace(/\s+data-[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
 }
 
-export function formatItemDate(value?: string) {
-  if (!value) {
-    return '时间未知'
-  }
+export function formatItemDate(value?: string, timeZone = readerTimeZone.value) {
+  const date = value ? new Date(value) : null
+  if (!date || !Number.isFinite(date.getTime())) return '发布时间未知'
   return new Intl.DateTimeFormat('zh-CN', {
+    timeZone,
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).format(new Date(value))
+  }).format(date)
 }

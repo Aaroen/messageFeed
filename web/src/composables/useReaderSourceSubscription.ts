@@ -146,15 +146,18 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
     options.setSourceSubscriptionLoading(true)
     try {
       const auth = await getCurrentAuth()
+      if (!sourceRequestIsCurrent(token, source)) return
       authenticated.value = auth.authenticated
-      const catalogResult = await listSourceCatalog({ limit: 200, offset: 0 })
+      const catalogResult = source.kind === 'recommendations'
+        ? await listSourceCatalog({ catalog_id: source.id, limit: 1 })
+        : auth.authenticated
+          ? await listSourceCatalog({ subscription_id: source.id, limit: 1 })
+          : null
       if (!sourceRequestIsCurrent(token, source)) {
         return
       }
       if (!auth.authenticated) {
-        const catalogEntry =
-          catalogResult.entries.find((entry) => entry.id === source.id) ??
-          catalogResult.entries.find((entry) => entry.name === source.name)
+        const catalogEntry = catalogResult?.entries[0]
         options.setSourceCatalogEntry(catalogEntry ?? null)
         options.setSourceSubscription(null)
         return
@@ -164,17 +167,11 @@ export function useReaderSourceSubscription(options: ReaderSourceSubscriptionOpt
       if (!sourceRequestIsCurrent(token, source)) {
         return
       }
-      const directSource = sources.find((item) => item.id === source.id)
-      const catalogEntry =
-        catalogResult.entries.find((entry) => entry.id === source.id) ??
-        catalogResult.entries.find((entry) => entry.source_id === source.id) ??
-        catalogResult.entries.find((entry) => entry.name === source.name)
-      const catalogSource = catalogEntry?.source_id
-        ? sources.find((item) => item.id === catalogEntry.source_id)
-        : undefined
+      const catalogEntry = catalogResult?.entries[0]
+      const subscriptionID = source.kind === 'subscriptions' ? source.id : catalogEntry?.source_id
 
       options.setSourceCatalogEntry(catalogEntry ?? null)
-      options.setSourceSubscription(directSource ?? catalogSource ?? null)
+      options.setSourceSubscription(sources.find(item => item.id === subscriptionID) ?? null)
     } catch (err) {
       if (sourceRequestIsCurrent(token, source) && !requestOptions.silent) {
         showSourceNotice('warning', `加载失败：来源状态未同步。详细原因：${formatAPIError(err)}`)

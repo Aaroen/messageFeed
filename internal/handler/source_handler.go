@@ -450,7 +450,7 @@ func (h sourceHandler) getSourceFetchStatus(c *gin.Context) {
 }
 
 func (h sourceHandler) listSourceCatalog(c *gin.Context) {
-	h.listSourceCatalogWithQuery(c, "")
+	h.listSourceCatalogWithQuery(c, c.Query("q"))
 }
 
 func (h sourceHandler) searchSourceCatalog(c *gin.Context) {
@@ -489,17 +489,25 @@ func (h sourceHandler) listSourceCatalogWithQuery(c *gin.Context, query string) 
 		return
 	}
 
+	catalogID, catalogErr := optionalInt64Query(c, "catalog_id")
+	subscriptionID, subscriptionErr := optionalInt64Query(c, "subscription_id")
+	if catalogErr != nil || subscriptionErr != nil {
+		Error(c, http.StatusBadRequest, http.StatusBadRequest, "invalid source identifier")
+		return
+	}
 	result, err := h.service.ListSourceCatalog(c.Request.Context(), service.ListSourceCatalogInput{
-		UserID:        currentUserID(c),
-		Category:      c.Query("category"),
-		Query:         query,
-		Language:      c.Query("language"),
-		Country:       c.Query("country"),
-		HealthStatus:  healthStatus,
-		LicenseStatus: licenseStatus,
-		Subscribed:    subscribed,
-		Limit:         limit,
-		Offset:        offset,
+		UserID:         currentUserID(c),
+		CatalogID:      catalogID,
+		SubscriptionID: subscriptionID,
+		Category:       c.Query("category"),
+		Query:          query,
+		Language:       c.Query("language"),
+		Country:        c.Query("country"),
+		HealthStatus:   healthStatus,
+		LicenseStatus:  licenseStatus,
+		Subscribed:     subscribed,
+		Limit:          limit,
+		Offset:         offset,
 	})
 	if err != nil {
 		writeSourceError(c, err)

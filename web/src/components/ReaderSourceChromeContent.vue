@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import type { StyleValue } from 'vue'
+import { useId, type StyleValue } from 'vue'
+
+const titleID = useId()
 
 withDefaults(
   defineProps<{
@@ -39,7 +41,9 @@ const emit = defineEmits<{
       :aria-hidden="mainHidden ? 'true' : undefined"
     >
       <div class="reader-overlay__title" :style="titleLayerStyle">
-        <span :style="titleTextStyle">{{ sourceName }}</span>
+        <button class="reader-source-name" type="button" :popovertarget="titleID" :tabindex="mainHidden ? -1 : undefined" :style="titleTextStyle">
+          {{ sourceName }}
+        </button>
         <small>{{ sourceMeta }}</small>
       </div>
       <button
@@ -56,4 +60,5 @@ const emit = defineEmits<{
       </button>
     </div>
   </div>
+  <div :id="titleID" class="reader-source-name-popover" popover>{{ sourceName }}</div>
 </template>

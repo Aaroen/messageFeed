@@ -101,6 +101,12 @@ func (r *SourceCatalogRepository) List(ctx context.Context, options domain.Sourc
 	query := r.db.WithContext(ctx).Table("source_catalog_entries").
 		Joins("LEFT JOIN sources ON sources.user_id = ? AND sources.normalized_url = source_catalog_entries.normalized_url", options.UserID)
 	query = applySourceCatalogFilters(query, options)
+	if options.CatalogID > 0 {
+		query = query.Where("source_catalog_entries.id = ?", options.CatalogID)
+	}
+	if options.SubscriptionID > 0 {
+		query = query.Where("sources.id = ?", options.SubscriptionID)
+	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

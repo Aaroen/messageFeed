@@ -68,16 +68,18 @@ type SourceCatalogEntry struct {
 }
 
 type SourceCatalogListOptions struct {
-	UserID        int64
-	Category      string
-	Query         string
-	Language      string
-	Country       string
-	HealthStatus  SourceCatalogHealthStatus
-	LicenseStatus SourceCatalogLicenseStatus
-	Subscribed    *bool
-	Limit         int
-	Offset        int
+	UserID         int64
+	CatalogID      int64
+	SubscriptionID int64
+	Category       string
+	Query          string
+	Language       string
+	Country        string
+	HealthStatus   SourceCatalogHealthStatus
+	LicenseStatus  SourceCatalogLicenseStatus
+	Subscribed     *bool
+	Limit          int
+	Offset         int
 }
 
 type SourceCatalogListResult struct {

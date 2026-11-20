@@ -2,6 +2,7 @@ import { nextTick } from 'vue'
 
 import type { FeedItem } from '@/api/feed'
 import type { FeedSourceKind, ReaderSource, RectSnapshot } from '@/composables/useReaderSession'
+import { readerSourceForItem } from '@/composables/useReaderSession'
 import { snapshotRect } from '@/utils/domSnapshot'
 
 type ReadableRef<T> = {
@@ -55,10 +56,11 @@ export function useReaderItemOpenAction(options: ReaderItemOpenActionOptions) {
   async function openItemReader(item: FeedItem, sourceKind: FeedSourceKind, originRect?: DOMRect) {
     openItemToken += 1
     const token = openItemToken
+    const source = readerSourceForItem(item, sourceKind)
     const openedFromSourceReader =
       options.sourceReaderOpen.value &&
-      options.readerSource.value?.id === item.source_id &&
-      options.readerSource.value.kind === sourceKind
+      options.readerSource.value?.id === source?.id &&
+      options.readerSource.value?.kind === source?.kind
 
     options.openItemReaderWithTransition(item, sourceKind, {
       openedFromSourceReader,
@@ -77,20 +79,13 @@ export function useReaderItemOpenAction(options: ReaderItemOpenActionOptions) {
       },
     })
 
-    if (!openedFromSourceReader && item.source_id) {
-      options.openSourceReader(
-        {
-          id: item.source_id,
-          name: item.source_name || '未知来源',
-          kind: sourceKind,
-        },
-        { visible: false },
-      )
+    if (!openedFromSourceReader && source) {
+      options.openSourceReader(source, { visible: false })
     }
 
     try {
       let loadedItem: FeedItem | undefined
-      if (sourceKind === 'subscriptions' && item.id > 0) {
+      if (source?.kind === 'subscriptions' && item.id > 0) {
         loadedItem = await options.loadFeedItem(item.id)
       }
       if (!openItemIsCurrent(token, item, sourceKind)) {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReaderSourceNotice from '@/components/ReaderSourceNotice.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { IconSearch, IconUpload } from '@arco-design/web-vue/es/icon'
 
@@ -634,55 +635,41 @@ defineExpose({ refreshPage, clearNotice })
 
 <template>
   <section ref="sourcesPageRef" class="sources-page" :style="refreshLayoutFreeze.style.value">
-    <Teleport to="body">
-      <Transition name="sources-toast-motion">
-        <div
-          v-if="notice"
-          class="sources-toast"
-          :class="`sources-toast--${notice.type}`"
-          role="status"
-          aria-live="polite"
-        >
-          {{ notice.message }}
-        </div>
-      </Transition>
-    </Teleport>
+    <ReaderSourceNotice :notice="notice" />
 
-    <div class="sources-toolbar">
+    <header class="management-page-heading">
+      <h1>订阅管理</h1>
+    </header>
+    <form class="sources-toolbar" role="search" @submit.prevent="handleCatalogSearch">
       <div class="sources-toolbar__group">
-        <input v-model="catalogQuery" class="sources-input" type="search" placeholder="搜索订阅源" />
+        <input v-model="catalogQuery" class="sources-input" type="search" aria-label="搜索订阅源" placeholder="搜索订阅源" />
         <button
           class="sources-button"
-          type="button"
+          type="submit"
           :disabled="pageBusy"
-          @click="handleCatalogSearch"
         >
           <IconSearch />
           <span>搜索</span>
         </button>
       </div>
-    </div>
+    </form>
 
     <section class="sources-panel">
       <div v-if="catalogLoading || loading || (pageRefreshing && !catalog.length)" class="sources-empty">加载中</div>
+      <div v-else-if="!catalog.length" class="sources-empty">没有找到订阅源</div>
       <div v-else class="sources-list">
         <div
           v-for="entry in catalog"
           :key="entry.id"
-          class="source-row source-row--catalog source-row--clickable"
-          role="button"
-          tabindex="0"
-          @click="openCatalogSource(entry)"
-          @keydown.enter.prevent="openCatalogSource(entry)"
-          @keydown.space.prevent="openCatalogSource(entry)"
+          class="source-row source-row--catalog"
         >
-          <div>
+          <button class="source-row__open" type="button" @click="openCatalogSource(entry)">
             <div class="source-row__title">{{ entry.name }}</div>
             <div class="source-row__meta">
               {{ entry.category }} · {{ catalogHealthLabel(entry.health_status) }}
             </div>
             <div class="source-row__meta">{{ entry.feed_url }}</div>
-          </div>
+          </button>
           <div class="source-row__actions">
             <button
               class="sources-button"
@@ -700,6 +687,7 @@ defineExpose({ refreshPage, clearNotice })
 
     <section class="sources-layout sources-layout--imports">
       <article class="sources-panel">
+        <h2>导入订阅文件</h2>
         <label class="sources-button sources-button--file">
           <IconUpload />
           <span>导入 OPML</span>
@@ -708,7 +696,8 @@ defineExpose({ refreshPage, clearNotice })
       </article>
 
       <article class="sources-panel">
-        <textarea v-model="urlInput" class="sources-textarea" rows="8" placeholder="每行一个订阅地址"></textarea>
+        <h2>导入订阅地址</h2>
+        <textarea v-model="urlInput" class="sources-textarea" rows="4" aria-label="订阅地址" placeholder="每行一个订阅地址"></textarea>
         <div class="sources-toolbar__group">
           <button class="sources-button" type="button" :disabled="pageBusy" @click="handleImportURLs">
             导入 URL

@@ -39,9 +39,10 @@ jobs:
       - name: PostgreSQL Agent acceptance
         env:
           AGENT_COMPLETION_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
+          FEED_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
         run: |
           docker run --rm --network host -v "${GITHUB_WORKSPACE}/migrations:/migrations:ro" migrate/migrate:v4.19.1 -path /migrations -database "$AGENT_COMPLETION_DATABASE_URL" up
-          go test ./internal/repository -run '^TestAgentTurnCompletionDatabaseTransaction$' -count=1 -v
+          go test ./internal/repository -run '^(TestAgentTurnCompletionDatabaseTransaction|TestFeedVisibilityAndCursorPostgres)$' -count=1 -v
       - run: go vet ./...
       # 官方 v1.64.8 二进制是 go1.24 构建的，拒绝分析 go1.26 模块；用仓库工具链源码安装同版本。
       - name: Install golangci-lint

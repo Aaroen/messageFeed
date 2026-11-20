@@ -6,6 +6,8 @@ export type FeedListCacheEntry = {
   items: FeedItem[]
   total: number
   nextOffset: number
+  cursor?: string
+  generation?: string
   reachedEnd: boolean
   lastUpdatedAt: string
   cachedAt: number

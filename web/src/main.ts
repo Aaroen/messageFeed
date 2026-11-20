@@ -6,6 +6,7 @@ import { createApp } from 'vue'
 import AppRoot from './AppRoot.vue'
 import router from './router'
 import './styles/app.css'
+import './styles/management.css'
 
 const app = createApp(AppRoot)
 

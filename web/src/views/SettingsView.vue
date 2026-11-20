@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { setReaderTimeZone } from '@/utils/readerContent'
 import QRCode from 'qrcode'
 import AgentModelManager from '@/components/agent/AgentModelManager.vue'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -789,6 +790,7 @@ async function saveProfile() {
       instrument_focus: parseList(instrumentFocusText.value),
     })
     applyProfile(saved)
+    setReaderTimeZone(saved.timezone)
     profileSaveResult.value = '资料已更新'
     await loadAuthStatus()
   } catch (error) {
@@ -1111,11 +1113,11 @@ defineExpose({ refreshPage })
 </script>
 
 <template>
-  <section class="settings-page">
+  <section class="settings-page" :data-settings-section="activeSettingsSection">
       <main class="settings-content">
         <header class="settings-content__header">
           <div>
-            <h2>{{ activeSectionTitle }}</h2>
+            <h1>{{ activeSectionTitle }}</h1>
             <p>{{ activeSectionMeta }}</p>
           </div>
           <button class="settings-action-button" type="button" :disabled="authLoading || configLoading" @click="refreshPage">
