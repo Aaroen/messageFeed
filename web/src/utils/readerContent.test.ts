@@ -30,9 +30,22 @@ describe('readerContent', () => {
     expect(sanitized).not.toContain('data-track-id')
   })
 
-  it('formats item dates for Chinese locale display', () => {
-    expect(formatItemDate('2026-06-23T04:05:00.000Z', 'Asia/Shanghai')).toMatch(/06\/23.*12:05/)
-    expect(formatItemDate('2026-06-23T04:05:00.000Z', 'Asia/Tokyo')).toMatch(/06\/23.*13:05/)
-    expect(formatItemDate()).toBe('发布时间未知')
+  it('converts supported source offsets to Taiwan time, including midnight', () => {
+    const item = { published_at: '2026-06-23T17:05:00+01:00', fetched_at: '2026-06-24T06:00:00Z' }
+    expect(formatItemDate(item)).toEqual({
+      datetime: '2026-06-23T16:05:00.000Z',
+      text: expect.stringMatching(/^发布于 06\/24.*00:05$/),
+    })
+  })
+
+  it('labels the fetch date when the published date is absent or invalid', () => {
+    const item = { fetched_at: '2026-06-23T06:00:00Z' }
+    const fetched = formatItemDate(item)
+    expect(fetched).toEqual({
+      datetime: '2026-06-23T06:00:00.000Z',
+      text: expect.stringMatching(/^拉取于 06\/23.*14:00$/),
+    })
+    expect(formatItemDate({ ...item, published_at: 'invalid' })).toEqual(fetched)
+    expect(formatItemDate({ fetched_at: 'invalid' })).toEqual({ text: '时间未知' })
   })
 })

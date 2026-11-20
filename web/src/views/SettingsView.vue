@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { setReaderTimeZone } from '@/utils/readerContent'
 import QRCode from 'qrcode'
 import AgentModelManager from '@/components/agent/AgentModelManager.vue'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -790,7 +789,6 @@ async function saveProfile() {
       instrument_focus: parseList(instrumentFocusText.value),
     })
     applyProfile(saved)
-    setReaderTimeZone(saved.timezone)
     profileSaveResult.value = '资料已更新'
     await loadAuthStatus()
   } catch (error) {

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -28,10 +29,13 @@ const (
 )
 
 type Client struct {
-	httpClient  *http.Client
-	maxBodySize int64
-	userAgent   string
-	now         func() time.Time
+	httpClient   *http.Client
+	maxBodySize  int64
+	userAgent    string
+	now          func() time.Time
+	articleMu    sync.Mutex
+	articleDates map[string]time.Time
+	articleSlots chan struct{}
 }
 
 type Option func(*Client)
@@ -62,10 +66,12 @@ func WithNow(now func() time.Time) Option {
 
 func NewClient(options ...Option) *Client {
 	client := &Client{
-		httpClient:  NewPublicHTTPClient(15 * time.Second),
-		maxBodySize: defaultMaxBodyBytes,
-		userAgent:   defaultUserAgent,
-		now:         time.Now,
+		httpClient:   NewPublicHTTPClient(15 * time.Second),
+		maxBodySize:  defaultMaxBodyBytes,
+		userAgent:    defaultUserAgent,
+		now:          time.Now,
+		articleDates: make(map[string]time.Time),
+		articleSlots: make(chan struct{}, 6),
 	}
 	for _, option := range options {
 		option(client)
@@ -143,15 +149,30 @@ func (c *Client) Fetch(ctx context.Context, source domain.Source) (domain.FeedFe
 	}
 
 	baseURL := response.Request.URL
+	var archiveDates map[string]time.Time
+	if IsXinhuaPoliticsArchive(baseURL) {
+		archiveDates, err = xinhuaArchiveDates(body)
+		if err != nil {
+			fetchErr = fmt.Errorf("parse Xinhua archive dates: %w", err)
+			return domain.FeedFetchResult{}, fetchErr
+		}
+	}
 
 	fetchedAt := c.now().UTC()
 	items := make([]domain.Item, 0, len(feed.Items))
 	for _, feedItem := range feed.Items {
-		item, ok := feedItemToDomain(source.ID, baseURL, feedItem, fetchedAt)
+		item, ok := feedItemToDomain(source.ID, baseURL, feedItem, feed.UpdatedParsed, fetchedAt)
 		if !ok {
 			continue
 		}
+		if date := archiveDates[strings.TrimSpace(feedItem.Link)]; item.PublishedAt == nil && !date.IsZero() && !date.After(fetchedAt) {
+			item.PublishedAt = &date
+			item.PublicationVerified = true
+		}
 		items = append(items, item)
+	}
+	if publicationArticleFeed(baseURL) {
+		c.verifyArticlePublicationDates(ctx, items)
 	}
 	span.SetAttributes(attribute.Int("feed.items", len(items)))
 	return domain.FeedFetchResult{Items: items}, nil
@@ -177,7 +198,7 @@ func readLimited(reader io.Reader, maxBodySize int64) ([]byte, error) {
 	return body, nil
 }
 
-func feedItemToDomain(sourceID int64, baseURL *url.URL, feedItem *gofeed.Item, fetchedAt time.Time) (domain.Item, bool) {
+func feedItemToDomain(sourceID int64, baseURL *url.URL, feedItem *gofeed.Item, feedUpdatedAt *time.Time, fetchedAt time.Time) (domain.Item, bool) {
 	if feedItem == nil {
 		return domain.Item{}, false
 	}
@@ -209,19 +230,21 @@ func feedItemToDomain(sourceID int64, baseURL *url.URL, feedItem *gofeed.Item, f
 		value := feedItem.UpdatedParsed.UTC()
 		sourceUpdatedAt = &value
 	}
+	publishedAt, publicationVerified := feedPublicationTime(baseURL, feedItem, feedUpdatedAt, fetchedAt)
 
 	return domain.Item{
-		SourceID:        sourceID,
-		Title:           title,
-		URL:             itemURL,
-		NormalizedURL:   normalizedURL,
-		RawGUID:         rawGUID,
-		ContentHash:     contentHash(title, normalizedURL, content),
-		ContentSnippet:  contentSnippet,
-		Author:          authorName(feedItem),
-		PublishedAt:     feedPublicationTime(baseURL, feedItem),
-		SourceUpdatedAt: sourceUpdatedAt,
-		FetchedAt:       fetchedAt,
+		SourceID:            sourceID,
+		Title:               title,
+		URL:                 itemURL,
+		NormalizedURL:       normalizedURL,
+		RawGUID:             rawGUID,
+		ContentHash:         contentHash(title, normalizedURL, content),
+		ContentSnippet:      contentSnippet,
+		Author:              authorName(feedItem),
+		PublishedAt:         publishedAt,
+		PublicationVerified: publicationVerified,
+		SourceUpdatedAt:     sourceUpdatedAt,
+		FetchedAt:           fetchedAt,
 	}, true
 }
 

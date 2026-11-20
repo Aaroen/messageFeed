@@ -392,7 +392,8 @@ func upsertItem(ctx context.Context, db *gorm.DB, item domain.Item) (domain.Item
 	if found {
 		model.ID = existing.ID
 		model.CreatedAt = existing.CreatedAt
-		if existing.PublicationVerified && !model.PublicationVerified || model.PublishedAt == nil {
+		if (existing.PublicationVerified && !model.PublicationVerified || model.PublishedAt == nil) &&
+			(existing.PublishedAt == nil || model.FetchedAt.IsZero() || !existing.PublishedAt.After(model.FetchedAt)) {
 			model.PublishedAt = existing.PublishedAt
 			model.PublicationVerified = existing.PublicationVerified
 		}

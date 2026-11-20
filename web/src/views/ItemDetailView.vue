@@ -11,7 +11,8 @@ import {
   setItemRead,
 } from '@/api/feed'
 import ActionBar from '@/components/ActionBar.vue'
-import { escapeHTML, formatItemDate, sanitizeDetailHTML } from '@/utils/readerContent'
+import FeedItemTime from '@/components/FeedItemTime.vue'
+import { escapeHTML, sanitizeDetailHTML } from '@/utils/readerContent'
 
 type ItemStateKey = 'read' | 'favorite' | 'hidden'
 
@@ -23,7 +24,6 @@ const error = ref('')
 const actionError = ref('')
 
 const itemID = computed(() => Number.parseInt(route.params.id?.toString() ?? '0', 10))
-const displayDate = computed(() => formatItemDate(item.value?.published_at))
 const detailSrcdoc = computed(() => {
   const current = item.value
   const source =
@@ -115,7 +115,7 @@ watch(itemID, loadItem)
     <section v-if="item" class="item-detail-page__surface">
       <div class="item-detail-page__meta">
         <span>{{ item.source_name || '未知来源' }}</span>
-        <span>{{ displayDate }}</span>
+        <FeedItemTime :item="item" />
       </div>
       <h1>{{ item.title }}</h1>
       <div class="item-detail-page__toolbar">

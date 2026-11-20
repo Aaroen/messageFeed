@@ -1,16 +1,13 @@
-import { ref } from 'vue'
+import type { FeedItem } from '@/api/feed'
 
-const readerTimeZone = ref('Asia/Shanghai')
-
-export function setReaderTimeZone(value?: string) {
-  const next = value || 'Asia/Shanghai'
-  try {
-    readerTimeZone.value = new Intl.DateTimeFormat('zh-CN', { timeZone: next }).resolvedOptions().timeZone
-  } catch (error) {
-    if (!(error instanceof RangeError)) throw error
-    readerTimeZone.value = 'Asia/Shanghai'
-  }
-}
+const readerDateFormatter = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Taipei',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+})
 
 const forbiddenDetailTags = new Set([
   'base',
@@ -107,15 +104,13 @@ function fallbackSanitizeDetailHTML(input: string) {
     .replace(/\s+data-[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
 }
 
-export function formatItemDate(value?: string, timeZone = readerTimeZone.value) {
-  const date = value ? new Date(value) : null
-  if (!date || !Number.isFinite(date.getTime())) return '发布时间未知'
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone,
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date)
+export function formatItemDate(item?: Pick<FeedItem, 'published_at' | 'fetched_at'> | null) {
+  const published = Date.parse(item?.published_at ?? '')
+  const hasPublication = Number.isFinite(published)
+  const timestamp = hasPublication ? published : Date.parse(item?.fetched_at ?? '')
+  if (!Number.isFinite(timestamp)) return { text: '时间未知' }
+
+  const date = new Date(timestamp)
+  const formatted = readerDateFormatter.format(date)
+  return { datetime: date.toISOString(), text: `${hasPublication ? '发布于' : '拉取于'} ${formatted}` }
 }

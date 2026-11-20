@@ -7,6 +7,7 @@ import (
 	"hash/fnv"
 	"math/rand"
 	"messagefeed/internal/domain"
+	"messagefeed/internal/fetcher"
 	"messagefeed/internal/observability"
 	"net/url"
 	"sort"
@@ -166,7 +167,7 @@ func (s *RecommendationService) ListRecommendations(ctx context.Context, input L
 		entries = catalog.Entries
 	}
 
-	candidates := recommendationCandidates(entries)
+	candidates := recommendationCandidates(entries, input.SourceID > 0)
 	if len(candidates) == 0 {
 		return ListItemsResult{Items: nil, Total: 0, Limit: limit, Offset: input.Offset}, nil
 	}
@@ -407,7 +408,7 @@ func normalizeRecommendationLimit(limit int) (int, error) {
 	return limit, nil
 }
 
-func recommendationCandidates(entries []domain.SourceCatalogEntry) []domain.SourceCatalogEntry {
+func recommendationCandidates(entries []domain.SourceCatalogEntry, includeArchives bool) []domain.SourceCatalogEntry {
 	candidates := make([]domain.SourceCatalogEntry, 0, len(entries))
 	for _, entry := range entries {
 		if !entry.Official || entry.HealthStatus == domain.SourceCatalogHealthUnreachable {
@@ -416,20 +417,13 @@ func recommendationCandidates(entries []domain.SourceCatalogEntry) []domain.Sour
 		if entry.LicenseStatus != domain.SourceCatalogLicenseAllowed {
 			continue
 		}
-		if !fetchableFeedURL(entry.FeedURL) {
+		feedURL, err := url.Parse(entry.FeedURL)
+		if err != nil || (feedURL.Scheme != "http" && feedURL.Scheme != "https") || (!includeArchives && fetcher.IsXinhuaPoliticsArchive(feedURL)) {
 			continue
 		}
 		candidates = append(candidates, entry)
 	}
 	return candidates
-}
-
-func fetchableFeedURL(rawURL string) bool {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return false
-	}
-	return parsed.Scheme == "http" || parsed.Scheme == "https"
 }
 
 func recommendationSourceLimit(itemLimit int, candidateCount int) int {
@@ -585,6 +579,10 @@ func (s *RecommendationService) materializeRecommendationItems(ctx context.Conte
 		item.CatalogID = entry.ID
 		item.SubscriptionID = sourceID
 		item.SourceName = entry.Name
+		item.PublishedAt = upsertedItem.PublishedAt
+		item.SourceUpdatedAt = upsertedItem.SourceUpdatedAt
+		item.PublicationVerified = upsertedItem.PublicationVerified
+		item.FetchedAt = upsertedItem.FetchedAt
 		if !upsertedItem.CreatedAt.IsZero() {
 			item.CreatedAt = upsertedItem.CreatedAt
 		}

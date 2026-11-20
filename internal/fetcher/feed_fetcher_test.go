@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/mmcdole/gofeed"
 )
 
@@ -99,18 +100,25 @@ func TestFeedOnlyUsesPublicAddresses(test *testing.T) {
 	}
 }
 
-func TestFeedPublicationTimeForInitiumRSS(test *testing.T) {
+func TestFeedPublicationTime(test *testing.T) {
+	fetchedAt := time.Date(2026, 11, 20, 8, 0, 0, 0, time.UTC)
 	for _, scenario := range []struct {
+		name      string
 		feedURL   string
 		pubDate   string
 		published string
+		verified  bool
 	}{
-		{"https://theinitium.com/rss", "Thu, 19 Nov 2026 23:00:00 GMT", "2026-11-20T07:00:00Z"},
-		{"https://theinitium.com/rss/", "2026-11-20T07:00:00Z", "2026-11-20T07:00:00Z"},
-		{"https://theinitium.com/another/feed", "Thu, 19 Nov 2026 23:00:00 GMT", "2026-11-19T23:00:00Z"},
-		{"https://example.com/rss", "Thu, 19 Nov 2026 23:00:00 GMT", "2026-11-19T23:00:00Z"},
+		{"initium shifted", "https://theinitium.com/rss", "Thu, 19 Nov 2026 23:00:00 GMT", "2026-11-20T07:00:00Z", false},
+		{"initium already UTC", "https://theinitium.com/rss/", "Fri, 20 Nov 2026 07:15:00 GMT", "2026-11-20T07:15:00Z", true},
+		{"initium explicit zone", "https://theinitium.com/rss/", "2026-11-20T07:00:00Z", "2026-11-20T07:00:00Z", false},
+		{"other initium feed", "https://theinitium.com/another/feed", "Thu, 19 Nov 2026 23:00:00 GMT", "2026-11-19T23:00:00Z", false},
+		{"infoq local time", "https://www.infoq.cn/feed", "Fri, 20 Nov 2026 14:00:00 GMT", "2026-11-20T06:00:00Z", true},
+		{"infoq explicit offset", "https://www.infoq.cn/feed", "Fri, 20 Nov 2026 14:00:00 +0800", "2026-11-20T06:00:00Z", false},
+		{"other feed", "https://example.com/rss", "Thu, 19 Nov 2026 23:00:00 GMT", "2026-11-19T23:00:00Z", false},
+		{"future date", "https://example.com/rss", "Fri, 20 Nov 2026 09:00:00 GMT", "", false},
 	} {
-		test.Run(scenario.feedURL, func(test *testing.T) {
+		test.Run(scenario.name, func(test *testing.T) {
 			feedURL, err := url.Parse(scenario.feedURL)
 			if err != nil {
 				test.Fatal(err)
@@ -119,11 +127,39 @@ func TestFeedPublicationTimeForInitiumRSS(test *testing.T) {
 			if err != nil {
 				test.Fatal(err)
 			}
-			item, ok := feedItemToDomain(1, feedURL, feed.Items[0], time.Now())
-			if !ok || item.PublishedAt == nil || item.PublishedAt.Format(time.RFC3339) != scenario.published {
+			item, ok := feedItemToDomain(1, feedURL, feed.Items[0], nil, fetchedAt)
+			actual := ""
+			if item.PublishedAt != nil {
+				actual = item.PublishedAt.Format(time.RFC3339)
+			}
+			if !ok || actual != scenario.published || item.PublicationVerified != scenario.verified {
 				test.Fatalf("published = %v, want %s", item.PublishedAt, scenario.published)
 			}
 		})
+	}
+}
+
+func TestXinhuaArchivePublicationDate(test *testing.T) {
+	const link = "http://www.news.cn/politics/2022-12/08/c_1129192044.htm"
+	dates, err := xinhuaArchiveDates([]byte(`<rss version="2.0"><channel><item>
+<title><![CDATA[关于印发新冠病毒抗原检测应用方案的通知]]></title>
+<link>` + link + `</link>Thu,08-Dec-2022 14:55:13 GMT
+<description><![CDATA[<a href=` + link + `>通知</a>]]></description></item></channel></rss>`))
+	if err != nil || dates[link].Format(time.RFC3339) != "2022-12-08T06:55:13Z" {
+		test.Fatalf("archive date: %v, %v", dates[link], err)
+	}
+}
+
+func TestArticlePublicationIgnoresModifiedDate(test *testing.T) {
+	document, err := goquery.NewDocumentFromReader(strings.NewReader(`<html><head>
+<meta name="article:modified_time" content="2026-07-09T12:42:32.677Z"/>
+<script type="application/ld+json">{"@type":"ReportageNewsArticle","datePublished":"2026-07-08T00:00:59.557Z","dateModified":"2026-07-09T12:42:32.677Z"}</script>
+</head></html>`))
+	if err != nil {
+		test.Fatal(err)
+	}
+	if actual := articlePublicationFromHTML(document).Format(time.RFC3339Nano); actual != "2026-07-08T00:00:59.557Z" {
+		test.Fatalf("publication date = %s", actual)
 	}
 }
 
@@ -150,7 +186,7 @@ func TestFeedItemToDomainRemovesInvalidUTF8(t *testing.T) {
 		Title:   "Title" + invalidSuffix,
 		Content: "Body " + invalidSuffix + " text",
 		Author:  &gofeed.Person{Name: "Author" + invalidSuffix},
-	}, time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
+	}, nil, time.Date(2026, 6, 22, 12, 0, 0, 0, time.UTC))
 	if !ok {
 		t.Fatal("feedItemToDomain returned ok=false")
 	}

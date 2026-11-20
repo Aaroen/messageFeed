@@ -2,8 +2,7 @@
 import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { getCurrentAuth, getUserProfile } from '@/api/auth'
-import { setReaderTimeZone } from '@/utils/readerContent'
+import { getCurrentAuth } from '@/api/auth'
 import { getFeedItem } from '@/api/feed'
 import AppMainOutlet from '@/components/AppMainOutlet.vue'
 import AppNavigationLayer from '@/components/AppNavigationLayer.vue'
@@ -59,7 +58,6 @@ type SwipeSurface =
 const route = useRoute()
 const router = useRouter()
 const currentUserRole = ref('')
-let readerProfileUserID = 0
 const feedContent = useFeedContentState()
 const pageOutlet = usePageOutletState()
 const scrollHistory = useScrollHistory()
@@ -675,12 +673,6 @@ async function refreshNavigationAuth() {
   try {
     const auth = await getCurrentAuth()
     currentUserRole.value = auth.authenticated ? auth.user?.role || '' : ''
-    const userID = auth.authenticated ? auth.user?.id ?? 0 : 0
-    if (readerProfileUserID !== userID) {
-      readerProfileUserID = userID
-      const profile = userID ? await getUserProfile() : null
-      if (readerProfileUserID === userID) setReaderTimeZone(profile?.timezone)
-    }
   } catch {
     currentUserRole.value = ''
   }

@@ -14,8 +14,9 @@ import {
   setItemRead,
 } from '@/api/feed'
 import ActionBar from '@/components/ActionBar.vue'
+import FeedItemTime from '@/components/FeedItemTime.vue'
 import ReaderSourceNotice from '@/components/ReaderSourceNotice.vue'
-import { formatItemDate, plainPreviewText } from '@/utils/readerContent'
+import { plainPreviewText } from '@/utils/readerContent'
 import { clampProgress, feedVisibleContentTopOffset } from '@/composables/feedChromeMetrics'
 import { useFeedPullRefreshCompletionAction } from '@/composables/useFeedPullRefreshCompletionAction'
 import { useGestureDirection } from '@/composables/useGestureDirection'
@@ -1199,8 +1200,7 @@ watch(
             <span class="feed-item__source">
               {{ item.source_name || '未知来源' }}
             </span>
-            <time v-if="item.published_at" :datetime="item.published_at">{{ formatItemDate(item.published_at) }}</time>
-            <span v-else>发布时间未知</span>
+            <FeedItemTime :item="item" class="feed-item__time" />
           </div>
           <button
             class="feed-item__read-target"
