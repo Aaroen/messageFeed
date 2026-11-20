@@ -1154,7 +1154,7 @@ watch(
   >
     <ReaderSourceNotice :notice="feedNotice" />
 
-    <div ref="feedBodyRef" class="feed-list-body" :class="{ 'feed-reading': isMainFeed || isFavoritesMode || isHistoryMode, 'management-reading': isFavoritesMode || isHistoryMode }" :style="feedBodyStyle">
+    <div ref="feedBodyRef" class="feed-list-body feed-reading" :class="{ 'management-reading': isFavoritesMode || isHistoryMode }" :style="feedBodyStyle">
       <header v-if="isFavoritesMode || isHistoryMode" class="management-page-heading">
         <h1>{{ isFavoritesMode ? '收藏' : '阅读历史' }}</h1>
       </header>
