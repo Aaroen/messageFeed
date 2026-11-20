@@ -81,7 +81,7 @@ func publicationArticleFeed(feedURL *url.URL) bool {
 	host := strings.ToLower(feedURL.Hostname())
 	return host == "feeds.bbci.co.uk" || host == "feeds.bbc.co.uk" ||
 		host == "www.bbc.com" && strings.Contains(feedURL.Path, "rss") ||
-		host == "sspai.com" && strings.TrimSuffix(feedURL.Path, "/") == "/feed"
+		(host == "sspai.com" || host == "www.qbitai.com") && strings.TrimSuffix(feedURL.Path, "/") == "/feed"
 }
 
 func (c *Client) verifyArticlePublicationDates(ctx context.Context, items []domain.Item) {
@@ -100,7 +100,8 @@ func (c *Client) verifyArticlePublicationDates(ctx context.Context, items []doma
 		host := articleURL.Hostname()
 		bbcArticle := (host == "www.bbc.com" || host == "www.bbc.co.uk") && strings.Contains(articleURL.Path, "/articles/")
 		sspaiArticle := host == "sspai.com" && strings.HasPrefix(articleURL.Path, "/post/")
-		if !bbcArticle && !sspaiArticle {
+		qbitaiArticle := host == "www.qbitai.com" && strings.HasSuffix(articleURL.Path, ".html")
+		if !bbcArticle && !sspaiArticle && !qbitaiArticle {
 			continue
 		}
 		articleURL.RawQuery = ""
@@ -110,7 +111,7 @@ func (c *Client) verifyArticlePublicationDates(ctx context.Context, items []doma
 			item.PublishedAt = nil
 		}
 		workers.Go(func() {
-			date := c.articlePublicationDate(ctx, articleURL.String())
+			date := c.articlePublicationDate(ctx, articleURL)
 			if !date.IsZero() && !date.After(item.FetchedAt) {
 				item.PublishedAt = &date
 				item.PublicationVerified = true
@@ -120,9 +121,10 @@ func (c *Client) verifyArticlePublicationDates(ctx context.Context, items []doma
 	workers.Wait()
 }
 
-func (c *Client) articlePublicationDate(ctx context.Context, articleURL string) time.Time {
+func (c *Client) articlePublicationDate(ctx context.Context, articleURL *url.URL) time.Time {
+	key := articleURL.String()
 	c.articleMu.Lock()
-	cached := c.articleDates[articleURL]
+	cached := c.articleDates[key]
 	c.articleMu.Unlock()
 	if !cached.IsZero() {
 		return cached
@@ -133,7 +135,7 @@ func (c *Client) articlePublicationDate(ctx context.Context, articleURL string) 
 	case <-ctx.Done():
 		return time.Time{}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, articleURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, key, nil)
 	if err != nil {
 		return time.Time{}
 	}
@@ -151,12 +153,19 @@ func (c *Client) articlePublicationDate(ctx context.Context, articleURL string) 
 		return time.Time{}
 	}
 	date := articlePublicationFromHTML(document)
+	if date.IsZero() && articleURL.Hostname() == "www.qbitai.com" {
+		articleInfo := document.Find(".article .article_info").First()
+		localDate := strings.TrimSpace(articleInfo.ChildrenFiltered(".date").Text())
+		localTime := strings.TrimSpace(articleInfo.ChildrenFiltered(".time").Text())
+		date, _ = time.Parse("2006-01-02 15:04:05 -0700", localDate+" "+localTime+" +0800")
+		date = date.UTC()
+	}
 	if !date.IsZero() {
 		c.articleMu.Lock()
 		if len(c.articleDates) >= 512 {
 			clear(c.articleDates)
 		}
-		c.articleDates[articleURL] = date
+		c.articleDates[key] = date
 		c.articleMu.Unlock()
 	}
 	return date
