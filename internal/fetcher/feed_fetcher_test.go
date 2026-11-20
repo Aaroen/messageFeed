@@ -99,12 +99,31 @@ func TestFeedOnlyUsesPublicAddresses(test *testing.T) {
 	}
 }
 
-func TestArticlePublicationTimeIgnoresModification(test *testing.T) {
-	body := strings.NewReader(`<head><meta property="article:modified_time" content="2026-11-20T12:36:05Z"><meta property="article:published_time" content="2026-11-20T07:00:00.000Z"></head>`)
-	actual := parseArticlePublicationTime(body)
-	expected := time.Date(2026, 11, 20, 7, 0, 0, 0, time.UTC)
-	if actual == nil || !actual.Equal(expected) {
-		test.Fatalf("published = %v, want %s", actual, expected)
+func TestFeedPublicationTimeForInitiumRSS(test *testing.T) {
+	for _, scenario := range []struct {
+		feedURL   string
+		pubDate   string
+		published string
+	}{
+		{"https://theinitium.com/rss", "Thu, 19 Nov 2026 23:00:00 GMT", "2026-11-20T07:00:00Z"},
+		{"https://theinitium.com/rss/", "2026-11-20T07:00:00Z", "2026-11-20T07:00:00Z"},
+		{"https://theinitium.com/another/feed", "Thu, 19 Nov 2026 23:00:00 GMT", "2026-11-19T23:00:00Z"},
+		{"https://example.com/rss", "Thu, 19 Nov 2026 23:00:00 GMT", "2026-11-19T23:00:00Z"},
+	} {
+		test.Run(scenario.feedURL, func(test *testing.T) {
+			feedURL, err := url.Parse(scenario.feedURL)
+			if err != nil {
+				test.Fatal(err)
+			}
+			feed, err := gofeed.NewParser().ParseString(`<rss version="2.0"><channel><item><title>Article</title><link>/article</link><pubDate>` + scenario.pubDate + `</pubDate></item></channel></rss>`)
+			if err != nil {
+				test.Fatal(err)
+			}
+			item, ok := feedItemToDomain(1, feedURL, feed.Items[0], time.Now())
+			if !ok || item.PublishedAt == nil || item.PublishedAt.Format(time.RFC3339) != scenario.published {
+				test.Fatalf("published = %v, want %s", item.PublishedAt, scenario.published)
+			}
+		})
 	}
 }
 

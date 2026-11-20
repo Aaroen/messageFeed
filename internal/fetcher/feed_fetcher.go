@@ -153,8 +153,6 @@ func (c *Client) Fetch(ctx context.Context, source domain.Source) (domain.FeedFe
 		}
 		items = append(items, item)
 	}
-	c.verifyPublicationDates(ctx, baseURL, items)
-
 	span.SetAttributes(attribute.Int("feed.items", len(items)))
 	return domain.FeedFetchResult{Items: items}, nil
 }
@@ -206,11 +204,6 @@ func feedItemToDomain(sourceID int64, baseURL *url.URL, feedItem *gofeed.Item, f
 	}
 	contentSnippet := truncate(normalizeWhitespace(content), 2000)
 
-	var publishedAt *time.Time
-	if feedItem.PublishedParsed != nil {
-		value := feedItem.PublishedParsed.UTC()
-		publishedAt = &value
-	}
 	var sourceUpdatedAt *time.Time
 	if feedItem.UpdatedParsed != nil {
 		value := feedItem.UpdatedParsed.UTC()
@@ -226,7 +219,7 @@ func feedItemToDomain(sourceID int64, baseURL *url.URL, feedItem *gofeed.Item, f
 		ContentHash:     contentHash(title, normalizedURL, content),
 		ContentSnippet:  contentSnippet,
 		Author:          authorName(feedItem),
-		PublishedAt:     publishedAt,
+		PublishedAt:     feedPublicationTime(baseURL, feedItem),
 		SourceUpdatedAt: sourceUpdatedAt,
 		FetchedAt:       fetchedAt,
 	}, true
