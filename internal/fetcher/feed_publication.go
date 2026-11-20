@@ -35,7 +35,7 @@ func xinhuaArchiveDates(body []byte) (map[string]time.Time, error) {
 	dates := make(map[string]time.Time, len(archive.Items))
 	beijing := time.FixedZone("UTC+08:00", 8*60*60)
 	for _, item := range archive.Items {
-		date, err := time.ParseInLocation("Mon,02-Jan-2006 15:04:05", strings.TrimSuffix(strings.TrimSpace(item.Date), " GMT"), beijing)
+		date, err := time.ParseInLocation("Mon,2-Jan-2006 15:04:05", strings.TrimSuffix(strings.TrimSpace(item.Date), " GMT"), beijing)
 		if err == nil {
 			dates[strings.TrimSpace(item.Link)] = date.UTC()
 		}

@@ -11,7 +11,7 @@ import (
 )
 
 func (s *RecommendationService) listRecommendationSnapshot(ctx context.Context, input ListRecommendationsInput, entries []domain.SourceCatalogEntry, limit int, order domain.ItemSortOrder, now time.Time) (ListItemsResult, error) {
-	key := fmt.Sprintf("publication-v2:%d:%d:%s", input.UserID, input.SourceID, order)
+	key := fmt.Sprintf("publication-v3:%d:%d:%s", input.UserID, input.SourceID, order)
 	snapshot, err := s.snapshots.Load(ctx, key, input.Generation)
 	if err != nil {
 		return ListItemsResult{}, err

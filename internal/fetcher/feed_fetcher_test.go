@@ -143,10 +143,15 @@ func TestXinhuaArchivePublicationDate(test *testing.T) {
 	const link = "http://www.news.cn/politics/2022-12/08/c_1129192044.htm"
 	dates, err := xinhuaArchiveDates([]byte(`<rss version="2.0"><channel><item>
 <title><![CDATA[关于印发新冠病毒抗原检测应用方案的通知]]></title>
-<link>` + link + `</link>Thu,08-Dec-2022 14:55:13 GMT
-<description><![CDATA[<a href=` + link + `>通知</a>]]></description></item></channel></rss>`))
+<link>` + link + `</link>Thu,8-Dec-2022 14:55:13 GMT
+<description><![CDATA[<a href=` + link + `>通知</a>]]></description></item>
+<item><title>微视频｜“新”在中国</title><link>http://www.news.cn/politics/2022-12/14/c_1129207254.htm</link>Wed,14-Dec-2022 11:37:37 GMT</item>
+</channel></rss>`))
 	if err != nil || dates[link].Format(time.RFC3339) != "2022-12-08T06:55:13Z" {
 		test.Fatalf("archive date: %v, %v", dates[link], err)
+	}
+	if latest := dates["http://www.news.cn/politics/2022-12/14/c_1129207254.htm"]; latest.Format(time.RFC3339) != "2022-12-14T03:37:37Z" {
+		test.Fatalf("archive date = %v", latest)
 	}
 }
 
