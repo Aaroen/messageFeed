@@ -85,6 +85,12 @@ jobs:
           tags: ${{ env.IMAGE_REGISTRY }}/messagefeed-notification:${{ env.IMAGE_TAG }}
       - uses: docker/build-push-action@v6
         with:
+          context: deploy/helm/messagefeed/files
+          file: deploy/helm/messagefeed/files/chromium.Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_REGISTRY }}/messagefeed-chromium:${{ env.IMAGE_TAG }}
+      - uses: docker/build-push-action@v6
+        with:
           context: .
           target: web
           push: true
@@ -140,6 +146,7 @@ jobs:
       - run: |
           helm upgrade --install messagefeed-staging deploy/helm/messagefeed \
             --namespace messagefeed-staging --create-namespace \
+            --reset-then-reuse-values \
             -f deploy/helm/messagefeed/values-k3s.yaml \
             --set migrations.enabled=true \
             --set cloudflared.enabled=false \
@@ -159,6 +166,7 @@ jobs:
             --set workers.notification.image.tag="$IMAGE_TAG" \
             --set web.image.repository="$IMAGE_REGISTRY/messagefeed-web" \
             --set web.image.tag="$IMAGE_TAG" \
+            --set communitySources.xBrowserImage="$IMAGE_REGISTRY/messagefeed-chromium:$IMAGE_TAG" \
             --set imagePullSecrets[0].name=ghcr-pull \
             --atomic --wait --wait-for-jobs --timeout 10m
       # 冒烟失败即回滚到上一 revision（--atomic 只覆盖升级过程本身的失败）。
@@ -213,6 +221,7 @@ jobs:
       - run: |
           helm upgrade --install messagefeed deploy/helm/messagefeed \
             --namespace messagefeed \
+            --reset-then-reuse-values \
             -f deploy/helm/messagefeed/values-k3s.yaml \
             --set api.image.repository="$IMAGE_REGISTRY/messagefeed-api" \
             --set api.image.tag="$IMAGE_TAG" \
@@ -220,6 +229,7 @@ jobs:
             --set workers.notification.image.tag="$IMAGE_TAG" \
             --set web.image.repository="$IMAGE_REGISTRY/messagefeed-web" \
             --set web.image.tag="$IMAGE_TAG" \
+            --set communitySources.xBrowserImage="$IMAGE_REGISTRY/messagefeed-chromium:$IMAGE_TAG" \
             --set imagePullSecrets[0].name=ghcr-pull \
             --atomic --wait --wait-for-jobs --timeout 10m
       - name: Smoke check (rollback on failure)

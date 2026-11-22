@@ -88,13 +88,23 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 		}
 		return result, nil
 	}
+	weChatRSS, err := service.NewWeChatRSS(cfg.WeChatRSSBindings)
+	if err != nil {
+		return dependencies{}, err
+	}
+	xConnector, err := service.NewXConnector(cfg.XBrowserBindings)
+	if err != nil {
+		return dependencies{}, err
+	}
+	feedFetcher := fetcher.NewClient()
+	sourceFetcher := service.WithXSourceFetcher(service.WithWeChatSourceFetcher(feedFetcher, weChatRSS), xConnector)
 
 	// 各 worker 角色只构造自己消费的仓储；仓储无状态，多角色进程（APP_ROLE=all）重复构造无害。
 	if plan.SourceWorker {
 		result.workers.source = service.NewSourceSyncService(
 			repository.NewSourceRepository(database),
 			repository.NewItemRepository(database),
-			fetcher.NewClient(),
+			sourceFetcher,
 			repository.NewSourceFetchJobRepository(database),
 			repository.NewItemEventRepository(database),
 			service.WithSourceSyncTaskLocker(repository.NewTaskLockRepository(database)),
@@ -128,14 +138,13 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	taskLockRepository := repository.NewTaskLockRepository(database)
 	agentRepository := repository.NewAgentRepository(database)
 	authRepository := repository.NewAuthRepository(database)
-	feedFetcher := fetcher.NewClient()
 
 	sourceService := service.NewSourceService(sourceRepository,
 		service.WithSourceCatalogRepository(sourceCatalogRepository),
 		service.WithSourceImportJobRepository(sourceImportJobRepository),
 		service.WithSourceFetchJobRepository(sourceFetchJobRepository),
 		service.WithItemRepository(itemRepository),
-		service.WithFeedFetcher(feedFetcher),
+		service.WithFeedFetcher(sourceFetcher),
 		service.WithSourceCatalogCheckHTTPClient(fetcher.NewPublicHTTPClient(5*time.Second)),
 	)
 
@@ -198,6 +207,8 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 	}
 	services := apiServices{
 		auth: authService, source: sourceService, timeline: timelineService,
+		weChatRSS:         weChatRSS,
+		xConnector:        xConnector,
 		recommendation:    recommendationService,
 		item:              service.NewItemService(repository.NewUserItemStateRepository(database)),
 		feedView:          service.NewFeedViewService(repository.NewFeedViewPreferenceRepository(database)),
@@ -217,6 +228,8 @@ func buildDependencies(cfg config.Config, plan RolePlan, database *gorm.DB, logg
 
 type apiServices struct {
 	auth              *service.AuthService
+	weChatRSS         *service.WeChatRSS
+	xConnector        *service.XConnector
 	source            *service.SourceService
 	timeline          *service.TimelineService
 	recommendation    *service.RecommendationService
@@ -238,6 +251,9 @@ func newRouter(cfg config.Config, logger *slog.Logger, database *gorm.DB, callba
 	return handler.NewRouter(handler.RouterOptions{
 		Logger: logger, Database: database, NodeInfo: nodeInfo, Now: time.Now,
 		AuthService: services.auth, SourceService: services.source, TimelineService: services.timeline,
+		WeChatRSS:             services.weChatRSS,
+		WeChatSources:         services.source,
+		XConnector:            services.xConnector,
 		RecommendationService: services.recommendation, ItemService: services.item, FeedViewService: services.feedView,
 		WeChatWorkAppCallback: callback, WeChatWorkReceiver: services.agentConversation,
 		AdminConfigService: adminConfigService, AgentApprovalService: services.agentApproval,

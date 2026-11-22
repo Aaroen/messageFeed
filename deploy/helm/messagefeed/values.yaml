@@ -367,6 +367,15 @@ appSecret:
   llmConfigSecret: ""
   embeddingAPIKey: ""
 
+communitySources:
+  wechatImage: ghcr.io/rachelos/we-mp-rss@sha256:125472e8a58a05f02b930ba2b958575ffc87378743d9491383b13390f709215e
+  wechatUsers: []
+  wechatBindingSecret: ""
+  xBrowserImage: ""
+  xRSSHubImage: diygod/rsshub@sha256:0a590539bd1eb6d67ce48fb9ae440567d3b6bb85a97f6cbf0f52691530c9a0bb
+  xBrowserUsers: []
+  xBrowserBindingSecret: ""
+
 # 可选单实例观测栈，包含 Prometheus、Loki、Tempo、OTel Collector、Grafana 和 Promtail。
 observability:
   enabled: true

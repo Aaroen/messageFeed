@@ -158,11 +158,18 @@ func (r *SourceRepository) UpdateFetchResult(ctx context.Context, source domain.
 	defer func() { finish(opErr) }()
 
 	model := sourceModelFromDomain(source)
+	updates := map[string]any{
+		"last_fetched_at": model.LastFetchedAt, "last_fetch_status": model.LastFetchStatus,
+		"last_fetch_error": model.LastFetchError, "last_fetch_duration_ms": model.LastFetchDurationMS,
+		"last_fetch_item_count": model.LastFetchItemCount,
+	}
+	if model.LastFetchedAt != nil && model.NextFetchAt != nil {
+		updates["next_fetch_at"] = gorm.Expr("CASE WHEN next_fetch_at IS NOT NULL AND fetch_interval_seconds > 0 THEN CAST(? AS timestamptz) + fetch_interval_seconds * interval '1 second' ELSE NULL END", model.LastFetchedAt)
+	}
 	result := r.db.WithContext(ctx).
 		Model(&model).
-		Select("LastFetchedAt", "LastFetchStatus", "LastFetchError", "LastFetchDurationMS", "LastFetchItemCount").
 		Where("user_id = ? AND id = ?", source.UserID, source.ID).
-		Updates(&model)
+		Updates(updates)
 	if result.Error != nil {
 		opErr = mapRepositoryError(result.Error)
 		return domain.Source{}, opErr

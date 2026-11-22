@@ -1,0 +1,151 @@
+{{- $root := . }}
+{{- if .Values.communitySources.wechatUsers }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: messagefeed-werss-otp
+data:
+  weread-otp.patch: |
+    {{- .Files.Get "files/weread-otp.patch" | nindent 4 }}
+{{- end }}
+{{- range $user := .Values.communitySources.wechatUsers }}
+{{- $name := printf "werss-%v" $user.id }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      annotations:
+        checksum/weread-otp: {{ $root.Files.Get "files/weread-otp.patch" | sha256sum }}
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        messagefeed.io/community-source: werss
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: weread-otp
+          image: {{ $root.Values.communitySources.wechatImage | quote }}
+          command: ["sh", "-ec", "cp driver/weread_qr.py apis/weread.py /patched/ && patch --batch --fuzz=0 -d /patched -p0 -i /otp/weread-otp.patch && python3 -m py_compile /patched/weread_qr.py /patched/weread.py"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: patched, mountPath: /patched}
+            - {name: otp, mountPath: /otp, readOnly: true}
+      containers:
+        - name: werss
+          image: {{ $root.Values.communitySources.wechatImage | quote }}
+          ports:
+            - {name: http, containerPort: 8001}
+          envFrom:
+            - secretRef:
+                name: {{ $user.secretName | quote }}
+          env:
+            - {name: GATHER.MODEL, value: weread_mp}
+            - {name: WEREAD_AUTO_ADD_TO_SHELF, value: "false"}
+            - {name: LOG_LEVEL, value: WARNING}
+            - {name: ENABLE_JOB, value: "false"}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: data, mountPath: /app/data}
+            - {name: patched, mountPath: /app/driver/weread_qr.py, subPath: weread_qr.py, readOnly: true}
+            - {name: patched, mountPath: /app/apis/weread.py, subPath: weread.py, readOnly: true}
+      volumes:
+        - name: patched
+          emptyDir: {}
+        - name: otp
+          configMap:
+            name: messagefeed-werss-otp
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - {port: 8001, targetPort: http}
+{{- end }}
+{{- if .Values.communitySources.wechatUsers }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-community-sources
+spec:
+  podSelector:
+    matchLabels:
+      messagefeed.io/community-source: werss
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: messagefeed.io/app-role
+                operator: In
+                values: [api, source-worker]
+      ports:
+        - {protocol: TCP, port: 8001}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    {{- range .Values.networkPolicy.httpsEgress }}
+    - to:
+        - ipBlock:
+            cidr: {{ .cidr | quote }}
+            {{- with .except }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+      ports:
+        - {protocol: TCP, port: 443}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-api-community-sources
+spec:
+  podSelector:
+    matchExpressions:
+      - key: messagefeed.io/app-role
+        operator: In
+        values: [api, source-worker]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              messagefeed.io/community-source: werss
+      ports:
+        - {protocol: TCP, port: 8001}
+{{- end }}

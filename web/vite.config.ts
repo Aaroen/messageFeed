@@ -17,6 +17,10 @@ const previewHttps =
       }
     : undefined
 const apiProxy = {
+  '/api/v1/community/x/browser/': {
+    target: apiTarget,
+    ws: true,
+  },
   '/api': {
     target: apiTarget,
     changeOrigin: true,

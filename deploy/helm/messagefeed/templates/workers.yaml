@@ -82,6 +82,20 @@ spec:
             - secretRef:
                 name: {{ include "messagefeed.appSecretName" $root }}
           env:
+            {{- if and (eq $role "source-worker") $root.Values.communitySources.wechatBindingSecret }}
+            - name: WECHAT_RSS_BINDINGS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.communitySources.wechatBindingSecret | quote }}
+                  key: WECHAT_RSS_BINDINGS
+            {{- end }}
+            {{- if and (eq $role "source-worker") $root.Values.communitySources.xBrowserBindingSecret }}
+            - name: X_BROWSER_BINDINGS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.communitySources.xBrowserBindingSecret | quote }}
+                  key: X_BROWSER_BINDINGS
+            {{- end }}
             - name: APP_ROLE
               value: {{ $role | quote }}
             - name: OTEL_SERVICE_NAME

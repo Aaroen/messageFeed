@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import ReaderSourceNotice from '@/components/ReaderSourceNotice.vue'
+import WeChatRSSPanel from '@/components/WeChatRSSPanel.vue'
+import XBrowserPanel from '@/components/XBrowserPanel.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { IconSearch, IconUpload } from '@arco-design/web-vue/es/icon'
 
@@ -640,6 +642,12 @@ defineExpose({ refreshPage, clearNotice })
     <header class="management-page-heading">
       <h1>订阅管理</h1>
     </header>
+    <WeChatRSSPanel @subscribed="loadSources({ silent: true, notify: false })" @open-source="emit('open-source', $event)" />
+    <XBrowserPanel
+      :following-subscribed="sources.some((source) => source.normalized_url === 'https://x.com/home' && source.status === 'active')"
+      @subscribed="loadSources({ silent: true, notify: false })"
+      @open-source="emit('open-source', $event)"
+    />
     <form class="sources-toolbar" role="search" @submit.prevent="handleCatalogSearch">
       <div class="sources-toolbar__group">
         <input v-model="catalogQuery" class="sources-input" type="search" aria-label="搜索订阅源" placeholder="搜索订阅源" />

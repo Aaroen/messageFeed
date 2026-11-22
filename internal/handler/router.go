@@ -11,6 +11,7 @@ import (
 	"messagefeed/internal/metrics"
 	"messagefeed/internal/observability"
 	appRuntime "messagefeed/internal/runtime"
+	"messagefeed/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -29,6 +30,9 @@ type RouterOptions struct {
 	Now                   func() time.Time
 	AuthService           authEndpointService
 	SourceService         sourceService
+	WeChatRSS             *service.WeChatRSS
+	WeChatSources         *service.SourceService
+	XConnector            *service.XConnector
 	TimelineService       timelineService
 	RecommendationService recommendationService
 	ItemService           itemStateService
@@ -79,6 +83,12 @@ func NewRouter(options RouterOptions) *gin.Engine {
 	protectedAPI := apiV1.Group("")
 	protectedAPI.Use(requireAuth(options.AuthService))
 	registerProtectedSourceRoutes(protectedAPI, options.SourceService)
+	if options.AuthService != nil && options.WeChatSources != nil {
+		registerWeChatRSSRoutes(protectedAPI, options.WeChatRSS, options.WeChatSources)
+	}
+	if options.AuthService != nil && options.WeChatSources != nil && options.XConnector != nil {
+		registerXBrowserRoutes(protectedAPI, options.XConnector, options.WeChatSources)
+	}
 	registerProtectedItemRoutes(protectedAPI, options.ItemService)
 	registerFeedViewRoutes(protectedAPI, options.FeedViewService)
 	registerWeChatWorkRoutes(apiV1, options.WeChatWorkAppCallback, options.WeChatWorkReceiver)

@@ -79,17 +79,19 @@ const (
 // Config 汇总应用启动所需的基础配置。
 // 第一阶段只从环境变量读取配置，后续可以在该结构上扩展配置文件加载与合并逻辑。
 type Config struct {
-	HTTP            HTTPConfig
-	Runtime         RuntimeConfig
-	Migrations      MigrationConfig
-	Log             LogConfig
-	Database        DatabaseConfig
-	Observability   ObservabilityConfig
-	Auth            AuthConfig
-	WeChatWork      WeChatWorkConfig
-	LLM             LLMConfig
-	Embedding       EmbeddingConfig
-	FirecrawlAPIKey string
+	HTTP              HTTPConfig
+	Runtime           RuntimeConfig
+	Migrations        MigrationConfig
+	Log               LogConfig
+	Database          DatabaseConfig
+	Observability     ObservabilityConfig
+	Auth              AuthConfig
+	WeChatWork        WeChatWorkConfig
+	LLM               LLMConfig
+	Embedding         EmbeddingConfig
+	FirecrawlAPIKey   string
+	WeChatRSSBindings string
+	XBrowserBindings  string
 }
 
 // HTTPConfig 保存 HTTP 服务相关配置。
@@ -303,6 +305,8 @@ func Load() (Config, error) {
 	cfg.LLM.Model = envString("LLM_MODEL", cfg.LLM.Model)
 	cfg.LLM.ConfigSecret = envString("LLM_CONFIG_SECRET", cfg.LLM.ConfigSecret)
 	cfg.FirecrawlAPIKey = envString("FIRECRAWL_API_KEY", "")
+	cfg.WeChatRSSBindings = envString("WECHAT_RSS_BINDINGS", "")
+	cfg.XBrowserBindings = envString("X_BROWSER_BINDINGS", "")
 
 	cfg.Embedding.Provider = strings.ToLower(envString("EMBEDDING_PROVIDER", cfg.Embedding.Provider))
 	cfg.Embedding.APIKey = envString("EMBEDDING_API_KEY", cfg.Embedding.APIKey)

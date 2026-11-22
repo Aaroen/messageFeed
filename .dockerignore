@@ -6,5 +6,7 @@ web/dist
 node_modules
 coverage.out
 coverage.html
+scratch
+tmp
 *.log
 messagefeed

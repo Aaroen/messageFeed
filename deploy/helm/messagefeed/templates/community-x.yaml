@@ -1,0 +1,181 @@
+{{- define "messagefeed.xChromiumPolicy" -}}
+{
+  "BrowserSignin": 0,
+  "PasswordManagerEnabled": false,
+  "ExtensionInstallBlocklist": ["*"],
+  "URLBlocklist": ["*"],
+  "URLAllowlist": ["https://x.com", "https://twitter.com", "https://twimg.com", "https://arkoselabs.com", "https://hcaptcha.com", "https://accounts.google.com", "https://appleid.apple.com"]
+}
+{{- end }}
+{{- if .Values.communitySources.xBrowserUsers }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: messagefeed-x-browser-policy
+data:
+  chromium.json: |
+{{ include "messagefeed.xChromiumPolicy" . | indent 4 }}
+  bridge.mjs: |
+{{ .Files.Get "files/x-bridge.mjs" | indent 4 }}
+{{- range $id := .Values.communitySources.xBrowserUsers }}
+{{- $name := printf "x-browser-%v" $id }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        messagefeed.io/community-source: x-browser
+      annotations:
+        checksum/x-bridge: {{ $.Files.Get "files/x-bridge.mjs" | sha256sum }}
+        checksum/x-policy: {{ include "messagefeed.xChromiumPolicy" $ | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: firefox
+          image: {{ required "communitySources.xBrowserImage must be set when X is enabled" $.Values.communitySources.xBrowserImage | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+          ports:
+            - {name: http, containerPort: 5800}
+          env:
+            - {name: APP_NAME, value: "X"}
+            - {name: VNC_LOCALHOST_ONLY, value: "1"}
+            - {name: WEB_HOST_CLIPBOARD_SYNC, value: "0"}
+            - {name: WEB_FILE_MANAGER, value: "0"}
+            - {name: WEB_TERMINAL, value: "0"}
+            - {name: DISPLAY_WIDTH, value: "640"}
+            - {name: DISPLAY_HEIGHT, value: "720"}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+          resources:
+            requests: {cpu: 150m, memory: 384Mi}
+            limits: {cpu: "2", memory: 1536Mi}
+          volumeMounts:
+            - {name: browser-profile, mountPath: /config}
+            - {name: shared-memory, mountPath: /dev/shm}
+            - name: browser-policy
+              mountPath: /etc/chromium/policies/managed/chromium.json
+              subPath: chromium.json
+              readOnly: true
+        - name: x-feed
+          image: {{ $.Values.communitySources.xRSSHubImage | quote }}
+          command: [dumb-init, --, node, /messagefeed/bridge.mjs]
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop: [ALL]
+          ports:
+            - {name: feed, containerPort: 1201}
+          readinessProbe:
+            httpGet: {path: /status, port: feed}
+            timeoutSeconds: 6
+          resources:
+            requests: {cpu: 75m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: browser-policy, mountPath: /messagefeed, readOnly: true}
+      volumes:
+        - name: browser-policy
+          configMap:
+            name: messagefeed-x-browser-policy
+        - name: shared-memory
+          emptyDir: {medium: Memory, sizeLimit: 256Mi}
+  volumeClaimTemplates:
+    - metadata:
+        name: browser-profile
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - {name: http, port: 5800, targetPort: http}
+    - {name: feed, port: 1201, targetPort: feed}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-x-browser
+spec:
+  podSelector:
+    matchLabels:
+      messagefeed.io/community-source: x-browser
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              messagefeed.io/app-role: api
+      ports:
+        - {protocol: TCP, port: 5800}
+        - {protocol: TCP, port: 1201}
+    - from:
+        - podSelector:
+            matchLabels:
+              messagefeed.io/app-role: source-worker
+      ports:
+        - {protocol: TCP, port: 1201}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/3]
+      ports:
+        - {protocol: TCP, port: 443}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: messagefeed-api-x-browser
+spec:
+  podSelector:
+    matchExpressions:
+      - key: messagefeed.io/app-role
+        operator: In
+        values: [api, source-worker]
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              messagefeed.io/community-source: x-browser
+      ports:
+        - {protocol: TCP, port: 5800}
+        - {protocol: TCP, port: 1201}
+{{- end }}

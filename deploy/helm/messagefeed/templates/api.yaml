@@ -75,6 +75,20 @@ spec:
             - secretRef:
                 name: {{ include "messagefeed.appSecretName" . }}
           env:
+            {{- with .Values.communitySources.wechatBindingSecret }}
+            - name: WECHAT_RSS_BINDINGS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: WECHAT_RSS_BINDINGS
+            {{- end }}
+            {{- with .Values.communitySources.xBrowserBindingSecret }}
+            - name: X_BROWSER_BINDINGS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: X_BROWSER_BINDINGS
+            {{- end }}
             - name: APP_ROLE
               value: api
             - name: OTEL_SERVICE_NAME

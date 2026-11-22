@@ -146,6 +146,7 @@ type CreateSourceInput struct {
 	Type                 domain.SourceType
 	URL                  string
 	FetchIntervalSeconds int
+	NextFetchAt          *time.Time
 	Tags                 []string
 	Weight               int
 }
@@ -349,6 +350,7 @@ func (s *SourceService) CreateSource(ctx context.Context, input CreateSourceInpu
 		NormalizedURL:        normalizedURL,
 		Status:               domain.SourceStatusActive,
 		FetchIntervalSeconds: fetchInterval,
+		NextFetchAt:          input.NextFetchAt,
 		Tags:                 normalizeTags(input.Tags),
 		Weight:               input.Weight,
 	}
@@ -1100,6 +1102,16 @@ func (s *SourceService) UpdateSource(ctx context.Context, input UpdateSourceInpu
 	if err != nil {
 		opErr = err
 		return domain.Source{}, opErr
+	}
+	if source.Type == domain.SourceTypeInternal && strings.HasPrefix(source.NormalizedURL, xSourcePrefix) {
+		if input.Type != nil && *input.Type != source.Type {
+			opErr = fmt.Errorf("%w: X 订阅的类型不可修改", domain.ErrInvalidInput)
+			return domain.Source{}, opErr
+		}
+		if input.URL != nil && strings.TrimSpace(*input.URL) != source.URL {
+			opErr = fmt.Errorf("%w: 请在订阅管理中添加其他 X 账号", domain.ErrInvalidInput)
+			return domain.Source{}, opErr
+		}
 	}
 
 	if input.Name != nil {
