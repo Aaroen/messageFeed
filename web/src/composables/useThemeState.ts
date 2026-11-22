@@ -1,28 +1,27 @@
 import { readonly, ref } from 'vue'
 
 const themeStorageKey = 'messagefeed-theme'
+const dark = ref(false)
 
-function applyTheme(dark: boolean) {
+function applyTheme(nextDark: boolean) {
   if (typeof document === 'undefined') {
     return
   }
-  if (dark) {
+  if (nextDark) {
     document.body.setAttribute('arco-theme', 'dark')
     return
   }
   document.body.removeAttribute('arco-theme')
 }
 
-function saveTheme(dark: boolean) {
+function saveTheme(nextDark: boolean) {
   if (typeof localStorage === 'undefined') {
     return
   }
-  localStorage.setItem(themeStorageKey, dark ? 'dark' : 'light')
+  localStorage.setItem(themeStorageKey, nextDark ? 'dark' : 'light')
 }
 
 export function useThemeState() {
-  const dark = ref(false)
-
   function setDark(nextDark: boolean, options: { persist?: boolean } = {}) {
     dark.value = nextDark
     applyTheme(nextDark)

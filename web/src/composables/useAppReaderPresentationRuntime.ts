@@ -137,6 +137,7 @@ export function useAppReaderPresentationRuntime(options: AppReaderPresentationRu
     },
     detailFrame: {
       item: readerStack.detailItem,
+      darkTheme: options.theme.darkTheme,
       metricsInitialDelay: options.timings.detailFrameMetricsInitialDelay,
       metricsSettledDelay: options.timings.detailFrameMetricsSettledDelay,
     },

@@ -1,5 +1,7 @@
+import { ref } from 'vue'
 import { describe, expect, it } from 'vitest'
 
+import { useReaderDetailFrame } from '@/composables/useReaderDetailFrame'
 import { formatItemDate, plainPreviewText, sanitizeDetailHTML } from '@/utils/readerContent'
 
 describe('readerContent', () => {
@@ -47,5 +49,38 @@ describe('readerContent', () => {
     })
     expect(formatItemDate({ ...item, published_at: 'invalid' })).toEqual(fetched)
     expect(formatItemDate({ fetched_at: 'invalid' })).toEqual({ text: '时间未知' })
+  })
+
+  it('syncs reader iframe theme attribute and preserves detail gesture bridge script', () => {
+    const darkTheme = ref(false)
+    const item = ref({
+      id: 42,
+      source_id: 7,
+      title: '测试文章',
+      url: 'https://example.com/post',
+      summary: '摘要',
+      content_html: '<p>正文内容</p>',
+      is_read: false,
+      is_favorite: false,
+      is_hidden: false,
+      fetched_at: '2026-06-23T06:00:00Z',
+    })
+
+    const frame = useReaderDetailFrame({
+      item,
+      darkTheme,
+      metricsInitialDelay: 120,
+      metricsSettledDelay: 420,
+    })
+
+    expect(frame.srcdoc.value).toContain('<html data-theme="light">')
+    expect(frame.srcdoc.value).toContain('color-scheme: light;')
+    expect(frame.srcdoc.value).toContain("type: 'messagefeed-detail-gesture'")
+
+    darkTheme.value = true
+
+    expect(frame.srcdoc.value).toContain('<html data-theme="dark">')
+    expect(frame.srcdoc.value).toContain('color-scheme: dark;')
+    expect(frame.srcdoc.value).toContain("type: 'messagefeed-detail-gesture'")
   })
 })

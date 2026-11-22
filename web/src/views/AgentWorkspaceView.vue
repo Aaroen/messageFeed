@@ -313,8 +313,8 @@ defineExpose({ refreshPage: () => store.sessionID ? store.selectSession(store.se
 .assistant-answer-footer .assistant-icon-button span { font-size: 10px; }
 .assistant-state-note { color: var(--mf-text-muted); font-size: 12px; line-height: 1.8; }
 .assistant-thinking-dot { display: inline-block; width: 7px; height: 7px; background: #9198a1; border-radius: 50%; margin-right: 8px; animation: assistant-pulse 1.6s ease-in-out infinite; }
-.assistant-turn-error, .assistant-delivery-error { border-left: 2px solid #bd7664; background: #bd766409; padding: 10px 12px; color: #a25442; font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
-.assistant-error { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; color: #a25442; background: #bd766410; border-bottom: 1px solid #bd76642a; font-size: 12px; overflow-wrap: anywhere; }
+.assistant-turn-error, .assistant-delivery-error { border-left: 2px solid var(--mf-danger-border); background: var(--mf-danger-bg); padding: 10px 12px; color: var(--mf-danger); font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.assistant-error { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; color: var(--mf-danger); background: var(--mf-danger-bg); border-bottom: 1px solid var(--mf-danger-border); font-size: 12px; overflow-wrap: anywhere; }
 .assistant-welcome { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 90%; text-align: center; padding: 24px 0; }
 .assistant-welcome-symbol { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid var(--mf-border); border-radius: 14px; font-size: 23px; margin-bottom: 20px; }
 .assistant-welcome h1 { font-size: clamp(20px, 2vw, 28px); font-weight: 550; letter-spacing: -.5px; margin: 0 0 15px; }

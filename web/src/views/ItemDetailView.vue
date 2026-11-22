@@ -12,11 +12,13 @@ import {
 } from '@/api/feed'
 import ActionBar from '@/components/ActionBar.vue'
 import FeedItemTime from '@/components/FeedItemTime.vue'
+import { useThemeState } from '@/composables/useThemeState'
 import { escapeHTML, sanitizeDetailHTML } from '@/utils/readerContent'
 
 type ItemStateKey = 'read' | 'favorite' | 'hidden'
 
 const route = useRoute()
+const { dark } = useThemeState()
 const item = ref<FeedItem | null>(null)
 const loading = ref(false)
 const actionBusy = ref<ItemStateKey | ''>('')
@@ -30,30 +32,109 @@ const detailSrcdoc = computed(() => {
     current?.content_html ||
     current?.content_snippet ||
     `<p>${escapeHTML(current?.content_text || current?.summary || '暂无正文。')}</p>`
+  const theme = dark.value ? 'dark' : 'light'
   return `<!doctype html>
-<html>
+<html data-theme="${theme}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <base target="_blank" />
 <style>
-  :root { color-scheme: light dark; }
+  :root { color-scheme: ${theme}; }
   body {
     margin: 0;
     background: transparent;
-    color: #172033;
-    font: 16px/1.72 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #16191f;
+    font: 16px/1.78 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
     overflow-wrap: anywhere;
   }
-  img, video, iframe { max-width: 100%; height: auto; }
-  pre, code { white-space: pre-wrap; overflow-wrap: anywhere; }
-  a { color: #1d4ed8; }
-  blockquote { margin: 1em 0; padding-left: 1em; border-left: 3px solid #d1d5db; color: #4b5563; }
-  @media (prefers-color-scheme: dark) {
-    body { color: #dbe6f3; }
-    a { color: #93c5fd; }
-    blockquote { border-left-color: #475569; color: #a9b6c6; }
+  h1, h2, h3, h4, h5, h6 {
+    margin: 1.5em 0 0.6em;
+    line-height: 1.38;
+    font-weight: 680;
+    color: #111827;
   }
+  h1 { font-size: 1.45em; }
+  h2 { font-size: 1.28em; }
+  h3 { font-size: 1.14em; }
+  p { margin: 0 0 1.05em; }
+  ul, ol { margin: 0.7em 0 1.1em; padding-left: 1.5em; }
+  li { margin: 0.35em 0; }
+  hr { margin: 1.6em 0; border: 0; border-top: 1px solid rgba(15, 23, 42, 0.12); }
+  img, video, iframe {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+  }
+  figure { margin: 1.2em 0; }
+  figcaption { margin-top: 0.5em; color: #5a6270; font-size: 0.875em; text-align: center; }
+  pre, code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  pre {
+    margin: 1.1em 0;
+    padding: 14px 16px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 10px;
+    background: #eceef2;
+    font-size: 0.875em;
+    line-height: 1.62;
+  }
+  :not(pre) > code {
+    padding: 2px 6px;
+    border-radius: 5px;
+    background: #eceef2;
+    font-size: 0.9em;
+  }
+  a {
+    color: #2563eb;
+    text-underline-offset: 3px;
+  }
+  blockquote {
+    margin: 1.1em 0;
+    padding: 0.25em 0 0.25em 1em;
+    border-left: 3px solid rgba(37, 99, 235, 0.4);
+    color: #5a6270;
+  }
+  table {
+    width: 100%;
+    margin: 1.2em 0;
+    border-collapse: collapse;
+    font-size: 0.92em;
+  }
+  th, td {
+    padding: 8px 10px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    text-align: left;
+  }
+  th {
+    background: #eceef2;
+    font-weight: 640;
+  }
+  html[data-theme="dark"] body { color: #f1f3f7; }
+  html[data-theme="dark"] h1,
+  html[data-theme="dark"] h2,
+  html[data-theme="dark"] h3,
+  html[data-theme="dark"] h4,
+  html[data-theme="dark"] h5,
+  html[data-theme="dark"] h6 { color: #f8fafc; }
+  html[data-theme="dark"] hr { border-top-color: rgba(255, 255, 255, 0.12); }
+  html[data-theme="dark"] figcaption { color: #9ca6b8; }
+  html[data-theme="dark"] pre {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: #242933;
+  }
+  html[data-theme="dark"] :not(pre) > code { background: #242933; }
+  html[data-theme="dark"] a { color: #60a5fa; }
+  html[data-theme="dark"] blockquote {
+    border-left-color: rgba(96, 165, 250, 0.5);
+    color: #9ca6b8;
+  }
+  html[data-theme="dark"] th,
+  html[data-theme="dark"] td { border-color: rgba(255, 255, 255, 0.12); }
+  html[data-theme="dark"] th { background: #242933; }
 </style>
 </head>
 <body>${sanitizeDetailHTML(source)}</body>
